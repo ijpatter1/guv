@@ -1,4 +1,10 @@
-# Makefile for iampatterson.com Claude Code Sandbox
+# ═══════════════════════════════════════════════════════════
+# PROJECT CONFIGURATION — change these for each project
+# ═══════════════════════════════════════════════════════════
+IMAGE_NAME      := my-project-sandbox
+CONTAINER_NAME  := my-project-claude
+# ═══════════════════════════════════════════════════════════
+
 #
 # Usage:
 #   make build       — Build the sandbox Docker image
@@ -12,17 +18,15 @@
 #   make clean-all   — Remove container, image, AND volumes (full reset)
 #   make gcp-setup   — Print GCP service account setup instructions
 #   make test-fw     — Test firewall rules are working
-#   make dev         — Run Next.js dev server on HOST (not in Docker)
+#   make dev         — Run dev server on HOST (not in Docker)
 #
 # DEV SERVER NOTE:
-# The Docker sandbox does not forward port 3000. This is intentional —
+# The Docker sandbox does not forward ports. This is intentional —
 # the sandbox is for Claude Code, not for serving the app. Run the dev
-# server on your host machine with `make dev` and browse localhost:3000.
+# server on your host machine with `make dev` and browse localhost.
 # File changes from Claude Code (inside Docker) appear instantly on the
 # host via the bind mount, so hot reload works normally.
 
-IMAGE_NAME      := iampatterson-sandbox
-CONTAINER_NAME  := iampatterson-claude
 PROJECT_DIR     := $(shell pwd)
 HOST_UID        := $(shell id -u)
 HOST_GID        := $(shell id -g)
@@ -108,9 +112,8 @@ resume: build
 		$(IMAGE_NAME) \
 		--resume "$(S)"
 
-## Run the Next.js dev server on the HOST machine (not in Docker).
-## Claude Code edits files inside Docker; the dev server on the host
-## picks up changes via the shared bind mount. Hot reload works normally.
+## Run the dev server on the HOST machine (not in Docker).
+## Override this command in your project if you use something other than npm run dev.
 dev:
 	npm run dev
 
@@ -145,7 +148,7 @@ gcp-setup:
 	@echo "       --display-name='Claude Code Sandbox' \\"
 	@echo "       --project=YOUR_PROJECT_ID"
 	@echo ""
-	@echo "  2. Grant required roles:"
+	@echo "  2. Grant required roles (adjust for your project's needs):"
 	@echo "     PROJECT=YOUR_PROJECT_ID"
 	@echo "     SA=claude-code-sandbox@\$$PROJECT.iam.gserviceaccount.com"
 	@echo ""
@@ -158,8 +161,6 @@ gcp-setup:
 	@echo "     gcloud projects add-iam-policy-binding \$$PROJECT \\"
 	@echo "       --member=serviceAccount:\$$SA --role=roles/run.developer"
 	@echo "     gcloud projects add-iam-policy-binding \$$PROJECT \\"
-	@echo "       --member=serviceAccount:\$$SA --role=roles/dataform.editor"
-	@echo "     gcloud projects add-iam-policy-binding \$$PROJECT \\"
 	@echo "       --member=serviceAccount:\$$SA --role=roles/storage.objectViewer"
 	@echo ""
 	@echo "  3. Download the key:"
@@ -167,7 +168,7 @@ gcp-setup:
 	@echo "     gcloud iam service-accounts keys create secrets/gcp-service-account.json \\"
 	@echo "       --iam-account=\$$SA"
 	@echo ""
-	@echo "  4. Uncomment gcloud in sandbox/Dockerfile (lines 41-49)"
+	@echo "  4. Uncomment gcloud in sandbox/Dockerfile"
 	@echo "     Uncomment GCLOUD_DOMAINS in sandbox/init-firewall.sh"
 	@echo "     Then: make build"
 	@echo ""
