@@ -3,11 +3,6 @@
 # Container entrypoint: initializes firewall as root, drops to claude user,
 # then starts Claude Code with bypass permissions.
 #
-# This script runs as root (Docker default). It must:
-# 1. Set up iptables firewall (requires root)
-# 2. Fix ownership on bind-mounted workspace
-# 3. Drop to the 'claude' user via exec runuser
-#
 # SETTINGS PATH MODEL:
 # - Project settings: /workspace/.claude/settings.json (from bind mount)
 #   Contains permissions, hooks, agents, commands, skills
@@ -30,7 +25,7 @@ chown -R claude:claude /home/claude/.local 2>/dev/null || true
 # Step 3: Print banner and drop to non-root user
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  iampatterson.com — Claude Code Sandbox                 ║"
+echo "║  Claude Code Sandbox                                    ║"
 echo "║                                                         ║"
 echo "║  Running as: claude                                     ║"
 echo "║  Workspace:  /workspace                                 ║"
@@ -45,8 +40,4 @@ echo ""
 # Step 4: Drop privileges and exec Claude Code as the claude user.
 # exec replaces this shell — no root process remains.
 # All arguments are forwarded to Claude Code after --dangerously-skip-permissions.
-# Examples:
-#   (no args)           → interactive session
-#   --resume "name"     → resume named session
-#   -p "prompt"         → headless single prompt
 exec runuser -u claude -- claude --dangerously-skip-permissions "$@"

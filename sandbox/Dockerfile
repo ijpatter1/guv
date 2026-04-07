@@ -1,15 +1,13 @@
-# Claude Code Sandbox for iampatterson.com
+# Claude Code Sandbox
 # Isolated environment for running Claude Code with --dangerously-skip-permissions
 #
-# Build: make build (or docker build -t iampatterson-sandbox -f sandbox/Dockerfile sandbox/)
-# Run:   make sandbox (or see Makefile for full command)
+# Build: make build
+# Run:   make sandbox
 #
 # CONFIGURATION:
-# The project's .claude/settings.json (permissions, hooks) loads from /workspace/.claude/
-# via the bind mount. Claude Code's internal state (auth, session history, auto-memory)
-# persists in /home/claude/.claude/ via a named Docker volume. These are separate paths
-# that merge at runtime — project-level settings from the workspace, user-level state
-# from the volume.
+# Project settings (.claude/settings.json) load from /workspace/.claude/ via bind mount.
+# Claude Code's internal state (auth, session history) persists in /home/claude/.claude/
+# via a named Docker volume. These are separate paths that merge at runtime.
 
 FROM node:20-slim
 
@@ -33,10 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI via native installer (recommended over npm).
-# The installer puts the binary at ~/.local/bin/claude and runtime data at
-# ~/.local/share/claude (both under /root/ during build). We copy the binary
-# to /usr/local/bin and the data to /usr/local/share/claude so they're
-# accessible after the privilege drop to the claude user.
+# The installer puts the binary at ~/.local/bin/claude (i.e., /root/.local/bin/claude
+# during build). We copy it to /usr/local/bin so it's accessible after privilege drop.
 RUN curl -fsSL https://claude.ai/install.sh | bash && \
     cp /root/.local/bin/claude /usr/local/bin/claude && \
     chmod +x /usr/local/bin/claude && \
@@ -46,15 +42,14 @@ RUN curl -fsSL https://claude.ai/install.sh | bash && \
 
 # ─────────────────────────────────────────────
 # OPTIONAL: Google Cloud CLI
-# Uncomment when needed (Phase 4+). Adds ~500MB to image and slows build.
-# For Phase 1-3, gcloud is not required.
+# Uncomment when your project needs GCP access. Adds ~500MB to image.
 # ─────────────────────────────────────────────
-RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
-    gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
-    tee /etc/apt/sources.list.d/google-cloud-sdk.list && \
-    apt-get update && apt-get install -y --no-install-recommends google-cloud-cli && \
-    rm -rf /var/lib/apt/lists/*
+# RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+#     gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
+#     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
+#     tee /etc/apt/sources.list.d/google-cloud-sdk.list && \
+#     apt-get update && apt-get install -y --no-install-recommends google-cloud-cli && \
+#     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for Claude Code to run as.
 # The entrypoint starts as root (for iptables), then drops to this user via runuser.

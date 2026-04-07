@@ -6,21 +6,13 @@
 #
 # IMPORTANT: DNS resolution happens once at startup. If a service's
 # IP changes during a long session, restart the container to refresh.
-#
-# CDN-HOSTED SERVICES (npm, GitHub):
-# These services use CDNs (Cloudflare, Fastly) that may return different
-# IPs on subsequent requests. We resolve each domain multiple times to
-# capture more edge IPs, but intermittent failures are still possible
-# during very long sessions. Restart the container if npm install fails.
 
 set -e
 
 echo "[firewall] Initializing iptables firewall..."
 
 # ─────────────────────────────────────────────
-# ALLOWLISTED DOMAINS
-# Only these services are reachable from inside the container.
-# Edit this list based on your project's needs.
+# CORE DOMAINS (required for Claude Code and basic dev tooling)
 # ─────────────────────────────────────────────
 
 ALLOWED_DOMAINS=(
@@ -37,33 +29,37 @@ ALLOWED_DOMAINS=(
     "github.com"
     "raw.githubusercontent.com"
     "objects.githubusercontent.com"
-
-    # Vercel (deployment)
-    "vercel.com"
-    "api.vercel.com"
 )
 
-# Domains needed only when gcloud is installed (Phase 4+).
-# Uncomment these when you uncomment gcloud in the Dockerfile.
+# ─────────────────────────────────────────────
+# PROJECT DOMAINS — add domains your project needs
+# ─────────────────────────────────────────────
+
+PROJECT_DOMAINS=(
+    # Hosting (uncomment what you use)
+    # "vercel.com"
+    # "api.vercel.com"
+    # "netlify.com"
+    # "api.netlify.com"
+)
+
+# ─────────────────────────────────────────────
+# GCP DOMAINS — uncomment when gcloud is installed (see Dockerfile)
+# ─────────────────────────────────────────────
+
 GCLOUD_DOMAINS=(
-    "oauth2.googleapis.com"
-    "accounts.google.com"
-    "www.googleapis.com"
-    "bigquery.googleapis.com"
-    "pubsub.googleapis.com"
-    "run.googleapis.com"
-    "storage.googleapis.com"
-    "cloudresourcemanager.googleapis.com"
-    "iam.googleapis.com"
-    "dataform.googleapis.com"
-    "tagmanager.googleapis.com"
-)
-
-# Domains for CMP and sGTM — uncomment when configuring these services
-INSTRUMENTATION_DOMAINS=(
-    # "stape.io"
-    # "consent.cookiebot.com"
-    # "cdn.cookiebot.com"
+    # "oauth2.googleapis.com"
+    # "accounts.google.com"
+    # "www.googleapis.com"
+    # "bigquery.googleapis.com"
+    # "pubsub.googleapis.com"
+    # "run.googleapis.com"
+    # "storage.googleapis.com"
+    # "cloudresourcemanager.googleapis.com"
+    # "iam.googleapis.com"
+    # "dataform.googleapis.com"
+    # "tagmanager.googleapis.com"
+    # "aiplatform.googleapis.com"
 )
 
 # ─────────────────────────────────────────────
@@ -88,10 +84,10 @@ iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
 
 # Collect all active domains
 ALL_DOMAINS=("${ALLOWED_DOMAINS[@]}")
-for d in "${GCLOUD_DOMAINS[@]}"; do
+for d in "${PROJECT_DOMAINS[@]}"; do
     [[ "$d" != \#* ]] && [ -n "$d" ] && ALL_DOMAINS+=("$d")
 done
-for d in "${INSTRUMENTATION_DOMAINS[@]}"; do
+for d in "${GCLOUD_DOMAINS[@]}"; do
     [[ "$d" != \#* ]] && [ -n "$d" ] && ALL_DOMAINS+=("$d")
 done
 
@@ -108,7 +104,6 @@ for domain in "${ALL_DOMAINS[@]}"; do
         if [ -n "$BATCH" ]; then
             ALL_IPS="${ALL_IPS}${BATCH}"$'\n'
         fi
-        # Brief pause between lookups to encourage different CDN responses
         [ $i -lt 3 ] && sleep 0.2
     done
 
@@ -117,7 +112,6 @@ for domain in "${ALL_DOMAINS[@]}"; do
 
     if [ -n "$UNIQUE_IPS" ]; then
         while IFS= read -r ip; do
-            # Check if rule already exists to avoid duplicates
             if ! iptables -C OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT 2>/dev/null; then
                 iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
                 iptables -A OUTPUT -d "$ip" -p tcp --dport 80 -j ACCEPT
@@ -132,7 +126,7 @@ for domain in "${ALL_DOMAINS[@]}"; do
     fi
 done
 
-# Final drop rule (explicit, in case default policy doesn't apply to some chains)
+# Final drop rule
 iptables -A OUTPUT -j DROP
 
 echo "[firewall] Initialized: $RESOLVED_COUNT IPs allowed from ${#ALL_DOMAINS[@]} domains"

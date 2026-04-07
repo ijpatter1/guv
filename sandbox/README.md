@@ -1,157 +1,84 @@
-# Claude Code Development Environment
+# Claude Code Sandbox
 
-A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and Docker sandboxing.
-
-Based on patterns from [Anthropic's harness design research](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/).
-
-## What's Included
-
-**Session workflow** — Commands that encode a Planner → Generator → Evaluator loop:
-- `/start-phase N` — Load context, run tests, present a plan for approval
-- `/evaluate` — Trigger independent QA evaluation mid-session
-- `/handoff` — End session with full QA + handoff artifact for continuity
-- `/status` — Quick 10-line project orientation
-
-**QA evaluator subagent** — An independent, skeptical reviewer that grades work on five criteria (Functionality, Test Quality, Code Quality, Completeness, Integration). Runs in its own context window with read-only enforcement. Auto-invoked before every session handoff.
-
-**Docker sandbox** — Isolated container for `--dangerously-skip-permissions` mode with iptables firewall, non-root execution, and domain allowlisting. Optional — works without Docker too.
-
-**Safety hooks** — Deterministic enforcement of dangerous command blocking (bash-guard), auto-formatting (auto-format), and session reminder (stop-check).
-
-**Session continuity** — Handoff artifacts and phase status tracking that carry context across sessions and context resets.
+Isolated Docker environment for running Claude Code with `--dangerously-skip-permissions` safely.
 
 ## Quick Start
 
-### 1. Create a new repo from this template
-
-Click **"Use this template"** on GitHub, or:
-
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-code-env.git my-project
-cd my-project
-rm -rf .git && git init
+export ANTHROPIC_API_KEY=sk-ant-...   # add to ~/.zshrc for persistence
+make sandbox                          # build + start
 ```
 
-### 2. Configure for your project
-
-Edit these files:
-
-- **`CLAUDE.md`** — Fill in your tech stack, project identity, coding standards, and bootstrapping requirements
-- **`docs/REQUIREMENTS.md`** — Define your phases and deliverables
-- **`docs/ARCHITECTURE.md`** — Document your technical architecture
-- **`docs/PHASE_STATUS.md`** — Copy deliverables from REQUIREMENTS.md with ⬜ status markers
-- **`Makefile`** — Change `IMAGE_NAME` and `CONTAINER_NAME` at the top
-
-Optionally customize:
-
-- **`sandbox/init-firewall.sh`** — Add project-specific domains to `PROJECT_DOMAINS`
-- **`.claude/settings.json`** — Add project-specific Write/Edit paths if your directory structure differs from `src/`, `tests/`, `docs/`, `public/`
-
-### 3. Set your API key
-
-```bash
-echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc
-source ~/.zshrc
-```
-
-### 4. Start coding
-
-```bash
-# Option A: Docker sandbox (autonomous, no permission prompts)
-make sandbox
-
-# Option B: Native Claude Code (interactive, with Remote Control)
-claude
-```
-
-Then inside Claude Code:
-
-```
-/start-phase 1
-```
-
-### 5. Daily workflow
-
-```bash
-# Terminal 1: Claude Code
-make sandbox
-# /start-phase 1
-
-# Terminal 2: Dev server on your Mac
-make dev
-
-# Terminal 3: Your tools (VS Code, git, tests)
-code .
-```
-
-## File Structure
-
-```
-├── CLAUDE.md                          # Project context (YOU EDIT THIS)
-├── Makefile                           # Container lifecycle
-├── .gitignore                         # Git exclusions
-├── .claude/
-│   ├── settings.json                  # Permissions + hooks
-│   ├── settings.local.json            # Personal overrides (gitignored)
-│   ├── agents/
-│   │   └── evaluator.md               # QA evaluator subagent
-│   ├── commands/
-│   │   ├── start-phase.md             # Session initialization
-│   │   ├── evaluate.md                # Manual evaluation trigger
-│   │   ├── handoff.md                 # Session end + QA + handoff
-│   │   └── status.md                  # Quick status check
-│   ├── hooks/
-│   │   ├── bash-guard.sh              # Blocks dangerous commands
-│   │   ├── auto-format.sh             # Auto-formats on write
-│   │   └── stop-check.sh              # Reminds about evaluation
-│   └── skills/
-│       └── session-management/
-│           └── SKILL.md               # Context continuity conventions
-├── docs/
-│   ├── REQUIREMENTS.md                # Development plan (YOU EDIT THIS)
-│   ├── ARCHITECTURE.md                # Technical architecture (YOU EDIT THIS)
-│   ├── PHASE_STATUS.md                # Phase tracker (YOU EDIT THIS)
-│   └── sessions/
-│       └── .gitkeep
-└── sandbox/
-    ├── Dockerfile                     # Sandbox image
-    ├── init-firewall.sh               # Domain allowlist firewall
-    ├── entrypoint.sh                  # Privilege drop + Claude start
-    └── README.md                      # Sandbox documentation
-```
-
-Files marked **(YOU EDIT THIS)** are project-specific templates. Everything else works out of the box.
-
-## GCP Access (Optional)
-
-If your project uses Google Cloud:
-
-```bash
-make gcp-setup    # Prints step-by-step instructions
-```
-
-## Commands Reference
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `make sandbox` | Build + start Claude Code in Docker |
-| `make attach` | Reattach to running sandbox after crash |
-| `make shell` | Bash shell in sandbox for debugging |
-| `make prompt P="..."` | Run a one-shot headless prompt |
+| `make build` | Build the sandbox Docker image |
+| `make sandbox` | Start interactive Claude Code session |
+| `make attach` | Reattach to a running sandbox (after crash/disconnect) |
+| `make shell` | Start bash shell in sandbox (debugging) |
+| `make prompt P="..."` | Run a headless prompt |
 | `make resume S="name"` | Resume a named session |
-| `make dev` | Run dev server on host |
-| `make stop` | Stop the sandbox container |
-| `make clean` | Remove container + image (keeps volumes) |
-| `make clean-all` | Full reset including auth and sessions |
-| `make gcp-setup` | Print GCP service account instructions |
-| `make test-fw` | Verify firewall blocks correctly |
+| `make dev` | Run dev server on **host** (not in Docker) |
+| `make stop` | Stop the running container |
+| `make clean` | Remove container and image (preserves volumes) |
+| `make clean-all` | Full reset — remove container, image, AND volumes |
+| `make gcp-setup` | Print GCP service account setup instructions |
+| `make test-fw` | Verify firewall blocks non-allowlisted traffic |
 
-## Origins
+## How Settings Load
 
-This environment encodes three key patterns:
+Claude Code loads configuration from two `.claude/` directories:
 
-1. **Separated evaluation** (from [Anthropic's harness research](https://www.anthropic.com/engineering/harness-design-long-running-apps)) — The evaluator subagent runs in its own context with read-only access, preventing the self-praise problem where agents rate their own work too generously.
+**Project settings** → `/workspace/.claude/` (bind-mounted from your project)
+- `settings.json`, agents, commands, skills, hooks
 
-2. **Test-first anchoring** (from [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/)) — Every session starts by running the test suite. Every feature uses red/green TDD. Tests are the regression safety net across phases.
+**User state** → `/home/claude/.claude/` (Docker named volume)
+- Auth tokens, session history, auto-memory
 
-3. **Structured handoffs** (from both sources) — Session artifacts carry enough context for a clean restart, avoiding the quality degradation that comes from context window growth and compaction.
+Claude Code merges both at runtime. Project settings take precedence. Use `make clean-all` for a full reset if stale user-level settings cause issues.
+
+## Dev Server
+
+The sandbox does not forward ports. Run the dev server on your host:
+
+```bash
+# Terminal 1: Claude Code in sandbox
+make sandbox
+
+# Terminal 2: Dev server on host
+make dev
+```
+
+File changes from Claude Code appear instantly via bind mount. Hot reload works normally.
+
+## Security Model
+
+**Filesystem isolation:** Only `/workspace` (your project) is visible. No host home directory, SSH keys, or `.env` files.
+
+**Network isolation:** iptables default-deny. Edit `init-firewall.sh` to add project-specific domains.
+
+**Non-root execution.** Entrypoint runs as root for iptables only, then drops to `claude` user via `runuser`. No root process after startup.
+
+**Git push blocked.** The bash-guard hook blocks all `git push`. Push from your host terminal after review.
+
+## Adding Domains
+
+Edit `sandbox/init-firewall.sh` → add domains to `PROJECT_DOMAINS` or uncomment `GCLOUD_DOMAINS`. Rebuild with `make build`.
+
+## GCP Access
+
+```bash
+make gcp-setup    # prints full setup instructions
+```
+
+Places a service account key at `secrets/gcp-service-account.json` (gitignored). The Makefile auto-detects and mounts it read-only.
+
+## Volumes
+
+| Volume | Path | Contains |
+|--------|------|----------|
+| `claude-config` | `/home/claude/.claude` | Auth, session history |
+| `claude-data` | `/home/claude/.local/share/claude` | Transcripts |
+
+`make clean` keeps volumes. `make clean-all` removes them (re-authenticate after).
