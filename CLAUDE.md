@@ -48,7 +48,8 @@ If this is the very first session and no `package.json` exists yet, the project 
 │   ├── REQUIREMENTS.md          # Full development plan
 │   ├── ARCHITECTURE.md          # Technical architecture
 │   ├── PHASE_STATUS.md          # Living phase completion tracker
-│   └── sessions/               # Session handoff artifacts
+│   ├── sessions/               # Session handoff artifacts
+│   └── manual/                 # Manual task cards (work outside sandbox)
 ├── src/                        # Source code
 ├── tests/                      # Test files
 ├── public/                     # Static assets (if applicable)
@@ -160,6 +161,7 @@ This is complementary to reading the session handoff artifact — use git log fo
   3. Verify: no `any` types introduced, no TODO/FIXME left unresolved, no stubbed implementations
   4. If any check fails, fix before moving to the next feature
 - Commit after each completed feature (after the self-check passes)
+- If you encounter work that cannot be done inside the sandbox (deployment, third-party UI configuration, device testing), use `/manual` to generate a task card rather than leaving it as a TODO comment
 - If you encounter a decision point with multiple valid approaches, pause and explain the tradeoffs. Do not pick one silently
 
 ### Ending a Session
@@ -190,8 +192,9 @@ When **updating PHASE_STATUS.md**, use the format: `✅ YYYY-MM-DD, session-YYYY
 - `docs/ARCHITECTURE.md` — technical architecture and data flow specifications
 - `docs/PHASE_STATUS.md` — living tracker of phase completion
 - `docs/sessions/` — session handoff artifacts with detailed state from prior work sessions
+- `docs/manual/` — manual task cards for work that must be performed outside the sandbox (deployments, third-party UI configuration, device testing)
 - `.claude/agents/evaluator.md` — QA/evaluator subagent for post-feature evaluation
-- `.claude/commands/` — session workflow commands (`/start-phase`, `/evaluate`, `/handoff`, `/status`)
+- `.claude/commands/` — session workflow commands (`/start-phase`, `/evaluate`, `/handoff`, `/status`, `/manual`)
 - `.claude/settings.json` — project-level permissions and hooks (committed to git, shared)
 - `.claude/settings.local.json` — personal permission overrides (gitignored). Use this for machine-specific settings. Local scope overrides project scope
 - `.claude/hooks/` — deterministic enforcement scripts (bash-guard, auto-format, stop-check)
