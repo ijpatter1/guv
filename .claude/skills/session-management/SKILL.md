@@ -65,7 +65,7 @@ When determining what to work on:
 
 ### Short Break (same day, resuming soon)
 
-Just run `git log --oneline -10` and `npm test` to reorient. The session artifact from earlier today has the full context.
+Just run `git log --oneline -10` and the project's test command (`commands.test` from `.claude/project.json`) to reorient. The session artifact from earlier today has the full context.
 
 ### Overnight / Next Day
 
@@ -73,11 +73,12 @@ Use `/start-phase N` for the full context loading sequence. Read the latest sess
 
 ### After Multiple Days Away
 
-Use `/start-phase N` and also read the 2-3 most recent session artifacts, not just the latest. Check `git log --oneline -30` for a broader view of recent progress. Run `npm test` and `npm run build` to confirm the codebase is healthy.
+Use `/start-phase N` and also read the 2-3 most recent session artifacts, not just the latest. Check `git log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`commands.test` / `commands.build` from `.claude/project.json`, skipping either if `null`) to confirm the codebase is healthy.
 
 ### After a Phase Transition
 
 When starting a new phase:
+
 1. Read the completed phase's final session artifact for any carryover issues
 2. Ensure the completed phase branch has been merged to `main` and the merge is clean: `git checkout main && git merge phase/N-previous-name`
 3. Read the new phase's section in `docs/REQUIREMENTS.md` thoroughly

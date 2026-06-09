@@ -28,13 +28,13 @@ Present the product reviewer's full report to the user without modification or s
 
 ## Step 3 — Final Test Run
 
-Run the full test suite to confirm the codebase is in a clean state:
+Run the full test suite to confirm the codebase is in a clean state. Read the test command from the manifest:
 
 ```
-npm test 2>&1
+jq -r '.commands.test' .claude/project.json
 ```
 
-If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
+Run that command. If `commands.test` is `null`, the project has no test step — note that and skip this step cleanly. If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
 
 ## Step 4 — Commit Any Uncommitted Work
 
@@ -77,6 +77,7 @@ The handoff artifact must contain:
 ## Completed This Session
 
 For each feature completed, include:
+
 - What was built (brief description)
 - Commit hash(es)
 - Tests added (count and what they cover)
@@ -85,6 +86,7 @@ For each feature completed, include:
 ## In Progress
 
 Anything started but not finished:
+
 - What it is
 - Current state (what's done, what remains)
 - Where to pick up (specific file and function/component)
@@ -92,6 +94,7 @@ Anything started but not finished:
 ## Blocked
 
 Anything that can't proceed and why:
+
 - The blocker
 - What's needed to unblock it
 - Whether it blocks other work
@@ -99,6 +102,7 @@ Anything that can't proceed and why:
 ## Issues & Technical Debt
 
 Any issues identified (by you or either reviewer) that weren't resolved this session:
+
 - Issue description
 - Severity (critical / important / minor)
 - Source (evaluator / product reviewer / self-identified)
@@ -107,6 +111,7 @@ Any issues identified (by you or either reviewer) that weren't resolved this ses
 ## Evaluator Results
 
 Summary of the evaluator's technical assessment:
+
 - Weighted score: X.X/5.0
 - Verdict: PASS / PASS WITH ISSUES / FAIL
 - Critical issues (if any): [list]
@@ -115,6 +120,7 @@ Summary of the evaluator's technical assessment:
 ## Product Review Results
 
 Summary of the product reviewer's assessment:
+
 - Weighted score: X.X/5.0
 - Verdict: PASS / NEEDS WORK
 - Vision alignment: [score]/5
@@ -140,12 +146,14 @@ Summary of the product reviewer's assessment:
 ## Next Steps
 
 The logical next feature(s) to tackle in the next session, in priority order:
+
 1. [Feature] — [why it's next] — [estimated complexity: small/medium/large]
 2. [Feature] — [why it's next] — [estimated complexity: small/medium/large]
 
 ## Session Notes
 
 Any context that would be useful for the next session that doesn't fit above:
+
 - Architecture decisions made and rationale
 - Patterns established that should be followed
 - External dependencies or environment setup changes
@@ -155,6 +163,7 @@ Any context that would be useful for the next session that doesn't fit above:
 ## Step 7 — Update Phase Status
 
 Update `docs/PHASE_STATUS.md` to reflect the current state of the phase:
+
 - Mark completed deliverables
 - Update any progress notes
 - Adjust estimates if the work revealed unexpected complexity
@@ -254,6 +263,7 @@ If no updates are needed, skip this step silently — do not announce "CLAUDE.md
 ## Step 10 — Summary
 
 After writing the handoff artifact and updating the phase status, present a brief summary:
+
 - What was accomplished this session (1-3 sentences)
 - Current overall phase progress (e.g., "Phase 1: 6 of 9 deliverables complete")
 - If UAT was generated: "Phase N UAT plan ready at `docs/uat/phase-N-uat.sh` — run before starting Phase N+1"

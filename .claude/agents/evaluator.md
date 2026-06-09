@@ -9,7 +9,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "COMMAND=$(cat | jq -r '.tool_input.command // empty'); if echo \"$COMMAND\" | grep -qEi '(>|>>|tee |mv |cp |rm |mkdir |touch |chmod |sed -i|write|create|modify|install|npm (i|install|ci)|pip install)'; then jq -n --arg r \"Evaluator is read-only. Blocked write-pattern command: $COMMAND\" '{hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"deny\",permissionDecisionReason:$r}}'; else exit 0; fi"
+          command: 'COMMAND=$(cat | jq -r ''.tool_input.command // empty''); if echo "$COMMAND" | grep -qEi ''(>|>>|tee |mv |cp |rm |mkdir |touch |chmod |sed -i|write|create|modify|install|npm (i|install|ci)|pip install)''; then jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $COMMAND" ''{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}''; else exit 0; fi'
 ---
 
 # Evaluator — Independent QA Agent
@@ -47,31 +47,27 @@ Read the latest session handoff artifact in `docs/sessions/` and check `docs/PHA
 
 ### 2. Run the Tests
 
-Read CLAUDE.md's "Test Commands" section to determine the correct test command for this project, then run it:
+Read `commands.test` from `.claude/project.json` and run it:
 
 ```bash
-# Use the project's test command from CLAUDE.md, e.g.:
-# npm test 2>&1
-# pytest 2>&1
+jq -r '.commands.test' .claude/project.json   # e.g. "npm test", "pytest"
 ```
 
-Record: total tests, passing, failing, any skipped. If tests fail, note which ones and why.
+If `commands.test` is `null`, the project has no test step — record that and move on; do not error or substitute a default. Otherwise record: total tests, passing, failing, any skipped. If tests fail, note which ones and why.
 
 ### 3. Run the Build
 
-Run the project's build command if one exists. Not all projects have a build step (e.g., Python projects without compilation). Check CLAUDE.md or package.json/pyproject.toml for the appropriate command. Skip this step if no build step applies.
+Read `commands.build` from `.claude/project.json` and run it. If `commands.build` is `null`, the project has no build step (e.g., an interpreted language without compilation) — skip the build step cleanly. This is the manifest-driven default; do not hunt for a build command elsewhere.
 
 ### 4. Run the Linter
 
-Read CLAUDE.md for the project's lint and format commands, then run them:
+Read `commands.lint` from `.claude/project.json` and run it:
 
 ```bash
-# Use the project's lint command from CLAUDE.md, e.g.:
-# npm run lint 2>&1
-# ruff check src/ 2>&1 && ruff format --check src/ 2>&1
+jq -r '.commands.lint' .claude/project.json   # e.g. "npm run lint", "ruff check ."
 ```
 
-Record: any linting errors or warnings?
+If `commands.lint` is `null`, skip cleanly. Otherwise record: any linting errors or warnings?
 
 ### 5. Inspect the Code
 
@@ -90,7 +86,7 @@ For each feature that was built:
 Score each criterion from 1-5. **A score of 3 means "acceptable." You should not default to 3 — actually evaluate.** Scores of 4-5 should be rare and reflect genuinely strong work. Scores of 1-2 mean the feature should not be considered complete.
 
 **Functionality (30%)**
-Does it actually work? Not "does it look like it works" — does it *actually* work? Can you trace the logic from user interaction to final state change and confirm it does what it claims? Are error states handled? Does it degrade gracefully?
+Does it actually work? Not "does it look like it works" — does it _actually_ work? Can you trace the logic from user interaction to final state change and confirm it does what it claims? Are error states handled? Does it degrade gracefully?
 
 - 5: Works correctly, handles all edge cases, graceful error handling
 - 4: Works correctly for the happy path and most edge cases

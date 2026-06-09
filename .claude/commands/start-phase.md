@@ -4,14 +4,14 @@ If no phase number was provided (i.e., $ARGUMENTS is empty), read `docs/PHASE_ST
 
 ## Step 1 — Run the Tests
 
-Check if the project has been scaffolded:
+Read `.claude/project.json`. Check whether the project has been scaffolded by running its `scaffoldCheck`:
 
 ```
-test -f package.json && npm test 2>&1 || echo "NO_PACKAGE_JSON"
+sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" && echo SCAFFOLDED || echo NOT_SCAFFOLDED
 ```
 
-- **If tests run:** Record the results — total tests, passing, failing, skipped. If any tests are failing, note them — you must not introduce additional failures during this session.
-- **If `NO_PACKAGE_JSON`:** The project hasn't been scaffolded yet. This is expected for the very first session. Skip to Step 2 and note that scaffolding is the first deliverable. See the "Bootstrapping" section in CLAUDE.md for scaffolding requirements.
+- **If `SCAFFOLDED`:** Run the project's test command — `jq -r '.commands.test' .claude/project.json` — and record the results: total tests, passing, failing, skipped. If `commands.test` is `null`, the project has no test step; skip cleanly and note it. If any tests are failing, note them — you must not introduce additional failures during this session.
+- **If `NOT_SCAFFOLDED`:** The project hasn't been scaffolded yet. This is expected for the very first session of a `phased` project. Skip to Step 2 and note that scaffolding is the first deliverable. See the "Bootstrapping" section in CLAUDE.md for scaffolding requirements.
 
 ## Step 2 — Load Phase Context
 
