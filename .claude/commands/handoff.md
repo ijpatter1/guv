@@ -2,10 +2,10 @@ End the current work session by running QA evaluation, generating a structured h
 
 ## Step 1 — Invoke the Evaluator
 
-Before anything else, invoke the `evaluator` subagent using the Agent tool. Build the prompt string for the evaluator by gathering:
+Before anything else, invoke the `evaluator` subagent using the Agent tool. Build the prompt string for the evaluator by gathering (run git against the **code** repo — `roots.code` from the manifest, a no-op for single-repo):
 
-1. Run `git log --oneline -10` to identify this session's commits
-2. Run `git diff HEAD~N` (where N = number of session commits) to get the full diff
+1. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -10` to identify this session's commits
+2. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" diff HEAD~N` (where N = number of session commits) to get the full diff
 3. Read `docs/PHASE_STATUS.md` for the current phase number
 
 Then pass a prompt like: "Evaluate the following work from Phase [N]. Commits this session: [list]. The diff covers these files: [list changed files]. Run your full evaluation procedure."
@@ -38,20 +38,21 @@ Run that command. If `commands.test` is `null`, the project has no test step —
 
 ## Step 4 — Commit Any Uncommitted Work
 
-Check for uncommitted changes:
+Check for uncommitted changes in both repos (the same path for single-repo, where `roots.code` is `"."`):
 
 ```
-git status
+git -C "$(jq -r '.roots.code' .claude/project.json)" status      # product changes
+git -C "$(jq -r '.roots.control' .claude/project.json)" status   # doc/session changes
 ```
 
-If there are uncommitted changes, commit them with an appropriate conventional commit message. If there are changes that are intentionally uncommitted (work in progress, experimental code), note this in the handoff artifact.
+If there are uncommitted changes, commit them with an appropriate conventional commit message — **product code commits land in the code repo, doc/session artifacts in the control plane** (these are two commit streams when the roots differ, one when they coincide). If there are changes that are intentionally uncommitted (work in progress, experimental code), note this in the handoff artifact.
 
 ## Step 5 — Review Session Work
 
-Review what was accomplished this session. Use a reasonable number of recent commits:
+Review what was accomplished this session. Use a reasonable number of recent commits from the code repo:
 
 ```
-git log --oneline -15
+git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -15
 ```
 
 Scan the output and identify which commits belong to this session (based on timestamps and commit messages). If the session spans more than 15 commits, increase the count.

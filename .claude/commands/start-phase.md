@@ -38,8 +38,10 @@ If manual tasks exist, read each one and check the **Status** field (in the head
 
 ## Step 4 — Review Recent Git History
 
+Inspect the **code** repo's history. Read `roots.code` from the manifest and target it with `git -C` (this is a no-op for single-repo, where `roots.code` is `"."`):
+
 ```
-git log --oneline -15
+git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -15
 ```
 
 Use this to understand what was worked on recently and what state the codebase is in.

@@ -35,7 +35,7 @@ If the most recent session artifact references unresolved critical issues from t
 When generating a handoff artifact:
 
 - **Be concrete, not vague.** "Built the ContactForm component" is useless. "Built ContactForm with email, name, and message fields. Fires `form_start` on first field focus and `form_submit` on submission. Integrated with data layer schema. 4 tests added covering render, validation, submission success, and submission error" is useful
-- **Include commit hashes.** The next session can use these for `git show` or `git diff` to quickly inspect specific changes
+- **Include commit hashes.** The next session can use these for `git show` / `git diff` against the **code** repo (`git -C "$(jq -r '.roots.code' .claude/project.json)" …`, a no-op for single-repo) to quickly inspect specific changes. Note that doc/session commits live in the control plane and product commits in the code repo, so cite hashes with their repo when the roots differ.
 - **Don't omit uncomfortable information.** If you cut a corner, stubbed something, or made a tradeoff you're not confident about, say so. The next session needs to know
 - **Keep "Next Steps" actionable.** Each item should be specific enough that the next session can start implementing immediately without additional research. Bad: "Continue working on the event pipeline." Good: "Implement the Pub/Sub publishing tag in sGTM — the topic is configured but the custom tag template hasn't been created yet. Start with `infrastructure/sgtm/tags/pubsub-publisher.tpl`"
 
@@ -65,7 +65,7 @@ When determining what to work on:
 
 ### Short Break (same day, resuming soon)
 
-Just run `git log --oneline -10` and the project's test command (`commands.test` from `.claude/project.json`) to reorient. The session artifact from earlier today has the full context.
+Just run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -10` and the project's test command (`commands.test` from `.claude/project.json`) to reorient. The session artifact from earlier today has the full context.
 
 ### Overnight / Next Day
 
@@ -73,15 +73,15 @@ Use `/start-phase N` for the full context loading sequence. Read the latest sess
 
 ### After Multiple Days Away
 
-Use `/start-phase N` and also read the 2-3 most recent session artifacts, not just the latest. Check `git log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`commands.test` / `commands.build` from `.claude/project.json`, skipping either if `null`) to confirm the codebase is healthy.
+Use `/start-phase N` and also read the 2-3 most recent session artifacts, not just the latest. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`commands.test` / `commands.build` from `.claude/project.json`, skipping either if `null`) to confirm the codebase is healthy.
 
 ### After a Phase Transition
 
 When starting a new phase:
 
 1. Read the completed phase's final session artifact for any carryover issues
-2. Ensure the completed phase branch has been merged to `main` and the merge is clean: `git checkout main && git merge phase/N-previous-name`
+2. Ensure the completed phase branch has been merged to `main` and the merge is clean. Phase branches live in the **code** repo, so run branch ops there (a no-op for single-repo): `CODE=$(jq -r '.roots.code' .claude/project.json); git -C "$CODE" checkout main && git -C "$CODE" merge phase/N-previous-name`
 3. Read the new phase's section in `docs/REQUIREMENTS.md` thoroughly
 4. Read relevant sections of `docs/ARCHITECTURE.md`
-5. Create the new phase branch from `main`: `git checkout -b phase/N-description`
+5. Create the new phase branch from `main` in the code repo: `git -C "$(jq -r '.roots.code' .claude/project.json)" checkout -b phase/N-description`
 6. The first session artifact for the new phase should note any dependencies on prior phases and confirm they're satisfied

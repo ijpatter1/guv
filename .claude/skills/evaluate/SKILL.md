@@ -25,9 +25,11 @@ If arguments are provided, they describe the scope of the evaluation (e.g., "jus
 
 Collect the information both reviewers need:
 
+Run git against the **code** repo (`roots.code` from `.claude/project.json`; a no-op for single-repo where it is `"."`):
+
 ```bash
 # Recent commits
-git log --oneline -10
+git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -10
 
 # Determine scope — commits since last handoff or last evaluation
 # Look for the most recent session artifact for a reference point
@@ -36,7 +38,7 @@ ls -t docs/sessions/session-*.md 2>/dev/null | head -1
 
 ```bash
 # Full diff for the evaluation scope
-git diff HEAD~N  # where N = number of commits in scope
+git -C "$(jq -r '.roots.code' .claude/project.json)" diff HEAD~N  # where N = number of commits in scope
 ```
 
 ```bash
@@ -45,6 +47,7 @@ grep -m1 "Current Phase" docs/PHASE_STATUS.md 2>/dev/null || echo "Phase unknown
 ```
 
 Build a context summary:
+
 - Phase number
 - Commits in scope (hashes and messages)
 - Files changed
@@ -84,6 +87,7 @@ Action:  [fix and re-evaluate | proceed ✓]
 ```
 
 **Recommendation logic:**
+
 - Any critical issue from either reviewer → "fix and re-evaluate"
 - Major issues → "fix and re-evaluate"
 - Minor issues only → "fix and re-evaluate"
@@ -100,10 +104,12 @@ Action:  [fix and re-evaluate | proceed ✓]
 5. Repeat until the evaluation is clean
 
 **The loop terminates when:**
+
 - Both reviewers return no issues → proceed to the next feature or to `/handoff`
 - The user explicitly defers specific issues (e.g., "skip the minor formatting issues for now") → proceed, but note deferred issues in the session handoff under Issues & Technical Debt with the reason for deferral
 
 **Do not:**
+
 - Present issues and ask "should I fix these?" — fix them. The default is to fix.
 - Treat Major or Minor issues as acceptable debt. They are work items, not documentation items.
 - Move to the next feature with unresolved issues from evaluation unless the user explicitly approves deferral.
