@@ -3,6 +3,22 @@
 # ═══════════════════════════════════════════════════════════
 IMAGE_NAME      := my-project-sandbox
 CONTAINER_NAME  := my-project-claude
+
+# Sandbox base image, derived from the manifest's `language` (override with
+# `make build BASE_IMAGE=...`). Ships a Node default; see sandbox/Dockerfile for
+# the per-language image table. Do not reach for a fat multi-runtime image.
+LANGUAGE        := $(shell jq -r '.language // "node"' .claude/project.json 2>/dev/null || echo node)
+BASE_IMAGE      ?= $(shell case "$(LANGUAGE)" in \
+	node)   echo node:20-slim ;; \
+	python) echo python:3.12-slim ;; \
+	rust)   echo rust:1-slim ;; \
+	go)     echo golang:1-bookworm ;; \
+	ruby)   echo ruby:3-slim ;; \
+	jvm)    echo eclipse-temurin:21-jdk-jammy ;; \
+	dotnet) echo mcr.microsoft.com/dotnet/sdk:8.0 ;; \
+	elixir) echo elixir:1.16-slim ;; \
+	*)      echo node:20-slim ;; \
+	esac)
 # ═══════════════════════════════════════════════════════════
 
 #
@@ -31,6 +47,16 @@ PROJECT_DIR     := $(shell pwd)
 HOST_UID        := $(shell id -u)
 HOST_GID        := $(shell id -g)
 
+# Dual-root mount — control plane (cwd → /workspace) plus the code repo when it
+# is a separate sibling (roots.code != "."). The code repo is mounted at the
+# container path that makes `git -C roots.code` resolve correctly from /workspace
+# (e.g. roots.code="../store" → /store). For single-repo (roots.code=".") the
+# second mount is skipped entirely; only /workspace is mounted, as before.
+CODE_REL        := $(shell jq -r '.roots.code // "."' .claude/project.json 2>/dev/null || echo .)
+CODE_HOST       := $(shell cd "$(PROJECT_DIR)/$(CODE_REL)" 2>/dev/null && pwd)
+CODE_TARGET     := $(shell python3 -c "import os,sys;print(os.path.normpath('/workspace/'+sys.argv[1]))" "$(CODE_REL)" 2>/dev/null)
+CODE_MOUNT      := $(shell [ "$(CODE_REL)" != "." ] && [ -n "$(CODE_HOST)" ] && [ -n "$(CODE_TARGET)" ] && echo "-v $(CODE_HOST):$(CODE_TARGET)")
+
 # GCP service account key path (create with: make gcp-setup)
 # Mount is conditional — if the file doesn't exist, Docker will skip it gracefully
 GCP_SA_KEY     := $(PROJECT_DIR)/secrets/gcp-service-account.json
@@ -42,6 +68,7 @@ DOCKER_RUN_BASE := docker run -it --rm \
 	--cap-add=NET_ADMIN \
 	--cap-add=NET_RAW \
 	-v $(PROJECT_DIR):/workspace \
+	$(CODE_MOUNT) \
 	-v claude-config:/home/claude/.claude \
 	-v claude-data:/home/claude/.local/share/claude \
 	-e ANTHROPIC_API_KEY \
@@ -56,6 +83,7 @@ build:
 	docker build \
 		--build-arg HOST_UID=$(HOST_UID) \
 		--build-arg HOST_GID=$(HOST_GID) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		-t $(IMAGE_NAME) \
 		-f sandbox/Dockerfile \
 		sandbox/
@@ -75,6 +103,7 @@ shell: build
 		--cap-add=NET_ADMIN \
 		--cap-add=NET_RAW \
 		-v $(PROJECT_DIR):/workspace \
+		$(CODE_MOUNT) \
 		-e ANTHROPIC_API_KEY \
 		-w /workspace \
 		--entrypoint /bin/bash \
@@ -88,6 +117,7 @@ prompt: build
 		--cap-add=NET_ADMIN \
 		--cap-add=NET_RAW \
 		-v $(PROJECT_DIR):/workspace \
+		$(CODE_MOUNT) \
 		-v claude-config:/home/claude/.claude \
 		-v claude-data:/home/claude/.local/share/claude \
 		-e ANTHROPIC_API_KEY \
@@ -104,6 +134,7 @@ resume: build
 		--cap-add=NET_ADMIN \
 		--cap-add=NET_RAW \
 		-v $(PROJECT_DIR):/workspace \
+		$(CODE_MOUNT) \
 		-v claude-config:/home/claude/.claude \
 		-v claude-data:/home/claude/.local/share/claude \
 		-e ANTHROPIC_API_KEY \
@@ -113,9 +144,15 @@ resume: build
 		--resume "$(S)"
 
 ## Run the dev server on the HOST machine (not in Docker).
-## Override this command in your project if you use something other than npm run dev.
+## Reads commands.dev from .claude/project.json; falls back to `npm run dev`.
+## Override per project by editing commands.dev in the manifest.
 dev:
-	npm run dev
+	@DEV=$$(jq -r '.commands.dev // empty' .claude/project.json 2>/dev/null); \
+	if [ -n "$$DEV" ]; then \
+		echo "→ $$DEV"; eval "$$DEV"; \
+	else \
+		echo "→ npm run dev (no commands.dev in manifest)"; npm run dev; \
+	fi
 
 ## Stop the running sandbox container
 stop:

@@ -9,7 +9,20 @@
 # Claude Code's internal state (auth, session history) persists in /home/claude/.claude/
 # via a named Docker volume. These are separate paths that merge at runtime.
 
-FROM node:20-slim
+# Base image is a build arg keyed off the project's `language` (.claude/project.json).
+# Ships a Node default; swap it for your stack by passing --build-arg BASE_IMAGE=...
+# (the Makefile derives this from the manifest). Use a Debian-based *-slim image so the
+# apt-get step below works. Examples:
+#   node    → node:20-slim          (default)
+#   python  → python:3.12-slim
+#   rust    → rust:1-slim
+#   go      → golang:1-bookworm
+#   ruby    → ruby:3-slim
+#   jvm     → eclipse-temurin:21-jdk-jammy
+#   dotnet  → mcr.microsoft.com/dotnet/sdk:8.0
+# Do NOT reach for a fat multi-runtime image unless a real need justifies the size.
+ARG BASE_IMAGE=node:20-slim
+FROM ${BASE_IMAGE}
 
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
