@@ -163,7 +163,13 @@ Any context that would be useful for the next session that doesn't fit above:
 
 ## Step 7 — Update Phase Status
 
-Update `docs/PHASE_STATUS.md` to reflect the current state of the phase:
+**Phased projects only.** Read `ceremony` from `.claude/project.json`. If it is not
+`phased` (or there is no `docs/PHASE_STATUS.md`), there is no phase tracker — skip
+this step cleanly and skip Step 8 as well. A missing phase tracker is a mode signal,
+not an error. In that case the handoff artifact's **Phase** field is just "N/A
+(`<ceremony>` mode)".
+
+Otherwise update `docs/PHASE_STATUS.md` to reflect the current state of the phase:
 
 - Mark completed deliverables
 - Update any progress notes
@@ -171,7 +177,8 @@ Update `docs/PHASE_STATUS.md` to reflect the current state of the phase:
 
 ## Step 8 — Phase Completion: Generate UAT Plan
 
-**This step is conditional.** Check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, or ❌, skip to Step 9.
+**Phased projects only — and conditional within them.** If `ceremony` is not
+`phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, or ❌, skip to Step 9.
 
 If the phase is complete, generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage (the evaluator handles that) or spec alignment (the product reviewer handles that), but real-world workflows from start to finish.
 

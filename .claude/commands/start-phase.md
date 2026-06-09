@@ -1,5 +1,16 @@
 Read the project context and prepare for a focused work session on Phase $ARGUMENTS.
 
+## Step 0 — Confirm Phased Mode
+
+This command is the **phased** entry point. Read `ceremony` from `.claude/project.json`:
+
+- If `ceremony` is **`task`** or **`onboard`**, or there are no phase docs in `docs/`
+  (no `PHASE_STATUS.md` / `REQUIREMENTS.md`), this project has no phase structure.
+  That is a **mode signal, not an error** — don't scaffold phase docs. Tell the user
+  to use `/task "<description>"` for scoped work (or `/onboard` to adopt the repo),
+  and stop here.
+- If `ceremony` is **`phased`**, continue.
+
 If no phase number was provided (i.e., $ARGUMENTS is empty), read `docs/PHASE_STATUS.md` to determine the current phase and use that. If the phase number doesn't match a phase in PHASE_STATUS.md, ask for clarification before proceeding.
 
 ## Step 1 — Run the Tests
