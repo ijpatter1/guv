@@ -70,7 +70,7 @@ Review the generated files, adjust anything that needs it, then commit and start
 
 **Manual alternative** — render the template by hand:
 
-- Edit `CLAUDE.template.md`: fill the project identity and the "Project facts Claude can't infer" section (for greenfield, keep "Bootstrapping"), strip the leading `<!-- TEMPLATE … -->` comment, and save it as `CLAUDE.md`. Leave the `@.claude/RULES.md` import and the manifest pointers as-is.
+- **Copy** `CLAUDE.template.md` to `CLAUDE.md` (leave the template in place — it's the reusable source), then in the copy fill the project identity and the "Project facts Claude can't infer" section (for greenfield, keep "Bootstrapping") and strip the leading `<!-- TEMPLATE … -->` comment. Leave the `@.claude/RULES.md` import and the manifest pointers as-is.
 - Edit `.claude/project.json` to declare your stack, commands, `roots`, `guards`, and `ceremony`.
 - For phased projects, define `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_STATUS.md`.
 

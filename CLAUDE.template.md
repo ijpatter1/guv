@@ -1,6 +1,6 @@
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  TEMPLATE — not a live file. Named `claude.template.md`, NOT `CLAUDE.md`,
+  TEMPLATE — not a live file. Named `CLAUDE.template.md`, NOT `CLAUDE.md`,
   so Claude Code does not auto-load it. That is deliberate: the agent working
   on this template repo should be governed by the migration plan, not by
   consumer-project instructions.
@@ -29,7 +29,7 @@ fact lives somewhere more specific, it lives there, not here.
 ## How this project is wired
 
 - **Behavior & conventions:** @.claude/RULES.md — the engineering rules that govern how you work. Always in effect.
-- **Commands, stack, roots, ceremony, guards:** `.claude/project.json` — the single source of truth for *facts*. Read the test/build/lint/format/dev commands from there and run them; **never hardcode a command in this file or assume one**. A `null` command means the project has no such step — skip it, don't substitute a default.
+- **Commands, stack, roots, ceremony, guards:** `.claude/project.json` — the single source of truth for _facts_. Read the test/build/lint/format/dev commands from there and run them; **never hardcode a command in this file or assume one**. A `null` command means the project has no such step — skip it, don't substitute a default.
 - **Process commands:** `/task` (scoped change), `/onboard` (adopt an existing repo), `/init-project` (greenfield setup), then `/start-phase`, `/evaluate`, `/handoff`, `/status`, `/manual`. The commands carry the repeatable procedure; follow their steps.
 - **Sometimes-relevant workflows & domain knowledge:** `.claude/skills/` — loaded on demand so they don't cost context every session.
 - **Enforcement:** hooks (`bash-guard`, `auto-format`, `stop-check`) + the firewall + the sandbox are the real boundary. `settings.json` permissions are a convenience layer, not a security layer — the sandbox is the hard line.
@@ -39,7 +39,7 @@ fact lives somewhere more specific, it lives there, not here.
 Read `roots` from `.claude/project.json`:
 
 - **Control plane** (your working directory): `roots.control`. Docs, session artifacts, and `.claude/` config live here.
-- **Code**: `roots.code` — may be a *sibling repo*. All git operations against the product (`git -C roots.code log/diff/status`) target the code root; doc and session commits target the control root.
+- **Code**: `roots.code` — may be a _sibling repo_. All git operations against the product (`git -C roots.code log/diff/status`) target the code root; doc and session commits target the control root.
 - **Single-repo projects** set both roots to `"."`, so the two collapse into one tree and nothing special happens.
 
 ## Ceremony — how much process applies
@@ -47,10 +47,10 @@ Read `roots` from `.claude/project.json`:
 Read `ceremony` from the manifest:
 
 - **`task`** — scoped work. No phase docs. Understand → TDD the change → evaluate → done.
-- **`onboard`** — an existing repo whose conventions you *infer and follow*, never scaffold over.
+- **`onboard`** — an existing repo whose conventions you _infer and follow_, never scaffold over.
 - **`phased`** — greenfield with the full plan. The plan and live state are in `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_STATUS.md`, and the latest `docs/sessions/` handoff. Work the current phase only.
 
-A missing project-shape artifact is a *mode signal*, not an error: no phase docs means task/onboard mode, not a broken setup.
+A missing project-shape artifact is a _mode signal_, not an error: no phase docs means task/onboard mode, not a broken setup.
 
 ## Project facts Claude can't infer
 

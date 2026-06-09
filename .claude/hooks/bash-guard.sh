@@ -37,7 +37,7 @@ UNIVERSAL_BLOCKED=(
   # Destructive filesystem operations
   'rm\s+-rf\s+/'                    # rm -rf from root
   'rm\s+-rf\s+~'                    # rm -rf home directory
-  'rm\s+-rf\s+\.'                   # rm -rf current/parent directory
+  'rm\s+-rf\s+\.\.?/?(\s|$)'        # rm -rf . / ./ / .. / ../ (the dir itself) — but NOT ./subdir
   'mkfs\.'                          # format filesystem
   'dd\s+if='                        # raw disk write
   'chmod\s+-R\s+777\s+/'            # open permissions from root
