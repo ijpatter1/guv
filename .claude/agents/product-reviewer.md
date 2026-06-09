@@ -11,9 +11,9 @@ hooks:
         - type: command
           command: |
             INPUT=$(cat)
-            CMD=$(echo "$INPUT" | jq -r '.input.command // empty')
+            CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
             if echo "$CMD" | grep -qE '(^|\|)\s*(rm|mv|cp|chmod|chown|git\s+(push|commit|merge|rebase|checkout)|npm\s+(publish|install)|npx|node\s+-e|pip|python)'; then
-              echo '{"decision":"deny","reason":"Product reviewer is read-only. Write operations are not permitted."}'
+              jq -n --arg r "Product reviewer is read-only. Blocked write-pattern command: $CMD" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
             fi
 ---
 
@@ -47,6 +47,7 @@ Does the work match the product vision described in REQUIREMENTS.md and any cont
 - Flag scope cuts: specified elements that were silently omitted
 
 **Score anchors:**
+
 - **5** — Implementation is a faithful, thoughtful expression of the spec. Makes smart choices where the spec is ambiguous.
 - **3** — Generally follows the spec but misses nuance or makes questionable interpretation choices.
 - **1** — Significant drift from the product vision. Built something different from what was specified.
@@ -62,6 +63,7 @@ Would the target user find this valuable, intuitive, and complete?
 - For web UIs: is the flow logical? Would a first-time visitor understand what to do?
 
 **Score anchors:**
+
 - **5** — A user would succeed on their first try without confusion. Feels polished and intentional.
 - **3** — Functional but rough. A user would figure it out but might stumble.
 - **1** — Confusing or unusable. The user would give up or misunderstand the purpose.
@@ -77,6 +79,7 @@ Is the content real, accurate, consistent, and well-crafted?
 - For technical docs: are they accurate and useful, or boilerplate?
 
 **Score anchors:**
+
 - **5** — Content is polished, consistent, and production-ready. Every element specified in the content guide is present and correct.
 - **3** — Mostly there but has gaps, inconsistencies, or generic placeholder text that should be real content.
 - **1** — Significant content problems: wrong terminology, missing sections, placeholder text throughout, brand inconsistencies.
@@ -93,6 +96,7 @@ Is the feature substantive enough to deliver its intended value, or is it a thin
 - Would you be comfortable showing this to a client or putting it in a portfolio?
 
 **Score anchors:**
+
 - **5** — Feature is robust and complete. Handles realistic scenarios including edge cases. Portfolio-ready.
 - **3** — Happy path works. Some edge cases or secondary scenarios missing. Functional but not impressive.
 - **1** — Thin shell. Only the most basic case works. Would not survive contact with a real user.

@@ -75,7 +75,7 @@ For each feature that was built:
 
 - **Read the implementation.** Look for stubbed functions, TODO comments, hardcoded values that should be dynamic, missing error handling, and `any` types.
 - **Read the tests.** Were tests written before the implementation (red/green TDD)? Do the tests actually assert meaningful behavior, or are they shallow "renders without crashing" tests? Are edge cases covered?
-- **Check the event pipeline** (when relevant). Do components fire correct data layer events? Are event names and parameters matching the schema in `src/lib/events/schema.ts`?
+- **Check data flows and side effects** (when relevant). Where the code emits events, writes records, or calls external services, do they carry the correct data and match whatever contract/schema this project defines for them?
 - **Check for regressions.** Did the new code break or modify existing functionality? Look at `git -C "$(jq -r '.roots.code' .claude/project.json)" diff` against the last known-good commit.
 - **Check CLAUDE.md freshness.** Does the Tech Stack section match the actual dependencies? Does the Directory Structure match what's on disk? Are there established patterns in the code that aren't documented in Coding Standards? Flag any drift as a Minor issue — the `/handoff` freshness check will handle the actual update.
 
