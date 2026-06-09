@@ -161,12 +161,20 @@ Rules:
 
 ### Step 5 — Write the Manifest, then Render CLAUDE.md
 
-First ensure `.claude/project.json` reflects this project. If a resolver run hasn't
-already produced it, write it now from the Step 1 analysis (validate against
-`.claude/project.schema.json`): set `name`, `language`, `packageManager`, the
+First ensure `.claude/project.json` reflects this project. If the workspace already
+has stack files (e.g. a `package.json` from prior scaffolding), bootstrap the proposal
+with the resolver, then confirm/override its values:
+
+```bash
+bash .claude/resolve-stack.sh .   # proposes a manifest from detected stack files
+```
+
+If nothing is detectable yet (typical for greenfield before scaffolding), write the
+manifest from the Step 1 analysis instead. Either way, validate against
+`.claude/project.schema.json` and set: `name`, `language`, `packageManager`, the
 `commands` (`null` for any step the stack lacks), `scaffoldCheck`, `formatExtensions`,
-`guards` (only what applies), `roots` (both `"."` for single-repo), and
-`ceremony: "phased"`.
+`guards` (only what applies), `roots` (both `"."` for single-repo), and — since this is
+greenfield — **`ceremony: "phased"`** (the resolver proposes `"onboard"`; override it).
 
 Then **render the inert template into a live `CLAUDE.md`** — the template ships as
 `CLAUDE.template.md` and deliberately does _not_ auto-load; rendering is what makes it
