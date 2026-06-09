@@ -6,11 +6,20 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 
 ## What's Included
 
-**Session workflow** — Commands that encode a Planner → Generator → Evaluator loop:
+**Entry points** — three ways in, scaled to the work:
+
+- `/init-project <spec>` — greenfield: generate phase docs + manifest, render `CLAUDE.md`
+- `/onboard` — adopt an existing repo: detect the stack, infer conventions, render `CLAUDE.md`, no phase ceremony
+- `/task "<description>"` — scoped change: understand → red/green TDD → evaluate → done
+
+**Session workflow** — commands that encode a Planner → Generator → Evaluator loop (phased projects):
+
 - `/start-phase N` — Load context, run tests, present a plan for approval
-- `/evaluate` — Trigger independent QA evaluation mid-session
+- `/evaluate` — Trigger independent dual QA review mid-session
 - `/handoff` — End session with full QA + handoff artifact for continuity
 - `/status` — Quick 10-line project orientation
+
+**Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/RULES.md`.
 
 **QA evaluator subagent** — An independent, skeptical reviewer that grades work on five criteria (Functionality, Test Quality, Code Quality, Completeness, Integration). Runs in its own context window with read-only enforcement. Auto-invoked before every session handoff.
 
@@ -45,27 +54,34 @@ claude
 /init-project path/to/your-spec.md
 ```
 
-This reads your spec and generates all four project-specific files:
-- `CLAUDE.md` — project identity, tech stack, coding standards
+This reads your spec and generates the project-specific artifacts:
+
+- `.claude/project.json` — the manifest: language, package manager, commands, roots, ceremony
+- `CLAUDE.md` — **rendered from `CLAUDE.template.md`**, holding only the facts Claude can't infer (it imports `@.claude/RULES.md` and points at the manifest for commands)
 - `docs/REQUIREMENTS.md` — phases and deliverables extracted from your spec
 - `docs/ARCHITECTURE.md` — Phase 1 detailed architecture, later phases stubbed
 - `docs/PHASE_STATUS.md` — deliverable tracker matching REQUIREMENTS.md
 
+For an existing codebase, run `/onboard` instead — it detects the stack, infers the repo's conventions, writes the manifest, and renders `CLAUDE.md` **without** imposing phase structure.
+
 Review the generated files, adjust anything that needs it, then commit and start building.
 
-**Manual alternative** — edit the four template files directly:
-- **`CLAUDE.md`** — Fill in tech stack, project identity, coding standards, bootstrapping
-- **`docs/REQUIREMENTS.md`** — Define your phases and deliverables
-- **`docs/ARCHITECTURE.md`** — Document your technical architecture
-- **`docs/PHASE_STATUS.md`** — Copy deliverables from REQUIREMENTS.md with ⬜ markers
+> **The template ships no `CLAUDE.md` — that's intentional.** `CLAUDE.md` auto-loads every session, so shipping one would govern the meta-work of _using_ the template. Instead the repo ships the inert `CLAUDE.template.md` (never auto-loaded) plus `.claude/RULES.md`; `/init-project` or `/onboard` _renders_ `CLAUDE.template.md` → `CLAUDE.md`. Consumers **must commit their rendered `CLAUDE.md`** — it is deliberately not gitignored.
+
+**Manual alternative** — render the template by hand:
+
+- Edit `CLAUDE.template.md`: fill the project identity and the "Project facts Claude can't infer" section (for greenfield, keep "Bootstrapping"), strip the leading `<!-- TEMPLATE … -->` comment, and save it as `CLAUDE.md`. Leave the `@.claude/RULES.md` import and the manifest pointers as-is.
+- Edit `.claude/project.json` to declare your stack, commands, `roots`, `guards`, and `ceremony`.
+- For phased projects, define `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_STATUS.md`.
 
 Either way, also update:
-- **`Makefile`** — Change `IMAGE_NAME` and `CONTAINER_NAME` at the top (two lines)
+
+- **`Makefile`** — Change `IMAGE_NAME` and `CONTAINER_NAME` at the top (two lines). The sandbox base image is derived from the manifest's `language`; override with `make build BASE_IMAGE=...`.
 
 Optionally customize:
 
-- **`sandbox/init-firewall.sh`** — Add project-specific domains to `PROJECT_DOMAINS`
-- **`.claude/settings.json`** — Add project-specific Write/Edit paths if your directory structure differs from `src/`, `tests/`, `docs/`, `public/`
+- **`sandbox/init-firewall.sh`** — Add project-specific domains to `PROJECT_DOMAINS` (the package registry is selected automatically from the manifest's `language`).
+- **`.claude/project.json`** — Add stack-specific `guards` (e.g. `"gcp"`, `"cargo-publish"`); the universal danger blocks are always on. Permissions in `.claude/settings.json` are now a broad convenience layer, not a per-project edit point.
 
 ### 3. Set your API key
 
@@ -107,41 +123,49 @@ code .
 ## File Structure
 
 ```
-├── CLAUDE.md                          # Project context (YOU EDIT THIS)
-├── Makefile                           # Container lifecycle
+├── CLAUDE.template.md                 # Inert source for CLAUDE.md (rendered, not auto-loaded)
+├── Makefile                           # Container lifecycle (base image from manifest)
 ├── .gitignore                         # Git exclusions
 ├── .claude/
-│   ├── settings.json                  # Permissions + hooks
+│   ├── project.json                   # MANIFEST — single source of truth (stack/commands/roots/ceremony)
+│   ├── project.schema.json            # Manifest schema (validation + self-docs)
+│   ├── RULES.md                       # Behavioral core (imported by rendered CLAUDE.md)
+│   ├── settings.json                  # Permissions (convenience layer) + hooks
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/
-│   │   └── evaluator.md               # QA evaluator subagent
+│   │   ├── evaluator.md               # Technical QA evaluator subagent
+│   │   └── product-reviewer.md        # Product reviewer subagent
 │   ├── commands/
-│   │   ├── init-project.md            # Scaffold docs from a PRD/spec
-│   │   ├── start-phase.md             # Session initialization
-│   │   ├── evaluate.md                # Manual evaluation trigger
-│   │   ├── handoff.md                 # Session end + QA + handoff
-│   │   └── status.md                  # Quick status check
+│   │   ├── init-project.md            # Greenfield: scaffold + render CLAUDE.md
+│   │   ├── onboard.md                 # Adopt an existing repo (no phase ceremony)
+│   │   ├── start-phase.md             # Phased session initialization
+│   │   ├── handoff.md                 # Session end + dual QA + handoff
+│   │   ├── status.md                  # Quick status check
+│   │   └── manual.md                  # Out-of-sandbox task artifacts
 │   ├── hooks/
-│   │   ├── bash-guard.sh              # Blocks dangerous commands
-│   │   ├── auto-format.sh             # Auto-formats on write
+│   │   ├── bash-guard.sh              # Blocks dangerous commands (universal + opt-in guards)
+│   │   ├── auto-format.sh             # Formats on write (formatter from manifest)
 │   │   └── stop-check.sh              # Reminds about evaluation
 │   └── skills/
-│       └── session-management/
-│           └── SKILL.md               # Context continuity conventions
+│       ├── task/                      # /task — scoped change entry point
+│       ├── evaluate/                  # /evaluate — dual QA review
+│       └── session-management/        # Context continuity conventions
 ├── docs/
-│   ├── REQUIREMENTS.md                # Development plan (YOU EDIT THIS)
-│   ├── ARCHITECTURE.md                # Technical architecture (YOU EDIT THIS)
-│   ├── PHASE_STATUS.md                # Phase tracker (YOU EDIT THIS)
+│   ├── REQUIREMENTS.md                # Development plan (phased; YOU EDIT THIS)
+│   ├── ARCHITECTURE.md                # Technical architecture (phased; YOU EDIT THIS)
+│   ├── PHASE_STATUS.md                # Phase tracker (phased; YOU EDIT THIS)
 │   └── sessions/
 │       └── .gitkeep
 └── sandbox/
-    ├── Dockerfile                     # Sandbox image
-    ├── init-firewall.sh               # Domain allowlist firewall
+    ├── Dockerfile                     # Sandbox image (BASE_IMAGE build arg)
+    ├── init-firewall.sh               # Per-language registry allowlist firewall
     ├── entrypoint.sh                  # Privilege drop + Claude start
     └── README.md                      # Sandbox documentation
 ```
 
-Files marked **(YOU EDIT THIS)** are project-specific templates. Everything else works out of the box.
+> A rendered `CLAUDE.md` (the live file) and `.claude/project.json` are created/filled per project by `/init-project` or `/onboard`. The template repo ships **no** `CLAUDE.md`.
+
+The **durable core** — `.claude/RULES.md`, the manifest, the evaluator/reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
 
 ## GCP Access (Optional)
 
@@ -153,19 +177,19 @@ make gcp-setup    # Prints step-by-step instructions
 
 ## Commands Reference
 
-| Command | Description |
-|---------|-------------|
-| `make sandbox` | Build + start Claude Code in Docker |
-| `make attach` | Reattach to running sandbox after crash |
-| `make shell` | Bash shell in sandbox for debugging |
-| `make prompt P="..."` | Run a one-shot headless prompt |
-| `make resume S="name"` | Resume a named session |
-| `make dev` | Run dev server on host |
-| `make stop` | Stop the sandbox container |
-| `make clean` | Remove container + image (keeps volumes) |
-| `make clean-all` | Full reset including auth and sessions |
-| `make gcp-setup` | Print GCP service account instructions |
-| `make test-fw` | Verify firewall blocks correctly |
+| Command                | Description                              |
+| ---------------------- | ---------------------------------------- |
+| `make sandbox`         | Build + start Claude Code in Docker      |
+| `make attach`          | Reattach to running sandbox after crash  |
+| `make shell`           | Bash shell in sandbox for debugging      |
+| `make prompt P="..."`  | Run a one-shot headless prompt           |
+| `make resume S="name"` | Resume a named session                   |
+| `make dev`             | Run dev server on host                   |
+| `make stop`            | Stop the sandbox container               |
+| `make clean`           | Remove container + image (keeps volumes) |
+| `make clean-all`       | Full reset including auth and sessions   |
+| `make gcp-setup`       | Print GCP service account instructions   |
+| `make test-fw`         | Verify firewall blocks correctly         |
 
 ## Origins
 

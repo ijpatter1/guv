@@ -242,25 +242,35 @@ Note in the handoff artifact under **Next Steps** that UAT is ready to run:
 
 The phase is not considered accepted until UAT passes. The next session's `/start-phase` should check for UAT results before starting new phase work.
 
-## Step 9 — CLAUDE.md Freshness Check
+## Step 9 — CLAUDE.md / Manifest Freshness Check
 
-Review the current CLAUDE.md against what actually happened during this session. Check for:
+The live `CLAUDE.md` is the lean file rendered from `CLAUDE.template.md`: it holds only
+the "Project facts Claude can't infer" and points at `.claude/project.json` for commands
+and `@.claude/RULES.md` for behavior. Keep it lean — facts that belong in the manifest or
+RULES.md go there, **not** into `CLAUDE.md`. Check for drift in the right place:
 
-- **Tech stack drift:** Were new dependencies added, tools changed, or frameworks swapped? Does the Tech Stack section still reflect reality?
-- **Directory structure changes:** Were new directories created that aren't in the Directory Structure section?
-- **New conventions established:** Did you establish a pattern (naming convention, component structure, error handling approach) that future sessions should follow but that isn't documented in Coding Standards?
-- **Phase progression:** If a phase was completed, does Current Phase need to advance?
-- **Stale bootstrapping section:** If the project has been scaffolded, is the Bootstrapping section still present? It can be removed or collapsed once it's no longer the first session.
-- **New references:** Were new reference documents created (content guides, API specs, data schemas) that should be listed in References?
+- **Command drift → the manifest, not CLAUDE.md.** Did the test/build/lint/format/dev
+  command change, or a new step get added? Update `.claude/project.json`. `CLAUDE.md`
+  never restates commands, so there is nothing to update there.
+- **Stack / package-manager change → the manifest.** Update `language` /
+  `packageManager` (and the sandbox base image / firewall registries follow from it).
+- **New can't-infer facts → CLAUDE.md's "Project facts" section.** A required env var,
+  a non-obvious gotcha, a project-specific architectural decision, repo etiquette — only
+  if it passes the pruning test (_would removing it cause a mistake?_).
+- **Phase progression (phased only):** if a phase was completed, does the identity/intro
+  need to reflect it? (Phase state itself lives in `docs/PHASE_STATUS.md`, not CLAUDE.md.)
+- **Stale bootstrapping section:** once the project is scaffolded, remove the
+  "Bootstrapping" section from `CLAUDE.md` — it only applies to the first session.
 
-If any updates are needed, **propose them to the user** as a list:
+If any updates are needed, **propose them to the user** as a list, routing each to the
+right file:
 
 ```
-CLAUDE.md updates needed:
-1. Tech Stack: add "sqlite-vec 0.1.6" to dependencies
-2. Directory Structure: add "src/agents/" and "src/toolkits/"
-3. Coding Standards: add "Agent classes use @mission decorator for toolkit methods"
-4. Current Phase: advance to Phase 2
+Freshness updates needed:
+1. .claude/project.json: commands.test → "vitest run" (was "npm test")
+2. .claude/project.json: packageManager → "pnpm"
+3. CLAUDE.md (Project facts): add "RESEND_API_KEY required or email send no-ops in dev"
+4. CLAUDE.md: remove the now-stale Bootstrapping section
 ```
 
 **In interactive mode:** Wait for approval before making the changes.
