@@ -1,3 +1,23 @@
+<!--
+═══════════════════════════════════════════════════════════════════════════
+  TEMPLATE — not a live file. Named `claude.template.md`, NOT `CLAUDE.md`,
+  so Claude Code does not auto-load it. That is deliberate: the agent working
+  on this template repo should be governed by the migration plan, not by
+  consumer-project instructions.
+
+  This becomes a real project's CLAUDE.md only when a generator renders it:
+    /init-project  — greenfield; keeps the Bootstrapping section
+    /onboard       — existing repo; omits the Bootstrapping section
+
+  RENDER STEP (for the generator):
+    1. Fill the placeholders: project identity (top), "Project facts Claude
+       can't infer", and — for /init-project only — "Bootstrapping".
+    2. Leave the @.claude/RULES.md import and the manifest pointers as-is.
+    3. Write the result to ${roots.control}/CLAUDE.md (cwd auto-loads it).
+    4. Strip this comment block — it has no meaning in a live CLAUDE.md.
+═══════════════════════════════════════════════════════════════════════════
+-->
+
 # [PROJECT NAME]
 
 > [One sentence: what this is, who it's for, what makes it distinctive.]
