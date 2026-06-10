@@ -6,11 +6,12 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 
 ## What's Included
 
-**Entry points** — three ways in, scaled to the work:
+**Entry points** — four ways in, scaled to the work:
 
 - `/init-project <spec>` — greenfield: generate phase docs + manifest, render `CLAUDE.md`
 - `/onboard` — adopt an existing repo: detect the stack, infer conventions, render `CLAUDE.md`, no phase ceremony
 - `/task "<description>"` — scoped change: understand → red/green TDD → evaluate → done
+- `/plan-initiative <spec>` — multi-phase initiative on an existing project: archive the prior initiative, generate fresh phase docs with continuous numbering, flip ceremony to `phased`
 
 **Session workflow** — commands that encode a Planner → Generator → Evaluator loop (phased projects):
 
@@ -144,6 +145,7 @@ code .
 │   ├── resolve-stack.sh               # Detect-to-propose stack manifest (onboard/init)
 │   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
+│   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan-initiative)
 │   ├── settings.json                  # Permissions (convenience layer) + hooks
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/
@@ -152,6 +154,7 @@ code .
 │   ├── commands/
 │   │   ├── init-project.md            # Greenfield: scaffold + render CLAUDE.md
 │   │   ├── onboard.md                 # Adopt an existing repo (no phase ceremony)
+│   │   ├── plan-initiative.md         # Phased initiative on an existing project
 │   │   ├── start-phase.md             # Phased session initialization
 │   │   ├── handoff.md                 # Session end + dual QA + handoff
 │   │   ├── status.md                  # Quick status check
@@ -162,6 +165,7 @@ code .
 │   │   └── stop-check.sh              # Reminds about evaluation
 │   ├── skills/
 │   │   ├── task/                      # /task — scoped change entry point
+│   │   ├── phase-docs/                # Shared phase-doc templates (init-project + plan-initiative)
 │   │   ├── evaluate/                  # /evaluate — dual QA review
 │   │   ├── log-feedback/              # /log-feedback — record harness friction
 │   │   └── session-management/        # Context continuity conventions

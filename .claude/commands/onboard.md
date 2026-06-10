@@ -92,7 +92,10 @@ owns that region and no-ops safely when the markers are absent.
 Crucially: **do not create `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, or
 `docs/PHASE_STATUS.md`.** Onboard mode has no phase ceremony. From here, scoped work
 runs through `/task`; `/start-phase` and the phased machinery stay dormant (they
-no-op when `ceremony != "phased"`).
+no-op when `ceremony != "phased"`). If the project later needs a multi-phase
+initiative, the sanctioned route is `/plan-initiative <spec>` — it generates the
+phase docs and flips ceremony deliberately, which is different from onboard imposing
+them.
 
 ## After Onboarding
 

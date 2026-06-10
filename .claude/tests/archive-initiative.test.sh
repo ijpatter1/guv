@@ -1,0 +1,176 @@
+#!/bin/bash
+# Tests for .claude/archive-initiative.sh — the scriptable half of initiative
+# archival (used by /plan-initiative; the judgment half lives in the command).
+# Pure bash + git, no test runner required (this template repo ships no JS suite).
+# Run: bash .claude/tests/archive-initiative.test.sh
+set -u
+
+SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/archive-initiative.sh"
+PASS=0; FAIL=0
+ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
+no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
+
+WORK=$(mktemp -d)
+trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' EXIT
+
+# A control plane with a tracker. $1 = "complete" | "incomplete" | "none".
+make_project() {
+  local p="$WORK/proj" mode="$1"
+  rm -rf "$p"
+  mkdir -p "$p/docs/sessions" "$p/docs/spec"
+  echo "# handoff" > "$p/docs/sessions/session-2026-06-10-001.md"
+  echo "# spec" > "$p/docs/spec/old-spec.md"
+  echo "# arch" > "$p/docs/ARCHITECTURE.md"
+  [ "$mode" = "none" ] && { echo "$p"; return; }
+  echo "# reqs" > "$p/docs/REQUIREMENTS.md"
+  if [ "$mode" = "complete" ]; then
+    cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 5 — Wrap-up**
+
+## Phase 4 — Build
+
+- ✅ Deliverable A (2026-06-01, session-2026-06-01-001)
+- ✅ Deliverable B
+
+## Phase 5 — Wrap-up
+
+- ✅ Deliverable C
+MD
+  else
+    cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 5 — Wrap-up**
+
+## Phase 4 — Build
+
+- ✅ Deliverable A
+
+## Phase 5 — Wrap-up
+
+- 🔄 Deliverable B still going
+- ⬜ Deliverable C not started
+MD
+  fi
+  echo "$p"
+}
+run() { ( cd "$1" && shift && bash "$SCRIPT" "$@" ) 2>&1; }
+
+# T1 — --check on a fully-✅ tracker: exit 0, reports COMPLETE and max_phase.
+P=$(make_project complete)
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && ok "check complete: exit 0" || no "check complete should exit 0 (rc=$RC: $OUT)"
+echo "$OUT" | grep -q "status=COMPLETE" && ok "check complete: status=COMPLETE" || no "expected status=COMPLETE (got: $OUT)"
+echo "$OUT" | grep -q "max_phase=5" && ok "check complete: max_phase=5" || no "expected max_phase=5 (got: $OUT)"
+
+# T2 — --check with incomplete deliverables: exit 3, names each incomplete item.
+P=$(make_project incomplete)
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] && ok "check incomplete: exit 3" || no "check incomplete should exit 3 (rc=$RC)"
+echo "$OUT" | grep -q "Deliverable B still going" && echo "$OUT" | grep -q "Deliverable C not started" \
+  && ok "check incomplete: names the incomplete items" \
+  || no "should name every incomplete item (got: $OUT)"
+
+# T3 — --check with no tracker at all: exit 4 (fresh project, nothing to archive).
+P=$(make_project none)
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 4 ] && ok "check no-tracker: exit 4" || no "no tracker should exit 4 (rc=$RC: $OUT)"
+
+# T4 — --archive on a complete project: pair moved to docs/initiatives/001-<name>/,
+# ARCHITECTURE snapshot COPIED (original stays), sessions + spec untouched.
+P=$(make_project complete)
+OUT=$(run "$P" --archive greenfield); RC=$?
+[ "$RC" -eq 0 ] && ok "archive: exit 0" || no "archive should exit 0 (rc=$RC: $OUT)"
+A="$P/docs/initiatives/001-greenfield"
+[ -f "$A/REQUIREMENTS.md" ] && [ -f "$A/PHASE_STATUS.md" ] \
+  && ok "archive: pair moved into 001-greenfield/" || no "pair should be in $A"
+[ ! -f "$P/docs/REQUIREMENTS.md" ] && [ ! -f "$P/docs/PHASE_STATUS.md" ] \
+  && ok "archive: top-level pair gone" || no "top-level REQUIREMENTS/PHASE_STATUS should be moved away"
+[ -f "$P/docs/ARCHITECTURE.md" ] && [ -f "$A/ARCHITECTURE.md" ] \
+  && ok "archive: ARCHITECTURE snapshot copied, original kept" \
+  || no "ARCHITECTURE should be snapshot-copied, original kept"
+[ -f "$P/docs/sessions/session-2026-06-10-001.md" ] && [ -f "$P/docs/spec/old-spec.md" ] \
+  && ok "archive: sessions/ and spec/ untouched" || no "sessions and spec must never be archived"
+echo "$OUT" | grep -q "phase_range=4-5" && ok "archive: reports phase_range=4-5" \
+  || no "expected phase_range=4-5 (got: $OUT)"
+
+# T5 — --archive refuses on incomplete (exit 3) unless --force; --force archives
+# and stamps the abandonment note into the archived tracker.
+P=$(make_project incomplete)
+OUT=$(run "$P" --archive attempt); RC=$?
+[ "$RC" -eq 3 ] && ok "archive incomplete: refuses (exit 3)" || no "should refuse without --force (rc=$RC)"
+[ -f "$P/docs/PHASE_STATUS.md" ] && ok "archive incomplete: tracker left in place" || no "refusal must not move files"
+OUT=$(run "$P" --archive attempt --force); RC=$?
+[ "$RC" -eq 0 ] && ok "archive --force: exit 0" || no "--force should archive (rc=$RC: $OUT)"
+grep -q "ABANDONED" "$P/docs/initiatives/001-attempt/PHASE_STATUS.md" 2>/dev/null \
+  && ok "archive --force: abandonment noted in archived tracker" \
+  || no "archived tracker should carry the ABANDONED note"
+
+# T6 — NNN increments: second archive lands in 002-<name>/.
+P=$(make_project complete)
+run "$P" --archive first >/dev/null
+cp "$P/docs/initiatives/001-first/REQUIREMENTS.md" "$P/docs/REQUIREMENTS.md"
+cp "$P/docs/initiatives/001-first/PHASE_STATUS.md" "$P/docs/PHASE_STATUS.md"
+run "$P" --archive second >/dev/null
+[ -d "$P/docs/initiatives/002-second" ] && ok "archive: index increments to 002" \
+  || no "second archive should land in 002-second/"
+
+# T7 — name slugging: spaces/case normalize to kebab-case.
+P=$(make_project complete)
+OUT=$(run "$P" --archive "Native Alignment")
+[ -d "$P/docs/initiatives/001-native-alignment" ] && ok "archive: name slugged to kebab-case" \
+  || no "expected 001-native-alignment (got: $OUT)"
+
+# T8 — malformed tracker (no marker bullets / no phase headers) fails loud
+# (exit 5) from both --check and --archive; nothing reads as COMPLETE.
+P=$(make_project complete)
+printf '# Phase Status Tracker\n\njust prose, no deliverable bullets\n' > "$P/docs/PHASE_STATUS.md"
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "MALFORMED" \
+  && ok "check malformed: exit 5, named" || no "malformed tracker must not read as COMPLETE (rc=$RC: $OUT)"
+OUT=$(run "$P" --archive x); RC=$?
+[ "$RC" -eq 5 ] && [ -f "$P/docs/PHASE_STATUS.md" ] \
+  && ok "archive malformed: refuses, files in place" || no "archive should refuse a malformed tracker (rc=$RC)"
+# ...and each OR-branch alone: bullets without phase headers, headers without bullets.
+P=$(make_project complete)
+printf '# Tracker\n### Milestone 1\n- ✅ Deliverable A\n' > "$P/docs/PHASE_STATUS.md"
+run "$P" --check >/dev/null 2>&1; [ $? -eq 5 ] \
+  && ok "check malformed: bullets but no '## Phase N' headers → exit 5" \
+  || no "missing phase headers should be MALFORMED"
+P=$(make_project complete)
+printf '# Tracker\n## Phase 2 — Build\nno bullets here\n' > "$P/docs/PHASE_STATUS.md"
+run "$P" --check >/dev/null 2>&1; [ $? -eq 5 ] \
+  && ok "check malformed: headers but zero marker bullets → exit 5" \
+  || no "zero marker bullets should be MALFORMED"
+
+# T9 — numbering is max+1, not count+1: with 001- and 003- present (a gap,
+# e.g. after a manual deletion), the next archive is 004 — a frozen archive's
+# index is never re-issued, so it can never be merged into.
+P=$(make_project complete)
+mkdir -p "$P/docs/initiatives/001-a" "$P/docs/initiatives/003-b"
+echo frozen > "$P/docs/initiatives/003-b/PHASE_STATUS.md"
+OUT=$(run "$P" --archive c); RC=$?
+[ -d "$P/docs/initiatives/004-c" ] && ok "archive: index is max+1 across gaps (004)" \
+  || no "expected 004-c with a 001/003 gap (got: $OUT)"
+grep -q frozen "$P/docs/initiatives/003-b/PHASE_STATUS.md" \
+  && ok "archive: frozen archive untouched" || no "existing archives must never be modified"
+
+# T10 — leading-zero indices don't octal-trap the arithmetic: 009 → 010.
+P=$(make_project complete)
+mkdir -p "$P/docs/initiatives/009-old"
+OUT=$(run "$P" --archive next); RC=$?
+[ -d "$P/docs/initiatives/010-next" ] && ok "archive: 009 + 1 = 010 (no octal parse)" \
+  || no "expected 010-next after 009 (rc=$RC: $OUT)"
+
+# T11 — usage errors exit 2: no subcommand, --archive without a name, and a
+# name that slugs to empty.
+P=$(make_project complete)
+run "$P" >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage: no subcommand → exit 2" || no "no subcommand should exit 2"
+run "$P" --archive >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage: --archive without name → exit 2" || no "missing name should exit 2"
+run "$P" --archive '!!!' >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage: name slugging to empty → exit 2" || no "empty slug should exit 2"
+
+echo ""
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]

@@ -50,14 +50,19 @@ UAT=$(tracked_under docs/uat/)
 [ -n "$UAT" ] && \
   flag "UAT artifacts tracked in docs/uat/: $(echo "$UAT" | tr '\n' ' ')"
 
-# 7 — rendered project README. A rendered README carries the STATUS markers as
+# 7 — archived initiatives (frozen per-project phase docs from /plan-initiative).
+INITIATIVES=$(tracked_under docs/initiatives/)
+[ -n "$INITIATIVES" ] && \
+  flag "archived initiative docs tracked in docs/initiatives/: $(echo "$INITIATIVES" | tr '\n' ' ')"
+
+# 8 — rendered project README. A rendered README carries the STATUS markers as
 # standalone lines; the template's own README may mention them mid-line in
 # prose, and README.template.md legitimately contains them.
 if tracked README.md && git show :README.md | grep -q '^<!-- STATUS:START'; then
   flag "README.md carries a rendered STATUS block — the template's own README must not"
 fi
 
-# 8 — docs/ must stay placeholders (filled-in docs are a project's, not the template's).
+# 9 — docs/ must stay placeholders (filled-in docs are a project's, not the template's).
 placeholder() {  # $1 = file, $2 = placeholder string that must still be present
   tracked "$1" || return 0
   git show ":$1" | grep -qF "$2" || \

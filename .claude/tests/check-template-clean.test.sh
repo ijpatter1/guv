@@ -114,9 +114,11 @@ git -C "$R" add README.md
 OUT=$(run "$R"); RC=$?
 [ "$RC" -ne 0 ] && ok "staged README render: caught before commit" || no "a staged violation should fail (got: $OUT)"
 
-# T7c — other shell artifacts: agent-memory content, settings.local.json, UAT docs.
+# T7c — other shell artifacts: agent-memory content, settings.local.json, UAT
+# docs, archived initiatives.
 R=$(make_template)
-mkdir -p "$R/.claude/agent-memory/evaluator" "$R/docs/uat"
+mkdir -p "$R/.claude/agent-memory/evaluator" "$R/docs/uat" "$R/docs/initiatives/001-x"
+echo "# frozen tracker" > "$R/docs/initiatives/001-x/PHASE_STATUS.md"
 echo "learned" > "$R/.claude/agent-memory/evaluator/MEMORY.md"
 echo '{}' > "$R/.claude/settings.local.json"
 # force-add: the leak scenario is precisely a force-add past gitignore (and a
@@ -128,6 +130,7 @@ OUT=$(run "$R")
 echo "$OUT" | grep -q "agent-memory" && ok "tracked agent-memory: flagged" || no "tracked agent-memory should be flagged (got: $OUT)"
 echo "$OUT" | grep -q "settings.local.json" && ok "tracked settings.local.json: flagged" || no "tracked settings.local.json should be flagged (got: $OUT)"
 echo "$OUT" | grep -q "docs/uat" && ok "tracked docs/uat: flagged" || no "tracked docs/uat should be flagged (got: $OUT)"
+echo "$OUT" | grep -q "docs/initiatives" && ok "tracked docs/initiatives: flagged" || no "tracked docs/initiatives should be flagged (got: $OUT)"
 
 # T7d — .gitkeep exemption is exact-path: dir's own .gitkeep is fine,
 # a session file merely *ending* in .gitkeep is not.
