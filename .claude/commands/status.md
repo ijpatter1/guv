@@ -8,6 +8,7 @@ Give a quick status overview of the project without the full session initializat
 4. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" status` for any uncommitted code changes
 5. List the most recent file in `docs/sessions/` and read its **Next Steps** section (if no session files exist, note "no prior sessions")
 6. Run `bash .claude/check-citations.sh` — an advisory check that flags session-handoff citations whose commit hashes no longer resolve in the code repo. It self-limits to a control-plane split (`roots.code != roots.control`) and is silent otherwise. Capture its output.
+7. Count open harness-feedback entries: `f=.claude/feedback/feedback.ndjson; [ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0`.
 
 ## Report
 
@@ -19,5 +20,6 @@ Present a concise summary:
 - **Uncommitted changes:** yes/no
 - **Next up:** [the recommended next feature from the last handoff]
 - **Citation warnings:** _include this line only if `check-citations.sh` printed something_ — list the flagged artifact(s)/hash(es) it reported. If the script was silent, omit this line entirely.
+- **Open harness feedback:** _include this line only if the count from step 7 is > 0_ — "N open (triage with the `log-feedback` skill)". If 0, omit entirely.
 
 Keep this to 10 lines or fewer. This is a quick orientation, not a deep dive. The citation check is silent in the common case, so it costs no budget unless there's something to report.

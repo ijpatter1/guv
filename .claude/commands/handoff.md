@@ -294,11 +294,32 @@ Freshness updates needed:
 
 If no updates are needed, skip this step silently — do not announce "CLAUDE.md is up to date."
 
-## Step 10 — Summary
+## Step 10 — Harness Feedback
+
+This is about the **harness**, not the product. Reflect on the session: did any
+command, hook, skill, setting, manifest field, or doc not fit the work — error out,
+not apply, mislead, or force a workaround? If so, capture each via the `log-feedback`
+skill (it appends to `.claude/feedback/feedback.ndjson`; data only, never blocking).
+Logging friction _as it is hit_ mid-session is better, but handoff is the backstop so
+nothing is lost.
+
+Then surface what's outstanding so the log doesn't rot — count open entries:
+
+```
+f=.claude/feedback/feedback.ndjson
+[ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0
+```
+
+If the count is > 0, note it in the handoff artifact under **Issues & Technical Debt**
+(e.g. "3 open harness-feedback entries — triage with the `log-feedback` skill"), so the
+next session sees it. If 0, say nothing.
+
+## Step 11 — Summary
 
 After writing the handoff artifact and updating the phase status, present a brief summary:
 
 - What was accomplished this session (1-3 sentences)
 - Current overall phase progress (e.g., "Phase 1: 6 of 9 deliverables complete")
 - If UAT was generated: "Phase N UAT plan ready at `docs/uat/phase-N-uat.sh` — run before starting Phase N+1"
+- Any open harness-feedback count (from Step 10), if > 0
 - The recommended starting point for the next session

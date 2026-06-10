@@ -154,10 +154,13 @@ code .
 │   │   ├── bash-guard.sh              # Blocks dangerous commands (universal + opt-in guards)
 │   │   ├── auto-format.sh             # Formats on write (formatter from manifest)
 │   │   └── stop-check.sh              # Reminds about evaluation
-│   └── skills/
-│       ├── task/                      # /task — scoped change entry point
-│       ├── evaluate/                  # /evaluate — dual QA review
-│       └── session-management/        # Context continuity conventions
+│   ├── skills/
+│   │   ├── task/                      # /task — scoped change entry point
+│   │   ├── evaluate/                  # /evaluate — dual QA review
+│   │   ├── log-feedback/              # /log-feedback — record harness friction
+│   │   └── session-management/        # Context continuity conventions
+│   ├── tests/                         # Bash test suites for the harness scripts/skills
+│   └── feedback/                      # Harness-friction log (created on first /log-feedback)
 ├── docs/
 │   ├── REQUIREMENTS.md                # Development plan (phased; YOU EDIT THIS)
 │   ├── ARCHITECTURE.md                # Technical architecture (phased; YOU EDIT THIS)
