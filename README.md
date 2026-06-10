@@ -66,6 +66,7 @@ This reads your spec and generates the project-specific artifacts:
 
 - `.claude/project.json` — the manifest: language, package manager, commands, roots, ceremony
 - `CLAUDE.md` — **rendered from `CLAUDE.template.md`**, holding only the facts Claude can't infer (it imports `@.claude/RULES.md` and points at the manifest for commands)
+- `README.md` — **rendered from `README.template.md`** into a _project_-facing README (with a status block `/handoff` keeps current), replacing this harness README
 - `docs/REQUIREMENTS.md` — phases and deliverables extracted from your spec
 - `docs/ARCHITECTURE.md` — Phase 1 detailed architecture, later phases stubbed
 - `docs/PHASE_STATUS.md` — deliverable tracker matching REQUIREMENTS.md
@@ -79,6 +80,7 @@ Review the generated files, adjust anything that needs it, then commit and start
 **Manual alternative** — render the template by hand:
 
 - **Copy** `CLAUDE.template.md` to `CLAUDE.md` (leave the template in place — it's the reusable source), then in the copy fill the project identity and the "Project facts Claude can't infer" section (for greenfield, keep "Bootstrapping") and strip the leading `<!-- TEMPLATE … -->` comment. Leave the `@.claude/RULES.md` import and the manifest pointers as-is.
+- **Copy** `README.template.md` to `README.md` (overwriting this harness README), fill the `[bracketed]` placeholders, keep the `<!-- STATUS:START/END -->` markers, and strip the `<!-- TEMPLATE … -->` comment.
 - Edit `.claude/project.json` to declare your stack, commands, `roots`, `guards`, and `ceremony`.
 - For phased projects, define `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_STATUS.md`.
 
@@ -132,12 +134,16 @@ code .
 
 ```
 ├── CLAUDE.template.md                 # Inert source for CLAUDE.md (rendered, not auto-loaded)
+├── README.template.md                 # Inert source for the PROJECT README (rendered on scaffold/onboard)
 ├── Makefile                           # Container lifecycle (base image from manifest)
 ├── .gitignore                         # Git exclusions
 ├── .claude/
 │   ├── project.json                   # MANIFEST — single source of truth (stack/commands/roots/ceremony)
 │   ├── project.schema.json            # Manifest schema (validation + self-docs)
 │   ├── RULES.md                       # Behavioral core (imported by rendered CLAUDE.md)
+│   ├── resolve-stack.sh               # Detect-to-propose stack manifest (onboard/init)
+│   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
+│   ├── update-readme-status.sh        # Maintains the README STATUS block in place
 │   ├── settings.json                  # Permissions (convenience layer) + hooks
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/

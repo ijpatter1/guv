@@ -234,6 +234,29 @@ Rules:
 - Commands → stay in `.claude/project.json`, never restated in `CLAUDE.md`.
 - Add the original spec document to the "Project facts" section as a reference.
 
+### Step 7 — Render the project README
+
+The template ships a harness-facing `README.md` (about the harness itself). Replace it
+with a **project** README rendered from `README.template.md`:
+
+1. Read `README.template.md`.
+2. Fill the `[bracketed]` placeholders from the Step 1 analysis: project name +
+   one-liner, the quick-start commands (resolved from `commands.install`/`test`/`dev`),
+   and the "Where things live" paths (`roots`). Trim the "Contributing" footer for a
+   public artifact if appropriate.
+3. **Keep the `<!-- STATUS:START/END -->` markers verbatim** — do not hand-write phase
+   numbers between them.
+4. Strip the leading `<!-- TEMPLATE … -->` comment block.
+5. Write the result to `${roots.control}/README.md` (overwriting the harness README).
+6. Populate the initial status block from the freshly written tracker:
+
+   ```bash
+   printf '%s\n' "**Phase 1 — [name]** · 0/[N] deliverables · not started" \
+     | bash .claude/update-readme-status.sh README.md
+   ```
+
+Thereafter `/handoff` keeps that block current; never hand-edit between the markers.
+
 ## After Generation
 
 Present a summary of what was generated:
@@ -243,11 +266,12 @@ Present a summary of what was generated:
 - **docs/PHASE_STATUS.md** — N deliverables tracked
 - **.claude/project.json** — manifest for [language/package-manager], `ceremony: phased`
 - **CLAUDE.md** — rendered from `CLAUDE.template.md` for [tech stack summary]
+- **README.md** — rendered from `README.template.md` (project-facing, with a maintained status block)
 
 Suggest the user review each file, then:
 
 ```
-git add docs/ .claude/project.json CLAUDE.md
+git add docs/ .claude/project.json CLAUDE.md README.md
 git commit -m "docs: scaffold project from spec"
 git checkout -b phase/1-[phase-name]
 ```

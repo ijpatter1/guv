@@ -67,7 +67,27 @@ Claude Code auto-loads it):
 5. Strip the leading `<!-- TEMPLATE … -->` comment block.
 6. Write the result to `${roots.control}/CLAUDE.md`.
 
-## Step 5 — Do NOT Impose Phase Structure
+## Step 5 — Reconcile the README (do NOT clobber an existing one)
+
+An existing repo almost always has its own `README.md` — that is the project's, and it
+must be respected (RULES rule 6). Decide by what's present:
+
+- **The repo's README is the harness template README** (e.g. it still says "Claude Code
+  Development Environment" — common when someone copied this template without rendering):
+  render `README.template.md` → `README.md` as `/init-project` does, describing what's
+  already there. (The one greenfield line, `_Status: not yet scaffolded._`, is replaced
+  by the status block update in the next step anyway.)
+- **The repo has its own real project README:** leave its prose alone. Only ensure a
+  maintained status block exists — if it has the `<!-- STATUS:START/END -->` markers,
+  the next step updates them; if not, offer to insert the marker block (with a one-line
+  "developed with the Claude Code harness" note) near the top, but only with the user's
+  ok. Never overwrite the file.
+- **No README at all:** render `README.template.md` → `README.md` in full.
+
+In all cases, never hand-edit between the STATUS markers; `update-readme-status.sh`
+owns that region and no-ops safely when the markers are absent.
+
+## Step 6 — Do NOT Impose Phase Structure
 
 Crucially: **do not create `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, or
 `docs/PHASE_STATUS.md`.** Onboard mode has no phase ceremony. From here, scoped work

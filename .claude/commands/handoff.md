@@ -294,6 +294,24 @@ Freshness updates needed:
 
 If no updates are needed, skip this step silently — do not announce "CLAUDE.md is up to date."
 
+### Refresh the README status block
+
+If a `README.md` with `<!-- STATUS:START/END -->` markers exists, regenerate the block
+from the current state — **derive it, don't hand-write it** (the markers' content is a
+view of `docs/PHASE_STATUS.md`, not a second source of truth). Compose a one-line status
+and pipe it to the updater (which no-ops safely if the markers are absent, so it never
+clobbers a consumer README):
+
+```bash
+# phased: derive phase + completed/total from docs/PHASE_STATUS.md
+printf '%s\n' "**Phase N — [name]** · X/Y deliverables · session-YYYY-MM-DD-NNN" \
+  | bash .claude/update-readme-status.sh README.md
+```
+
+For `task`/`onboard` ceremony (no phase tracker), write a non-phase line instead, e.g.
+`_Active (task mode) · last session session-YYYY-MM-DD-NNN._`. Never edit between the
+markers by hand.
+
 ## Step 10 — Harness Feedback
 
 This is about the **harness**, not the product. Reflect on the session: did any
