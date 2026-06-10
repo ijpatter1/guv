@@ -21,6 +21,14 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 
 **Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/RULES.md`.
 
+**Repo topology** — single repo by default (`roots` both `"."`). For a control-plane / code split, Claude launches in the control plane and the product is a sibling repo. Convention: the code repo keeps the plain product name, the control plane is `<product>-control`, and the manifest's `name` stays the _product_ name (it feeds image/container labels):
+
+```
+~/dev/
+├── <product>/           # code repo            → roots.code: "../<product>"
+└── <product>-control/   # control plane (cwd)  → roots.control: "."
+```
+
 **QA evaluator subagent** — An independent, skeptical reviewer that grades work on five criteria (Functionality, Test Quality, Code Quality, Completeness, Integration). Runs in its own context window with read-only enforcement. Auto-invoked before every session handoff.
 
 **Docker sandbox** — Isolated container for `--dangerously-skip-permissions` mode with iptables firewall, non-root execution, and domain allowlisting. Optional — works without Docker too.
