@@ -21,7 +21,14 @@ Read `.claude/project.json`. Check whether the project has been scaffolded by ru
 sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" && echo SCAFFOLDED || echo NOT_SCAFFOLDED
 ```
 
-- **If `SCAFFOLDED`:** Run the project's test command — `jq -r '.commands.test' .claude/project.json` — and record the results: total tests, passing, failing, skipped. If `commands.test` is `null`, the project has no test step; skip cleanly and note it. If any tests are failing, note them — you must not introduce additional failures during this session.
+- **If `SCAFFOLDED`:** Before running tools, check readiness if the manifest declares it. `readyCheck` answers "are the tools installed/runnable" — distinct from `scaffoldCheck`'s "does a project exist." If `readyCheck` is present and **fails**, the state is **NOT_INSTALLED**: the project is scaffolded but its dependencies aren't (common on a fresh clone where tools live in `node_modules`/`.venv`). In that case run the declared install command — `commands.install` from the manifest — rather than running tests into spurious failures; note it. (If `commands.install` is `null`, surface that deps appear missing but no install command is declared.) Then run the project's test command — `jq -r '.commands.test' .claude/project.json` — and record the results: total tests, passing, failing, skipped. If `commands.test` is `null`, the project has no test step; skip cleanly and note it. If any tests are failing, note them — you must not introduce additional failures during this session.
+
+  ```
+  READY=$(jq -r '.readyCheck // empty' .claude/project.json)
+  [ -n "$READY" ] && { sh -c "$READY" >/dev/null 2>&1 && echo READY || echo NOT_INSTALLED; } || echo READY
+  # NOT_INSTALLED → run:  sh -c "$(jq -r '.commands.install // empty' .claude/project.json)"
+  ```
+
 - **If `NOT_SCAFFOLDED`:** The project hasn't been scaffolded yet. This is expected for the very first session of a `phased` project. Skip to Step 2 and note that scaffolding is the first deliverable. See the "Bootstrapping" section in CLAUDE.md for scaffolding requirements.
 
 ## Step 2 — Load Phase Context

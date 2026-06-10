@@ -29,9 +29,10 @@ hasglob() { compgen -G "$DIR/$1" >/dev/null 2>&1; }
 LANGUAGE=""
 PACKAGE_MANAGER="null"
 SCAFFOLD_CHECK=""
+READY_CHECK="null"   # "tools installed/runnable" — distinct from scaffoldCheck; null = none
 declare -a GUARDS=()
 # command defaults; "null" (literal) means the project has no such step
-CMD_TEST="null"; CMD_BUILD="null"; CMD_LINT="null"; CMD_FORMAT="null"; CMD_DEV="null"
+CMD_TEST="null"; CMD_BUILD="null"; CMD_LINT="null"; CMD_FORMAT="null"; CMD_DEV="null"; CMD_INSTALL="null"
 declare -a FMT_EXT=()
 
 # JSON string or literal null
@@ -41,6 +42,7 @@ jstr() { if [ "$1" = "null" ]; then printf 'null'; else jq -Rn --arg s "$1" '$s'
 if has package.json; then
   LANGUAGE="node"
   SCAFFOLD_CHECK="test -f package.json"
+  READY_CHECK="test -d node_modules"   # deps installed (tools live in node_modules/.bin)
   # package manager from lockfile, then the packageManager field
   if   has pnpm-lock.yaml;     then PM="pnpm"
   elif has yarn.lock;         then PM="yarn"
@@ -49,6 +51,7 @@ if has package.json; then
   else PM=$(jq -r '.packageManager // empty' "$DIR/package.json" 2>/dev/null | sed 's/@.*//'); PM="${PM:-npm}"
   fi
   PACKAGE_MANAGER="$PM"
+  CMD_INSTALL="$PM install"   # remediation when node_modules is absent
   # propose commands from package.json scripts
   SCRIPTS=$(jq -r '(.scripts // {}) | keys[]' "$DIR/package.json" 2>/dev/null || true)
   hasscript() { echo "$SCRIPTS" | grep -qx "$1"; }
@@ -68,10 +71,11 @@ if has package.json; then
 
 elif has pyproject.toml || has requirements.txt; then
   LANGUAGE="python"
-  if has uv.lock;     then PACKAGE_MANAGER="uv"
-  elif has poetry.lock; then PACKAGE_MANAGER="poetry"
-  else PACKAGE_MANAGER="pip"; fi
+  if has uv.lock;     then PACKAGE_MANAGER="uv";     CMD_INSTALL="uv sync"
+  elif has poetry.lock; then PACKAGE_MANAGER="poetry"; CMD_INSTALL="poetry install"
+  else PACKAGE_MANAGER="pip"; CMD_INSTALL="pip install -r requirements.txt"; fi
   has pyproject.toml && SCAFFOLD_CHECK="test -f pyproject.toml" || SCAFFOLD_CHECK="test -f requirements.txt"
+  READY_CHECK="test -d .venv"   # tools typically live in a project venv; adjust if global
   CMD_TEST="pytest"
   CMD_BUILD="null"          # interpreted — no build step
   CMD_LINT="ruff check ."
@@ -98,6 +102,7 @@ elif has go.mod; then
 elif has Gemfile; then
   LANGUAGE="ruby"; PACKAGE_MANAGER="bundler"
   SCAFFOLD_CHECK="test -f Gemfile"
+  CMD_INSTALL="bundle install"
   CMD_TEST="bundle exec rspec"; CMD_LINT="bundle exec rubocop"
   CMD_FORMAT="bundle exec rubocop -A"   # auto-correct a single file
   FMT_EXT=(rb)
@@ -119,12 +124,14 @@ elif hasglob "*.csproj" || hasglob "*.sln"; then
   LANGUAGE="dotnet"; PACKAGE_MANAGER="dotnet"
   SCAFFOLD_CHECK="ls *.csproj >/dev/null 2>&1 || ls *.sln >/dev/null 2>&1"
   CMD_TEST="dotnet test"; CMD_BUILD="dotnet build"; CMD_FORMAT="dotnet format"
+  CMD_INSTALL="dotnet restore"
   FMT_EXT=(cs)
 
 elif has mix.exs; then
   LANGUAGE="elixir"; PACKAGE_MANAGER="mix"
   SCAFFOLD_CHECK="test -f mix.exs"
   CMD_TEST="mix test"; CMD_BUILD="mix compile"; CMD_FORMAT="mix format"
+  CMD_INSTALL="mix deps.get"
   FMT_EXT=(ex exs)
 
 else
@@ -148,7 +155,9 @@ jq -n \
   --argjson lint "$(jstr "$CMD_LINT")" \
   --argjson format "$(jstr "$CMD_FORMAT")" \
   --argjson dev "$(jstr "$CMD_DEV")" \
+  --argjson install "$(jstr "$CMD_INSTALL")" \
   --arg scaffoldCheck "$SCAFFOLD_CHECK" \
+  --argjson readyCheck "$(jstr "$READY_CHECK")" \
   --argjson formatExtensions "$FMT_JSON" \
   --argjson guards "$GUARDS_JSON" \
   '{
@@ -157,8 +166,9 @@ jq -n \
     language: $language,
     packageManager: $packageManager,
     roots: { control: ".", code: "." },
-    commands: { test: $test, build: $build, lint: $lint, format: $format, dev: $dev },
+    commands: { test: $test, build: $build, lint: $lint, format: $format, dev: $dev, install: $install },
     scaffoldCheck: $scaffoldCheck,
+    readyCheck: $readyCheck,
     formatExtensions: $formatExtensions,
     guards: $guards,
     ceremony: "onboard"

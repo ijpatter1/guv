@@ -11,10 +11,19 @@ If no file path is provided, check the workspace for common spec file patterns: 
 ## Process
 
 Read the spec document thoroughly, then generate the project-specific artifacts in
-sequence — the three phase docs (`docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`,
-`docs/PHASE_STATUS.md`), the manifest (`.claude/project.json`), and a rendered
+sequence: analyze → **write the manifest** → the three phase docs
+(`docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_STATUS.md`) → a rendered
 `CLAUDE.md` (from `CLAUDE.template.md`). Each builds on the previous one — do not
 generate them in parallel.
+
+**Write the manifest BEFORE the docs (Step 2), not after.** The template ships
+`.claude/project.json` defaulted to node/npm with Prettier formatting `.md` files. The
+auto-format hook reads that manifest on every write — so if you generate the markdown
+docs while the stale default manifest is still live, Prettier will reformat them
+mid-generation (e.g. `*x*` → `_x_`), which silently breaks the verbatim
+REQUIREMENTS↔PHASE_STATUS deliverable sync this command depends on. Writing the real
+manifest first means the correct formatter (or none, for a not-yet-scaffolded project
+whose formatter isn't installed) governs doc generation.
 
 ### Step 1 — Analyze the Spec
 
@@ -40,9 +49,48 @@ Before writing any files, extract and present a summary for the user to confirm:
 - Number of deliverables per phase
 - Key dependencies between phases
 
-**Wait for the user to confirm or adjust this summary before proceeding to file generation.**
+**Repo topology** (decide explicitly — don't default silently to single-repo):
 
-### Step 2 — Generate docs/REQUIREMENTS.md
+- **Single-repo** (`roots` both `"."`) — the framework files, docs, and product code share one tree and one history. Fine for an internal app where the sandbox/Makefile/`.claude/` riding along is harmless.
+- **Control-plane split** (`roots.code` = a sibling like `"../<product>"`) — the product lives in its own repo; this control plane holds docs + `.claude/` + the sandbox. **Recommend the split whenever the spec describes a publishable or standalone artifact** (a library, a public CLI, anything that gets its own GitHub repo): otherwise the product's Makefile collides with the sandbox Makefile and the framework files pollute the product's public history. Ask the user which topology they want and record it in `roots`.
+
+**Spec provenance** — if you copy the spec into the repo, write it to a path that won't collide with generated docs (NOT `docs/REQUIREMENTS.md` — use e.g. `docs/spec/<original-name>.md`), and stamp a provenance header at the top: source path/URL, ingestion date, and a one-line note that it's the immutable source the generated docs derive from. Reference it from the rendered `CLAUDE.md`'s "Project facts" section. This prevents the generated REQUIREMENTS.md from being mistaken for, or overwriting, the source spec.
+
+**Wait for the user to confirm or adjust this summary (identity, stack, phases, topology) before proceeding to file generation.**
+
+### Step 2 — Write the Manifest (before any docs)
+
+Write `.claude/project.json` now, before generating the markdown docs (see the Process
+note above for why ordering matters). If the workspace already has stack files (e.g. a
+`package.json` from prior scaffolding), bootstrap the proposal with the resolver, then
+confirm/override its values:
+
+```bash
+bash .claude/resolve-stack.sh .   # proposes a manifest from detected stack files
+```
+
+If nothing is detectable yet (typical for greenfield before scaffolding), write the
+manifest from the Step 1 analysis instead. Either way, validate against
+`.claude/project.schema.json` and set: `name`, `language`, `packageManager`, the
+`commands` (`null` for any step the stack lacks, including `commands.install` — the
+declared remediation run when `readyCheck` fails), `scaffoldCheck` ("does a project
+exist" — point at the project manifest file), `readyCheck` ("are the tools installed"
+— e.g. `test -d node_modules`, or `null` if tools are global), `formatExtensions`,
+`guards` (only what applies), `roots` (per the topology decided in Step 1), and — since
+this is greenfield — **`ceremony: "phased"`** (the resolver proposes `"onboard"`;
+override it).
+
+Verify the resolver's `readyCheck`/`commands.install` guesses actually match how this
+project installs tools — they're heuristics. In particular the Python guess
+(`readyCheck: "test -d .venv"`) is wrong for global/conda/system-Python setups; set
+`readyCheck` to `null` there. A `readyCheck` with no matching `commands.install` leaves
+the not-installed state with no declared fix, so set them together or both to `null`.
+
+After this step the auto-format hook uses _this_ manifest, so the docs generated below
+are formatted by the project's own formatter (or left alone if its formatter isn't
+installed yet) — not by the stale template default.
+
+### Step 3 — Generate docs/REQUIREMENTS.md
 
 Write `docs/REQUIREMENTS.md` following this structure:
 
@@ -83,7 +131,7 @@ Rules:
 - Include a validation/acceptance section per phase if the spec has one
 - Preserve the spec's own phase structure if it has one — do not re-sequence unless the ordering has clear dependency violations
 
-### Step 3 — Generate docs/ARCHITECTURE.md
+### Step 4 — Generate docs/ARCHITECTURE.md
 
 Write `docs/ARCHITECTURE.md` following this structure:
 
@@ -129,7 +177,7 @@ Rules:
 - Later phases get stubs only — detailed architecture written too early becomes stale
 - If the spec has architectural diagrams or component descriptions, preserve their substance
 
-### Step 4 — Generate docs/PHASE_STATUS.md
+### Step 5 — Generate docs/PHASE_STATUS.md
 
 Write `docs/PHASE_STATUS.md` by copying deliverables from the REQUIREMENTS.md you just generated:
 
@@ -159,26 +207,11 @@ Rules:
 - All items start as ⬜
 - Do not add, remove, or reword any deliverables
 
-### Step 5 — Write the Manifest, then Render CLAUDE.md
+### Step 6 — Render CLAUDE.md
 
-First ensure `.claude/project.json` reflects this project. If the workspace already
-has stack files (e.g. a `package.json` from prior scaffolding), bootstrap the proposal
-with the resolver, then confirm/override its values:
-
-```bash
-bash .claude/resolve-stack.sh .   # proposes a manifest from detected stack files
-```
-
-If nothing is detectable yet (typical for greenfield before scaffolding), write the
-manifest from the Step 1 analysis instead. Either way, validate against
-`.claude/project.schema.json` and set: `name`, `language`, `packageManager`, the
-`commands` (`null` for any step the stack lacks), `scaffoldCheck`, `formatExtensions`,
-`guards` (only what applies), `roots` (both `"."` for single-repo), and — since this is
-greenfield — **`ceremony: "phased"`** (the resolver proposes `"onboard"`; override it).
-
-Then **render the inert template into a live `CLAUDE.md`** — the template ships as
-`CLAUDE.template.md` and deliberately does _not_ auto-load; rendering is what makes it
-govern this project:
+The manifest was already written in Step 2. Now **render the inert template into a live
+`CLAUDE.md`** — the template ships as `CLAUDE.template.md` and deliberately does _not_
+auto-load; rendering is what makes it govern this project:
 
 1. Read `CLAUDE.template.md`.
 2. Fill its placeholders:

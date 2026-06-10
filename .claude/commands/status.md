@@ -2,7 +2,7 @@ Give a quick status overview of the project without the full session initializat
 
 ## Gather State
 
-1. Read `.claude/project.json`. Run its `scaffoldCheck`; if it passes, run `commands.test` and capture pass/fail counts (skip cleanly if `commands.test` is `null`). If `scaffoldCheck` fails, note the project isn't scaffolded yet.
+1. Read `.claude/project.json`. Run its `scaffoldCheck`. If it fails, note the project isn't scaffolded yet. If it passes, also run `readyCheck` (when present): if `readyCheck` **fails** the project is **NOT_INSTALLED** — report "scaffolded, deps not installed (run `commands.install`)" and **do not** run the tests (they'd fail spuriously). Only when scaffolded and ready (or no `readyCheck`) run `commands.test` and capture pass/fail counts (skip cleanly if `commands.test` is `null`).
 2. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -5` for recent code activity (if git is initialized; otherwise note "no git history"). `roots.code` is `"."` for single-repo, so this is a no-op there.
 3. Read `docs/PHASE_STATUS.md` for phase completion state (only in `phased` projects; if it's absent — `task`/`onboard` mode — report the current phase as "N/A (`<ceremony>` mode)" and skip phase progress)
 4. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" status` for any uncommitted code changes

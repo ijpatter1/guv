@@ -2,11 +2,27 @@ End the current work session by running QA evaluation, generating a structured h
 
 ## Step 1 — Invoke the Evaluator
 
-Before anything else, invoke the `evaluator` subagent using the Agent tool. Build the prompt string for the evaluator by gathering (run git against the **code** repo — `roots.code` from the manifest, a no-op for single-repo):
+Before anything else, invoke the `evaluator` subagent using the Agent tool. First decide **which repo's commits to evaluate**. Normally it's the code repo, but a pre-scaffold or docs-only session (e.g. the very first `phased` session, or any session that only touched control-plane docs) has no code history yet — `git -C roots.code log` would error or be empty. Pick the target:
 
-1. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -10` to identify this session's commits
-2. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" diff HEAD~N` (where N = number of session commits) to get the full diff
-3. Read `docs/PHASE_STATUS.md` for the current phase number
+```
+CODE=$(jq -r '.roots.code' .claude/project.json)
+CONTROL=$(jq -r '.roots.control' .claude/project.json)
+# Use the code repo only if it's scaffolded AND a git repo with commits; else the control plane.
+if sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" 2>/dev/null \
+   && git -C "$CODE" rev-parse --verify HEAD >/dev/null 2>&1; then
+  TARGET="$CODE"   # evaluate product commits
+else
+  TARGET="$CONTROL"   # pre-scaffold / docs-only: evaluate control-plane session commits
+fi
+```
+
+Then gather (a no-op for single-repo, where both roots are `"."`):
+
+1. Run `git -C "$TARGET" log --oneline -10` to identify this session's commits
+2. Run `git -C "$TARGET" diff HEAD~N` (where N = number of session commits) to get the full diff
+3. Read `docs/PHASE_STATUS.md` for the current phase number (skip if absent — non-phased)
+
+If `TARGET` is the control plane, tell the evaluator it's reviewing control-plane / doc work for a pre-scaffold session, not product code, so it judges accordingly rather than reporting "no tests" against documentation.
 
 Then pass a prompt like: "Evaluate the following work from Phase [N]. Commits this session: [list]. The diff covers these files: [list changed files]. Run your full evaluation procedure."
 
