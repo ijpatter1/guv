@@ -31,5 +31,5 @@
     "yaml"
   ],
   "guards": ["npm-publish"],
-  "ceremony": "phased"
+  "ceremony": "task"
 }
