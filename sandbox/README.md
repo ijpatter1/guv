@@ -11,29 +11,31 @@ make sandbox                          # build + start
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `make build` | Build the sandbox Docker image |
-| `make sandbox` | Start interactive Claude Code session |
-| `make attach` | Reattach to a running sandbox (after crash/disconnect) |
-| `make shell` | Start bash shell in sandbox (debugging) |
-| `make prompt P="..."` | Run a headless prompt |
-| `make resume S="name"` | Resume a named session |
-| `make dev` | Run dev server on **host** (not in Docker) |
-| `make stop` | Stop the running container |
-| `make clean` | Remove container and image (preserves volumes) |
-| `make clean-all` | Full reset — remove container, image, AND volumes |
-| `make gcp-setup` | Print GCP service account setup instructions |
-| `make test-fw` | Verify firewall blocks non-allowlisted traffic |
+| Command                | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| `make build`           | Build the sandbox Docker image                         |
+| `make sandbox`         | Start interactive Claude Code session                  |
+| `make attach`          | Reattach to a running sandbox (after crash/disconnect) |
+| `make shell`           | Start bash shell in sandbox (debugging)                |
+| `make prompt P="..."`  | Run a headless prompt                                  |
+| `make resume S="name"` | Resume a named session                                 |
+| `make dev`             | Run dev server on **host** (not in Docker)             |
+| `make stop`            | Stop the running container                             |
+| `make clean`           | Remove container and image (preserves volumes)         |
+| `make clean-all`       | Full reset — remove container, image, AND volumes      |
+| `make gcp-setup`       | Print GCP service account setup instructions           |
+| `make test-fw`         | Verify firewall blocks non-allowlisted traffic         |
 
 ## How Settings Load
 
 Claude Code loads configuration from two `.claude/` directories:
 
 **Project settings** → `/workspace/.claude/` (bind-mounted from your project)
+
 - `settings.json`, agents, commands, skills, hooks
 
 **User state** → `/home/claude/.claude/` (Docker named volume)
+
 - Auth tokens, session history, auto-memory
 
 Claude Code merges both at runtime. Project settings take precedence. Use `make clean-all` for a full reset if stale user-level settings cause issues.
@@ -60,7 +62,7 @@ File changes from Claude Code appear instantly via bind mount. Hot reload works 
 
 **Non-root execution.** Entrypoint runs as root for iptables only, then drops to `claude` user via `runuser`. No root process after startup.
 
-**Git push blocked.** The bash-guard hook blocks all `git push`. Push from your host terminal after review.
+**Destructive git blocked.** The bash-guard hook blocks `git reset --hard origin` (it discards local work). `git push` is allowed — the agent can push branches; review the diff on the remote / in the PR.
 
 ## Adding Domains
 
@@ -76,9 +78,9 @@ Places a service account key at `secrets/gcp-service-account.json` (gitignored).
 
 ## Volumes
 
-| Volume | Path | Contains |
-|--------|------|----------|
-| `claude-config` | `/home/claude/.claude` | Auth, session history |
-| `claude-data` | `/home/claude/.local/share/claude` | Transcripts |
+| Volume          | Path                               | Contains              |
+| --------------- | ---------------------------------- | --------------------- |
+| `claude-config` | `/home/claude/.claude`             | Auth, session history |
+| `claude-data`   | `/home/claude/.local/share/claude` | Transcripts           |
 
 `make clean` keeps volumes. `make clean-all` removes them (re-authenticate after).

@@ -12,13 +12,13 @@
 #
 # This hook should be safe to use WITH OR WITHOUT the Docker sandbox.
 # When running outside Docker (e.g., native Claude Code with built-in sandbox),
-# this hook provides the primary enforcement for patterns like git push and
-# destructive cloud commands that the Docker firewall would otherwise catch.
+# this hook provides the primary enforcement for destructive patterns (filesystem
+# wipes, hard resets, publishes) that the Docker firewall would otherwise catch.
 #
 # STACK-AGNOSTIC GUARDS:
 # The blocked set is two parts:
 #   - UNIVERSAL_BLOCKED — always on, true stack-agnostic core (destructive FS ops,
-#     pipe-to-shell, git push). Every project gets these.
+#     pipe-to-shell, hard reset to remote). Every project gets these.
 #   - Optional guards keyed by name (gcp, npm-publish, cargo-publish, …), layered
 #     on only when listed in the manifest's "guards" array. A Rust CLI carries no
 #     GCP guards it will never trigger; a GCP project opts in via "guards":["gcp"].
@@ -43,9 +43,8 @@ UNIVERSAL_BLOCKED=(
   'chmod\s+-R\s+777\s+/'            # open permissions from root
   '>\s*/dev/sd[a-z]'                # write to raw disk
 
-  # Git push — all forms blocked. Push from host terminal after review.
-  'git\s+push'                      # any git push (including safe ones)
-  'git\s+reset\s+--hard\s+origin'   # hard reset to remote
+  # Destructive git. (git push is intentionally NOT blocked — the agent may push.)
+  'git\s+reset\s+--hard\s+origin'   # hard reset to remote — discards local work
 
   # Pipe-to-shell (remote code execution)
   'curl.*\|\s*(ba)?sh'              # pipe curl to shell
