@@ -134,7 +134,7 @@ mkdir -p "$DEST/docs/sessions"
 # Gitignore agent-memory in the control plane (feedback IS committed here — it's the
 # dogfooding record).
 if [ ! -f "$DEST/.gitignore" ]; then
-  printf '.claude/agent-memory/\n.claude/settings.local.json\n' > "$DEST/.gitignore"
+  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\n' > "$DEST/.gitignore"
 fi
 
 # Init the control plane's own git (its own commit stream), if not already a repo.

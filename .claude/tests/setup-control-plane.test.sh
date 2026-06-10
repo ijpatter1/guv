@@ -57,6 +57,8 @@ run_setup "$H" "$D"
 FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
 [ -z "$FOUND" ] && ok "create: no .DS_Store copied into the control plane" \
   || no "create: .DS_Store leaked into the control plane: $FOUND"
+grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
+  || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
 
 # T3 — --sync also scrubs a .DS_Store that already sits in the destination core
 # (rm -rf + re-copy of each item must not leave or re-introduce one).
