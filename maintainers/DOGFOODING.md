@@ -96,7 +96,10 @@ plane before testing them.
 
 ## What still lives in the harness repo
 
-Durable maintainer tooling (this file, the setup script, a future CI clean-check) is the
+Durable maintainer tooling (this file, the setup script, the CI clean-check —
+`check-template-clean.sh` here plus the `maintainer-ci` workflow at
+`.github/workflows/template-clean.yml`, which is pinned to the template repo so it
+never runs in a consumer copy) is the
 _bootstrap_ for the split, so it lives here — you need it before the control plane
 exists. Ongoing **session** artifacts do not: they belong in the control plane. The
 distinction is the same one the feedback log's `routing` field encodes: _is this about

@@ -1,0 +1,40 @@
+# Maintainer CI for the TEMPLATE repo only — two checks:
+#   template-clean  — no project-shell artifacts tracked (maintainers/check-template-clean.sh)
+#   harness-tests   — all bash suites in .claude/tests/
+#
+# Both jobs are pinned to the canonical template repo, so this workflow is inert
+# (skipped, not red) in forks and "Use this template" copies. Consumers can also
+# simply delete this file — nothing else references it.
+#
+# Maintainers: if this repo is ever renamed or transferred, update the slug in
+# both `if:` lines — otherwise the guard silently stops running (jobs show
+# "skipped" in the canonical repo too).
+name: maintainer-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  template-clean:
+    if: github.repository == 'ijpatter1/claude-code-sandbox'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Template carries no project-shell artifacts
+        run: bash maintainers/check-template-clean.sh
+
+  harness-tests:
+    if: github.repository == 'ijpatter1/claude-code-sandbox'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run all bash test suites
+        run: |
+          fail=0
+          for t in .claude/tests/*.test.sh; do
+            echo "== $(basename "$t") =="
+            bash "$t" || fail=1
+          done
+          exit "$fail"
