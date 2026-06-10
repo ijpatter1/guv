@@ -13,6 +13,10 @@ echo "[firewall] Initializing iptables firewall..."
 
 # ─────────────────────────────────────────────
 # CORE DOMAINS (required for Claude Code and basic dev tooling)
+# Always-on: Anthropic + GitHub. The package registry is chosen per the
+# project's declared `language` (.claude/project.json) so a project only
+# resolves the registry it needs — a Rust CLI never opens npm, a Python
+# service never opens crates.io.
 # ─────────────────────────────────────────────
 
 ALLOWED_DOMAINS=(
@@ -21,15 +25,33 @@ ALLOWED_DOMAINS=(
     "claude.ai"
     "statsig.anthropic.com"
 
-    # npm registry (required for package installation)
-    "registry.npmjs.org"
-    "www.npmjs.com"
-
     # GitHub (required for git operations — push blocked by bash-guard hook)
     "github.com"
     "raw.githubusercontent.com"
     "objects.githubusercontent.com"
 )
+
+# Per-language package registries. Read the declared language from the manifest
+# (mounted at /workspace/.claude/project.json) and add only its registries.
+LANGUAGE=$(jq -r '.language // empty' /workspace/.claude/project.json 2>/dev/null || true)
+case "$LANGUAGE" in
+    node)   REGISTRY_DOMAINS=( "registry.npmjs.org" "www.npmjs.com" ) ;;
+    python) REGISTRY_DOMAINS=( "pypi.org" "files.pythonhosted.org" ) ;;
+    rust)   REGISTRY_DOMAINS=( "crates.io" "static.crates.io" "index.crates.io" ) ;;
+    go)     REGISTRY_DOMAINS=( "proxy.golang.org" "sum.golang.org" ) ;;
+    ruby)   REGISTRY_DOMAINS=( "rubygems.org" "index.rubygems.org" ) ;;
+    jvm)    REGISTRY_DOMAINS=( "repo.maven.apache.org" "repo1.maven.org" ) ;;
+    dotnet) REGISTRY_DOMAINS=( "api.nuget.org" ) ;;
+    elixir) REGISTRY_DOMAINS=( "hex.pm" "repo.hex.pm" "builds.hex.pm" ) ;;
+    *)
+        # No (or unrecognized) language declared — default to npm to preserve
+        # the original behavior. A declared language narrows this set.
+        echo "[firewall] No recognized 'language' in manifest (got '${LANGUAGE:-none}') — defaulting to npm registry"
+        REGISTRY_DOMAINS=( "registry.npmjs.org" "www.npmjs.com" )
+        ;;
+esac
+echo "[firewall] Language '${LANGUAGE:-none}' → registries: ${REGISTRY_DOMAINS[*]}"
+ALLOWED_DOMAINS+=( "${REGISTRY_DOMAINS[@]}" )
 
 # ─────────────────────────────────────────────
 # PROJECT DOMAINS — add domains your project needs

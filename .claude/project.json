@@ -1,0 +1,33 @@
+{
+  "$schema": "./project.schema.json",
+  "name": "claude-code-sandbox",
+  "language": "node",
+  "packageManager": "npm",
+  "roots": {
+    "control": ".",
+    "code": "."
+  },
+  "commands": {
+    "test": "npm test",
+    "build": "npm run build",
+    "lint": "npm run lint",
+    "format": "npx prettier --write",
+    "dev": "npm run dev"
+  },
+  "scaffoldCheck": "test -f package.json",
+  "formatExtensions": [
+    "js",
+    "jsx",
+    "ts",
+    "tsx",
+    "json",
+    "css",
+    "scss",
+    "md",
+    "html",
+    "yml",
+    "yaml"
+  ],
+  "guards": ["npm-publish"],
+  "ceremony": "phased"
+}

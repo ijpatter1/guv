@@ -9,7 +9,20 @@
 # Claude Code's internal state (auth, session history) persists in /home/claude/.claude/
 # via a named Docker volume. These are separate paths that merge at runtime.
 
-FROM node:20-slim
+# Base image is a build arg keyed off the project's `language` (.claude/project.json).
+# Ships a Node default; swap it for your stack by passing --build-arg BASE_IMAGE=...
+# (the Makefile derives this from the manifest). Use a Debian-based *-slim image so the
+# apt-get step below works. Examples:
+#   node    → node:20-slim          (default)
+#   python  → python:3.12-slim
+#   rust    → rust:1-slim
+#   go      → golang:1-bookworm
+#   ruby    → ruby:3-slim
+#   jvm     → eclipse-temurin:21-jdk-jammy
+#   dotnet  → mcr.microsoft.com/dotnet/sdk:8.0
+# Do NOT reach for a fat multi-runtime image unless a real need justifies the size.
+ARG BASE_IMAGE=node:20-slim
+FROM ${BASE_IMAGE}
 
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -33,6 +46,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Claude Code CLI via native installer (recommended over npm).
 # The installer puts the binary at ~/.local/bin/claude (i.e., /root/.local/bin/claude
 # during build). We copy it to /usr/local/bin so it's accessible after privilege drop.
+# NOTE: the `curl | bash` below mirrors the pipe-to-shell pattern bash-guard blocks,
+# but this runs at IMAGE BUILD time as root — the agent never executes this line, and
+# bash-guard only inspects the agent's Bash tool calls. Not a real conflict.
 RUN curl -fsSL https://claude.ai/install.sh | bash && \
     cp /root/.local/bin/claude /usr/local/bin/claude && \
     chmod +x /usr/local/bin/claude && \

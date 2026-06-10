@@ -2,10 +2,10 @@ End the current work session by running QA evaluation, generating a structured h
 
 ## Step 1 — Invoke the Evaluator
 
-Before anything else, invoke the `evaluator` subagent using the Agent tool. Build the prompt string for the evaluator by gathering:
+Before anything else, invoke the `evaluator` subagent using the Agent tool. Build the prompt string for the evaluator by gathering (run git against the **code** repo — `roots.code` from the manifest, a no-op for single-repo):
 
-1. Run `git log --oneline -10` to identify this session's commits
-2. Run `git diff HEAD~N` (where N = number of session commits) to get the full diff
+1. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -10` to identify this session's commits
+2. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" diff HEAD~N` (where N = number of session commits) to get the full diff
 3. Read `docs/PHASE_STATUS.md` for the current phase number
 
 Then pass a prompt like: "Evaluate the following work from Phase [N]. Commits this session: [list]. The diff covers these files: [list changed files]. Run your full evaluation procedure."
@@ -28,30 +28,31 @@ Present the product reviewer's full report to the user without modification or s
 
 ## Step 3 — Final Test Run
 
-Run the full test suite to confirm the codebase is in a clean state:
+Run the full test suite to confirm the codebase is in a clean state. Read the test command from the manifest:
 
 ```
-npm test 2>&1
+jq -r '.commands.test' .claude/project.json
 ```
 
-If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
+Run that command. If `commands.test` is `null`, the project has no test step — note that and skip this step cleanly. If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
 
 ## Step 4 — Commit Any Uncommitted Work
 
-Check for uncommitted changes:
+Check for uncommitted changes in both repos (the same path for single-repo, where `roots.code` is `"."`):
 
 ```
-git status
+git -C "$(jq -r '.roots.code' .claude/project.json)" status      # product changes
+git -C "$(jq -r '.roots.control' .claude/project.json)" status   # doc/session changes
 ```
 
-If there are uncommitted changes, commit them with an appropriate conventional commit message. If there are changes that are intentionally uncommitted (work in progress, experimental code), note this in the handoff artifact.
+If there are uncommitted changes, commit them with an appropriate conventional commit message — **product code commits land in the code repo, doc/session artifacts in the control plane** (these are two commit streams when the roots differ, one when they coincide). If there are changes that are intentionally uncommitted (work in progress, experimental code), note this in the handoff artifact.
 
 ## Step 5 — Review Session Work
 
-Review what was accomplished this session. Use a reasonable number of recent commits:
+Review what was accomplished this session. Use a reasonable number of recent commits from the code repo:
 
 ```
-git log --oneline -15
+git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -15
 ```
 
 Scan the output and identify which commits belong to this session (based on timestamps and commit messages). If the session spans more than 15 commits, increase the count.
@@ -77,6 +78,7 @@ The handoff artifact must contain:
 ## Completed This Session
 
 For each feature completed, include:
+
 - What was built (brief description)
 - Commit hash(es)
 - Tests added (count and what they cover)
@@ -85,6 +87,7 @@ For each feature completed, include:
 ## In Progress
 
 Anything started but not finished:
+
 - What it is
 - Current state (what's done, what remains)
 - Where to pick up (specific file and function/component)
@@ -92,6 +95,7 @@ Anything started but not finished:
 ## Blocked
 
 Anything that can't proceed and why:
+
 - The blocker
 - What's needed to unblock it
 - Whether it blocks other work
@@ -99,6 +103,7 @@ Anything that can't proceed and why:
 ## Issues & Technical Debt
 
 Any issues identified (by you or either reviewer) that weren't resolved this session:
+
 - Issue description
 - Severity (critical / important / minor)
 - Source (evaluator / product reviewer / self-identified)
@@ -107,6 +112,7 @@ Any issues identified (by you or either reviewer) that weren't resolved this ses
 ## Evaluator Results
 
 Summary of the evaluator's technical assessment:
+
 - Weighted score: X.X/5.0
 - Verdict: PASS / PASS WITH ISSUES / FAIL
 - Critical issues (if any): [list]
@@ -115,6 +121,7 @@ Summary of the evaluator's technical assessment:
 ## Product Review Results
 
 Summary of the product reviewer's assessment:
+
 - Weighted score: X.X/5.0
 - Verdict: PASS / NEEDS WORK
 - Vision alignment: [score]/5
@@ -140,12 +147,14 @@ Summary of the product reviewer's assessment:
 ## Next Steps
 
 The logical next feature(s) to tackle in the next session, in priority order:
+
 1. [Feature] — [why it's next] — [estimated complexity: small/medium/large]
 2. [Feature] — [why it's next] — [estimated complexity: small/medium/large]
 
 ## Session Notes
 
 Any context that would be useful for the next session that doesn't fit above:
+
 - Architecture decisions made and rationale
 - Patterns established that should be followed
 - External dependencies or environment setup changes
@@ -154,14 +163,22 @@ Any context that would be useful for the next session that doesn't fit above:
 
 ## Step 7 — Update Phase Status
 
-Update `docs/PHASE_STATUS.md` to reflect the current state of the phase:
+**Phased projects only.** Read `ceremony` from `.claude/project.json`. If it is not
+`phased` (or there is no `docs/PHASE_STATUS.md`), there is no phase tracker — skip
+this step cleanly and skip Step 8 as well. A missing phase tracker is a mode signal,
+not an error. In that case the handoff artifact's **Phase** field is just "N/A
+(`<ceremony>` mode)".
+
+Otherwise update `docs/PHASE_STATUS.md` to reflect the current state of the phase:
+
 - Mark completed deliverables
 - Update any progress notes
 - Adjust estimates if the work revealed unexpected complexity
 
 ## Step 8 — Phase Completion: Generate UAT Plan
 
-**This step is conditional.** Check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, or ❌, skip to Step 9.
+**Phased projects only — and conditional within them.** If `ceremony` is not
+`phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, or ❌, skip to Step 9.
 
 If the phase is complete, generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage (the evaluator handles that) or spec alignment (the product reviewer handles that), but real-world workflows from start to finish.
 
@@ -225,25 +242,35 @@ Note in the handoff artifact under **Next Steps** that UAT is ready to run:
 
 The phase is not considered accepted until UAT passes. The next session's `/start-phase` should check for UAT results before starting new phase work.
 
-## Step 9 — CLAUDE.md Freshness Check
+## Step 9 — CLAUDE.md / Manifest Freshness Check
 
-Review the current CLAUDE.md against what actually happened during this session. Check for:
+The live `CLAUDE.md` is the lean file rendered from `CLAUDE.template.md`: it holds only
+the "Project facts Claude can't infer" and points at `.claude/project.json` for commands
+and `@.claude/RULES.md` for behavior. Keep it lean — facts that belong in the manifest or
+RULES.md go there, **not** into `CLAUDE.md`. Check for drift in the right place:
 
-- **Tech stack drift:** Were new dependencies added, tools changed, or frameworks swapped? Does the Tech Stack section still reflect reality?
-- **Directory structure changes:** Were new directories created that aren't in the Directory Structure section?
-- **New conventions established:** Did you establish a pattern (naming convention, component structure, error handling approach) that future sessions should follow but that isn't documented in Coding Standards?
-- **Phase progression:** If a phase was completed, does Current Phase need to advance?
-- **Stale bootstrapping section:** If the project has been scaffolded, is the Bootstrapping section still present? It can be removed or collapsed once it's no longer the first session.
-- **New references:** Were new reference documents created (content guides, API specs, data schemas) that should be listed in References?
+- **Command drift → the manifest, not CLAUDE.md.** Did the test/build/lint/format/dev
+  command change, or a new step get added? Update `.claude/project.json`. `CLAUDE.md`
+  never restates commands, so there is nothing to update there.
+- **Stack / package-manager change → the manifest.** Update `language` /
+  `packageManager` (and the sandbox base image / firewall registries follow from it).
+- **New can't-infer facts → CLAUDE.md's "Project facts" section.** A required env var,
+  a non-obvious gotcha, a project-specific architectural decision, repo etiquette — only
+  if it passes the pruning test (_would removing it cause a mistake?_).
+- **Phase progression (phased only):** if a phase was completed, does the identity/intro
+  need to reflect it? (Phase state itself lives in `docs/PHASE_STATUS.md`, not CLAUDE.md.)
+- **Stale bootstrapping section:** once the project is scaffolded, remove the
+  "Bootstrapping" section from `CLAUDE.md` — it only applies to the first session.
 
-If any updates are needed, **propose them to the user** as a list:
+If any updates are needed, **propose them to the user** as a list, routing each to the
+right file:
 
 ```
-CLAUDE.md updates needed:
-1. Tech Stack: add "sqlite-vec 0.1.6" to dependencies
-2. Directory Structure: add "src/agents/" and "src/toolkits/"
-3. Coding Standards: add "Agent classes use @mission decorator for toolkit methods"
-4. Current Phase: advance to Phase 2
+Freshness updates needed:
+1. .claude/project.json: commands.test → "vitest run" (was "npm test")
+2. .claude/project.json: packageManager → "pnpm"
+3. CLAUDE.md (Project facts): add "RESEND_API_KEY required or email send no-ops in dev"
+4. CLAUDE.md: remove the now-stale Bootstrapping section
 ```
 
 **In interactive mode:** Wait for approval before making the changes.
@@ -254,6 +281,7 @@ If no updates are needed, skip this step silently — do not announce "CLAUDE.md
 ## Step 10 — Summary
 
 After writing the handoff artifact and updating the phase status, present a brief summary:
+
 - What was accomplished this session (1-3 sentences)
 - Current overall phase progress (e.g., "Phase 1: 6 of 9 deliverables complete")
 - If UAT was generated: "Phase N UAT plan ready at `docs/uat/phase-N-uat.sh` — run before starting Phase N+1"

@@ -2,10 +2,10 @@ Give a quick status overview of the project without the full session initializat
 
 ## Gather State
 
-1. Run `test -f package.json && npm test 2>&1 || echo "NOT_SCAFFOLDED"` and capture pass/fail counts (or note project isn't scaffolded yet)
-2. Run `git log --oneline -5` for recent activity (if git is initialized; otherwise note "no git history")
-3. Read `docs/PHASE_STATUS.md` for phase completion state
-4. Check `git status` for any uncommitted changes
+1. Read `.claude/project.json`. Run its `scaffoldCheck`; if it passes, run `commands.test` and capture pass/fail counts (skip cleanly if `commands.test` is `null`). If `scaffoldCheck` fails, note the project isn't scaffolded yet.
+2. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -5` for recent code activity (if git is initialized; otherwise note "no git history"). `roots.code` is `"."` for single-repo, so this is a no-op there.
+3. Read `docs/PHASE_STATUS.md` for phase completion state (only in `phased` projects; if it's absent — `task`/`onboard` mode — report the current phase as "N/A (`<ceremony>` mode)" and skip phase progress)
+4. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" status` for any uncommitted code changes
 5. List the most recent file in `docs/sessions/` and read its **Next Steps** section (if no session files exist, note "no prior sessions")
 
 ## Report

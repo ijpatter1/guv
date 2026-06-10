@@ -1,17 +1,28 @@
 Read the project context and prepare for a focused work session on Phase $ARGUMENTS.
 
+## Step 0 — Confirm Phased Mode
+
+This command is the **phased** entry point. Read `ceremony` from `.claude/project.json`:
+
+- If `ceremony` is **`task`** or **`onboard`**, or there are no phase docs in `docs/`
+  (no `PHASE_STATUS.md` / `REQUIREMENTS.md`), this project has no phase structure.
+  That is a **mode signal, not an error** — don't scaffold phase docs. Tell the user
+  to use `/task "<description>"` for scoped work (or `/onboard` to adopt the repo),
+  and stop here.
+- If `ceremony` is **`phased`**, continue.
+
 If no phase number was provided (i.e., $ARGUMENTS is empty), read `docs/PHASE_STATUS.md` to determine the current phase and use that. If the phase number doesn't match a phase in PHASE_STATUS.md, ask for clarification before proceeding.
 
 ## Step 1 — Run the Tests
 
-Check if the project has been scaffolded:
+Read `.claude/project.json`. Check whether the project has been scaffolded by running its `scaffoldCheck`:
 
 ```
-test -f package.json && npm test 2>&1 || echo "NO_PACKAGE_JSON"
+sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" && echo SCAFFOLDED || echo NOT_SCAFFOLDED
 ```
 
-- **If tests run:** Record the results — total tests, passing, failing, skipped. If any tests are failing, note them — you must not introduce additional failures during this session.
-- **If `NO_PACKAGE_JSON`:** The project hasn't been scaffolded yet. This is expected for the very first session. Skip to Step 2 and note that scaffolding is the first deliverable. See the "Bootstrapping" section in CLAUDE.md for scaffolding requirements.
+- **If `SCAFFOLDED`:** Run the project's test command — `jq -r '.commands.test' .claude/project.json` — and record the results: total tests, passing, failing, skipped. If `commands.test` is `null`, the project has no test step; skip cleanly and note it. If any tests are failing, note them — you must not introduce additional failures during this session.
+- **If `NOT_SCAFFOLDED`:** The project hasn't been scaffolded yet. This is expected for the very first session of a `phased` project. Skip to Step 2 and note that scaffolding is the first deliverable. See the "Bootstrapping" section in CLAUDE.md for scaffolding requirements.
 
 ## Step 2 — Load Phase Context
 
@@ -38,8 +49,10 @@ If manual tasks exist, read each one and check the **Status** field (in the head
 
 ## Step 4 — Review Recent Git History
 
+Inspect the **code** repo's history. Read `roots.code` from the manifest and target it with `git -C` (this is a no-op for single-repo, where `roots.code` is `"."`):
+
 ```
-git log --oneline -15
+git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -15
 ```
 
 Use this to understand what was worked on recently and what state the codebase is in.
