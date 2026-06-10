@@ -29,8 +29,11 @@ secrets/
 # ─────────────────────────────────────────────
 # Local settings — personal overrides, not committed
 .claude/settings.local.json
-# Auto-generated agent memory (project-scoped, can be committed if desired)
-# .claude/agent-memory/
+# Auto-generated agent memory — the evaluator / product-reviewer write this on the
+# first /evaluate or /handoff. Ignored by default so it doesn't sit untracked in
+# every consumer project. A team that wants shared agent memory can force-add it
+# (git add -f .claude/agent-memory/) and remove this line.
+.claude/agent-memory/
 
 # ─────────────────────────────────────────────
 # Testing

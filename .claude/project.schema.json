@@ -83,12 +83,20 @@
         "dev": {
           "type": ["string", "null"],
           "description": "Start the dev server. Run on the host, not in the sandbox."
+        },
+        "install": {
+          "type": ["string", "null"],
+          "description": "Install/sync dependencies (e.g. 'npm install', 'uv sync', 'bundle install', 'dotnet restore'). This is the declared remediation when readyCheck fails: a command runs this rather than guessing the install step from the package manager. Null when no install step applies (e.g. languages whose build/test fetch deps on demand)."
         }
       }
     },
     "scaffoldCheck": {
       "type": "string",
-      "description": "Shell test that succeeds (exit 0) once the project has been scaffolded (e.g. 'test -f package.json', 'test -f Cargo.toml'). When it fails, the project is NOT_SCAFFOLDED and command steps that depend on a built project are skipped."
+      "description": "Shell test for 'does a project EXIST here' — point it at the project manifest, not a tool binary (e.g. 'test -f package.json', 'test -f pyproject.toml', 'test -f Cargo.toml'). When it fails, the project is NOT_SCAFFOLDED and command steps that depend on a project are skipped. Do NOT overload this with 'are the tools installed' — that is readyCheck's job."
+    },
+    "readyCheck": {
+      "type": ["string", "null"],
+      "description": "Optional shell test for 'are the tools INSTALLED / runnable' — distinct from scaffoldCheck's 'does a project exist'. Use it when the test/build/lint/format tools live in a project-local environment that a fresh clone hasn't populated yet (e.g. 'test -d node_modules', 'test -x .venv/bin/ruff'). The state where scaffoldCheck passes but readyCheck fails is NOT_INSTALLED — commands run commands.install (the declared remediation) rather than running tools into failure. Null/absent means 'no separate readiness step' (tools are assumed on PATH once scaffolded)."
     },
     "formatExtensions": {
       "type": "array",

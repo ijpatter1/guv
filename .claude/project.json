@@ -12,9 +12,11 @@
     "build": "npm run build",
     "lint": "npm run lint",
     "format": "npx prettier --write",
-    "dev": "npm run dev"
+    "dev": "npm run dev",
+    "install": "npm install"
   },
   "scaffoldCheck": "test -f package.json",
+  "readyCheck": "test -d node_modules",
   "formatExtensions": [
     "js",
     "jsx",
@@ -29,5 +31,5 @@
     "yaml"
   ],
   "guards": ["npm-publish"],
-  "ceremony": "phased"
+  "ceremony": "task"
 }

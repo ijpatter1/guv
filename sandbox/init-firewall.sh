@@ -25,7 +25,7 @@ ALLOWED_DOMAINS=(
     "claude.ai"
     "statsig.anthropic.com"
 
-    # GitHub (required for git operations — push blocked by bash-guard hook)
+    # GitHub (required for git operations, including push)
     "github.com"
     "raw.githubusercontent.com"
     "objects.githubusercontent.com"
