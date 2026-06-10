@@ -46,6 +46,8 @@ copy_core() {
     if [ -e "$HARNESS_DIR/.claude/$item" ]; then
       rm -rf "$DEST/.claude/$item"
       cp -R "$HARNESS_DIR/.claude/$item" "$DEST/.claude/$item"
+      # cp -R copies directories wholesale — scrub Finder droppings
+      find "$DEST/.claude/$item" -name '.DS_Store' -delete 2>/dev/null
     fi
   done
   echo "[setup] synced harness core → $DEST/.claude/"
