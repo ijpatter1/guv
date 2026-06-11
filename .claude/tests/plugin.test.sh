@@ -293,21 +293,60 @@ DEAD=$(grep -rE '\.claude/(skills|workflows)/' "$PLUGIN/skills" | wc -l | tr -d 
 # T12d — files that deploy byte-identical into BOTH install modes (rules,
 # shell templates and gitignore) or whose runtime output reaches plugin
 # consumers verbatim (shipped scripts, the workflow) may keep bare /command
-# mentions — but only with a real decoder in the same file (a /guv:-, `guv:-,
-# or @guv:-form telling the plugin consumer the resolvable name). A bare
-# mention with no in-file decoder is a dead pointer.
-T12D_OK=1
-while IFS= read -r f; do
-  if grep -qE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$f" 2>/dev/null; then
-    grep -qE '(/|`|@)guv:' "$f" || { no "$(basename "$f") has bare /command mentions and no guv: decoder"; T12D_OK=0; }
+# mentions — but each bare-mentioned NAME needs its own guv:<name> decoder in
+# the same file. The scan is the whole tree inverted (everything outside the
+# T12b-covered skills/ and agents/), so a new file type can never sit outside
+# the guard the way an enumerated surface list could.
+# NOTE bash 3.2 (macOS /bin/bash) cannot parse comments containing
+# apostrophes inside a <(...) substitution — pass 5 found this guard
+# erroring and passing vacuously for exactly that reason. Keep substitutions
+# comment-free, and keep the SCANNED count + positive control below: they
+# make a silent zero-iteration loop impossible to miss again.
+# A decoder is either name-specific (guv:<name>) or an explicit all-names
+# statement — the standardized generic forms the shipped files use ("…
+# guv:-namespaced …", "every name carries the namespace", "namespaced
+# /guv:<name>"). An incidental guv:<other-name> mention decodes nothing.
+GENERIC_DECODER='guv:`?-namespaced|carries the namespace|/guv:<name>'
+t12d_violations() {
+  local f n scanned=0
+  while IFS= read -r f; do
+    scanned=$((scanned + 1))
+    grep -qE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$f" 2>/dev/null || continue
+    grep -qE "$GENERIC_DECODER" "$f" && continue
+    for n in $(printf '%s' "$CMDS" | tr '|' ' '); do
+      if grep -qE '(^|[^[:alnum:].:-])/'"$n"'($|[^[:alnum:]:_-])' "$f" 2>/dev/null \
+         && ! grep -q "guv:$n" "$f"; then
+        printf '%s:%s\n' "$f" "$n"
+      fi
+    done
+  done < <(find "$PLUGIN" -type f -not -path "$PLUGIN/skills/*" -not -path "$PLUGIN/agents/*")
+  printf 'SCANNED:%s\n' "$scanned"
+}
+T12D_OUT=$(t12d_violations)
+T12D_SCANNED=$(printf '%s\n' "$T12D_OUT" | grep '^SCANNED:' | cut -d: -f2)
+T12D_VIOL=$(printf '%s\n' "$T12D_OUT" | grep -v '^SCANNED:' | grep -c . )
+if [ "${T12D_SCANNED:-0}" -gt 0 ] && [ "$T12D_VIOL" -eq 0 ]; then
+  ok "full-tree scan ($T12D_SCANNED files): every bare-mentioned /command has its guv: decoder"
+else
+  no "T12d: scanned=$T12D_SCANNED, violations: $(printf '%s\n' "$T12D_OUT" | grep -v '^SCANNED:' | tr '\n' ' ')"
+fi
+# positive control — the same plumbing must FLAG a planted violation; a guard
+# that can only ever report success is not a guard (the pass-5 lesson)
+T12D_FIX="$PLUGIN/zz-t12d-fixture.md"
+if [ -e "$T12D_FIX" ]; then
+  no "T12d fixture path unexpectedly exists: $T12D_FIX"
+else
+  trap 'rm -f "$T12D_FIX"' EXIT
+  printf 'Planted violation: run /handoff now, with no decoder in this file.\n' > "$T12D_FIX"
+  T12D_OUT2=$(t12d_violations)
+  if printf '%s\n' "$T12D_OUT2" | grep -q 'zz-t12d-fixture.md:handoff'; then
+    ok "positive control: the scan flags a planted bare mention without a decoder"
+  else
+    no "T12d positive control failed — the scan did not flag the planted violation"
   fi
-done < <(
-  # the whole tree EXCEPT skills/ and agents/, which T12b holds to the
-  # stronger zero-bare rule — an inverted scan, so a new file type can never
-  # sit outside the guard the way each previous pass's enumeration did
-  find "$PLUGIN" -type f -not -path "$PLUGIN/skills/*" -not -path "$PLUGIN/agents/*"
-)
-[ "$T12D_OK" -eq 1 ] && ok "every dual-mode or runtime-emitting file with bare /command mentions carries the guv: decoder (full-tree scan)"
+  rm -f "$T12D_FIX"
+  trap - EXIT
+fi
 
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
