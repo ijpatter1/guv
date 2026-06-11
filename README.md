@@ -32,7 +32,7 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 
 **QA evaluator subagent** — An independent, skeptical reviewer that grades work on five criteria (Functionality, Test Quality, Code Quality, Completeness, Integration). Runs in its own context window with read-only enforcement. Auto-invoked before every session handoff.
 
-**Docker sandbox** — Isolated container for `--dangerously-skip-permissions` mode with iptables firewall, non-root execution, and domain allowlisting. Optional — works without Docker too.
+**Two isolation tiers** — Default: Claude Code's **native sandbox** (OS-enforced filesystem/network limits, zero Docker steps — recommended settings ship in `.claude/settings.sandbox-example.json`). Opt-in: a **Docker sandbox** with iptables firewall for full environment reproducibility, `--dangerously-skip-permissions` autonomy, or platforms without native support. Pick one tier per project — see [Security Model](#security-model).
 
 **Safety hooks** — Deterministic enforcement of dangerous command blocking (bash-guard), auto-formatting (auto-format), and session reminder (stop-check).
 
@@ -106,11 +106,13 @@ source ~/.zshrc
 ### 4. Start coding
 
 ```bash
-# Option A: Docker sandbox (autonomous, no permission prompts)
-make sandbox
-
-# Option B: Native Claude Code (interactive, with Remote Control)
+# Option A (default tier): native Claude Code + native sandbox
+# (enable via .claude/settings.sandbox-example.json or /sandbox in-session)
 claude
+
+# Option B (opt-in tier): Docker sandbox — reproducible env,
+# --dangerously-skip-permissions autonomy, or no native sandbox support
+make sandbox
 ```
 
 Then inside Claude Code:
@@ -122,8 +124,8 @@ Then inside Claude Code:
 ### 5. Daily workflow
 
 ```bash
-# Terminal 1: Claude Code
-make sandbox
+# Terminal 1: Claude Code (or `make sandbox` for the Docker tier)
+claude
 # /start-phase 1
 
 # Terminal 2: Dev server on your Mac
@@ -183,7 +185,7 @@ code .
 │   ├── PHASE_STATUS.md                # Phase tracker (phased; YOU EDIT THIS)
 │   └── sessions/
 │       └── .gitkeep
-└── sandbox/
+└── sandbox/                           # Docker isolation tier (opt-in; default is native)
     ├── Dockerfile                     # Sandbox image (BASE_IMAGE build arg)
     ├── init-firewall.sh               # Per-language registry allowlist firewall
     ├── entrypoint.sh                  # Privilege drop + Claude start
