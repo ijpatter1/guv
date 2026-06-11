@@ -30,8 +30,8 @@ something unusual, the human override wins and stays deterministic.
 
 ## Step 2 — Infer Existing Conventions
 
-Read the repo to learn how it already works — do not impose a fresh style (RULES.md
-rule 6). Look for and note:
+Read the repo to learn how it already works — do not impose a fresh style (the
+"Match the codebase's conventions" rule). Look for and note:
 
 - **Test/build/lint/format commands** — confirm the resolver's guesses against the
   actual scripts (e.g. `package.json` scripts, `Makefile` targets, CI config).
@@ -63,14 +63,14 @@ Claude Code auto-loads it):
    can't infer" section from Step 2.
 3. **Omit the "Bootstrapping" section entirely** — the repo is already scaffolded, so
    there is nothing to bootstrap.
-4. Leave the `@.claude/RULES.md` import and the `.claude/project.json` pointers as-is.
+4. Leave the `.claude/project.json` pointers as-is (rules load natively from `.claude/rules/`).
 5. Strip the leading `<!-- TEMPLATE … -->` comment block.
 6. Write the result to `${roots.control}/CLAUDE.md`.
 
 ## Step 5 — Reconcile the README (do NOT clobber an existing one)
 
 An existing repo almost always has its own `README.md` — that is the project's, and it
-must be respected (RULES rule 6). Decide by what's present:
+must be respected (the "Match the codebase's conventions" rule). Decide by what's present:
 
 - **The repo's README is the harness template README** (e.g. it still says "Claude Code
   Development Environment" — common when someone copied this template without rendering):

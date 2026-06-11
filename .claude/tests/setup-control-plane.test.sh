@@ -36,7 +36,8 @@ make_harness() {
   echo "# task" > "$h/.claude/skills/task/SKILL.md"
   echo "# cmd" > "$h/.claude/commands/status.md"
   echo "hook" > "$h/.claude/hooks/guard.sh"
-  echo "rules" > "$h/.claude/RULES.md"
+  mkdir -p "$h/.claude/rules"
+  printf 'guv rule body v1\n' > "$h/.claude/rules/guv-core.md"
   echo "archive" > "$h/.claude/archive-initiative.sh"
   echo '{}' > "$h/.claude/settings.json"
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/commands/.DS_Store"
@@ -48,10 +49,10 @@ run_setup() { ( bash "$1/maintainers/setup-control-plane.sh" "$2" ${3:-} ) >> "$
 H=$(make_harness)
 D="$WORK/control"
 run_setup "$H" "$D"
-[ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/RULES.md" ] \
+[ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/rules/guv-core.md" ] \
   && [ -f "$D/.claude/archive-initiative.sh" ] \
-  && ok "create: core copied (skills, RULES.md, archive-initiative.sh present)" \
-  || no "create: core (incl. archive-initiative.sh) should be copied to the control plane"
+  && ok "create: core copied (skills, guv rules, archive-initiative.sh present)" \
+  || no "create: core (incl. .claude/rules/guv-*) should be copied to the control plane"
 
 # T2 — ...but no .DS_Store comes along, at any depth.
 FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
@@ -83,10 +84,20 @@ echo '{"id":"sentinel-feedback"}' > "$D/.claude/feedback/feedback.ndjson"
 echo "# sentinel-handoff" > "$D/docs/sessions/session-1.md"
 echo "sentinel-claude-md" > "$D/CLAUDE.md"
 echo '{"name":"sentinel-manifest"}' > "$D/.claude/project.json"
-echo "edited" > "$H/.claude/RULES.md"
+mkdir -p "$D/.claude/rules"
+echo "consumer rule — mine" > "$D/.claude/rules/team-style.md"
+echo "legacy rules file" > "$D/.claude/RULES.md"
+echo "edited" > "$H/.claude/rules/guv-core.md"
 run_setup "$H" "$D" --sync
-grep -q "edited" "$D/.claude/RULES.md" && ok "sync: core refreshed (RULES.md updated)" \
-  || no "sync: core should be refreshed"
+grep -q "edited" "$D/.claude/rules/guv-core.md" 2>/dev/null \
+  && ok "sync: stale guv-* rule refreshed" \
+  || no "sync: guv-* rules should be refreshed"
+grep -qx "consumer rule — mine" "$D/.claude/rules/team-style.md" 2>/dev/null \
+  && ok "sync: consumer-authored rule survives byte-for-byte" \
+  || no "sync: unprefixed consumer rules must never be touched"
+[ ! -f "$D/.claude/RULES.md" ] \
+  && ok "sync: superseded .claude/RULES.md deleted (no double-load)" \
+  || no "sync: legacy .claude/RULES.md should be removed"
 grep -q "sentinel-feedback" "$D/.claude/feedback/feedback.ndjson" 2>/dev/null \
   && grep -q "sentinel-handoff" "$D/docs/sessions/session-1.md" 2>/dev/null \
   && ok "sync: feedback + session artifact contents untouched" \
@@ -105,9 +116,9 @@ run_setup "$H" "$D"
 echo "sentinel-claude-md" > "$D/CLAUDE.md"
 echo '{"name":"sentinel-manifest"}' > "$D/.claude/project.json"
 echo "# sentinel-runner" > "$D/.claude/run-harness-tests.sh"
-echo "edited-again" > "$H/.claude/RULES.md"
+echo "edited-again" > "$H/.claude/rules/guv-core.md"
 run_setup "$H" "$D"
-grep -q "edited-again" "$D/.claude/RULES.md" 2>/dev/null \
+grep -q "edited-again" "$D/.claude/rules/guv-core.md" 2>/dev/null \
   && ok "create re-run: executed (core re-synced)" \
   || no "create re-run positive control: second run should re-sync the core"
 grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \

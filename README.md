@@ -20,7 +20,7 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 - `/handoff` — End session with full QA + handoff artifact for continuity
 - `/status` — Quick 10-line project orientation
 
-**Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/RULES.md`.
+**Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/rules/` (`guv-*.md`, loaded natively).
 
 **Repo topology** — single repo by default (`roots` both `"."`). For a control-plane / code split, Claude launches in the control plane and the product is a sibling repo. Convention: the code repo keeps the plain product name, the control plane is `<product>-control`, and the manifest's `name` stays the _product_ name (it feeds image/container labels):
 
@@ -66,7 +66,7 @@ claude
 This reads your spec and generates the project-specific artifacts:
 
 - `.claude/project.json` — the manifest: language, package manager, commands, roots, ceremony
-- `CLAUDE.md` — **rendered from `CLAUDE.template.md`**, holding only the facts Claude can't infer (it imports `@.claude/RULES.md` and points at the manifest for commands)
+- `CLAUDE.md` — **rendered from `CLAUDE.template.md`**, holding only the facts Claude can't infer (behavioral rules load natively from `.claude/rules/`; it points at the manifest for commands)
 - `README.md` — **rendered from `README.template.md`** into a _project_-facing README (with a status block `/handoff` keeps current), replacing this harness README
 - `docs/REQUIREMENTS.md` — phases and deliverables extracted from your spec
 - `docs/ARCHITECTURE.md` — Phase 1 detailed architecture, later phases stubbed
@@ -76,11 +76,11 @@ For an existing codebase, run `/onboard` instead — it detects the stack, infer
 
 Review the generated files, adjust anything that needs it, then commit and start building.
 
-> **The template ships no `CLAUDE.md` — that's intentional.** `CLAUDE.md` auto-loads every session, so shipping one would govern the meta-work of _using_ the template. Instead the repo ships the inert `CLAUDE.template.md` (never auto-loaded) plus `.claude/RULES.md`; `/init-project` or `/onboard` _renders_ `CLAUDE.template.md` → `CLAUDE.md`. Consumers **must commit their rendered `CLAUDE.md`** — it is deliberately not gitignored.
+> **The template ships no `CLAUDE.md` — that's intentional.** `CLAUDE.md` auto-loads every session, so shipping one would govern the meta-work of _using_ the template. Instead the repo ships the inert `CLAUDE.template.md` (never auto-loaded) plus the `.claude/rules/` behavioral core; `/init-project` or `/onboard` _renders_ `CLAUDE.template.md` → `CLAUDE.md`. Consumers **must commit their rendered `CLAUDE.md`** — it is deliberately not gitignored.
 
 **Manual alternative** — render the template by hand:
 
-- **Copy** `CLAUDE.template.md` to `CLAUDE.md` (leave the template in place — it's the reusable source), then in the copy fill the project identity and the "Project facts Claude can't infer" section (for greenfield, keep "Bootstrapping") and strip the leading `<!-- TEMPLATE … -->` comment. Leave the `@.claude/RULES.md` import and the manifest pointers as-is.
+- **Copy** `CLAUDE.template.md` to `CLAUDE.md` (leave the template in place — it's the reusable source), then in the copy fill the project identity and the "Project facts Claude can't infer" section (for greenfield, keep "Bootstrapping") and strip the leading `<!-- TEMPLATE … -->` comment. Leave the manifest pointers as-is (rules load natively from `.claude/rules/`).
 - **Copy** `README.template.md` to `README.md` (overwriting this harness README), fill the `[bracketed]` placeholders, keep the `<!-- STATUS:START/END -->` markers, and strip the `<!-- TEMPLATE … -->` comment.
 - Edit `.claude/project.json` to declare your stack, commands, `roots`, `guards`, and `ceremony`.
 - For phased projects, define `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_STATUS.md`.
@@ -141,7 +141,7 @@ code .
 ├── .claude/
 │   ├── project.json                   # MANIFEST — single source of truth (stack/commands/roots/ceremony)
 │   ├── project.schema.json            # Manifest schema (validation + self-docs)
-│   ├── RULES.md                       # Behavioral core (imported by rendered CLAUDE.md)
+│   ├── rules/                         # Behavioral core (guv-*.md harness-owned; unprefixed = yours)
 │   ├── resolve-stack.sh               # Detect-to-propose stack manifest (onboard/init)
 │   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
@@ -189,7 +189,7 @@ code .
 
 > A rendered `CLAUDE.md` (the live file) and `.claude/project.json` are created/filled per project by `/init-project` or `/onboard`. The template repo ships **no** `CLAUDE.md`.
 
-The **durable core** — `.claude/RULES.md`, the manifest, the evaluator/reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
+The **durable core** — the `guv-*` rules in `.claude/rules/`, the manifest, the evaluator/reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
 
 ## GCP Access (Optional)
 

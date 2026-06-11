@@ -123,15 +123,15 @@ auto-load; rendering is what makes it govern this project:
      cause a mistake?_); cut anything that doesn't pass.
    - **"Bootstrapping"** — keep this section (this is greenfield): specify the exact
      tools/libraries to install during scaffolding, based on the tech stack.
-3. Leave the `@.claude/RULES.md` import and the `.claude/project.json` pointers as-is —
-   commands, behavioral rules, and stack facts are NOT restated in `CLAUDE.md`.
+3. Leave the `.claude/project.json` pointers as-is — commands, behavioral rules
+   (loaded natively from `.claude/rules/`), and stack facts are NOT restated in `CLAUDE.md`.
 4. Strip the leading `<!-- TEMPLATE … -->` comment block.
 5. Write the result to `${roots.control}/CLAUDE.md` (cwd — where Claude Code auto-loads it).
 
 Rules:
 
 - The generator _fills placeholders_; it does not regenerate the template's structure.
-- Behavior, TDD discipline, commit conventions → stay in `@.claude/RULES.md`, not `CLAUDE.md`.
+- Behavior, TDD discipline, commit conventions → stay in `.claude/rules/`, not `CLAUDE.md`.
 - Commands → stay in `.claude/project.json`, never restated in `CLAUDE.md`.
 - Add the original spec document to the "Project facts" section as a reference.
 
