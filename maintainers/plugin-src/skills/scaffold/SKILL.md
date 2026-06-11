@@ -46,12 +46,18 @@ Propose the manifest from the detected stack:
 bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-stack.sh .
 ```
 
-Present the proposal to the user, confirm or adjust (it is a PROPOSAL — never
-write it unconfirmed), then write the result to `.claude/project.json`
-following `.claude/project.schema.json`. For an empty greenfield directory the
-resolver will propose mostly nulls — that's correct; `/guv:init-project` will
-refine identity, topology, and ceremony from the spec (null means skip, never
-guess).
+Two outcomes:
+
+- **The resolver proposes a manifest** (it detected a known stack): present
+  the proposal to the user, confirm or adjust (it is a PROPOSAL — never write
+  it unconfirmed), then write the result to `.claude/project.json` following
+  `.claude/project.schema.json`.
+- **The resolver exits 2 — "Could not detect a known stack"** (empty
+  greenfield directory, or an unrecognized stack): write **no manifest**.
+  Null means skip, never guess. For greenfield, `/guv:init-project` declares
+  identity, topology, and ceremony from the spec and writes the manifest
+  itself; for an unrecognized existing stack, `/guv:onboard` walks the schema
+  with the user by hand.
 
 ## Step 3 — Hand off
 
