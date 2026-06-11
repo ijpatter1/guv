@@ -28,7 +28,10 @@
 #     non-commit hex (PR/issue refs, other-repo SHAs, UUID fragments, color codes)
 #     that resolves in neither repo may be flagged. Skim past noise.
 #   - False negatives: tokens longer than 40 hex (e.g. SHA-256 object ids) are not
-#     matched; abbreviations under 7 chars are not matched.
+#     matched; abbreviations under 7 chars are not matched; all-decimal tokens are
+#     skipped (feedback-entry ids end in a decimal ${RANDOM}${RANDOM} suffix that
+#     would false-positive in every handoff citing one — issue #7; an abbreviated
+#     hash with no hex letter is rare enough for an advisory check to tolerate).
 #
 # Usage: bash .claude/check-citations.sh   (run from the control plane / cwd)
 
@@ -68,6 +71,8 @@ for f in "${FILES[@]}"; do
   [ -z "$TOKENS" ] && continue
   while IFS= read -r tok; do
     [ -z "$tok" ] && continue
+    # All-decimal → not a hash candidate (feedback-id suffixes, counts, dates).
+    case "$tok" in *[a-fA-F]*) ;; *) continue ;; esac
     # Resolves in the code repo → fine (product citation).
     resolves "$CODE" "$tok" && continue
     # Resolves in the control plane → fine (doc/session citation).
