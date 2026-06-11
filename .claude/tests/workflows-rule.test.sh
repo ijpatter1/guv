@@ -42,10 +42,12 @@ grep -q '`product-reviewer`' "$RULE" \
   && ok "names the product-reviewer agent verbatim" \
   || no "rule must name the \`product-reviewer\` agent verbatim"
 
-# T3 — ad-hoc reviewers are prohibited, stated as a prohibition.
-grep -qi 'ad-hoc' "$RULE" \
+# T3 — ad-hoc reviewers are prohibited, stated as a prohibition (the anchor
+# requires the prohibition verb in the same sentence, not just the term;
+# newlines are flattened first since prose wraps mid-sentence).
+tr '\n' ' ' < "$RULE" | grep -qiE 'ad-hoc [^.]*prohibit|prohibit[^.]* ad-hoc' \
   && ok "prohibits ad-hoc reviewer agents" \
-  || no "rule must prohibit ad-hoc reviewer agents"
+  || no "rule must prohibit ad-hoc reviewer agents (as a prohibition)"
 
 # T4 — the planning/execution boundary: workflows are an execution primitive;
 # the plan of record stays in the phase docs.

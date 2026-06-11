@@ -63,12 +63,15 @@ if (!scope || !scope.commits.length) {
 log(`Scope: ${scope.scopeDescription} (${scope.commits.length} commits, ${scope.filesChanged.length} files)`)
 // Belt and braces for the prompt templates below: the schema asks for the phase
 // without the leading word, but a model may still return "Phase 4 — ..." —
-// strip it in code rather than shipping "Phase Phase 4" prompts.
+// strip it in code rather than shipping "Phase Phase 4" prompts. Non-phased
+// projects (phase "unknown") get phase-free prompts instead of "Phase unknown".
 const phaseLabel = String(scope.phase).replace(/^phase\s+/i, '')
+const phased = !/^unknown$/i.test(phaseLabel)
+const fromPhase = phased ? ` from Phase ${phaseLabel}` : ''
 
 // ── Steps 2 + 3 — both calibrated reviewers, concurrently ──
 phase('Review')
-const context = `Phase ${phaseLabel}. Commits in scope (oldest first):
+const context = `${phased ? `Phase ${phaseLabel}. ` : ''}Commits in scope (oldest first):
 ${scope.commits.join('\n')}
 Changed files:
 ${scope.filesChanged.join('\n')}
@@ -78,11 +81,11 @@ Your final structured output must carry the FULL report — do not stash finding
 // Barrier justified: Step 4's combined summary needs both reports together.
 const [tech, product] = await parallel([
   () => agent(
-    `Evaluate the following work from Phase ${phaseLabel}. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration.\n\n${context}`,
+    `Evaluate the following work${fromPhase}. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration.\n\n${context}`,
     { label: 'evaluator', phase: 'Review', agentType: 'evaluator', schema: REPORT_SCHEMA }
   ),
   () => agent(
-    `Review the following work from Phase ${phaseLabel} for product quality. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth.\n\n${context}`,
+    `Review the following work${fromPhase} for product quality. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth.\n\n${context}`,
     { label: 'product-reviewer', phase: 'Review', agentType: 'product-reviewer', schema: REPORT_SCHEMA }
   ),
 ])
