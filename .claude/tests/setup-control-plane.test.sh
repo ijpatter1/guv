@@ -63,6 +63,11 @@ grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore cover
 grep -q "auto memory as hints" "$D/CLAUDE.md" \
   && ok "create: generated CLAUDE.md carries the memory-authority line" \
   || no "generated CLAUDE.md should declare manifest+handoff authority over auto memory"
+# The heredoc is unquoted (it interpolates $CODE_REL) — an unescaped backtick
+# would silently execute as command substitution. Pin the literal backticks.
+grep -qF '`.claude/rules/`' "$D/CLAUDE.md" \
+  && ok "create: heredoc backticks render literally (escaping intact)" \
+  || no "generated CLAUDE.md lost its literal backticks — unquoted-heredoc escaping broke"
 
 # T3 — --sync also scrubs a .DS_Store that already sits in the destination core
 # (rm -rf + re-copy of each item must not leave or re-introduce one).
@@ -89,18 +94,26 @@ echo "sentinel-claude-md" > "$D/CLAUDE.md"
 echo '{"name":"sentinel-manifest"}' > "$D/.claude/project.json"
 mkdir -p "$D/.claude/rules"
 echo "consumer rule — mine" > "$D/.claude/rules/team-style.md"
+cp "$D/.claude/rules/team-style.md" "$WORK/team-style.before"
 echo "legacy rules file" > "$D/.claude/RULES.md"
 echo "edited" > "$H/.claude/rules/guv-core.md"
-run_setup "$H" "$D" --sync
+( bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) > "$WORK/sync.out" 2>&1
 grep -q "edited" "$D/.claude/rules/guv-core.md" 2>/dev/null \
   && ok "sync: stale guv-* rule refreshed" \
   || no "sync: guv-* rules should be refreshed"
-grep -qx "consumer rule — mine" "$D/.claude/rules/team-style.md" 2>/dev/null \
-  && ok "sync: consumer-authored rule survives byte-for-byte" \
+cmp -s "$WORK/team-style.before" "$D/.claude/rules/team-style.md" \
+  && ok "sync: consumer-authored rule survives byte-for-byte (cmp)" \
   || no "sync: unprefixed consumer rules must never be touched"
 [ ! -f "$D/.claude/RULES.md" ] \
   && ok "sync: superseded .claude/RULES.md deleted (no double-load)" \
   || no "sync: legacy .claude/RULES.md should be removed"
+grep -q "removed superseded .claude/RULES.md" "$WORK/sync.out" \
+  && ok "sync: deletion announced (where customizations belong, import-line edit)" \
+  || no "sync must announce the RULES.md removal, not delete silently"
+run_setup "$H" "$D" --sync
+grep -q "removed superseded" <( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 ) \
+  && no "sync: deletion notice should not repeat once the file is gone" \
+  || ok "sync: deletion notice fires once, silent thereafter"
 grep -q "sentinel-feedback" "$D/.claude/feedback/feedback.ndjson" 2>/dev/null \
   && grep -q "sentinel-handoff" "$D/docs/sessions/session-1.md" 2>/dev/null \
   && ok "sync: feedback + session artifact contents untouched" \

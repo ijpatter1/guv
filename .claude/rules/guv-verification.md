@@ -1,5 +1,7 @@
 <!-- Ownership convention: guv-*.md files are harness-owned — harness syncs/updates replace guv-* only and never touch unprefixed files, which are consumer-owned. These rules load unconditionally by design; `paths:` frontmatter scoping is available if a consumer rule needs it. -->
 
+# Engineering Rules 8–10 — Verification & Honesty
+
 ## 8 — Tests verify intent, not just behavior
 A test should encode *why* the behavior matters, not merely *what* the code currently does. A test that can't fail when the business logic changes is testing nothing. This is the standard the evaluator grades against — shallow "renders without crashing" tests score as untested.
 

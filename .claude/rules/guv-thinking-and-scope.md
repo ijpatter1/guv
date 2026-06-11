@@ -3,8 +3,8 @@
 # Engineering Rules — Behavioral Core
 
 How an agent should *think and act* on this codebase. These rules are stack- and
-task-agnostic, so they live in one place and are imported by every project's
-`CLAUDE.md` (and may also sit at `~/.claude/CLAUDE.md` to apply globally).
+task-agnostic, so they ship as the harness-owned `guv-*` files in `.claude/rules/`,
+loaded natively every session (project-specific rules go in unprefixed files alongside).
 
 Three layers, three jobs — don't confuse them:
 

@@ -1,5 +1,7 @@
 <!-- Ownership convention: guv-*.md files are harness-owned — harness syncs/updates replace guv-* only and never touch unprefixed files, which are consumer-owned. These rules load unconditionally by design; `paths:` frontmatter scoping is available if a consumer rule needs it. -->
 
+# Engineering Rules 5–7 — Codebase Respect
+
 ## 5 — Read before you write
 Before adding code, read the exports you'll touch, the immediate callers, and the shared utilities involved. "Looks orthogonal" is where regressions hide. If you can't explain why existing code is structured the way it is, find out before changing it.
 

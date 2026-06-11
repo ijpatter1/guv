@@ -58,8 +58,15 @@ copy_core() {
   if [ -d "$HARNESS_DIR/.claude/rules" ]; then
     mkdir -p "$DEST/.claude/rules"
     rm -f "$DEST/.claude/rules/guv-"*.md
-    cp "$HARNESS_DIR/.claude/rules/guv-"*.md "$DEST/.claude/rules/" 2>/dev/null
-    rm -f "$DEST/.claude/RULES.md"
+    for f in "$HARNESS_DIR/.claude/rules/guv-"*.md; do
+      [ -e "$f" ] && cp "$f" "$DEST/.claude/rules/"
+    done
+    if [ -f "$DEST/.claude/RULES.md" ]; then
+      rm -f "$DEST/.claude/RULES.md"
+      echo "[setup] removed superseded .claude/RULES.md — rules now live in .claude/rules/"
+      echo "        (your customizations belong in unprefixed files there; if your CLAUDE.md"
+      echo "        still carries an '@.claude/RULES.md' import line, delete that line)"
+    fi
   fi
   echo "[setup] synced harness core → $DEST/.claude/"
 }
