@@ -43,7 +43,8 @@ deploy "$P1" >/dev/null 2>&1
 T2_OK=1
 for f in CLAUDE.template.md README.template.md .claude/project.schema.json \
          .claude/settings.json .claude/settings.sandbox-example.json \
-         docs/sessions/.gitkeep .gitignore; do
+         docs/sessions/.gitkeep .gitignore \
+         docs/REQUIREMENTS.md docs/ARCHITECTURE.md docs/PHASE_STATUS.md; do
   [ -e "$P1/$f" ] || { no "fresh deploy missing $f"; T2_OK=0; }
 done
 RULES_N=$(ls "$P1/.claude/rules/"guv-*.md 2>/dev/null | wc -l | tr -d ' ')
@@ -87,6 +88,11 @@ grep -q "stale" "$P1/.claude/rules/guv-verification.md" \
 grep -q "consumer-edited" "$P1/CLAUDE.template.md" \
   && no "harness-owned template not refreshed on re-run" \
   || ok "templates are harness-owned: refreshed on re-run"
+echo "# my filled-in requirements" > "$P1/docs/REQUIREMENTS.md"
+deploy "$P1" >/dev/null 2>&1
+grep -q "my filled-in requirements" "$P1/docs/REQUIREMENTS.md" \
+  && ok "doc skeletons are consumer-owned: a filled-in REQUIREMENTS.md survives re-run" \
+  || no "re-run clobbered a consumer's filled-in phase doc"
 
 # T6 — pre-existing .gitignore: content kept, guv block appended exactly once
 P2="$WORK/existing-gi"; mkdir -p "$P2"
@@ -100,6 +106,13 @@ N=$(grep -c "secrets/" "$P2/.gitignore")
 [ "$N" -eq 1 ] \
   && ok "guv block appended exactly once across two runs" \
   || no "guv block duplicated or missing (secrets/ appears ${N}x)"
+# single-source guard: the appended block IS the template's marker-delimited
+# core block — extracted at deploy time, no hardcoded copy in the script to
+# drift when the template gains a harness-critical entry
+diff <(awk '/^# guv-core-start/,/^# guv-core-end/' "$SHELL_DIR/gitignore") \
+     <(awk '/^# guv-core-start/,/^# guv-core-end/' "$P2/.gitignore") >/dev/null 2>&1 \
+  && ok "appended block == template's guv-core block (single source, extracted)" \
+  || no "appended .gitignore block must be extracted from shell/gitignore's core block"
 
 # T7 — Docker tier is opt-in (--docker), and existing tier files are never
 # clobbered (consumers patch init-firewall.sh with their registry domains)
@@ -137,12 +150,20 @@ deploy "$P4" >/dev/null 2>&1
   && ok "session artifacts never touched" \
   || no "scaffold touched docs/sessions/"
 
-# T9 — the deploy reports what it did (fail loud, auditable): summary lines on
-# stdout mention created/refreshed/skipped
+# T9 — the deploy reports what it did (fail loud, auditable), and the labels
+# are accurate: a fresh deploy reports the rules as CREATED, a re-run as
+# refreshed (the report is the feature — mislabels defeat it)
 mkdir -p "$WORK/report" && OUT=$(cd "$WORK/report" && bash "$SCRIPT" 2>&1)
 echo "$OUT" | grep -qi "created\|deployed" \
   && ok "deploy reports its actions" \
   || no "deploy must report created/refreshed/skipped actions"
+echo "$OUT" | grep -E '^\[scaffold\] created:.*rules/guv-' >/dev/null \
+  && ok "fresh deploy labels the rules as created" \
+  || no "fresh deploy must label rules created, not refreshed"
+OUT2=$(cd "$WORK/report" && bash "$SCRIPT" 2>&1)
+echo "$OUT2" | grep -E '^\[scaffold\] refreshed:.*rules/guv-' >/dev/null \
+  && ok "re-run labels the rules as refreshed" \
+  || no "re-run must label rules refreshed"
 
 # T10 — shell assets in the plugin match their harness sources: templates,
 # gitignore, schema, sandbox-example, and the Docker tier byte-identical;
@@ -154,7 +175,10 @@ for pair in \
   ".gitignore:shell/gitignore" \
   "Makefile:shell/Makefile" \
   ".claude/project.schema.json:shell/project.schema.json" \
-  ".claude/settings.sandbox-example.json:shell/settings.sandbox-example.json"; do
+  ".claude/settings.sandbox-example.json:shell/settings.sandbox-example.json" \
+  "docs/REQUIREMENTS.md:shell/docs/REQUIREMENTS.md" \
+  "docs/ARCHITECTURE.md:shell/docs/ARCHITECTURE.md" \
+  "docs/PHASE_STATUS.md:shell/docs/PHASE_STATUS.md"; do
   cmp -s "$ROOT/${pair%%:*}" "$PLUGIN/${pair##*:}" || { no "shell asset ${pair##*:} differs from ${pair%%:*}"; T10_OK=0; }
 done
 diff -r "$ROOT/sandbox" "$PLUGIN/shell/sandbox" >/dev/null 2>&1 || { no "shell/sandbox differs from sandbox/"; T10_OK=0; }
