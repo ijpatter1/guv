@@ -1,6 +1,6 @@
 # Claude Code Development Environment
 
-A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and Docker sandboxing.
+A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
 
 Based on patterns from [Anthropic's harness design research](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/).
 
@@ -32,7 +32,7 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 
 **QA evaluator subagent** — An independent, skeptical reviewer that grades work on five criteria (Functionality, Test Quality, Code Quality, Completeness, Integration). Runs in its own context window with read-only enforcement. Auto-invoked before every session handoff.
 
-**Docker sandbox** — Isolated container for `--dangerously-skip-permissions` mode with iptables firewall, non-root execution, and domain allowlisting. Optional — works without Docker too.
+**Two isolation tiers** — Default: Claude Code's **native sandbox** (OS-enforced filesystem/network limits, zero Docker steps — recommended settings ship in `.claude/settings.sandbox-example.json`). Opt-in: a **Docker sandbox** with iptables firewall for full environment reproducibility, `--dangerously-skip-permissions` autonomy, or platforms without native support. Pick one tier per project — see [Security Model](#security-model).
 
 **Safety hooks** — Deterministic enforcement of dangerous command blocking (bash-guard), auto-formatting (auto-format), and session reminder (stop-check).
 
@@ -55,7 +55,7 @@ rm -rf .git && git init
 The fastest path — give Claude Code your spec:
 
 ```bash
-# Start Claude Code (native or sandbox)
+# Start Claude Code (default tier; or `make sandbox` for the Docker tier)
 claude
 # or: make sandbox
 
@@ -87,9 +87,9 @@ Review the generated files, adjust anything that needs it, then commit and start
 - Edit `.claude/project.json` to declare your stack, commands, `roots`, `guards`, and `ceremony`.
 - For phased projects, define `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_STATUS.md`.
 
-Either way, also update:
+If you opt into the Docker tier, also update:
 
-- **`Makefile`** — Change `IMAGE_NAME` and `CONTAINER_NAME` at the top (two lines). The sandbox base image is derived from the manifest's `language`; override with `make build BASE_IMAGE=...`.
+- **`Makefile`** — Change `IMAGE_NAME` and `CONTAINER_NAME` at the top (two lines). The sandbox base image is derived from the manifest's `language`; override with `make build BASE_IMAGE=...`. (Default-tier projects can skip this — the Makefile is only used by `make sandbox` and friends.)
 
 Optionally customize:
 
@@ -106,11 +106,14 @@ source ~/.zshrc
 ### 4. Start coding
 
 ```bash
-# Option A: Docker sandbox (autonomous, no permission prompts)
-make sandbox
-
-# Option B: Native Claude Code (interactive, with Remote Control)
+# Option A (default tier): native Claude Code + native sandbox
+# (enable via .claude/settings.sandbox-example.json or /sandbox in-session;
+#  Linux/WSL2: install bubblewrap + socat first — see Security Model below)
 claude
+
+# Option B (opt-in tier): Docker sandbox — reproducible env,
+# --dangerously-skip-permissions autonomy, or no native sandbox support
+make sandbox
 ```
 
 Then inside Claude Code:
@@ -122,11 +125,11 @@ Then inside Claude Code:
 ### 5. Daily workflow
 
 ```bash
-# Terminal 1: Claude Code
-make sandbox
+# Terminal 1: Claude Code (or `make sandbox` for the Docker tier)
+claude
 # /start-phase 1
 
-# Terminal 2: Dev server on your Mac
+# Terminal 2: Dev server on the host
 make dev
 
 # Terminal 3: Your tools (VS Code, git, tests)
@@ -149,6 +152,7 @@ code .
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
 │   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan-initiative)
 │   ├── settings.json                  # Permissions (convenience layer) + hooks
+│   ├── settings.sandbox-example.json  # Recommended native-sandbox fragment (default tier)
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/
 │   │   ├── evaluator.md               # Technical QA evaluator subagent
@@ -182,7 +186,7 @@ code .
 │   ├── PHASE_STATUS.md                # Phase tracker (phased; YOU EDIT THIS)
 │   └── sessions/
 │       └── .gitkeep
-└── sandbox/
+└── sandbox/                           # Docker isolation tier (opt-in; default is native)
     ├── Dockerfile                     # Sandbox image (BASE_IMAGE build arg)
     ├── init-firewall.sh               # Per-language registry allowlist firewall
     ├── entrypoint.sh                  # Privilege drop + Claude start
@@ -192,6 +196,34 @@ code .
 > A rendered `CLAUDE.md` (the live file) and `.claude/project.json` are created/filled per project by `/init-project` or `/onboard`. The template repo ships **no** `CLAUDE.md`.
 
 The **durable core** — the `guv-*` rules in `.claude/rules/`, the manifest, the evaluator/reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
+
+## Security Model
+
+Isolation is three layers with distinct jobs:
+
+1. **Native sandbox — the spatial boundary (default tier).** OS-enforced limits (macOS
+   Seatbelt; bubblewrap on Linux/WSL2) on every Bash command and its child processes:
+   writes confined to the working directory, network confined to allowlisted domains.
+   Enable it with the shipped fragment `.claude/settings.sandbox-example.json` — copy
+   its `sandbox` block into `.claude/settings.json`, or run `/sandbox` in-session. The
+   fragment's starter domain allowlist mirrors the firewall's core set (Anthropic +
+   GitHub) and its comments carry the per-language registry table for your stack.
+   macOS needs nothing installed; on Linux/WSL2 install `bubblewrap` and `socat`
+   first (see the [official sandboxing docs](https://code.claude.com/docs/en/sandboxing)).
+2. **bash-guard — the semantic boundary within it.** The native sandbox permits writes
+   anywhere in the working directory, so destructive patterns inside the boundary —
+   `rm -rf .`, hard resets, publishes — remain bash-guard's job in both tiers
+   (deterministic PreToolUse hook; universal blocks plus manifest-keyed optional
+   guards).
+3. **Permissions — the convenience layer.** The allow/deny rules in
+   `.claude/settings.json` decide what runs without prompting. They reduce friction;
+   they are not the enforcement boundary.
+
+The Docker sandbox (`make sandbox`) is the **opt-in tier** that replaces layer 1 with
+a container + iptables firewall — see [sandbox/README.md](sandbox/README.md) for when
+to choose it. **Pick one tier per project:** running the native sandbox inside the
+container requires a weakened mode (`enableWeakerNestedSandbox`) and should not be
+combined.
 
 ## GCP Access (Optional)
 

@@ -34,7 +34,7 @@ fact lives somewhere more specific, it lives there, not here.
 - **Commands, stack, roots, ceremony, guards:** `.claude/project.json` — the single source of truth for _facts_. Read the test/build/lint/format/dev commands from there and run them; **never hardcode a command in this file or assume one**. A `null` command means the project has no such step — skip it, don't substitute a default.
 - **Process commands:** `/task` (scoped change), `/onboard` (adopt an existing repo), `/init-project` (greenfield setup), `/plan-initiative` (multi-phase initiative on an existing project), then `/start-phase`, `/evaluate`, `/handoff`, `/status`, `/manual`. The commands carry the repeatable procedure; follow their steps.
 - **Sometimes-relevant workflows & domain knowledge:** `.claude/skills/` — loaded on demand so they don't cost context every session.
-- **Enforcement:** hooks (`bash-guard`, `auto-format`, `stop-check`) + the firewall + the sandbox are the real boundary. `settings.json` permissions are a convenience layer, not a security layer — the sandbox is the hard line.
+- **Enforcement:** the isolation tier (native sandbox by default; Docker sandbox + firewall opt-in) is the spatial boundary, and the hooks (`bash-guard`, `auto-format`, `stop-check`) are the semantic layer within it. `settings.json` permissions are a convenience layer, not a security layer — the isolation tier is the hard line.
 
 ## Where the code lives
 

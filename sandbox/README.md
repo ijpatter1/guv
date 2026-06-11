@@ -1,6 +1,19 @@
-# Claude Code Sandbox
+# Claude Code Sandbox (Docker — the opt-in tier)
 
 Isolated Docker environment for running Claude Code with `--dangerously-skip-permissions` safely.
+
+> **This is the opt-in isolation tier.** The default tier is Claude Code's **native
+> sandbox** + bash-guard — zero Docker steps; see the main README's
+> [Security Model](../README.md#security-model) and the shipped fragment
+> `.claude/settings.sandbox-example.json`. Choose Docker when you need:
+>
+> - **Full environment reproducibility** — the toolchain is baked into the image
+> - **`--dangerously-skip-permissions` autonomy** — no permission prompts at all
+> - **A platform without native sandbox support** — e.g. native Windows (no WSL2)
+>
+> **Pick one tier per project.** Running the native sandbox inside this container
+> requires a weakened mode (`enableWeakerNestedSandbox`) and should not be combined —
+> keep `sandbox.enabled` off in the container.
 
 ## Quick Start
 
@@ -56,9 +69,13 @@ File changes from Claude Code appear instantly via bind mount. Hot reload works 
 
 ## Security Model
 
-**Filesystem isolation:** Only `/workspace` (your project) is visible. No host home directory, SSH keys, or `.env` files.
+**Filesystem isolation:** Only `/workspace` (your project) is visible. No host home directory, SSH keys, or `.env` files. The container is the Docker tier's spatial boundary — the role the native sandbox plays in the default tier.
 
 **Network isolation:** iptables default-deny. Edit `init-firewall.sh` to add project-specific domains.
+
+**Known caveat — resolve-once DNS:** the firewall resolves allowlisted domains to IPs once at container start. If a service's IP changes during a long session it becomes unreachable; restart the container to refresh.
+
+**Destructive patterns are bash-guard's job, not the firewall's.** The bash-guard hook is the semantic layer shared by both tiers — it blocks filesystem wipes, hard resets, and publishes that network isolation cannot catch.
 
 **Non-root execution.** Entrypoint runs as root for iptables only, then drops to `claude` user via `runuser`. No root process after startup.
 

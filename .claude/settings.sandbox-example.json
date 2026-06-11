@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": [
+    "RECOMMENDED NATIVE-SANDBOX SETTINGS — the default isolation tier (macOS Seatbelt /",
+    "Linux+WSL2 bubblewrap). Copy the 'sandbox' block into .claude/settings.json, or use",
+    "/sandbox inside Claude Code to enable it per-project. Zero Docker steps required.",
+    "macOS needs nothing installed; Linux/WSL2 needs bubblewrap + socat first — see",
+    "https://code.claude.com/docs/en/sandboxing for setup and the full reference.",
+    "",
+    "THE THREE LAYERS (see the README's Security Model section):",
+    "  1. native sandbox  = spatial boundary — OS-enforced filesystem/network limits",
+    "  2. bash-guard hook = semantic boundary within it — blocks destructive patterns",
+    "     (rm -rf ., hard resets, publishes) the spatial boundary permits in cwd",
+    "  3. permissions     = convenience layer — what runs without prompting",
+    "",
+    "allowedDomains mirrors the Docker firewall's core set (sandbox/init-firewall.sh):",
+    "Anthropic + GitHub. Add your stack's package registry, mirroring the firewall's",
+    "per-language table:",
+    "  node:   registry.npmjs.org, www.npmjs.com",
+    "  python: pypi.org, files.pythonhosted.org",
+    "  rust:   crates.io, static.crates.io, index.crates.io",
+    "  go:     proxy.golang.org, sum.golang.org",
+    "  ruby:   rubygems.org, index.rubygems.org",
+    "  jvm:    repo.maven.apache.org, repo1.maven.org",
+    "  dotnet: api.nuget.org",
+    "  elixir: hex.pm, repo.hex.pm, builds.hex.pm",
+    "",
+    "denyRead mirrors the permission denies (Read(**/.env), Read(**/.env.*),",
+    "Read(**/secrets/**)). Sandbox paths are literal paths, not globs; './' and",
+    "prefix-less entries resolve to the PROJECT ROOT when the block lives in project",
+    "settings (.claude/settings.json) — so './secrets' denies <project>/secrets.",
+    "Add further .env.* variants and nested locations your repo actually has.",
+    "The default read policy allows ~/.ssh and ~/.aws; deny them here too if your",
+    "threat model calls for it.",
+    "",
+    "NESTING: pick ONE tier per project. Running this native sandbox inside the Docker",
+    "sandbox requires enableWeakerNestedSandbox, which weakens isolation — if you need",
+    "the container (reproducibility, --dangerously-skip-permissions autonomy, or a",
+    "platform without native support), use 'make sandbox' and leave this disabled."
+  ],
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "claude.ai",
+        "statsig.anthropic.com",
+        "github.com",
+        "raw.githubusercontent.com",
+        "objects.githubusercontent.com"
+      ]
+    },
+    "filesystem": {
+      "denyRead": [
+        "./secrets",
+        "./.env",
+        "./.env.local"
+      ]
+    }
+  }
+}

@@ -5,15 +5,18 @@
 # Exit 0 = allow, JSON stdout with deny = block.
 #
 # SECURITY MODEL:
-# This hook is one layer of a defense-in-depth strategy:
-#   1. settings.json permissions — convenience layer, auto-allow safe commands
-#   2. This hook — deterministic enforcement, blocks dangerous patterns
-#   3. Docker sandbox firewall — network-level isolation (when using sandbox)
+# This hook is the SEMANTIC layer of the three-layer model (README "Security Model"):
+#   1. Isolation tier — the spatial boundary: the native sandbox (default tier;
+#      OS-enforced filesystem/network limits) or the Docker sandbox + firewall
+#      (opt-in tier)
+#   2. This hook — the semantic boundary within it: the spatial boundary permits
+#      writes anywhere in the working directory, so destructive patterns
+#      (rm -rf ., hard resets to remotes, publishes) remain THIS hook's job in
+#      BOTH tiers
+#   3. settings.json permissions — convenience layer, auto-allow safe commands
 #
-# This hook should be safe to use WITH OR WITHOUT the Docker sandbox.
-# When running outside Docker (e.g., native Claude Code with built-in sandbox),
-# this hook provides the primary enforcement for destructive patterns (filesystem
-# wipes, hard resets, publishes) that the Docker firewall would otherwise catch.
+# This hook runs identically in either tier (and with no tier at all) — it reads
+# only the command string and the manifest, never the isolation environment.
 #
 # STACK-AGNOSTIC GUARDS:
 # The blocked set is two parts:
