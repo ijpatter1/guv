@@ -29,7 +29,9 @@ jq -n '{guards: ["npm-publish"]}' > "$GUARDED/.claude/project.json"
 run_guard() {  # $1 = command string, $2 = workdir
   ( cd "$2" && jq -n --arg c "$1" '{tool_input: {command: $c}}' | bash "$HOOK" )
 }
-denies() { run_guard "$1" "$2" | grep -q '"permissionDecision": "deny"'; }
+denies() {  # parse, don't grep — robust to output formatting changes in the hook
+  run_guard "$1" "$2" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1
+}
 
 # T1 — benign command allowed (no deny output).
 denies "ls -la" "$PLAIN" \

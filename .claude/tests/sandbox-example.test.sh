@@ -7,7 +7,7 @@
 #   - the starter set mirrors the firewall's core set EXACTLY (drift guard against
 #     sandbox/init-firewall.sh — one source of truth for "what domains a stack needs")
 #   - per-language registries stay guidance, never baked into the starter set
-#   - denyRead covers secrets/ and .env (matching the permission denies)
+#   - denyRead covers every Read deny in settings.json (derived drift guard)
 # Pure bash + jq, no test runner required (this template repo ships no JS suite).
 # Run: bash .claude/tests/sandbox-example.test.sh
 set -u

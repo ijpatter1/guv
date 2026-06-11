@@ -1,6 +1,6 @@
 # Claude Code Development Environment
 
-A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and sandboxed isolation by default — the native sandbox as the default tier, Docker as the opt-in tier.
+A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
 
 Based on patterns from [Anthropic's harness design research](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/).
 
@@ -107,7 +107,8 @@ source ~/.zshrc
 
 ```bash
 # Option A (default tier): native Claude Code + native sandbox
-# (enable via .claude/settings.sandbox-example.json or /sandbox in-session)
+# (enable via .claude/settings.sandbox-example.json or /sandbox in-session;
+#  Linux/WSL2: install bubblewrap + socat first — see Security Model below)
 claude
 
 # Option B (opt-in tier): Docker sandbox — reproducible env,
@@ -128,7 +129,7 @@ Then inside Claude Code:
 claude
 # /start-phase 1
 
-# Terminal 2: Dev server on your Mac
+# Terminal 2: Dev server on the host
 make dev
 
 # Terminal 3: Your tools (VS Code, git, tests)
