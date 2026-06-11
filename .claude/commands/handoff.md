@@ -26,7 +26,7 @@ Then gather (a no-op for single-repo, where both roots are `"."`):
 2. Run `git -C "$TARGET" diff HEAD~N` (where N = number of session commits) to get the full diff
 3. Read `docs/PHASE_STATUS.md` for the current phase number (skip if absent — non-phased)
 
-If `TARGET` is the control plane, tell the evaluator it's reviewing control-plane / doc work for a pre-scaffold session, not product code, so it judges accordingly rather than reporting "no tests" against documentation.
+If `TARGET` is the control plane, tell the evaluator it's reviewing control-plane / doc work — a pre-scaffold session, or a docs-only session in a mature split — not product code, so it judges accordingly rather than reporting "no tests" against documentation.
 
 Then pass a prompt like: "Evaluate the following work from Phase [N]. Commits this session: [list]. The diff covers these files: [list changed files]. Run your full evaluation procedure."
 

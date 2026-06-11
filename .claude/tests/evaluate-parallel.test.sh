@@ -94,6 +94,33 @@ grep -q "planning layer" "$ROOT/CLAUDE.template.md" \
   && ok "CLAUDE.template.md states the planning/execution layering" \
   || no "CLAUDE.template.md must state planning layer vs execution layer"
 
+# T9 — the phase-label guard BEHAVES correctly (node-gated like T7): the
+# extracted const lines are executed against the deviations the guard exists
+# for — "Phase Phase" duplication, empty phase, and the non-phased sentinels.
+# Two fix-pass behavior changes landed here untested; this closes that gap.
+if command -v node >/dev/null 2>&1; then
+  SNIPPET=$(grep -E '^const (phaseLabel|phased|fromPhase) ' "$WF")
+  if [ "$(echo "$SNIPPET" | wc -l)" -eq 3 ]; then
+    run_guard() {
+      printf 'const scope={phase:process.argv[2] ?? ""};\n%s\nconsole.log(JSON.stringify([phaseLabel,phased,fromPhase]));\n' "$SNIPPET" \
+        | node - "$1" 2>/dev/null
+    }
+    G_OK=1
+    [ "$(run_guard '  Phase 4 — X')" = '["4 — X",true," from Phase 4 — X"]' ] || G_OK=0
+    [ "$(run_guard '')" = '["",false,""]' ] || G_OK=0
+    [ "$(run_guard 'unknown')" = '["unknown",false,""]' ] || G_OK=0
+    [ "$(run_guard 'N/A')" = '["N/A",false,""]' ] || G_OK=0
+    [ "$(run_guard '4')" = '["4",true," from Phase 4"]' ] || G_OK=0
+    [ "$G_OK" -eq 1 ] \
+      && ok "phase-label guard behaves: prefix-strip, empty, sentinels (executed)" \
+      || no "phase-label guard misbehaves for a deviation case"
+  else
+    no "could not extract the three guard const lines from $WF (test setup)"
+  fi
+else
+  echo "  - node not installed — skipping phase-label guard behavior check"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
