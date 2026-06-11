@@ -56,7 +56,7 @@ mkdir -p "$OUT/.claude-plugin" "$OUT/skills" "$OUT/agents" "$OUT/hooks" \
 # ── authored plugin-only sources, verbatim ──
 cp "$PSRC/plugin.json" "$OUT/.claude-plugin/plugin.json"
 cp "$PSRC/hooks/hooks.json" "$OUT/hooks/hooks.json"
-cp "$PSRC/scripts/reviewer-readonly.sh" "$OUT/scripts/reviewer-readonly.sh"
+cp "$PSRC/scripts/"*.sh "$OUT/scripts/"
 for d in "$PSRC/skills"/*/; do
   name="$(basename "$d")"
   mkdir -p "$OUT/skills/$name"
@@ -110,6 +110,23 @@ chmod +x "$OUT/scripts"/*.sh
 
 # ── rules, byte-identical ──
 cp "$SRC/rules"/guv-*.md "$OUT/rules/"
+
+# ── project-shell assets for /guv:scaffold ──
+# Everything the template-clone step used to provide that must live in the
+# PROJECT (the plugin can't supply these from its own directory at runtime).
+# settings.json ships minus the hooks block: the plugin's hooks.json owns the
+# hooks, and the template's hook commands point at .claude/hooks/ scripts a
+# scaffolded project doesn't have.
+mkdir -p "$OUT/shell"
+cp "$ROOT/CLAUDE.template.md" "$OUT/shell/CLAUDE.template.md"
+cp "$ROOT/README.template.md" "$OUT/shell/README.template.md"
+cp "$ROOT/.gitignore" "$OUT/shell/gitignore"
+cp "$ROOT/Makefile" "$OUT/shell/Makefile"
+cp "$SRC/project.schema.json" "$OUT/shell/project.schema.json"
+cp "$SRC/settings.sandbox-example.json" "$OUT/shell/settings.sandbox-example.json"
+jq 'del(.hooks)' "$SRC/settings.json" > "$OUT/shell/settings.json"
+mkdir -p "$OUT/shell/sandbox"
+cp "$ROOT/sandbox/"* "$OUT/shell/sandbox/"
 
 # ── workflow asset: reviewers namespaced ──
 # Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the
