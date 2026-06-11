@@ -1,5 +1,7 @@
 End the current work session by running QA evaluation, generating a structured handoff artifact, and updating the phase tracker.
 
+> Steps 1 and 2 can run as one concurrent pass via the saved `/evaluate-parallel` workflow — it mirrors the `/evaluate` skill's Steps 1–4 and returns both reports plus the combined summary. The verdict gates below still apply to its results; any fix loop stays conversational, in the main session.
+
 ## Step 1 — Invoke the Evaluator
 
 Before anything else, invoke the `evaluator` subagent using the Agent tool. First decide **which repo's commits to evaluate**. Normally it's the code repo, but a pre-scaffold or docs-only session (e.g. the very first `phased` session, or any session that only touched control-plane docs) has no code history yet — `git -C roots.code log` would error or be empty. Pick the target:
