@@ -5,6 +5,11 @@ phased plan), `/onboard` reads what's there and records it. It does not scaffold
 conventions, and it does not create phase docs. Most real work is on existing code —
 this is the path that unlocks it.
 
+> **`/onboard` supersedes Claude Code's native `/init` in harness projects.** `/init`
+> inlines commands and stack facts into `CLAUDE.md`, which violates the manifest
+> contract (commands live in `.claude/project.json` and are never restated). Run this
+> command instead; don't run `/init` in a harness-governed repo.
+
 ## Input
 
 $ARGUMENTS

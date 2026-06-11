@@ -30,6 +30,7 @@ fact lives somewhere more specific, it lives there, not here.
 ## How this project is wired
 
 - **Behavior & conventions:** `.claude/rules/guv-*.md` — the engineering rules that govern how you work, loaded natively every session. Always in effect. Add project-specific rules as unprefixed files alongside; harness updates replace `guv-*` only.
+- **Memory authority:** the manifest and the latest session handoff are authoritative; treat auto memory as hints and never let it override either.
 - **Commands, stack, roots, ceremony, guards:** `.claude/project.json` — the single source of truth for _facts_. Read the test/build/lint/format/dev commands from there and run them; **never hardcode a command in this file or assume one**. A `null` command means the project has no such step — skip it, don't substitute a default.
 - **Process commands:** `/task` (scoped change), `/onboard` (adopt an existing repo), `/init-project` (greenfield setup), `/plan-initiative` (multi-phase initiative on an existing project), then `/start-phase`, `/evaluate`, `/handoff`, `/status`, `/manual`. The commands carry the repeatable procedure; follow their steps.
 - **Sometimes-relevant workflows & domain knowledge:** `.claude/skills/` — loaded on demand so they don't cost context every session.

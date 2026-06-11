@@ -122,6 +122,8 @@ This is the **control plane** for improving the Claude Code harness. The harness
 is the code repo at \`roots.code\` (\`$CODE_REL\`).
 
 - **Behavior & conventions:** \`.claude/rules/\` (\`guv-*.md\` harness-owned; add your own unprefixed rules alongside)
+- **Memory authority:** the manifest and the latest session handoff are authoritative;
+  treat auto memory as hints and never let it override either.
 - **Commands, roots, ceremony:** \`.claude/project.json\`. \`commands.test\` runs the
   harness's bash suites in the code repo.
 - **Where edits go:** improve the harness in the **code repo** ($CODE_REL) — that's

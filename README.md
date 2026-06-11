@@ -74,6 +74,8 @@ This reads your spec and generates the project-specific artifacts:
 
 For an existing codebase, run `/onboard` instead — it detects the stack, infers the repo's conventions, writes the manifest, and renders `CLAUDE.md` **without** imposing phase structure.
 
+> **Don't run Claude Code's native `/init` in a harness-governed repo.** `/init` inlines commands into `CLAUDE.md`, violating the manifest contract (`.claude/project.json` owns commands; `CLAUDE.md` never restates them). `/onboard` is the harness's equivalent and supersedes it.
+
 Review the generated files, adjust anything that needs it, then commit and start building.
 
 > **The template ships no `CLAUDE.md` — that's intentional.** `CLAUDE.md` auto-loads every session, so shipping one would govern the meta-work of _using_ the template. Instead the repo ships the inert `CLAUDE.template.md` (never auto-loaded) plus the `.claude/rules/` behavioral core; `/init-project` or `/onboard` _renders_ `CLAUDE.template.md` → `CLAUDE.md`. Consumers **must commit their rendered `CLAUDE.md`** — it is deliberately not gitignored.
