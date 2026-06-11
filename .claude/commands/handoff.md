@@ -1,6 +1,6 @@
 End the current work session by running QA evaluation, generating a structured handoff artifact, and updating the phase tracker.
 
-> Steps 1 and 2 can run as one concurrent pass via the saved `/evaluate-parallel` workflow — it mirrors the `/evaluate` skill's Steps 1–4 and returns both reports plus the combined summary. The verdict gates below still apply to its results; any fix loop stays conversational, in the main session. For a pre-scaffold or docs-only session, keep the conversational Steps 1–2 — the workflow's default scope targets the code repo and will (loudly) find no commits.
+> Steps 1 and 2 can run as one concurrent pass via the saved `/evaluate-parallel` workflow — it mirrors the `/evaluate` skill's Steps 1–4 and returns both reports plus the combined summary. The verdict gates below still apply to its results; any fix loop stays conversational, in the main session. For a pre-scaffold session — or, in a split-root setup, any session whose commits live only in the control plane — keep the conversational Steps 1–2: the workflow's default scope targets the code repo and will (loudly) find no commits there. (Single-repo projects are unaffected: `roots.code` is `.`, so every commit is in scope.)
 
 ## Step 1 — Invoke the Evaluator
 

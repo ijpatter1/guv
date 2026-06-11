@@ -36,9 +36,10 @@ make_harness() {
   echo "# task" > "$h/.claude/skills/task/SKILL.md"
   echo "# cmd" > "$h/.claude/commands/status.md"
   echo "hook" > "$h/.claude/hooks/guard.sh"
-  mkdir -p "$h/.claude/rules" "$h/.claude/workflows"
+  mkdir -p "$h/.claude/rules" "$h/.claude/workflows/dir-wf"
   printf 'guv rule body v1\n' > "$h/.claude/rules/guv-core.md"
   echo "export const meta = {}" > "$h/.claude/workflows/evaluate-parallel.js"
+  echo "dir-wf main v1" > "$h/.claude/workflows/dir-wf/main.js"
   echo "archive" > "$h/.claude/archive-initiative.sh"
   echo '{}' > "$h/.claude/settings.json"
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/commands/.DS_Store"
@@ -104,6 +105,8 @@ echo "edited" > "$H/.claude/rules/guv-core.md"
 echo "consumer workflow — mine" > "$D/.claude/workflows/my-migration.js"
 cp "$D/.claude/workflows/my-migration.js" "$WORK/my-migration.before"
 echo "wf-edited" > "$H/.claude/workflows/evaluate-parallel.js"
+echo "stale" > "$D/.claude/workflows/dir-wf/stale-nested.js"
+echo "dir-wf main v2" > "$H/.claude/workflows/dir-wf/main.js"
 ( bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) > "$WORK/sync.out" 2>&1
 grep -q "edited" "$D/.claude/rules/guv-core.md" 2>/dev/null \
   && ok "sync: stale guv-* rule refreshed" \
@@ -117,6 +120,13 @@ grep -q "wf-edited" "$D/.claude/workflows/evaluate-parallel.js" 2>/dev/null \
 cmp -s "$WORK/my-migration.before" "$D/.claude/workflows/my-migration.js" \
   && ok "sync: consumer-saved workflow survives byte-for-byte (cmp)" \
   || no "sync: user-saved workflows must never be touched (native feature saves them here)"
+# Directory-entry workflow: refresh must REPLACE the destination dir, not merge
+# into it (plain cp -R into an existing dir leaves stale nested files behind —
+# the rm-rf-per-basename line is what this guards).
+grep -q "dir-wf main v2" "$D/.claude/workflows/dir-wf/main.js" 2>/dev/null \
+  && [ ! -e "$D/.claude/workflows/dir-wf/stale-nested.js" ] \
+  && ok "sync: directory-entry workflow replaced, stale nested file gone" \
+  || no "sync: dir-entry workflows must be replaced wholesale (refresh + no stale nested files)"
 [ ! -f "$D/.claude/RULES.md" ] \
   && ok "sync: superseded .claude/RULES.md deleted (no double-load)" \
   || no "sync: legacy .claude/RULES.md should be removed"

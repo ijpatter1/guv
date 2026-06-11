@@ -65,8 +65,8 @@ log(`Scope: ${scope.scopeDescription} (${scope.commits.length} commits, ${scope.
 // without the leading word, but a model may still return "Phase 4 — ..." —
 // strip it in code rather than shipping "Phase Phase 4" prompts. Non-phased
 // projects (phase "unknown") get phase-free prompts instead of "Phase unknown".
-const phaseLabel = String(scope.phase).replace(/^phase\s+/i, '')
-const phased = !/^unknown$/i.test(phaseLabel)
+const phaseLabel = String(scope.phase).replace(/^phase\s+/i, '').trim()
+const phased = Boolean(phaseLabel) && !/^(unknown|n\/a|none)$/i.test(phaseLabel)
 const fromPhase = phased ? ` from Phase ${phaseLabel}` : ''
 
 // ── Steps 2 + 3 — both calibrated reviewers, concurrently ──
