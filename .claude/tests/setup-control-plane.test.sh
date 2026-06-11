@@ -167,6 +167,27 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   && ok "create re-run: existing manifest/CLAUDE.md/runner not clobbered" \
   || no "create re-run must not clobber existing control-plane files"
 
+# T6 — generated runner enforces the empty-stderr gate: a suite that PASSES but
+# writes to stderr must fail the run (a green summary above a parse error is
+# how a vacuous guard slipped two review gates — session-2026-06-11-003).
+# The clean-suite case first is the positive control for the runner itself.
+H=$(make_harness)
+D="$WORK/control-runner"
+mkdir -p "$H/.claude/tests"
+printf '#!/bin/bash\necho "  ok"\nexit 0\n' > "$H/.claude/tests/clean.test.sh"
+run_setup "$H" "$D"
+( cd "$D" && bash .claude/run-harness-tests.sh ) >/dev/null 2>&1 \
+  && ok "runner: clean passing suite -> run passes" \
+  || no "runner: a clean passing suite should pass the run"
+printf '#!/bin/bash\necho "  ok"\necho "boom: parse error" >&2\nexit 0\n' > "$H/.claude/tests/noisy.test.sh"
+OUT=$( cd "$D" && bash .claude/run-harness-tests.sh 2>&1 )
+RC=$?
+if [ "$RC" -ne 0 ] && echo "$OUT" | grep -q '\[stderr\]'; then
+  ok "runner: passing suite with stderr output fails the run and surfaces it"
+else
+  no "runner: stderr from a suite must fail the run (rc=$RC)"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

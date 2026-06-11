@@ -98,22 +98,27 @@ for copy in "$SKILL_SRC" "$SKILL_PLUGIN"; do
   fi
 done
 
-# T7 — the live drain is documented: upstream entry → issue/PR → graduated on the
-# release that ships the fix; resolved kept distinct (fixed before any release)
-grep -q 'issue or PR against the harness repo' "$SKILL_SRC" \
-  && ok "drain step 1: upstream entries become issues/PRs" \
-  || no "skill must document: upstream entries become an issue or PR against the harness repo"
-grep -q 'on the release that ships the fix' "$SKILL_SRC" \
-  && ok "drain step 2: graduated flips on the shipping release" \
-  || no "skill must document: graduated flips on the release that ships the fix"
-grep -q 'fixed before any release' "$SKILL_SRC" \
-  && ok "graduated vs resolved distinction present" \
-  || no "skill must distinguish resolved (fixed before any release) from graduated"
+# T7 — the live drain is documented in BOTH shipped copies (the drain phrases
+# carry no slash-commands, so the plugin namespace rewrite leaves them intact):
+# upstream entry → issue/PR → graduated on the release that ships the fix;
+# resolved kept distinct (fixed before any release)
+for copy in "$SKILL_SRC" "$SKILL_PLUGIN"; do
+  label="${copy#"$ROOT"/}"
+  grep -q 'issue or PR against the harness repo' "$copy" \
+    && ok "drain step 1 (issues/PRs) in $label" \
+    || no "$label must document: upstream entries become an issue or PR against the harness repo"
+  grep -q 'on the release that ships the fix' "$copy" \
+    && ok "drain step 2 (graduated on release) in $label" \
+    || no "$label must document: graduated flips on the release that ships the fix"
+  grep -q 'fixed before any release' "$copy" \
+    && ok "graduated vs resolved distinction in $label" \
+    || no "$label must distinguish resolved (fixed before any release) from graduated"
 
-# T8 — routing:local entries have an explicit live statement in Closing the loop
-awk '/^## Closing the loop/,0' "$SKILL_SRC" | grep -q '`local`' \
-  && ok "Closing the loop states what local entries do now" \
-  || no "Closing the loop must state explicitly what routing:local entries do now"
+  # T8 — routing:local entries have an explicit live statement in Closing the loop
+  awk '/^## Closing the loop/,0' "$copy" | grep -q '`local`' \
+    && ok "Closing the loop states what local entries do now in $label" \
+    || no "Closing the loop in $label must state what routing:local entries do now"
+done
 
 # T9 — positive control: the deferral detector fires on planted deferral text
 # and stays quiet on clean text (proves T6 isn't passing vacuously)

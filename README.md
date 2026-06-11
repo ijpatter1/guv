@@ -162,8 +162,12 @@ code .
 ```
 ├── CLAUDE.template.md                 # Inert source for CLAUDE.md (rendered, not auto-loaded)
 ├── README.template.md                 # Inert source for the PROJECT README (rendered on scaffold/onboard)
+├── CHANGELOG.md                       # Plugin release notes (a version bump IS a release)
 ├── Makefile                           # Container lifecycle (base image from manifest)
 ├── .gitignore                         # Git exclusions
+├── .claude-plugin/
+│   └── marketplace.json               # Personal marketplace serving plugin/ (distribution machinery —
+│                                      #   template-clone forks can delete it along with plugin/)
 ├── .claude/
 │   ├── project.json                   # MANIFEST — single source of truth (stack/commands/roots/ceremony)
 │   ├── project.schema.json            # Manifest schema (validation + self-docs)
@@ -202,6 +206,7 @@ code .
 │   └── feedback/                      # Harness-friction log (created on first /log-feedback)
 ├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)
 │   ├── DOGFOODING.md                  # How to dogfood the harness via a control-plane split
+│   ├── RELEASING.md                   # Release flow: bump policy, checklist, feedback drain
 │   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane
 │   ├── build-plugin.sh                # Generates plugin/ from .claude/ + plugin-src/ (Phase 5)
 │   └── plugin-src/                    # Authored plugin-only sources (manifest, hooks.json, guv-only skills)

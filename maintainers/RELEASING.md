@@ -46,16 +46,21 @@ Both were set as pre-resolved decisions in the native-alignment spec
 
 ## Release checklist
 
-1. All bash suites green with **empty stderr** (`bash .claude/tests/*.test.sh`
-   via the control plane's runner) — a green summary above a parse error is a
-   fail.
+1. All bash suites green with **empty stderr** — enforced, not eyeballed: the
+   control plane's runner and CI both capture per-suite stderr and fail the
+   run on any output there (a green summary above a parse error is how a
+   vacuous guard once slipped two review gates).
 2. `claude plugin validate --strict plugin` and
    `claude plugin validate --strict .claude-plugin/marketplace.json` pass.
 3. Version bumped in `maintainers/plugin-src/plugin.json`; `plugin/` rebuilt;
    the drift guard (`plugin.test.sh`) passes.
 4. `CHANGELOG.md` entry written — topmost version matches the manifest.
-5. Tag `v<version>` and push it.
-6. **Drain step:** for every `routing: upstream` feedback entry whose fix ships
+5. **Merge to the default branch.** The marketplace serves `plugin/` from the
+   default branch — a release is unreachable until the shipping commit is on
+   it. The tag and every public side effect that names the release
+   (graduations, issue closures) come only after this step.
+6. Tag `v<version>` and push it.
+7. **Drain step:** for every `routing: upstream` feedback entry whose fix ships
    in this release, flip its status to `graduated` in the control plane's
    `.claude/feedback/feedback.ndjson` and close the linked issue naming the
    release. This is what makes `graduated` real — skip it and the drain is

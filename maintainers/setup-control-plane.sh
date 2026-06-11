@@ -102,13 +102,24 @@ if [ ! -f "$DEST/.claude/run-harness-tests.sh" ]; then
   cat > "$DEST/.claude/run-harness-tests.sh" <<'SH'
 #!/bin/bash
 # Run the harness's bash test suites from the code repo (roots.code).
+# stderr is captured per suite and ANY output there fails the run: a green
+# summary above a parse error is how a vacuous guard slipped two review gates
+# (session-2026-06-11-003) — the empty-stderr gate is enforced here, not by
+# reading discipline.
 set -u
 CODE=$(jq -r '.roots.code' .claude/project.json)
 fail=0
 for t in "$CODE"/.claude/tests/*.test.sh; do
   [ -e "$t" ] || continue
   echo "== $(basename "$t") =="
-  bash "$t" || fail=1
+  err=$(mktemp)
+  bash "$t" 2>"$err" || fail=1
+  if [ -s "$err" ]; then
+    echo "[stderr] $(basename "$t") wrote to stderr — failing the run:"
+    cat "$err"
+    fail=1
+  fi
+  rm -f "$err"
 done
 exit $fail
 SH

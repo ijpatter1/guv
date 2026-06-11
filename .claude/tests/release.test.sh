@@ -25,6 +25,19 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
+# Maintainer release machinery — a consumer fork that deleted maintainers/ has
+# no release flow to guard (and may legitimately drop the changelog and
+# marketplace manifest too); skip cleanly, never as a failure. Same pattern as
+# plugin.test.sh's drift guard. RELEASE_BUILD_SCRIPT exists so the fork-skip
+# self-check (T10) can exercise this path from the canonical repo.
+BUILD="${RELEASE_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
+if [ ! -f "$BUILD" ]; then
+  echo "  - maintainers/build-plugin.sh absent (consumer fork) — release-surface guards skip"
+  echo ""
+  echo "Results: 0 passed, 0 failed"
+  exit 0
+fi
+
 # changelog_version <file> -> version of the topmost release heading (## 0.1.0 …).
 # Factored so T6's positive control can prove the extractor extracts (a detector
 # that silently matches nothing would make the coherence check vacuous).
@@ -113,9 +126,28 @@ grep -q 'external project' "$REL" 2>/dev/null \
 grep -q 'on the release that ships the fix' "$REL" 2>/dev/null \
   && ok "graduation step: entries flip on the release that ships the fix" \
   || no "RELEASING.md must document the graduation step of the feedback drain"
-grep -qE '[0-9]{2}:[0-9]{2}:[0-9]{2}Z-[0-9]+' "$REL" 2>/dev/null \
-  && ok "worked example cites a real feedback entry id" \
-  || no "RELEASING.md must carry the worked example with a real entry id"
+WID=$(awk '/^## Worked example/,0' "$REL" 2>/dev/null | grep -m1 -oE '[0-9TZ:-]+Z-[0-9]+')
+if [ -n "$WID" ]; then
+  ok "worked example cites an entry id ($WID)"
+  # The same id must appear in the release notes — an id fabricated in one doc
+  # won't accidentally be fabricated identically in the other (the entry itself
+  # lives in the consumer control plane, outside this repo's reach).
+  grep -q "$WID" "$CL" 2>/dev/null \
+    && ok "worked-example id appears in the CHANGELOG too (cross-doc coherence)" \
+    || no "the drained entry id ($WID) should appear in the release notes"
+else
+  no "RELEASING.md must carry the worked example with a real entry id"
+fi
+
+# T10 — fork-skip self-check: with the indicator absent the suite exits 0
+# (proves the skip path, the same way plugin.test.sh proves its drift-guard skip)
+if [ -z "${RELEASE_TEST_INNER:-}" ]; then
+  if RELEASE_TEST_INNER=1 RELEASE_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" >/dev/null 2>&1; then
+    ok "suite passes in a consumer fork (indicator absent -> skip)"
+  else
+    no "suite must exit 0 when maintainers/build-plugin.sh is absent (consumer fork)"
+  fi
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
