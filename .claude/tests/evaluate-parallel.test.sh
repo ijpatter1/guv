@@ -77,6 +77,19 @@ else
   echo "  - node not installed — skipping syntax check"
 fi
 
+# T8 — ultracode-guidance touchpoints (Phase 4 D3): the README and
+# CLAUDE.template.md carry the planning-/execution-layer guidance, and the
+# /evaluate skill + /handoff command cross-reference the workflow variant.
+for doc in README.md CLAUDE.template.md \
+           .claude/skills/evaluate/SKILL.md .claude/commands/handoff.md; do
+  grep -q "evaluate-parallel" "$ROOT/$doc" 2>/dev/null \
+    && ok "$doc cross-references /evaluate-parallel" \
+    || no "$doc must cross-reference /evaluate-parallel"
+done
+grep -q "planning layer" "$ROOT/CLAUDE.template.md" \
+  && ok "CLAUDE.template.md states the planning/execution layering" \
+  || no "CLAUDE.template.md must state planning layer vs execution layer"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
