@@ -85,3 +85,25 @@ When starting a new phase:
 4. Read relevant sections of `docs/ARCHITECTURE.md`
 5. Create the new phase branch from `main` in the code repo: `git -C "$(jq -r '.roots.code' .claude/project.json)" checkout -b phase/N-description`
 6. The first session artifact for the new phase should note any dependencies on prior phases and confirm they're satisfied
+
+## Initiative Boundaries
+
+A project can run multiple phased initiatives over its life (`/plan-initiative`). Session
+continuity crosses those boundaries; these conventions keep it intact:
+
+- **Archive layout:** a finished initiative's REQUIREMENTS + PHASE_STATUS pair freezes in
+  `docs/initiatives/NNN-<name>/` — read-only history, never edited again. The top-level
+  pair always describes the *current* initiative. ARCHITECTURE.md persists at top level
+  and is revised in place. Full conventions live in the `phase-docs` skill;
+  `.claude/archive-initiative.sh` does the mechanical part.
+- **Continuous phase numbering:** phase numbers never reset — the next initiative starts
+  at (highest phase ever used) + 1. So a handoff's `Phase:` field, a `phase/N-*` branch,
+  or a `docs/uat/phase-N-*` artifact is globally unique across the project's whole
+  history; cite them without qualifying which initiative.
+- **The lineage header** at the top of `docs/REQUIREMENTS.md` is the map: one line per
+  archived initiative (phase range + archive dir) plus the current initiative's range and
+  governing spec. When reading an old handoff that references a phase outside the current
+  range, the lineage header tells you which archive directory holds its tracker.
+- **`docs/sessions/` is continuous** — never archived, never split per initiative. The
+  read-recent-handoffs pattern and the citation checker rely on it being one unbroken
+  journal.

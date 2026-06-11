@@ -37,6 +37,7 @@ make_harness() {
   echo "# cmd" > "$h/.claude/commands/status.md"
   echo "hook" > "$h/.claude/hooks/guard.sh"
   echo "rules" > "$h/.claude/RULES.md"
+  echo "archive" > "$h/.claude/archive-initiative.sh"
   echo '{}' > "$h/.claude/settings.json"
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/commands/.DS_Store"
   echo "$h"
@@ -48,13 +49,16 @@ H=$(make_harness)
 D="$WORK/control"
 run_setup "$H" "$D"
 [ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/RULES.md" ] \
-  && ok "create: core copied (skills, RULES.md present)" \
-  || no "create: core should be copied to the control plane"
+  && [ -f "$D/.claude/archive-initiative.sh" ] \
+  && ok "create: core copied (skills, RULES.md, archive-initiative.sh present)" \
+  || no "create: core (incl. archive-initiative.sh) should be copied to the control plane"
 
 # T2 — ...but no .DS_Store comes along, at any depth.
 FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
 [ -z "$FOUND" ] && ok "create: no .DS_Store copied into the control plane" \
   || no "create: .DS_Store leaked into the control plane: $FOUND"
+grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
+  || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
 
 # T3 — --sync also scrubs a .DS_Store that already sits in the destination core
 # (rm -rf + re-copy of each item must not leave or re-introduce one).

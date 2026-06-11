@@ -54,7 +54,7 @@ Before writing any files, extract and present a summary for the user to confirm:
 - **Single-repo** (`roots` both `"."`) — the framework files, docs, and product code share one tree and one history. Fine for an internal app where the sandbox/Makefile/`.claude/` riding along is harmless.
 - **Control-plane split** (`roots.code` = a sibling like `"../<product>"`) — the product lives in its own repo; this control plane holds docs + `.claude/` + the sandbox. **Recommend the split whenever the spec describes a publishable or standalone artifact** (a library, a public CLI, anything that gets its own GitHub repo): otherwise the product's Makefile collides with the sandbox Makefile and the framework files pollute the product's public history. Ask the user which topology they want and record it in `roots`.
 
-**Spec provenance** — if you copy the spec into the repo, write it to a path that won't collide with generated docs (NOT `docs/REQUIREMENTS.md` — use e.g. `docs/spec/<original-name>.md`), and stamp a provenance header at the top: source path/URL, ingestion date, and a one-line note that it's the immutable source the generated docs derive from. Reference it from the rendered `CLAUDE.md`'s "Project facts" section. This prevents the generated REQUIREMENTS.md from being mistaken for, or overwriting, the source spec.
+**Spec provenance** — if you copy the spec into the repo, follow the "Spec provenance" convention in the `phase-docs` skill (`docs/spec/<original-name>.md` + provenance header), and reference it from the rendered `CLAUDE.md`'s "Project facts" section.
 
 **Wait for the user to confirm or adjust this summary (identity, stack, phases, topology) before proceeding to file generation.**
 
@@ -92,120 +92,21 @@ installed yet) — not by the stale template default.
 
 ### Step 3 — Generate docs/REQUIREMENTS.md
 
-Write `docs/REQUIREMENTS.md` following this structure:
-
-```markdown
-# [Project Name] — Development Plan & Requirements
-
-## Project Vision
-
-[2-3 paragraphs synthesized from the spec's overview/purpose sections]
-
----
-
-## Phase N — [Phase Name]
-
-**Goal:** [One sentence from the spec or synthesized]
-
-**Deliverables:**
-
-1. [Specific, measurable deliverable]
-2. [Another deliverable]
-
-**Why this is Phase N:** [Dependencies and sequencing rationale]
-
----
-
-[Repeat for all phases]
-
-## Dependencies & Risk Notes
-
-[Extract from spec or synthesize from phase analysis]
-```
-
-Rules:
-
-- Deliverables must be specific and testable — "Scout agent with toolkit" not "build the scout functionality"
-- Each deliverable should be completable in roughly 1-3 work sessions
-- If a spec deliverable is too large, break it into sub-deliverables
-- Include a validation/acceptance section per phase if the spec has one
-- Preserve the spec's own phase structure if it has one — do not re-sequence unless the ordering has clear dependency violations
+Write `docs/REQUIREMENTS.md` following the structure and rules in the **`phase-docs`
+skill** (`.claude/skills/phase-docs/SKILL.md` — shared with `/plan-initiative`; the
+templates live there, once). This is greenfield: omit the lineage header, number phases
+from 1.
 
 ### Step 4 — Generate docs/ARCHITECTURE.md
 
-Write `docs/ARCHITECTURE.md` following this structure:
-
-```markdown
-# [Project Name] — Technical Architecture
-
-## System Overview
-
-[Architecture diagram in ASCII/text or description of major components and data flow]
-
----
-
-## Phase 1 — [Phase Name] Architecture
-
-### [Component/Layer Name]
-
-[Detailed architecture for this component]
-
-### Key Architectural Decisions
-
-- [Decision and rationale]
-
-### Data Model
-
-[If applicable — schemas, database structure, key types]
-
-### Deployment
-
-[Where and how Phase 1 components are deployed]
-
----
-
-## Phase 2+ — Architecture Stubs
-
-[1-2 sentence stub per remaining phase — expand when phase begins]
-```
-
-Rules:
-
-- Phase 1 gets full architectural detail — enough for Claude Code to implement without guessing
-- Include data models, directory structure, key interfaces/types, and configuration formats
-- Extract technology choices from the spec (databases, frameworks, APIs)
-- Later phases get stubs only — detailed architecture written too early becomes stale
-- If the spec has architectural diagrams or component descriptions, preserve their substance
+Write `docs/ARCHITECTURE.md` per the phase-docs skill: Phase 1 detailed, later phases
+stubbed. Greenfield is a blank slate — skip the skill's initiatives-only
+current-state/target-state framing.
 
 ### Step 5 — Generate docs/PHASE_STATUS.md
 
-Write `docs/PHASE_STATUS.md` by copying deliverables from the REQUIREMENTS.md you just generated:
-
-```markdown
-# Phase Status Tracker
-
-> **Current Phase: 1 — [Phase Name]**
-> Last updated: YYYY-MM-DD, session-YYYY-MM-DD-NNN
-
----
-
-## Phase 1 — [Phase Name]
-
-_Goal: [Copy from REQUIREMENTS.md]_
-
-- ⬜ [Deliverable 1 — exact wording from REQUIREMENTS.md]
-- ⬜ [Deliverable 2 — exact wording from REQUIREMENTS.md]
-
----
-
-[Repeat for all phases]
-```
-
-Rules:
-
-- Every deliverable line must be copied verbatim from REQUIREMENTS.md
-- All items start as ⬜
-- Do not add, remove, or reword any deliverables
+Write `docs/PHASE_STATUS.md` per the phase-docs skill, copying every deliverable
+**verbatim** from the REQUIREMENTS.md you just generated, all ⬜.
 
 ### Step 6 — Render CLAUDE.md
 

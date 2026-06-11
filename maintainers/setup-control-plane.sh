@@ -42,7 +42,8 @@ CODE_REL="$(rel_code)"
 # agent-memory/, CLAUDE.md — those are control-plane-owned session state.
 copy_core() {
   for item in commands skills agents hooks RULES.md project.schema.json \
-              resolve-stack.sh check-citations.sh update-readme-status.sh settings.json; do
+              resolve-stack.sh check-citations.sh update-readme-status.sh \
+              archive-initiative.sh settings.json; do
     if [ -e "$HARNESS_DIR/.claude/$item" ]; then
       rm -rf "$DEST/.claude/$item"
       cp -R "$HARNESS_DIR/.claude/$item" "$DEST/.claude/$item"
@@ -133,7 +134,7 @@ mkdir -p "$DEST/docs/sessions"
 # Gitignore agent-memory in the control plane (feedback IS committed here — it's the
 # dogfooding record).
 if [ ! -f "$DEST/.gitignore" ]; then
-  printf '.claude/agent-memory/\n.claude/settings.local.json\n' > "$DEST/.gitignore"
+  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\n' > "$DEST/.gitignore"
 fi
 
 # Init the control plane's own git (its own commit stream), if not already a repo.

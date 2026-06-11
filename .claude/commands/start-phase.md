@@ -66,13 +66,22 @@ Use this to understand what was worked on recently and what state the codebase i
 
 ## Step 5 — Spec Alignment Check
 
-Check if an original spec or PRD exists. Look for common locations:
+Identify the **governing spec** — specs accumulate over a project's life, so resolve in
+this order:
 
-```
-ls docs/SPEC.md docs/spec.md docs/PRD.md docs/prd.md 2>/dev/null
-```
+1. **Lineage header first.** Read the top of `docs/REQUIREMENTS.md`: if a
+   `> **This initiative:** … governed by \`docs/spec/<name>.md\`` line exists, that
+   file is the governing spec. Do not align against an older spec just because it is
+   also present in `docs/spec/`.
+2. Otherwise look for common locations:
 
-Also check CLAUDE.md's References section for any referenced spec files.
+   ```
+   ls docs/spec/*.md docs/SPEC.md docs/spec.md docs/PRD.md docs/prd.md 2>/dev/null
+   ```
+
+   If exactly one exists, use it. If several exist and no lineage header names one,
+   ask the user which governs before proceeding.
+3. Also check CLAUDE.md's References section for any referenced spec files.
 
 **If a spec exists:** Invoke the `product-reviewer` subagent with a targeted prompt:
 
