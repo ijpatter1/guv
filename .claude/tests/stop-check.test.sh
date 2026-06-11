@@ -77,10 +77,15 @@ OUT=$(run_hook "$WORK/clean" "$INACTIVE"); RC=$?
   || no "nothing outstanding must mean no output"
 
 # T6 — the plugin ships this hook byte-identical (the gate must reach plugin
-# consumers, where it matters most)
-cmp -s "$HOOK" "$ROOT/plugin/scripts/stop-check.sh" \
-  && ok "plugin copy of stop-check.sh byte-identical" \
-  || no "plugin/scripts/stop-check.sh differs from the source hook"
+# consumers, where it matters most). A template-clone fork that deleted the
+# generated plugin/ (README's note) has no copy to compare — skip, not fail.
+if [ -d "$ROOT/plugin" ]; then
+  cmp -s "$HOOK" "$ROOT/plugin/scripts/stop-check.sh" \
+    && ok "plugin copy of stop-check.sh byte-identical" \
+    || no "plugin/scripts/stop-check.sh differs from the source hook"
+else
+  echo "  - plugin/ absent (template-clone fork) — byte-identity guard skips"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

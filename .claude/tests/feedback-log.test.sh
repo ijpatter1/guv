@@ -87,8 +87,19 @@ rm -f "$F"
 # the detector fires (standing rule: detector-style guards ship a positive control).
 has_deferral() { grep -qiE 'half[ -]b|DISTRIBUTION_OPTIONS|not built yet' "$1"; }
 
-# T6 — no Half-B deferral language survives in either shipped copy
-for copy in "$SKILL_SRC" "$SKILL_PLUGIN"; do
+# The plugin copy exists only where plugin/ does — a template-clone fork may
+# delete the generated tree (README's note), and that must skip, not fail.
+# In the canonical repo (or any tree keeping plugin/) a missing copy IS a
+# failure: the skill ships in both install modes.
+COPIES="$SKILL_SRC"
+if [ -d "$ROOT/plugin" ]; then
+  COPIES="$COPIES $SKILL_PLUGIN"
+else
+  echo "  - plugin/ absent (template-clone fork) — plugin-copy guards skip"
+fi
+
+# T6 — no Half-B deferral language survives in any shipped copy
+for copy in $COPIES; do
   if [ -f "$copy" ]; then
     has_deferral "$copy" \
       && no "Half-B deferral language still in ${copy#"$ROOT"/}" \
@@ -98,11 +109,11 @@ for copy in "$SKILL_SRC" "$SKILL_PLUGIN"; do
   fi
 done
 
-# T7 — the live drain is documented in BOTH shipped copies (the drain phrases
+# T7 — the live drain is documented in every shipped copy (the drain phrases
 # carry no slash-commands, so the plugin namespace rewrite leaves them intact):
 # upstream entry → issue/PR → graduated on the release that ships the fix;
 # resolved kept distinct (fixed before any release)
-for copy in "$SKILL_SRC" "$SKILL_PLUGIN"; do
+for copy in $COPIES; do
   label="${copy#"$ROOT"/}"
   grep -q 'issue or PR against the harness repo' "$copy" \
     && ok "drain step 1 (issues/PRs) in $label" \

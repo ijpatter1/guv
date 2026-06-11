@@ -5,6 +5,33 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.1.1 — 2026-06-11
+
+Patch release: review-wave fixes to already-shipped assets. **This is the first
+release actually served to consumers** — see the 0.1.0 note below. Its `v0.1.1`
+tag lands on the default-branch merge commit once PR #8 merges, per the release
+checklist's merge-before-tag step (added in this same wave after the 0.1.0
+ordering deviation).
+
+### Fixed
+
+- Scaffold-deployed `Makefile`: the GCP service-account example no longer
+  carries the pre-rename `claude-code-sandbox` name.
+- Maintainer CI is rename-safe: the repo-pinned workflow accepts both the old
+  and new slugs until the rename lands (then collapse to `ijpatter1/guv`).
+- Suite hygiene: the empty-stderr gate is enforced by the test runner and CI
+  (any suite stderr fails the run); consumer forks that delete `plugin/`,
+  `.claude-plugin/`, or `maintainers/` get clean suite skips, not failures.
+
+### Release-integrity note
+
+- Tag `v0.1.0` was created before the merge-before-tag checklist step existed
+  and points at a pre-merge commit that was never served from the default
+  branch; a consumer-shipped file changed after that tag without a bump. v0.1.0
+  was therefore never installable and is superseded by 0.1.1 wholesale. Issue
+  #7's closing comment names v0.1.0; the fix it references reaches consumers
+  in 0.1.1.
+
 ## 0.1.0 — 2026-06-11
 
 First versioned release: the durable core packaged as the **Governor (`guv`)

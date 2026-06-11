@@ -25,14 +25,15 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
-# Maintainer release machinery — a consumer fork that deleted maintainers/ has
-# no release flow to guard (and may legitimately drop the changelog and
-# marketplace manifest too); skip cleanly, never as a failure. Same pattern as
-# plugin.test.sh's drift guard. RELEASE_BUILD_SCRIPT exists so the fork-skip
-# self-check (T10) can exercise this path from the canonical repo.
+# Maintainer release machinery — a consumer fork that deleted maintainers/ or
+# the generated plugin/ + .claude-plugin/ (both deletions the README documents)
+# has no release flow to guard; skip cleanly, never as a failure. Same pattern
+# as plugin.test.sh. The env seams exist so the fork-skip self-check (T10) can
+# exercise this path from the canonical repo.
 BUILD="${RELEASE_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
-if [ ! -f "$BUILD" ]; then
-  echo "  - maintainers/build-plugin.sh absent (consumer fork) — release-surface guards skip"
+PLUGIN_TREE="${RELEASE_PLUGIN_TREE:-$ROOT/plugin}"
+if [ ! -f "$BUILD" ] || [ ! -d "$PLUGIN_TREE" ]; then
+  echo "  - maintainers/ or plugin/ absent (consumer fork) — release-surface guards skip"
   echo ""
   echo "Results: 0 passed, 0 failed"
   exit 0
@@ -139,13 +140,22 @@ else
   no "RELEASING.md must carry the worked example with a real entry id"
 fi
 
-# T10 — fork-skip self-check: with the indicator absent the suite exits 0
-# (proves the skip path, the same way plugin.test.sh proves its drift-guard skip)
+# T10 — fork-skip self-check: with an indicator absent the suite exits 0 AND
+# the output shows the skip fired (exit 0 alone would also pass if the skip
+# block were deleted — the suite passes whole in the canonical repo — making
+# this self-check vacuous)
 if [ -z "${RELEASE_TEST_INNER:-}" ]; then
-  if RELEASE_TEST_INNER=1 RELEASE_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" >/dev/null 2>&1; then
-    ok "suite passes in a consumer fork (indicator absent -> skip)"
+  INNER=$(RELEASE_TEST_INNER=1 RELEASE_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "guards skip"; then
+    ok "suite visibly skips in a consumer fork (build script absent)"
   else
-    no "suite must exit 0 when maintainers/build-plugin.sh is absent (consumer fork)"
+    no "suite must exit 0 and visibly skip when maintainers/build-plugin.sh is absent"
+  fi
+  INNER=$(RELEASE_TEST_INNER=1 RELEASE_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "guards skip"; then
+    ok "suite visibly skips in a fork that deleted plugin/"
+  else
+    no "suite must exit 0 and visibly skip when plugin/ is absent"
   fi
 fi
 

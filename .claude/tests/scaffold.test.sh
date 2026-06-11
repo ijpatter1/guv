@@ -22,6 +22,16 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
+# The whole suite drives the COMMITTED plugin/ — a template-clone fork that
+# deleted the generated tree (README's note) has nothing to scaffold from;
+# skip cleanly, never as failures.
+if [ ! -d "$PLUGIN" ]; then
+  echo "  - plugin/ absent (template-clone fork) — suite skips"
+  echo ""
+  echo "Results: 0 passed, 0 failed"
+  exit 0
+fi
+
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 

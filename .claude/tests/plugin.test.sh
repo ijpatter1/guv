@@ -30,6 +30,17 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
+# A template-clone fork may delete the generated plugin/ (and .claude-plugin/)
+# per the README's tree note — with no plugin tree there is nothing to guard;
+# skip the whole suite cleanly, never as failures. PLUGIN_TEST_TREE is the
+# seam for T16b's self-check of this path.
+if [ ! -d "${PLUGIN_TEST_TREE:-$PLUGIN}" ]; then
+  echo "  - plugin/ absent (template-clone fork) — suite skips"
+  echo ""
+  echo "Results: 0 passed, 0 failed"
+  exit 0
+fi
+
 finish() {
   echo ""
   echo "Results: $PASS passed, $FAIL failed"
@@ -414,12 +425,23 @@ if [ -f "$BUILD" ]; then
 
   # T16 — consumer-fork resilience: with the build script absent, the whole
   # suite must still exit 0 (the drift guard skips; nothing else needs
-  # maintainers/). Guarded against recursion via PLUGIN_TEST_INNER.
+  # maintainers/). The inner output must SHOW the skip fired — exit 0 alone
+  # would also pass if the skip block were deleted (the suite passes whole in
+  # the canonical repo), making the self-check vacuous. Guarded against
+  # recursion via PLUGIN_TEST_INNER.
   if [ -z "${PLUGIN_TEST_INNER:-}" ]; then
-    if PLUGIN_TEST_INNER=1 PLUGIN_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" >/dev/null 2>&1; then
+    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" 2>&1)
+    if [ $? -eq 0 ] && echo "$INNER" | grep -q "skipping drift guard"; then
       ok "suite passes in a consumer fork (build script absent -> drift guard skips)"
     else
-      no "suite must exit 0 when maintainers/build-plugin.sh is absent (consumer fork)"
+      no "suite must exit 0 AND visibly skip when maintainers/build-plugin.sh is absent"
+    fi
+    # T16b — same proof for the plugin-deleted fork (README's deletion note)
+    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_TEST_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+    if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
+      ok "suite skips wholesale in a fork that deleted plugin/"
+    else
+      no "suite must exit 0 and visibly skip when plugin/ is absent"
     fi
   fi
 else

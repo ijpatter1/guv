@@ -188,6 +188,19 @@ else
   no "runner: stderr from a suite must fail the run (rc=$RC)"
 fi
 
+# T7 — the CI workflow's inline test loop carries the same stderr gate (it is
+# the third copy of the loop — the generator-emitted runner above is the
+# behaviorally-tested reference; this drift guard keeps the CI copy honest).
+# Conditional: forks may delete .github/ along with the rest of maintainer CI.
+CI_YML="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/.github/workflows/template-clean.yml"
+if [ -f "$CI_YML" ]; then
+  grep -q '\[stderr\]' "$CI_YML" && grep -q '2>"\$err"' "$CI_YML" \
+    && ok "CI test loop carries the stderr gate (capture + fail markers present)" \
+    || no "CI inline loop drifted from the runner: per-suite stderr capture/fail missing"
+else
+  echo "  - .github workflow absent (fork) — CI stderr-gate drift guard skips"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
