@@ -183,7 +183,11 @@ code .
 │   └── feedback/                      # Harness-friction log (created on first /log-feedback)
 ├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)
 │   ├── DOGFOODING.md                  # How to dogfood the harness via a control-plane split
-│   └── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane
+│   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane
+│   ├── build-plugin.sh                # Generates plugin/ from .claude/ + plugin-src/ (Phase 5)
+│   └── plugin-src/                    # Authored plugin-only sources (manifest, hooks.json, guv-only skills)
+├── plugin/                            # GENERATED — the guv plugin package; never hand-edit, run
+│                                      #   maintainers/build-plugin.sh (drift-guarded by plugin.test.sh)
 ├── docs/
 │   ├── REQUIREMENTS.md                # Development plan (phased; YOU EDIT THIS)
 │   ├── ARCHITECTURE.md                # Technical architecture (phased; YOU EDIT THIS)
