@@ -1,6 +1,8 @@
-# Claude Code Development Environment
+# Governor (guv) — a control plane for Claude Code
 
-A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
+A governor is a device that sits on a powerful engine and keeps it from running away — restraint built into the mechanism. That is what this harness adds to autonomous Claude Code sessions: a machine-readable project manifest, ceremony tiers, calibrated QA reviewers, deterministic safety hooks, a committed team-visible session record, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
+
+Installs as the versioned **guv plugin** from this repo's marketplace; cloning the repo as a template remains the fallback path.
 
 Based on patterns from [Anthropic's harness design research](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/).
 
@@ -42,12 +44,29 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 
 ## Quick Start
 
-### 1. Create a new repo from this template
+### 1. Install the harness
+
+**Default — the guv plugin** (versioned; updates ride releases, see `CHANGELOG.md`):
+
+```bash
+claude plugin marketplace add ijpatter1/guv
+claude plugin install guv@guv
+
+# then, inside your project directory:
+claude
+/guv:scaffold   # deploys the project shell: manifest scaffolding, rules, docs skeletons, .gitignore block
+```
+
+Under a plugin install every harness command carries the `guv:` prefix —
+`/guv:init-project`, `/guv:status`, `/guv:handoff` — and the reviewer agents
+resolve as `guv:evaluator` / `guv:product-reviewer`.
+
+**Fallback — template-clone** (unversioned; updates via `setup-control-plane.sh --sync`):
 
 Click **"Use this template"** on GitHub, or:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-code-env.git my-project
+git clone https://github.com/ijpatter1/guv.git my-project
 cd my-project
 rm -rf .git && git init
 ```
@@ -143,8 +162,12 @@ code .
 ```
 ├── CLAUDE.template.md                 # Inert source for CLAUDE.md (rendered, not auto-loaded)
 ├── README.template.md                 # Inert source for the PROJECT README (rendered on scaffold/onboard)
+├── CHANGELOG.md                       # Plugin release notes (a version bump IS a release)
 ├── Makefile                           # Container lifecycle (base image from manifest)
 ├── .gitignore                         # Git exclusions
+├── .claude-plugin/
+│   └── marketplace.json               # Personal marketplace serving plugin/ (distribution machinery —
+│                                      #   template-clone forks can delete it along with plugin/)
 ├── .claude/
 │   ├── project.json                   # MANIFEST — single source of truth (stack/commands/roots/ceremony)
 │   ├── project.schema.json            # Manifest schema (validation + self-docs)
@@ -183,7 +206,12 @@ code .
 │   └── feedback/                      # Harness-friction log (created on first /log-feedback)
 ├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)
 │   ├── DOGFOODING.md                  # How to dogfood the harness via a control-plane split
-│   └── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane
+│   ├── RELEASING.md                   # Release flow: bump policy, checklist, feedback drain
+│   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane
+│   ├── build-plugin.sh                # Generates plugin/ from .claude/ + plugin-src/ (Phase 5)
+│   └── plugin-src/                    # Authored plugin-only sources (manifest, hooks.json, guv-only skills)
+├── plugin/                            # GENERATED — the guv plugin package; never hand-edit, run
+│                                      #   maintainers/build-plugin.sh (drift-guarded by plugin.test.sh)
 ├── docs/
 │   ├── REQUIREMENTS.md                # Development plan (phased; YOU EDIT THIS)
 │   ├── ARCHITECTURE.md                # Technical architecture (phased; YOU EDIT THIS)

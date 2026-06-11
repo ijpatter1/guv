@@ -1,0 +1,155 @@
+---
+name: log-feedback
+description: "Record harness friction — broken commands, inapplicable settings, doc drift, manifest gaps, misfiring hooks — to the project feedback log, and list/triage open entries. Use whenever a harness command/skill/hook/setting/doc doesn't fit the task at hand, when the user reports such friction, or at session handoff. Agent-callable mid-session and user-invocable."
+user-invocable: true
+---
+
+# Log Feedback — Harness Friction Capture
+
+Capture friction with the **harness itself** so it can be triaged later into upstream
+fixes versus local adaptations. This is the evidence base for improving the harness.
+
+**It is data, not behavior.** Logging an entry changes nothing about how the session
+runs — it is an append-only record. So log freely and early; there is no cost.
+
+**What belongs here vs. not:**
+
+- **Here:** anything about the _harness_ that didn't fit — a command step that errored,
+  a setting that didn't apply, a manifest field that couldn't express your project, a
+  doc that described something that isn't true, a hook that misfired, awkward ergonomics.
+- **Not here — project code bugs** → route through `/guv:task` (they're about the product,
+  not the harness).
+- **Not here — per-agent learning** (evaluator/reviewer observations) → that's
+  `.claude/agent-memory/`, a different artifact with a different lifecycle.
+
+## Where it lives
+
+`.claude/feedback/feedback.ndjson` — one JSON object per line (NDJSON), so concurrent
+sessions append without merge conflicts and the log is `jq`-queryable. This file is
+**consumer-owned**: commit it (it's shared team knowledge), and note that a harness
+update never touches it — it sits outside the upstream-owned core.
+
+## Input
+
+$ARGUMENTS
+
+A short description of the friction.
+
+- **Agent invoking mid-session:** fill the fields from what just happened — don't
+  interrupt the user for them.
+- **Human invoking with no/short input:** don't dump the whole field table on them. Ask
+  in order, inferring the rest: (1) what didn't fit (→ `summary`), (2) which command/file
+  (→ `artifact`, optional), (3) blocker / major / minor (→ `severity`), (4) is this a core
+  bug or a this-project misfit (→ `routing`: upstream / local / unsure). Derive `id`,
+  `ts`, `session`, `category`, `status` yourself.
+
+## Mode 1 — Log an entry (default)
+
+Fill these fields (\* = required):
+
+| Field        | Req | Values / meaning                                                                                                                                                                                                                                                                                                                                             |
+| ------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`\*       | ✓   | Auto-generated unique key — `${ts}-${RANDOM}${RANDOM}`. The **stable handle for triage** (`ts` alone collides at second resolution when several entries land in one session; the doubled `$RANDOM` makes a same-second collision ~1-in-a-billion).                                                                                                           |
+| `ts`\*       | ✓   | ISO-8601 UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)                                                                                                                                                                                                                                                                                                       |
+| `session`    |     | Latest `docs/sessions/` handoff name, or `n/a`                                                                                                                                                                                                                                                                                                               |
+| `category`\* | ✓   | `broken-command` · `inapplicable-setting` · `doc-drift` · `manifest-gap` · `hook-misfire` · `friction` · `other`                                                                                                                                                                                                                                             |
+| `artifact`   |     | The implicated file+line or command, e.g. `.claude/rules/guv-verification.md:7` or `/guv:start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
+| `summary`\*  | ✓   | One line: what didn't fit                                                                                                                                                                                                                                                                                                                                    |
+| `detail`     |     | Optional longer context — repro, what you expected, what you did instead                                                                                                                                                                                                                                                                                     |
+| `severity`\* | ✓   | `blocker` · `major` · `minor`                                                                                                                                                                                                                                                                                                                                |
+| `routing`\*  | ✓   | `upstream` (a core bug — fix in the template) · `local` (a this-project misfit — belongs in a local adaptation) · `unsure`                                                                                                                                                                                                                                   |
+| `status`\*   | ✓   | `open` on creation. Terminal states, set only by triage: `resolved` (fixed before any release existed), `wontfix` (deliberately not acting), `graduated` (the fix shipped in a release, or the local adaptation landed) — the lifecycle is in "Closing the loop". |
+
+Append the entry (substitute the `--arg` values; this creates the dir/file on first use):
+
+```bash
+mkdir -p .claude/feedback
+SESSION=$(ls -t docs/sessions/session-*.md 2>/dev/null | head -1 | xargs -r basename | sed 's/\.md$//')
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq -cn \
+  --arg id "${TS}-${RANDOM}${RANDOM}" \
+  --arg ts "$TS" \
+  --arg session "${SESSION:-n/a}" \
+  --arg category "friction" \
+  --arg artifact ".claude/rules/guv-verification.md:7" \
+  --arg summary "one line: what didn't fit" \
+  --arg detail "optional longer context" \
+  --arg severity "minor" \
+  --arg routing "upstream" \
+  '{id:$id, ts:$ts, session:$session, category:$category, artifact:$artifact,
+    summary:$summary, detail:$detail, severity:$severity, routing:$routing, status:"open"}' \
+  >> .claude/feedback/feedback.ndjson
+```
+
+Rules:
+
+- One entry per distinct issue. Don't batch unrelated friction into one line.
+- Keep `summary` to a single line; put repro/context in `detail`.
+- Choose `routing` honestly — `unsure` is a valid answer, not a cop-out. The triage step
+  reclassifies later.
+- Confirm the append succeeded by echoing the last line: `tail -1 .claude/feedback/feedback.ndjson | jq .`
+
+## Mode 2 — List / triage
+
+List open entries as a readable table (id · severity · routing · summary) — scan this to
+pick an `id` to triage, rather than eyeballing raw JSON. The tab-separated jq output is
+the portable core; pipe through `column` to align it _if that tool is installed_ (it may
+not be in a slim container):
+
+```bash
+jq -r 'select(.status=="open") | "\(.id)\t\(.severity)\t\(.routing)\t\(.summary)"' \
+  .claude/feedback/feedback.ndjson | { column -t -s "$(printf '\t')" 2>/dev/null || cat; }
+```
+
+Raw open entries (full fields), or show one by id:
+
+```bash
+jq -c 'select(.status=="open")' .claude/feedback/feedback.ndjson
+jq -c --arg id "<id>" 'select(.id==$id)' .claude/feedback/feedback.ndjson
+```
+
+Count open (used by `/guv:status` and `/guv:handoff`). Guard the file's existence first — a
+missing slurp file makes `jq -s` both print `0` _and_ exit non-zero, so a `|| echo 0`
+fallback double-counts:
+
+```bash
+f=.claude/feedback/feedback.ndjson
+[ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0
+```
+
+Group by routing (what to send upstream vs. adapt locally):
+
+```bash
+jq -s 'group_by(.routing) | map({routing: .[0].routing, open: [.[]|select(.status=="open")]|length})' .claude/feedback/feedback.ndjson
+```
+
+Triage an entry — NDJSON is rewritten whole (it's small). Match on the unique `id` (not
+`ts`, which can collide) and set a terminal status (`resolved`, `wontfix`, or `graduated`
+once it has been fixed upstream / turned into a local adaptation):
+
+```bash
+ID="2026-06-10T12:34:56Z-1234"; NEW="resolved"; f=.claude/feedback/feedback.ndjson
+tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" 'if .id==$id then .status=$s else . end' "$f" > "$tmp" && mv "$tmp" "$f" || rm -f "$tmp"
+```
+
+## Closing the loop
+
+The drain is live: the distribution channel is the versioned guv plugin, and entries
+close through its release flow (maintainer mechanics in the harness repo's
+`maintainers/RELEASING.md`).
+
+- **`upstream`** entries → an issue or PR against the harness repo, citing the entry
+  id. The entry stays `open` while the fix is in flight and flips to `graduated`
+  **on the release that ships the fix** — the release checklist's drain step does
+  the flip and closes the issue naming the release. Use `resolved` only for friction
+  fixed before any release existed (nothing to graduate on).
+- **`local`** entries → a this-project adaptation, not an upstream fix: an unprefixed
+  rules file, a project-owned skill or hook, a manifest tweak. They never enter the
+  release flow — when the adaptation lands, mark the entry `graduated`; if the
+  friction isn't worth adapting around, `wontfix`.
+- **`unsure`** → review and reclassify at triage; routing decides which drain applies.
+
+`/guv:handoff` surfaces open entries at session end; `/guv:status` shows the open count, so
+the pile stays visible rather than forgotten. Triage periodically; mark entries
+`graduated`/`resolved`/`wontfix` rather than deleting them, so the history of what
+bit and what was done stays intact.

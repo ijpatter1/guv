@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": "Permissions are a thin CONVENIENCE layer, not a security layer. The real enforcement boundary is the firewall + bash-guard universal blocks + the Docker sandbox + the auto-mode classifier. The allow set covers universal-safe, stack-agnostic commands and a broad workspace write allowance so cross-repo (control-plane + code) development is frictionless; per-stack tooling (npm/cargo/gcloud/…) is intentionally NOT listed here and is handled by auto mode. The deny set is a thin backstop only.",
+  "permissions": {
+    "allow": [
+      "Read(*)",
+      "Bash(git:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(diff:*)",
+      "Bash(pwd:*)",
+      "Bash(which:*)",
+      "Bash(env:*)",
+      "Bash(date:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(touch:*)",
+      "Bash(chmod:*)",
+      "Write(**)",
+      "Edit(**)"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(su:*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets/**)"
+    ]
+  }
+}

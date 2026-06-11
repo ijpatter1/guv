@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tunameltsmyheart.com/claude-code/project.schema.json",
+  "title": "Claude Code project manifest",
+  "description": "Single source of truth for stack, commands, repo topology, and ceremony. Every hardcoded command, path, and toggle in the template routes through this file so there is nothing to drift. Detection (the resolver) bootstraps these values; the human-confirmed manifest is authoritative thereafter.",
+  "type": "object",
+  "required": [
+    "name",
+    "language",
+    "roots",
+    "commands",
+    "scaffoldCheck",
+    "ceremony"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL to this schema, for editor validation."
+    },
+    "name": {
+      "type": "string",
+      "description": "Project name. Used for image/container naming and human-facing labels.",
+      "minLength": 1
+    },
+    "language": {
+      "type": "string",
+      "description": "Primary language. Drives the sandbox base image and the per-language firewall registry set.",
+      "enum": [
+        "node",
+        "python",
+        "rust",
+        "go",
+        "ruby",
+        "jvm",
+        "dotnet",
+        "elixir"
+      ]
+    },
+    "packageManager": {
+      "type": ["string", "null"],
+      "description": "Package manager for the chosen language (e.g. npm, pnpm, yarn, uv, poetry, pip, cargo, go, bundler, maven, gradle, dotnet, mix). Null when not applicable."
+    },
+    "roots": {
+      "type": "object",
+      "description": "Repo topology, relative to cwd (the control plane). Single-repo sets both to '.', which makes every root-aware operation a no-op and serves both topologies with one code path.",
+      "required": ["control", "code"],
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "type": "string",
+          "description": "Control-plane root (where Claude Code launches). Docs and session artifacts live under ${control}/docs. Usually '.'.",
+          "minLength": 1
+        },
+        "code": {
+          "type": "string",
+          "description": "Code repo root, relative to cwd. Code writes target ${code}/…; code-repo git runs as `git -C ${code}`. Equals '.' for single-repo.",
+          "minLength": 1
+        }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "description": "Project commands. Any value may be null, meaning 'this project has no such step.' Consumers MUST skip cleanly on null — never error, never substitute a default.",
+      "additionalProperties": false,
+      "properties": {
+        "test": {
+          "type": ["string", "null"],
+          "description": "Run the full test suite."
+        },
+        "build": {
+          "type": ["string", "null"],
+          "description": "Build/compile. Null for projects with no build step (e.g. interpreted languages)."
+        },
+        "lint": {
+          "type": ["string", "null"],
+          "description": "Lint the codebase."
+        },
+        "format": {
+          "type": ["string", "null"],
+          "description": "Format a single file in place; the file path is appended as the final argument by the auto-format hook. Null disables auto-formatting."
+        },
+        "dev": {
+          "type": ["string", "null"],
+          "description": "Start the dev server. Run on the host, not in the sandbox."
+        },
+        "install": {
+          "type": ["string", "null"],
+          "description": "Install/sync dependencies (e.g. 'npm install', 'uv sync', 'bundle install', 'dotnet restore'). This is the declared remediation when readyCheck fails: a command runs this rather than guessing the install step from the package manager. Null when no install step applies (e.g. languages whose build/test fetch deps on demand)."
+        }
+      }
+    },
+    "scaffoldCheck": {
+      "type": "string",
+      "description": "Shell test for 'does a project EXIST here' — point it at the project manifest, not a tool binary (e.g. 'test -f package.json', 'test -f pyproject.toml', 'test -f Cargo.toml'). When it fails, the project is NOT_SCAFFOLDED and command steps that depend on a project are skipped. Do NOT overload this with 'are the tools installed' — that is readyCheck's job."
+    },
+    "readyCheck": {
+      "type": ["string", "null"],
+      "description": "Optional shell test for 'are the tools INSTALLED / runnable' — distinct from scaffoldCheck's 'does a project exist'. Use it when the test/build/lint/format tools live in a project-local environment that a fresh clone hasn't populated yet (e.g. 'test -d node_modules', 'test -x .venv/bin/ruff'). The state where scaffoldCheck passes but readyCheck fails is NOT_INSTALLED — commands run commands.install (the declared remediation) rather than running tools into failure. Null/absent means 'no separate readiness step' (tools are assumed on PATH once scaffolded)."
+    },
+    "formatExtensions": {
+      "type": "array",
+      "description": "File extensions (without leading dot) the format command should handle. The auto-format hook only runs commands.format on files whose extension is in this list.",
+      "items": { "type": "string" }
+    },
+    "guards": {
+      "type": "array",
+      "description": "Opt-in stack-specific danger blocks layered on top of the always-on universal bash-guard set. A project lists only what applies.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "gcp",
+          "npm-publish",
+          "cargo-publish",
+          "pypi-publish",
+          "gem-publish"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "ceremony": {
+      "type": "string",
+      "description": "How much project-shape machinery the commands invoke. 'phased' = full greenfield with phase docs; 'onboard' = existing repo, conventions inferred not scaffolded, no phase structure; 'task' = scoped change, no phase docs.",
+      "enum": ["phased", "onboard", "task"]
+    }
+  }
+}

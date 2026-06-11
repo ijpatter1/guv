@@ -53,12 +53,12 @@ Fill these fields (\* = required):
 | `ts`\*       | ✓   | ISO-8601 UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)                                                                                                                                                                                                                                                                                                       |
 | `session`    |     | Latest `docs/sessions/` handoff name, or `n/a`                                                                                                                                                                                                                                                                                                               |
 | `category`\* | ✓   | `broken-command` · `inapplicable-setting` · `doc-drift` · `manifest-gap` · `hook-misfire` · `friction` · `other`                                                                                                                                                                                                                                             |
-| `artifact`   |     | The implicated file+line or command, e.g. `.claude/commands/handoff.md:7` or `/start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
+| `artifact`   |     | The implicated file+line or command, e.g. `.claude/rules/guv-verification.md:7` or `/start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
 | `summary`\*  | ✓   | One line: what didn't fit                                                                                                                                                                                                                                                                                                                                    |
 | `detail`     |     | Optional longer context — repro, what you expected, what you did instead                                                                                                                                                                                                                                                                                     |
 | `severity`\* | ✓   | `blocker` · `major` · `minor`                                                                                                                                                                                                                                                                                                                                |
 | `routing`\*  | ✓   | `upstream` (a core bug — fix in the template) · `local` (a this-project misfit — belongs in a local adaptation) · `unsure`                                                                                                                                                                                                                                   |
-| `status`\*   | ✓   | `open` on creation. Terminal states, set only by triage: `resolved` (the friction is fixed), `wontfix` (deliberately not acting), `graduated` (it became an upstream fix or a local adaptation). Until Half B / a distribution channel exists, the realistic terminal action is `wontfix` or holding `open` as a tracked candidate — see "Closing the loop". |
+| `status`\*   | ✓   | `open` on creation. Terminal states, set only by triage: `resolved` (fixed before any release existed), `wontfix` (deliberately not acting), `graduated` (the fix shipped in a release, or the local adaptation landed) — the lifecycle is in "Closing the loop". |
 
 Append the entry (substitute the `--arg` values; this creates the dir/file on first use):
 
@@ -71,7 +71,7 @@ jq -cn \
   --arg ts "$TS" \
   --arg session "${SESSION:-n/a}" \
   --arg category "friction" \
-  --arg artifact ".claude/commands/handoff.md:7" \
+  --arg artifact ".claude/rules/guv-verification.md:7" \
   --arg summary "one line: what didn't fit" \
   --arg detail "optional longer context" \
   --arg severity "minor" \
@@ -134,22 +134,22 @@ tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" 'if .id==$id then .status=$
 
 ## Closing the loop
 
-**Honest scope:** this is "Half A" — capture. The two drains that would let an entry
-truly _close_ are not built yet:
+The drain is live: the distribution channel is the versioned guv plugin, and entries
+close through its release flow (maintainer mechanics in the harness repo's
+`maintainers/RELEASING.md`).
 
-- **`upstream`** entries → issues / PRs against the harness core — _once a
-  distribution/versioning channel exists_ (see `DISTRIBUTION_OPTIONS.md`).
-- **`local`** entries → a local overlay adaptation — _deferred "Half B" work_.
-- **`unsure`** → review and reclassify.
+- **`upstream`** entries → an issue or PR against the harness repo, citing the entry
+  id. The entry stays `open` while the fix is in flight and flips to `graduated`
+  **on the release that ships the fix** — the release checklist's drain step does
+  the flip and closes the issue naming the release. Use `resolved` only for friction
+  fixed before any release existed (nothing to graduate on).
+- **`local`** entries → a this-project adaptation, not an upstream fix: an unprefixed
+  rules file, a project-owned skill or hook, a manifest tweak. They never enter the
+  release flow — when the adaptation lands, mark the entry `graduated`; if the
+  friction isn't worth adapting around, `wontfix`.
+- **`unsure`** → review and reclassify at triage; routing decides which drain applies.
 
-So today the log is a **curated evidence pile, not a worklist that drains.** Triage means
-_reclassifying_ (`open` → `wontfix`, or holding `open` as a tracked candidate); the
-`resolved`/`graduated` terminal states only become real once those drains land. That's
-fine and intended — the value of Half A is that the evidence is captured, structured, and
-pre-routed, so when a distribution channel is chosen the backlog is ready to act on. Don't
-over-claim closure before then. `/status` and `/handoff` surface the open count so the
-pile stays visible rather than forgotten.
-
-`/handoff` surfaces open entries at session end; `/status` shows the open count. Triage
-periodically; mark entries `graduated`/`resolved`/`wontfix` rather than deleting them, so
-the history of what bit and what was done stays intact.
+`/handoff` surfaces open entries at session end; `/status` shows the open count, so
+the pile stays visible rather than forgotten. Triage periodically; mark entries
+`graduated`/`resolved`/`wontfix` rather than deleting them, so the history of what
+bit and what was done stays intact.

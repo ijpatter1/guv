@@ -83,6 +83,21 @@ printf 'stale %s\n' "$STALE" > "$C/docs/sessions/s5.md"
 OUT=$(run "$C")
 [ -z "$OUT" ] && ok "non-git code root: silent" || no "non-git code root should be silent, got: $OUT"
 
+# T7 — all-decimal tokens are not hash candidates (feedback-entry id suffixes like
+# 2026-06-10T23:11:39Z-970732268 were flagged as unresolvable commits — the false-
+# positive class behind feedback entry 2026-06-10T23:11:39Z-199208882). The stale
+# hex token in the SAME file must still be flagged: a positive control proving the
+# scan ran and the exclusion is exactly the all-decimal class, not the whole file.
+C=$(make_control "../code")
+printf '# Session\nfeedback id 2026-06-10T23:11:39Z-970732268 and stale %s\n' "$STALE" > "$C/docs/sessions/s7.md"
+OUT=$(run "$C")
+echo "$OUT" | grep -q "970732268" \
+  && no "all-decimal feedback-id suffix should NOT be flagged" \
+  || ok "all-decimal token not treated as a hash candidate"
+echo "$OUT" | grep -q "$STALE" \
+  && ok "hex stale token in the same file still flagged (positive control)" \
+  || no "positive control failed: the stale hex token should still be flagged"
+
 # T6 — advisory: always exits 0, even with a stale citation present.
 C=$(make_control "../code")
 printf 'stale %s\n' "$STALE" > "$C/docs/sessions/s6.md"

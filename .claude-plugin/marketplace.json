@@ -1,0 +1,14 @@
+{
+  "name": "guv",
+  "description": "Personal marketplace for Governor (guv) — a control plane for Claude Code.",
+  "owner": {
+    "name": "Ian Patterson"
+  },
+  "plugins": [
+    {
+      "name": "guv",
+      "source": "./plugin",
+      "description": "Governor (guv) — a control plane for Claude Code. A governor sits on a powerful engine and keeps it from running away: restraint built into the mechanism. Machine-readable project manifest, ceremony tiers, calibrated QA reviewers, deterministic hooks, and a committed team-visible session record."
+    }
+  ]
+}

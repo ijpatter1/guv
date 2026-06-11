@@ -15,7 +15,9 @@ export const meta = {
 //
 // Both review stages spawn the CALIBRATED project agents by name (rule 14 in
 // .claude/rules/guv-workflows.md — ad-hoc reviewers are prohibited). agentType
-// resolves the .claude/agents/ definition, so the evaluator runs with its own
+// resolves the calibrated agent definition (.claude/agents/ on a template
+// install; the plugin's namespaced agents under plugin install), so the
+// evaluator runs with its own
 // restricted tool set (Read/Glob/Grep/Bash) and its read-only PreToolUse hook,
 // which fires under workflow execution — verified empirically; the workflow
 // runtime is a research preview, so re-verify if its behavior shifts.
@@ -58,7 +60,7 @@ Collect: the phase, the commits in scope (oldest first), the files changed acros
   { label: 'scope', phase: 'Scope', schema: SCOPE_SCHEMA }
 )
 if (!scope || !scope.commits.length) {
-  return { error: 'No commits in scope — nothing to evaluate. Commit the work first, or scope explicitly (e.g. /evaluate-parallel last 3 commits).' }
+  return { error: 'No commits in scope — nothing to evaluate. Commit the work first, or scope explicitly (e.g. /evaluate-parallel last 3 commits — /guv:evaluate-parallel under the plugin).' }
 }
 log(`Scope: ${scope.scopeDescription} (${scope.commits.length} commits, ${scope.filesChanged.length} files)`)
 // Belt and braces for the prompt templates below: the schema asks for the phase
@@ -108,7 +110,7 @@ const critical = tech.criticalCount + product.criticalCount
 const major = tech.majorCount + product.majorCount
 const minor = tech.minorCount + product.minorCount
 const action = critical + major + minor > 0
-  ? 'fix and re-evaluate — conversationally, in the main session (/evaluate Step 5), then re-run this workflow'
+  ? 'fix and re-evaluate — conversationally, in the main session (/evaluate Step 5; /guv:evaluate under the plugin), then re-run this workflow'
   : 'proceed ✓'
 const summary = [
   '═══ Evaluation Summary (parallel) ═══',

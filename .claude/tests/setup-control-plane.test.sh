@@ -167,6 +167,40 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   && ok "create re-run: existing manifest/CLAUDE.md/runner not clobbered" \
   || no "create re-run must not clobber existing control-plane files"
 
+# T6 — generated runner enforces the empty-stderr gate: a suite that PASSES but
+# writes to stderr must fail the run (a green summary above a parse error is
+# how a vacuous guard slipped two review gates — session-2026-06-11-003).
+# The clean-suite case first is the positive control for the runner itself.
+H=$(make_harness)
+D="$WORK/control-runner"
+mkdir -p "$H/.claude/tests"
+printf '#!/bin/bash\necho "  ok"\nexit 0\n' > "$H/.claude/tests/clean.test.sh"
+run_setup "$H" "$D"
+( cd "$D" && bash .claude/run-harness-tests.sh ) >/dev/null 2>&1 \
+  && ok "runner: clean passing suite -> run passes" \
+  || no "runner: a clean passing suite should pass the run"
+printf '#!/bin/bash\necho "  ok"\necho "boom: parse error" >&2\nexit 0\n' > "$H/.claude/tests/noisy.test.sh"
+OUT=$( cd "$D" && bash .claude/run-harness-tests.sh 2>&1 )
+RC=$?
+if [ "$RC" -ne 0 ] && echo "$OUT" | grep -q '\[stderr\]'; then
+  ok "runner: passing suite with stderr output fails the run and surfaces it"
+else
+  no "runner: stderr from a suite must fail the run (rc=$RC)"
+fi
+
+# T7 — the CI workflow's inline test loop carries the same stderr gate (it is
+# the third copy of the loop — the generator-emitted runner above is the
+# behaviorally-tested reference; this drift guard keeps the CI copy honest).
+# Conditional: forks may delete .github/ along with the rest of maintainer CI.
+CI_YML="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/.github/workflows/template-clean.yml"
+if [ -f "$CI_YML" ]; then
+  grep -q '\[stderr\]' "$CI_YML" && grep -q '2>"\$err"' "$CI_YML" \
+    && ok "CI test loop carries the stderr gate (capture + fail markers present)" \
+    || no "CI inline loop drifted from the runner: per-suite stderr capture/fail missing"
+else
+  echo "  - .github workflow absent (fork) — CI stderr-gate drift guard skips"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

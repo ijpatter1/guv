@@ -8,7 +8,10 @@
 #
 # Maintainers: if this repo is ever renamed or transferred, update the slug in
 # both `if:` lines — otherwise the guard silently stops running (jobs show
-# "skipped" in the canonical repo too).
+# "skipped" in the canonical repo too). Rename in flight (Phase 5 D3,
+# claude-code-sandbox → guv): both slugs are accepted so the rename is atomic
+# with no skipped-CI window; collapse to 'ijpatter1/guv' alone once the rename
+# has landed and CI has run green under the new name.
 name: maintainer-ci
 
 on:
@@ -18,7 +21,7 @@ on:
 
 jobs:
   template-clean:
-    if: github.repository == 'ijpatter1/claude-code-sandbox'
+    if: github.repository == 'ijpatter1/guv' || github.repository == 'ijpatter1/claude-code-sandbox'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,15 +29,25 @@ jobs:
         run: bash maintainers/check-template-clean.sh
 
   harness-tests:
-    if: github.repository == 'ijpatter1/claude-code-sandbox'
+    if: github.repository == 'ijpatter1/guv' || github.repository == 'ijpatter1/claude-code-sandbox'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Run all bash test suites
         run: |
+          # stderr is captured per suite and ANY output there fails the run —
+          # a green summary above a parse error is how a vacuous guard slipped
+          # two review gates (see maintainers/RELEASING.md, checklist step 1).
           fail=0
           for t in .claude/tests/*.test.sh; do
             echo "== $(basename "$t") =="
-            bash "$t" || fail=1
+            err=$(mktemp)
+            bash "$t" 2>"$err" || fail=1
+            if [ -s "$err" ]; then
+              echo "[stderr] $(basename "$t") wrote to stderr — failing the run:"
+              cat "$err"
+              fail=1
+            fi
+            rm -f "$err"
           done
           exit "$fail"

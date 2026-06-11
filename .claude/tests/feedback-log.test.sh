@@ -1,12 +1,20 @@
 #!/bin/bash
 # Tests for the log-feedback skill's data contract: the NDJSON append, the open-count
 # query, and the triage rewrite all behave and stay valid. Exercises the exact commands
-# the skill documents (no test runner needed). Run: bash .claude/tests/feedback-log.test.sh
+# the skill documents (no test runner needed). T6–T9 guard the skill TEXT: as of
+# Phase 5 D3 the feedback drain is live, so the Half-B deferral language must be
+# gone from both shipped copies and the live process documented.
+# Run: bash .claude/tests/feedback-log.test.sh
 set -u
 
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — the suite cd's away from $0's base
+SKILL_SRC="$ROOT/.claude/skills/log-feedback/SKILL.md"
+SKILL_PLUGIN="$ROOT/plugin/skills/log-feedback/SKILL.md"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -74,6 +82,79 @@ ok "every line still valid JSON after triage"
 # T5 — open-count is 0 (not an error) when the log doesn't exist yet
 rm -f "$F"
 [ "$(open_count)" = 0 ] && ok "missing log: open-count is 0, no error" || no "missing log should yield 0"
+
+# ── Skill-text guards (Phase 5 D3): the drain is live, the Half-B deferral is gone ──
+# The deferral-language class, as a function so T9's positive control can prove
+# the detector fires (standing rule: detector-style guards ship a positive control).
+has_deferral() { grep -qiE 'half[ -]b|DISTRIBUTION_OPTIONS|not built yet' "$1"; }
+
+# The plugin copy exists only where plugin/ does — a template-clone fork may
+# delete the generated tree (README's note), and that must skip, not fail.
+# In the canonical repo (or any tree keeping plugin/) a missing copy IS a
+# failure: the skill ships in both install modes. Array, not word-split — the
+# checkout path may contain spaces. FEEDBACK_PLUGIN_TREE is the T10 seam.
+COPIES=("$SKILL_SRC")
+if [ -d "${FEEDBACK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
+  COPIES+=("$SKILL_PLUGIN")
+else
+  echo "  - plugin/ absent (template-clone fork) — plugin-copy guards skip"
+fi
+
+# T6 — no Half-B deferral language survives in any shipped copy
+for copy in "${COPIES[@]}"; do
+  if [ -f "$copy" ]; then
+    has_deferral "$copy" \
+      && no "Half-B deferral language still in ${copy#"$ROOT"/}" \
+      || ok "no Half-B deferral language in ${copy#"$ROOT"/}"
+  else
+    no "skill copy missing: $copy"
+  fi
+done
+
+# T7 — the live drain is documented in every shipped copy (the drain phrases
+# carry no slash-commands, so the plugin namespace rewrite leaves them intact):
+# upstream entry → issue/PR → graduated on the release that ships the fix;
+# resolved kept distinct (fixed before any release)
+for copy in "${COPIES[@]}"; do
+  label="${copy#"$ROOT"/}"
+  grep -q 'issue or PR against the harness repo' "$copy" \
+    && ok "drain step 1 (issues/PRs) in $label" \
+    || no "$label must document: upstream entries become an issue or PR against the harness repo"
+  grep -q 'on the release that ships the fix' "$copy" \
+    && ok "drain step 2 (graduated on release) in $label" \
+    || no "$label must document: graduated flips on the release that ships the fix"
+  grep -q 'fixed before any release' "$copy" \
+    && ok "graduated vs resolved distinction in $label" \
+    || no "$label must distinguish resolved (fixed before any release) from graduated"
+
+  # T8 — routing:local entries have an explicit live statement in Closing the loop
+  awk '/^## Closing the loop/,0' "$copy" | grep -q '`local`' \
+    && ok "Closing the loop states what local entries do now in $label" \
+    || no "Closing the loop in $label must state what routing:local entries do now"
+done
+
+# T9 — positive control: the deferral detector fires on planted deferral text
+# and stays quiet on clean text (proves T6 isn't passing vacuously)
+printf 'a local overlay adaptation — _deferred "Half B" work_\n' > planted.md
+printf 'entries drain through the live triage flow\n' > clean.md
+has_deferral planted.md \
+  && ok "positive control: detector fires on planted deferral text" \
+  || no "positive control failed: detector missed planted 'Half B'"
+has_deferral clean.md \
+  && no "positive control failed: detector fired on clean text" \
+  || ok "positive control: detector quiet on clean text"
+
+# T10 — fork self-check: with the plugin tree absent the plugin-copy guards
+# visibly skip and the suite still exits 0 (output-grepped — exit 0 alone
+# would pass in the canonical repo even with the skip branch deleted)
+if [ -z "${FEEDBACK_TEST_INNER:-}" ]; then
+  INNER=$(FEEDBACK_TEST_INNER=1 FEEDBACK_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "plugin-copy guards skip"; then
+    ok "plugin-copy guards visibly skip in a fork that deleted plugin/"
+  else
+    no "suite must exit 0 and visibly skip plugin-copy guards when plugin/ is absent"
+  fi
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
