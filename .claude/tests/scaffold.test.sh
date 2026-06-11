@@ -15,6 +15,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 PLUGIN="$ROOT/plugin"
 SCRIPT="$PLUGIN/scripts/scaffold-shell.sh"
 SHELL_DIR="$PLUGIN/shell"
@@ -218,7 +219,7 @@ fi
 # Fork self-check: the wholesale skip fires and shows itself (output-grepped —
 # exit 0 alone would pass in the canonical repo even with the skip deleted)
 if [ -z "${SCAFFOLD_TEST_INNER:-}" ]; then
-  INNER=$(SCAFFOLD_TEST_INNER=1 SCAFFOLD_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+  INNER=$(SCAFFOLD_TEST_INNER=1 SCAFFOLD_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
   if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
     ok "suite visibly skips in a fork that deleted plugin/"
   else

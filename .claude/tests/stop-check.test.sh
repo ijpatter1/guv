@@ -12,6 +12,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 HOOK="$ROOT/.claude/hooks/stop-check.sh"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
@@ -92,7 +93,7 @@ fi
 # (output-grepped — exit 0 alone would pass in the canonical repo even with
 # the skip branch deleted)
 if [ -z "${STOPCHECK_TEST_INNER:-}" ]; then
-  INNER=$(STOPCHECK_TEST_INNER=1 STOPCHECK_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+  INNER=$(STOPCHECK_TEST_INNER=1 STOPCHECK_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
   if [ $? -eq 0 ] && echo "$INNER" | grep -q "byte-identity guard skips"; then
     ok "byte-identity guard visibly skips in a fork that deleted plugin/"
   else
