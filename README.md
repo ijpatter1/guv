@@ -1,6 +1,6 @@
 # Claude Code Development Environment
 
-A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and Docker sandboxing.
+A ready-to-use development environment for autonomous Claude Code sessions with built-in QA evaluation, session management, and sandboxed isolation by default — the native sandbox as the default tier, Docker as the opt-in tier.
 
 Based on patterns from [Anthropic's harness design research](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/).
 
@@ -55,7 +55,7 @@ rm -rf .git && git init
 The fastest path — give Claude Code your spec:
 
 ```bash
-# Start Claude Code (native or sandbox)
+# Start Claude Code (default tier; or `make sandbox` for the Docker tier)
 claude
 # or: make sandbox
 
@@ -87,9 +87,9 @@ Review the generated files, adjust anything that needs it, then commit and start
 - Edit `.claude/project.json` to declare your stack, commands, `roots`, `guards`, and `ceremony`.
 - For phased projects, define `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_STATUS.md`.
 
-Either way, also update:
+If you opt into the Docker tier, also update:
 
-- **`Makefile`** — Change `IMAGE_NAME` and `CONTAINER_NAME` at the top (two lines). The sandbox base image is derived from the manifest's `language`; override with `make build BASE_IMAGE=...`.
+- **`Makefile`** — Change `IMAGE_NAME` and `CONTAINER_NAME` at the top (two lines). The sandbox base image is derived from the manifest's `language`; override with `make build BASE_IMAGE=...`. (Default-tier projects can skip this — the Makefile is only used by `make sandbox` and friends.)
 
 Optionally customize:
 
@@ -207,6 +207,8 @@ Isolation is three layers with distinct jobs:
    its `sandbox` block into `.claude/settings.json`, or run `/sandbox` in-session. The
    fragment's starter domain allowlist mirrors the firewall's core set (Anthropic +
    GitHub) and its comments carry the per-language registry table for your stack.
+   macOS needs nothing installed; on Linux/WSL2 install `bubblewrap` and `socat`
+   first (see the [official sandboxing docs](https://code.claude.com/docs/en/sandboxing)).
 2. **bash-guard — the semantic boundary within it.** The native sandbox permits writes
    anywhere in the working directory, so destructive patterns inside the boundary —
    `rm -rf .`, hard resets, publishes — remain bash-guard's job in both tiers

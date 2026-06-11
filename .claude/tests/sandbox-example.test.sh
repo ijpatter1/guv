@@ -41,43 +41,60 @@ fi
   && ok "allowedDomains nested under sandbox.network" \
   || no "sandbox.network.allowedDomains must be an array"
 
-# T4 — starter set mirrors the firewall's core set exactly, both directions.
-# The core set is the first ALLOWED_DOMAINS=( ... ) block in init-firewall.sh
-# (the += registry/project/gcloud additions are deliberately NOT mirrored).
-FW_CORE=$(awk '/^ALLOWED_DOMAINS=\(/,/^\)/' "$FIREWALL" | grep -o '"[^"]*"' | tr -d '"' | sort)
+# T4/T5 mirror the fragment against the Docker tier's firewall. A consumer who
+# dropped the opt-in Docker rig (deleted sandbox/) has no mirror subject — skip
+# cleanly with a message rather than failing (same pattern as other optional
+# subjects), never silently.
 FR_DOMAINS=$(jq -r '.sandbox.network.allowedDomains[]?' "$FRAGMENT" | sort)
-if [ -n "$FW_CORE" ] && [ "$FW_CORE" = "$FR_DOMAINS" ]; then
-  ok "starter allowedDomains == firewall core set (drift guard)"
+if [ ! -f "$FIREWALL" ]; then
+  echo "  - sandbox/init-firewall.sh absent (Docker tier removed) — skipping firewall-mirror tests"
 else
-  no "starter allowedDomains must equal the firewall core set"
-  diff <(echo "$FW_CORE") <(echo "$FR_DOMAINS") | sed 's/^/      /'
+  # T4 — starter set mirrors the firewall's core set exactly, both directions.
+  # The core set is the first ALLOWED_DOMAINS=( ... ) block in init-firewall.sh
+  # (the += registry/project/gcloud additions are deliberately NOT mirrored).
+  FW_CORE=$(awk '/^ALLOWED_DOMAINS=\(/,/^\)/' "$FIREWALL" | grep -o '"[^"]*"' | tr -d '"' | sort)
+  if [ -n "$FW_CORE" ] && [ "$FW_CORE" = "$FR_DOMAINS" ]; then
+    ok "starter allowedDomains == firewall core set (drift guard)"
+  else
+    no "starter allowedDomains must equal the firewall core set"
+    diff <(echo "$FW_CORE") <(echo "$FR_DOMAINS") | sed 's/^/      /'
+  fi
+
+  # T5 — per-language registries are guidance, not defaults: every registry domain
+  # from the firewall's per-language table is MENTIONED in the fragment (comment
+  # guidance) but ABSENT from the starter array (a Rust CLI never opens npm).
+  REGISTRIES=$(grep 'REGISTRY_DOMAINS=(' "$FIREWALL" | grep -o '"[^"]*"' | tr -d '"' | sort -u)
+  [ -n "$REGISTRIES" ] || no "could not extract registry domains from firewall (test setup)"
+  MISSING=""; LEAKED=""
+  for d in $REGISTRIES; do
+    grep -q "$d" "$FRAGMENT" || MISSING="$MISSING $d"
+    echo "$FR_DOMAINS" | grep -qx "$d" && LEAKED="$LEAKED $d"
+  done
+  [ -z "$MISSING" ] \
+    && ok "all per-language registry domains documented as guidance" \
+    || no "registry domains missing from guidance:$MISSING"
+  [ -z "$LEAKED" ] \
+    && ok "no registry domain baked into the starter set" \
+    || no "registry domains must stay guidance, found in starter set:$LEAKED"
 fi
 
-# T5 — per-language registries are guidance, not defaults: every registry domain
-# from the firewall's per-language table is MENTIONED in the fragment (comment
-# guidance) but ABSENT from the starter array (a Rust CLI never opens npm).
-REGISTRIES=$(grep 'REGISTRY_DOMAINS=(' "$FIREWALL" | grep -o '"[^"]*"' | tr -d '"' | sort -u)
-[ -n "$REGISTRIES" ] || no "could not extract registry domains from firewall (test setup)"
-MISSING=""; LEAKED=""
-for d in $REGISTRIES; do
-  grep -q "$d" "$FRAGMENT" || MISSING="$MISSING $d"
-  echo "$FR_DOMAINS" | grep -qx "$d" && LEAKED="$LEAKED $d"
+# T6 — denyRead covers every Read deny in settings.json's permission denies,
+# DERIVED from settings.json (like T4 derives from the firewall) so a new
+# Read deny added there fires this drift guard. Glob patterns reduce to their
+# core token: Read(**/.env) → .env, Read(**/.env.*) → .env., Read(**/secrets/**)
+# → secrets — each token must appear in some denyRead entry.
+SETTINGS="$ROOT/.claude/settings.json"
+DENY_TOKENS=$(jq -r '.permissions.deny[] | select(startswith("Read(")) | ltrimstr("Read(") | rtrimstr(")")' "$SETTINGS" \
+  | sed 's|\*\*/||g; s|/\*\*||g; s|\*$||')
+[ -n "$DENY_TOKENS" ] || no "could not extract Read denies from settings.json (test setup)"
+UNCOVERED=""
+for tok in $DENY_TOKENS; do
+  jq -e --arg t "$tok" '.sandbox.filesystem.denyRead | map(select(contains($t))) | length > 0' "$FRAGMENT" >/dev/null 2>&1 \
+    || UNCOVERED="$UNCOVERED $tok"
 done
-[ -z "$MISSING" ] \
-  && ok "all per-language registry domains documented as guidance" \
-  || no "registry domains missing from guidance:$MISSING"
-[ -z "$LEAKED" ] \
-  && ok "no registry domain baked into the starter set" \
-  || no "registry domains must stay guidance, found in starter set:$LEAKED"
-
-# T6 — denyRead covers secrets/ and .env (matching the permission denies in
-# settings.json: Read(**/.env), Read(**/.env.*), Read(**/secrets/**)).
-jq -e '.sandbox.filesystem.denyRead | map(select(test("secrets"))) | length > 0' "$FRAGMENT" >/dev/null 2>&1 \
-  && ok "denyRead covers secrets/" \
-  || no "denyRead must cover secrets/"
-jq -e '.sandbox.filesystem.denyRead | map(select(test("\\.env"))) | length > 0' "$FRAGMENT" >/dev/null 2>&1 \
-  && ok "denyRead covers .env" \
-  || no "denyRead must cover .env"
+[ -z "$UNCOVERED" ] \
+  && ok "denyRead covers every settings.json Read deny (drift guard)" \
+  || no "denyRead misses permission-deny tokens:$UNCOVERED"
 
 # T7 — the fragment is sandbox-only guidance: the live settings.json owns
 # permissions and hooks, and the fragment must not fork them.

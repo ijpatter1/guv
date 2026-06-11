@@ -4,6 +4,8 @@
     "RECOMMENDED NATIVE-SANDBOX SETTINGS — the default isolation tier (macOS Seatbelt /",
     "Linux+WSL2 bubblewrap). Copy the 'sandbox' block into .claude/settings.json, or use",
     "/sandbox inside Claude Code to enable it per-project. Zero Docker steps required.",
+    "macOS needs nothing installed; Linux/WSL2 needs bubblewrap + socat first — see",
+    "https://code.claude.com/docs/en/sandboxing for setup and the full reference.",
     "",
     "THE THREE LAYERS (see the README's Security Model section):",
     "  1. native sandbox  = spatial boundary — OS-enforced filesystem/network limits",
@@ -24,8 +26,10 @@
     "  elixir: hex.pm, repo.hex.pm, builds.hex.pm",
     "",
     "denyRead mirrors the permission denies (Read(**/.env), Read(**/.env.*),",
-    "Read(**/secrets/**)). Sandbox paths are literal paths relative to the settings",
-    "file, not globs — add the .env.* variants and nested locations your repo has.",
+    "Read(**/secrets/**)). Sandbox paths are literal paths, not globs; './' and",
+    "prefix-less entries resolve to the PROJECT ROOT when the block lives in project",
+    "settings (.claude/settings.json) — so './secrets' denies <project>/secrets.",
+    "Add further .env.* variants and nested locations your repo actually has.",
     "The default read policy allows ~/.ssh and ~/.aws; deny them here too if your",
     "threat model calls for it.",
     "",
@@ -49,7 +53,8 @@
     "filesystem": {
       "denyRead": [
         "./secrets",
-        "./.env"
+        "./.env",
+        "./.env.local"
       ]
     }
   }

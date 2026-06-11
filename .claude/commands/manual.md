@@ -1,6 +1,6 @@
 Generate an actionable artifact for work that must be performed outside the sandbox.
 
-Use this when you've done everything possible inside the sandbox but the remaining step requires human action — deploying, configuring a third-party UI, testing on a real device, running commands that need network access beyond the firewall, etc.
+Use this when you've done everything possible inside the sandbox but the remaining step requires human action — deploying, configuring a third-party UI, testing on a real device, running commands that need network access beyond the network allowlist, etc.
 
 ## Core Principle: Maximize Automation, Minimize Human Effort
 
