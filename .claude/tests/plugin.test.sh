@@ -20,6 +20,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 PLUGIN="$ROOT/plugin"
 SRC="$ROOT/.claude"
 MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
@@ -430,14 +431,14 @@ if [ -f "$BUILD" ]; then
   # the canonical repo), making the self-check vacuous. Guarded against
   # recursion via PLUGIN_TEST_INNER.
   if [ -z "${PLUGIN_TEST_INNER:-}" ]; then
-    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" 2>&1)
+    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$SELF" 2>&1)
     if [ $? -eq 0 ] && echo "$INNER" | grep -q "skipping drift guard"; then
       ok "suite passes in a consumer fork (build script absent -> drift guard skips)"
     else
       no "suite must exit 0 AND visibly skip when maintainers/build-plugin.sh is absent"
     fi
     # T16b — same proof for the plugin-deleted fork (README's deletion note)
-    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_TEST_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_TEST_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
     if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
       ok "suite skips wholesale in a fork that deleted plugin/"
     else

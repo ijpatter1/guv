@@ -17,6 +17,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 MP="$ROOT/.claude-plugin/marketplace.json"
 PJ="$ROOT/plugin/.claude-plugin/plugin.json"
 CL="$ROOT/CHANGELOG.md"
@@ -145,13 +146,13 @@ fi
 # block were deleted — the suite passes whole in the canonical repo — making
 # this self-check vacuous)
 if [ -z "${RELEASE_TEST_INNER:-}" ]; then
-  INNER=$(RELEASE_TEST_INNER=1 RELEASE_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" 2>&1)
+  INNER=$(RELEASE_TEST_INNER=1 RELEASE_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$SELF" 2>&1)
   if [ $? -eq 0 ] && echo "$INNER" | grep -q "guards skip"; then
     ok "suite visibly skips in a consumer fork (build script absent)"
   else
     no "suite must exit 0 and visibly skip when maintainers/build-plugin.sh is absent"
   fi
-  INNER=$(RELEASE_TEST_INNER=1 RELEASE_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+  INNER=$(RELEASE_TEST_INNER=1 RELEASE_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
   if [ $? -eq 0 ] && echo "$INNER" | grep -q "guards skip"; then
     ok "suite visibly skips in a fork that deleted plugin/"
   else
