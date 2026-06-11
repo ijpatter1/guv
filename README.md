@@ -149,6 +149,7 @@ code .
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
 │   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan-initiative)
 │   ├── settings.json                  # Permissions (convenience layer) + hooks
+│   ├── settings.sandbox-example.json  # Recommended native-sandbox fragment (default tier)
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/
 │   │   ├── evaluator.md               # Technical QA evaluator subagent
@@ -192,6 +193,32 @@ code .
 > A rendered `CLAUDE.md` (the live file) and `.claude/project.json` are created/filled per project by `/init-project` or `/onboard`. The template repo ships **no** `CLAUDE.md`.
 
 The **durable core** — the `guv-*` rules in `.claude/rules/`, the manifest, the evaluator/reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
+
+## Security Model
+
+Isolation is three layers with distinct jobs:
+
+1. **Native sandbox — the spatial boundary (default tier).** OS-enforced limits (macOS
+   Seatbelt; bubblewrap on Linux/WSL2) on every Bash command and its child processes:
+   writes confined to the working directory, network confined to allowlisted domains.
+   Enable it with the shipped fragment `.claude/settings.sandbox-example.json` — copy
+   its `sandbox` block into `.claude/settings.json`, or run `/sandbox` in-session. The
+   fragment's starter domain allowlist mirrors the firewall's core set (Anthropic +
+   GitHub) and its comments carry the per-language registry table for your stack.
+2. **bash-guard — the semantic boundary within it.** The native sandbox permits writes
+   anywhere in the working directory, so destructive patterns inside the boundary —
+   `rm -rf .`, hard resets, publishes — remain bash-guard's job in both tiers
+   (deterministic PreToolUse hook; universal blocks plus manifest-keyed optional
+   guards).
+3. **Permissions — the convenience layer.** The allow/deny rules in
+   `.claude/settings.json` decide what runs without prompting. They reduce friction;
+   they are not the enforcement boundary.
+
+The Docker sandbox (`make sandbox`) is the **opt-in tier** that replaces layer 1 with
+a container + iptables firewall — see [sandbox/README.md](sandbox/README.md) for when
+to choose it. **Pick one tier per project:** running the native sandbox inside the
+container requires a weakened mode (`enableWeakerNestedSandbox`) and should not be
+combined.
 
 ## GCP Access (Optional)
 
