@@ -36,8 +36,9 @@ make_harness() {
   echo "# task" > "$h/.claude/skills/task/SKILL.md"
   echo "# cmd" > "$h/.claude/commands/status.md"
   echo "hook" > "$h/.claude/hooks/guard.sh"
-  mkdir -p "$h/.claude/rules"
+  mkdir -p "$h/.claude/rules" "$h/.claude/workflows"
   printf 'guv rule body v1\n' > "$h/.claude/rules/guv-core.md"
+  echo "export const meta = {}" > "$h/.claude/workflows/evaluate-parallel.js"
   echo "archive" > "$h/.claude/archive-initiative.sh"
   echo '{}' > "$h/.claude/settings.json"
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/commands/.DS_Store"
@@ -53,6 +54,9 @@ run_setup "$H" "$D"
   && [ -f "$D/.claude/archive-initiative.sh" ] \
   && ok "create: core copied (skills, guv rules, archive-initiative.sh present)" \
   || no "create: core (incl. .claude/rules/guv-*) should be copied to the control plane"
+[ -f "$D/.claude/workflows/evaluate-parallel.js" ] \
+  && ok "create: workflows dir copied (saved workflows are core)" \
+  || no "create: .claude/workflows/ should be copied to the control plane"
 
 # T2 — ...but no .DS_Store comes along, at any depth.
 FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
