@@ -17,13 +17,14 @@ export const meta = {
 // .claude/rules/guv-workflows.md — ad-hoc reviewers are prohibited). agentType
 // resolves the .claude/agents/ definition, so the evaluator runs with its own
 // restricted tool set (Read/Glob/Grep/Bash) and its read-only PreToolUse hook,
-// which fires under workflow execution (verified empirically — Phase 4 spike).
+// which fires under workflow execution — verified empirically; the workflow
+// runtime is a research preview, so re-verify if its behavior shifts.
 
 const SCOPE_SCHEMA = {
   type: 'object',
   required: ['phase', 'commits', 'filesChanged', 'scopeDescription'],
   properties: {
-    phase: { type: 'string', description: 'current phase number/name from docs/PHASE_STATUS.md, or "unknown"' },
+    phase: { type: 'string', description: 'current phase from docs/PHASE_STATUS.md WITHOUT the leading word "Phase" (e.g. "4 — Dynamic Workflows"), or "unknown"' },
     commits: { type: 'array', items: { type: 'string' }, description: 'commits in scope as "hash subject", oldest first' },
     filesChanged: { type: 'array', items: { type: 'string' }, description: 'paths changed across the scope' },
     scopeDescription: { type: 'string', description: 'one line: what is being evaluated' },
@@ -50,7 +51,7 @@ const scope = await agent(
   `Gather the evaluation scope for a dual QA review (this mirrors the /evaluate skill's Step 1).
 ${scopeHint
     ? `The user scoped the evaluation: "${scopeHint}". Resolve that to concrete commits.`
-    : 'No explicit scope was given: evaluate all work since the last session handoff (latest file in docs/sessions/) or the last evaluation, whichever is more recent.'}
+    : 'No explicit scope was given: evaluate all work since the latest session handoff (the most recent file in docs/sessions/).'}
 Run git against the code repo: git -C "$(jq -r '.roots.code' .claude/project.json)" log/diff/show (a no-op for single-repo, where roots.code is ".").
 Read the current phase from docs/PHASE_STATUS.md.
 Collect: the phase, the commits in scope (oldest first), the files changed across them, and a one-line description of what is being evaluated.`,
@@ -60,10 +61,14 @@ if (!scope || !scope.commits.length) {
   return { error: 'No commits in scope — nothing to evaluate. Commit the work first, or scope explicitly (e.g. /evaluate-parallel last 3 commits).' }
 }
 log(`Scope: ${scope.scopeDescription} (${scope.commits.length} commits, ${scope.filesChanged.length} files)`)
+// Belt and braces for the prompt templates below: the schema asks for the phase
+// without the leading word, but a model may still return "Phase 4 — ..." —
+// strip it in code rather than shipping "Phase Phase 4" prompts.
+const phaseLabel = String(scope.phase).replace(/^phase\s+/i, '')
 
 // ── Steps 2 + 3 — both calibrated reviewers, concurrently ──
 phase('Review')
-const context = `Phase ${scope.phase}. Commits in scope (oldest first):
+const context = `Phase ${phaseLabel}. Commits in scope (oldest first):
 ${scope.commits.join('\n')}
 Changed files:
 ${scope.filesChanged.join('\n')}
@@ -73,18 +78,20 @@ Your final structured output must carry the FULL report — do not stash finding
 // Barrier justified: Step 4's combined summary needs both reports together.
 const [tech, product] = await parallel([
   () => agent(
-    `Evaluate the following work from Phase ${scope.phase}. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration.\n\n${context}`,
+    `Evaluate the following work from Phase ${phaseLabel}. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration.\n\n${context}`,
     { label: 'evaluator', phase: 'Review', agentType: 'evaluator', schema: REPORT_SCHEMA }
   ),
   () => agent(
-    `Review the following work from Phase ${scope.phase} for product quality. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth.\n\n${context}`,
+    `Review the following work from Phase ${phaseLabel} for product quality. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth.\n\n${context}`,
     { label: 'product-reviewer', phase: 'Review', agentType: 'product-reviewer', schema: REPORT_SCHEMA }
   ),
 ])
 
 if (!tech || !product) {
   // Fail loud (rule 10): half a review is not a review — never summarize over a
-  // missing report.
+  // missing report. Contract assumption: a failed/skipped subagent resolves to
+  // null (parallel() does not reject) — preview behavior, re-verify on runtime
+  // changes.
   return {
     error: 'A reviewer did not return a report — evaluation incomplete, do not proceed on a half review.',
     evaluatorReport: tech ? tech.report : null,

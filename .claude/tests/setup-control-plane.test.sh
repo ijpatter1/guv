@@ -101,6 +101,9 @@ echo "consumer rule — mine" > "$D/.claude/rules/team-style.md"
 cp "$D/.claude/rules/team-style.md" "$WORK/team-style.before"
 echo "legacy rules file" > "$D/.claude/RULES.md"
 echo "edited" > "$H/.claude/rules/guv-core.md"
+echo "consumer workflow — mine" > "$D/.claude/workflows/my-migration.js"
+cp "$D/.claude/workflows/my-migration.js" "$WORK/my-migration.before"
+echo "wf-edited" > "$H/.claude/workflows/evaluate-parallel.js"
 ( bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) > "$WORK/sync.out" 2>&1
 grep -q "edited" "$D/.claude/rules/guv-core.md" 2>/dev/null \
   && ok "sync: stale guv-* rule refreshed" \
@@ -108,6 +111,12 @@ grep -q "edited" "$D/.claude/rules/guv-core.md" 2>/dev/null \
 cmp -s "$WORK/team-style.before" "$D/.claude/rules/team-style.md" \
   && ok "sync: consumer-authored rule survives byte-for-byte (cmp)" \
   || no "sync: unprefixed consumer rules must never be touched"
+grep -q "wf-edited" "$D/.claude/workflows/evaluate-parallel.js" 2>/dev/null \
+  && ok "sync: stale harness workflow refreshed" \
+  || no "sync: harness-shipped workflows should be refreshed"
+cmp -s "$WORK/my-migration.before" "$D/.claude/workflows/my-migration.js" \
+  && ok "sync: consumer-saved workflow survives byte-for-byte (cmp)" \
+  || no "sync: user-saved workflows must never be touched (native feature saves them here)"
 [ ! -f "$D/.claude/RULES.md" ] \
   && ok "sync: superseded .claude/RULES.md deleted (no double-load)" \
   || no "sync: legacy .claude/RULES.md should be removed"

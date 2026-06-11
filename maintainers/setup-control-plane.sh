@@ -41,7 +41,7 @@ CODE_REL="$(rel_code)"
 # Note what is NOT copied: project.json (we write a dogfooding one), docs/, feedback/,
 # agent-memory/, CLAUDE.md — those are control-plane-owned session state.
 copy_core() {
-  for item in commands skills agents hooks workflows project.schema.json \
+  for item in commands skills agents hooks project.schema.json \
               resolve-stack.sh check-citations.sh update-readme-status.sh \
               archive-initiative.sh settings.json; do
     if [ -e "$HARNESS_DIR/.claude/$item" ]; then
@@ -51,6 +51,19 @@ copy_core() {
       find "$DEST/.claude/$item" -name '.DS_Store' -delete 2>/dev/null
     fi
   done
+  # Workflows: never clobber the directory wholesale — the native feature saves
+  # USER-authored workflows into .claude/workflows/, so only the files the
+  # harness itself ships are refreshed (ownership by filename, like rules);
+  # consumer-saved workflows are never touched. A workflow removed upstream
+  # lingers until deleted by hand — acceptable until the plugin namespace
+  # (Phase 5) gives harness workflows a real prefix.
+  if [ -d "$HARNESS_DIR/.claude/workflows" ]; then
+    mkdir -p "$DEST/.claude/workflows"
+    for f in "$HARNESS_DIR/.claude/workflows/"*; do
+      [ -f "$f" ] && cp "$f" "$DEST/.claude/workflows/"
+    done
+    find "$DEST/.claude/workflows" -name '.DS_Store' -delete 2>/dev/null
+  fi
   # Rules: ownership is declared by filename — replace harness-owned guv-* only;
   # unprefixed consumer-authored rules are never touched. The superseded single-file
   # RULES.md is removed (leaving it would double-load: once via a consumer CLAUDE.md

@@ -48,10 +48,10 @@ grep -q "agentType: 'product-reviewer'" "$WF" \
   && ok "review stage spawns the product-reviewer by name (agentType)" \
   || no "must spawn agentType: 'product-reviewer'"
 
-# T4 — no ad-hoc reviewer sneaks in: every agentType in the script is one of
-# the two calibrated agents (the scope-gathering stage uses the default worker,
-# which carries no agentType at all).
-ROGUE=$(grep -o "agentType: '[^']*'" "$WF" | grep -v "'evaluator'\|'product-reviewer'" || true)
+# T4 — no ad-hoc reviewer sneaks in: every agentType in the script (either
+# quote style) is one of the two calibrated agents (the scope-gathering stage
+# uses the default worker, which carries no agentType at all).
+ROGUE=$(grep -oE "agentType: ['\"][^'\"]*['\"]" "$WF" | grep -vE "['\"](evaluator|product-reviewer)['\"]" || true)
 [ -z "$ROGUE" ] \
   && ok "no ad-hoc reviewer agentType present (rule 14)" \
   || no "unexpected agentType in workflow: $ROGUE"
@@ -67,11 +67,15 @@ grep -qi "fix loop" "$WF" && grep -qi "conversational" "$WF" \
   && ok "fix-loop exclusion stated (Step 5 stays conversational)" \
   || no "script must state that the fix loop stays conversational, outside the workflow"
 
-# T7 — the script parses as JavaScript. node is not a harness runtime dep, so
-# skip cleanly (loudly) when absent rather than failing.
+# T7 — the script parses as JavaScript. The workflow runtime strips the meta
+# export and runs the body inside an async function (that's what legalizes
+# top-level await/return), so the check emulates that wrapping — which also
+# keeps it CommonJS-parsed and independent of node's ESM-detection version
+# threshold. node is not a harness runtime dep: skip cleanly (loudly) if absent.
 if command -v node >/dev/null 2>&1; then
-  node --check "$WF" >/dev/null 2>&1 \
-    && ok "script parses as JavaScript (node --check)" \
+  { printf 'async function __wf(){\n'; sed 's/^export //' "$WF"; printf '\n}\n'; } \
+    | node --check >/dev/null 2>&1 \
+    && ok "script parses as JavaScript (node --check, runtime-wrapped)" \
     || no "node --check failed — syntax error in $WF"
 else
   echo "  - node not installed — skipping syntax check"

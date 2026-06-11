@@ -15,4 +15,5 @@ prohibited. The two are calibrated — scoring anchors, read-only enforcement, p
 memory — and a generated generic verifier has none of that: it grades to whatever bar
 the prompt implies that day. Verification only means something when the verifier's
 standards persist across sessions. (Spawned by name, both agents resolve and the
-evaluator's read-only hook fires — verified under workflow execution, Phase 4 spike.)
+evaluator's read-only hook fires — verified empirically under workflow execution;
+the workflow runtime is a research preview, so re-verify if its behavior shifts.)
