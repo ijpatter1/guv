@@ -315,7 +315,7 @@ t12d_violations() {
     grep -qE "$GENERIC_DECODER" "$f" && continue
     for n in $(printf '%s' "$CMDS" | tr '|' ' '); do
       if grep -qE '(^|[^[:alnum:].:-])/'"$n"'($|[^[:alnum:]:_-])' "$f" 2>/dev/null \
-         && ! grep -q "guv:$n" "$f"; then
+         && ! grep -qE "guv:$n($|[^[:alnum:]_-])" "$f"; then
         printf '%s:%s\n' "$f" "$n"
       fi
     done
