@@ -20,6 +20,8 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 - `/handoff` — End session with full QA + handoff artifact for continuity
 - `/status` — Quick 10-line project orientation
 
+**Dynamic workflows** — Saved workflows in `.claude/workflows/` register as slash commands. The planning layer is the phase docs and the commands; the execution layer is the model, subagents, and — for wide mechanical fan-out — workflows (`.claude/rules/guv-workflows.md`: QA stages invoke the calibrated reviewers by name; ultracode is fan-out-only, dropped back after). Ships with `/evaluate-parallel`: both reviewers concurrently over a commit-range scope, returning both reports plus the combined summary — the fix loop stays conversational, in the main session.
+
 **Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/rules/` (`guv-*.md`, loaded natively).
 
 **Repo topology** — single repo by default (`roots` both `"."`). For a control-plane / code split, Claude launches in the control plane and the product is a sibling repo. Convention: the code repo keeps the plain product name, the control plane is `<product>-control`, and the manifest's `name` stays the _product_ name (it feeds image/container labels):
@@ -175,6 +177,8 @@ code .
 │   │   ├── evaluate/                  # /evaluate — dual QA review
 │   │   ├── log-feedback/              # /log-feedback — record harness friction
 │   │   └── session-management/        # Context continuity conventions
+│   ├── workflows/
+│   │   └── evaluate-parallel.js       # /evaluate-parallel — both reviewers, concurrent
 │   ├── tests/                         # Bash test suites for the harness scripts/skills
 │   └── feedback/                      # Harness-friction log (created on first /log-feedback)
 ├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)

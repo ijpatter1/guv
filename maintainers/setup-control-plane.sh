@@ -51,6 +51,22 @@ copy_core() {
       find "$DEST/.claude/$item" -name '.DS_Store' -delete 2>/dev/null
     fi
   done
+  # Workflows: never clobber the directory wholesale — the native feature saves
+  # USER-authored workflows into .claude/workflows/, so only the entries the
+  # harness itself ships are refreshed (ownership by filename, like rules);
+  # consumer-saved workflows are never touched. Two accepted edges until the
+  # plugin namespace (Phase 5) gives harness workflows a real prefix: a workflow
+  # removed upstream lingers until deleted by hand, and a consumer file whose
+  # name collides with a future harness-shipped one is overwritten on sync.
+  if [ -d "$HARNESS_DIR/.claude/workflows" ]; then
+    mkdir -p "$DEST/.claude/workflows"
+    for f in "$HARNESS_DIR/.claude/workflows/"*; do
+      [ -e "$f" ] || continue
+      rm -rf "$DEST/.claude/workflows/$(basename "$f")"
+      cp -R "$f" "$DEST/.claude/workflows/"
+    done
+    find "$DEST/.claude/workflows" -name '.DS_Store' -delete 2>/dev/null
+  fi
   # Rules: ownership is declared by filename — replace harness-owned guv-* only;
   # unprefixed consumer-authored rules are never touched. The superseded single-file
   # RULES.md is removed (leaving it would double-load: once via a consumer CLAUDE.md
@@ -133,6 +149,9 @@ is the code repo at \`roots.code\` (\`$CODE_REL\`).
   treat auto memory as hints and never let it override either.
 - **Commands, roots, ceremony:** \`.claude/project.json\`. \`commands.test\` runs the
   harness's bash suites in the code repo.
+- **Execution at scale:** saved workflows in \`.claude/workflows/\` (e.g.
+  \`/evaluate-parallel\`) — fan-out execution only; QA stages use the calibrated
+  reviewers by name (\`.claude/rules/guv-workflows.md\`).
 - **Where edits go:** improve the harness in the **code repo** ($CODE_REL) — that's
   where product commits land. This control plane holds session artifacts only
   (handoffs in \`docs/sessions/\`, harness friction in \`.claude/feedback/\`).

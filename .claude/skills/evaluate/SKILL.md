@@ -119,6 +119,7 @@ Action:  [fix and re-evaluate | proceed ✓]
 
 ## Notes
 
+- **Parallel variant:** the saved `/evaluate-parallel` workflow (`.claude/workflows/evaluate-parallel.js`) runs Steps 1–4 with both reviewers concurrent and returns both reports plus the combined summary. Step 5 — the fix loop — stays here, conversational: apply fixes in the main session, then re-run for the next pass.
 - Both reviewers are read-only. They inspect the code and report findings. They do not modify files.
 - If this is invoked as part of `/handoff` and either reviewer returns critical issues, the handoff stops. Fix the issues and re-run `/handoff`.
 - Do not editorialize or soften either report. Present them as-is. The user needs honest assessment, not reassurance.
