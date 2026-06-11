@@ -85,6 +85,14 @@ that carried the fix to consumers. `routing: local` entries never enter this
 flow — they are project-side adaptations, handled in the consumer's control
 plane (see the `log-feedback` skill).
 
+One class of upstream fix has **no release vehicle**: files the plugin never
+ships (maintainer tooling under `maintainers/`, repo-only docs). A version bump
+would carry nothing to plugin consumers; the audience for these files tracks
+the repo itself. Delivery is therefore the **merge to the default branch** —
+the entry graduates on that merge, and the issue closes naming the
+merge commit instead of a version. (First of this class: the runner-sync fix for
+entry `2026-06-11T23:17:51Z-15612590`.)
+
 ## Worked example (the drain's first full pass)
 
 Entry `2026-06-10T23:11:39Z-199208882` — "citation checker flags all-decimal

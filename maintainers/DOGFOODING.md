@@ -1,8 +1,10 @@
-# Dogfooding the harness (mechanism 1: control-plane split)
+# Dogfooding the harness — the control-plane split
 
-> **Maintainer-only.** This directory is about _developing the harness_, not using it.
-> A consumer who forks the template can delete `maintainers/` — it never affects a
-> rendered project.
+> **Maintainer-only.** This directory is about _developing_ Governor (guv), not using
+> it. A consumer who forks the template can delete `maintainers/` — it never affects a
+> rendered project. (The repo is `ijpatter1/guv`; the local clones in the examples
+> below keep the original `claude-code-sandbox` directory names — directory names are
+> yours, the repo identity is not.)
 
 ## The problem
 
@@ -21,28 +23,29 @@ different repo — and it dogfoods the least-tested path in the harness.
 
 ```
 ~/dev/
-├── claude-code-sandbox/            # THE HARNESS = roots.code. We edit this; product
-│                                   #   commits (real template improvements) land here.
-│                                   #   Stays clean: no rendered CLAUDE.md, no feedback
-│                                   #   data, docs/ stay placeholders.
+├── claude-code-sandbox/            # THE HARNESS = roots.code (repo: ijpatter1/guv).
+│                                   #   We edit this; product commits (real template
+│                                   #   improvements) land here. Stays clean: no rendered
+│                                   #   CLAUDE.md, no feedback data, docs/ stay placeholders.
 └── claude-code-sandbox-control/    # CONTROL PLANE = cwd. Claude launches here. Its own
     ├── .claude/                    #   git repo, its own commit stream.
     │   ├── (core copied from the harness — commands, skills, agents, hooks, guv-* rules,
-    │   │   scripts, schema, settings)   ← refreshed by setup-control-plane.sh --sync
-    │   ├── project.json             #   dogfooding manifest: roots.code → the harness,
-    │   │                            #   ceremony: task
+    │   │   workflows, scripts, schema, settings)  ← refreshed by setup-control-plane.sh --sync
+    │   ├── project.json             #   dogfooding manifest: roots.code → the harness
     │   ├── run-harness-tests.sh     #   commands.test → runs the harness's bash suites
+    │   │                            #   (generated; harness-owned — --sync refreshes it too)
     │   └── feedback/feedback.ndjson #   harness friction lives HERE, not in the template
     ├── CLAUDE.md                    #   "you are improving the harness at roots.code"
-    └── docs/sessions/               #   handoff artifacts live HERE
+    └── docs/                        #   sessions/ handoffs; when an initiative is active,
+                                     #   the phase docs (REQUIREMENTS/ARCHITECTURE/PHASE_STATUS)
 ```
 
 **Artifact routing — the whole point:**
 
 | Artifact                                                            | Lands in                           |
 | ------------------------------------------------------------------- | ---------------------------------- |
-| Template improvements (commands, skills, hooks, tests, …)           | **harness repo** (product commits) |
-| Rendered `CLAUDE.md`, session handoffs, feedback log, dev-plan docs | **control plane**                  |
+| Template improvements (commands, skills, hooks, tests, plugin, …)   | **harness repo** (product commits) |
+| Rendered `CLAUDE.md`, session handoffs, feedback log, phase docs    | **control plane**                  |
 | `agent-memory/`                                                     | control plane (gitignored there)   |
 
 `git -C $(roots.code)` operations target the harness; doc/session/feedback commits stay
@@ -67,19 +70,61 @@ So the loop is: edit in the harness repo → run its tests there → `--sync` in
 control plane → exercise the changed harness from a control-plane session → commit the
 harness change in the harness repo, and any session artifacts in the control plane.
 
-## Why `ceremony: task`
+What `--sync` refreshes is ownership-scoped, not wholesale: harness-owned surfaces
+(commands, skills, agents, hooks, `guv-*` rules, harness-shipped workflows, scripts,
+schema, settings — and the generated `run-harness-tests.sh`, which carries no consumer
+state) are replaced; consumer-owned state (the manifest, `CLAUDE.md`, unprefixed rules,
+consumer-saved workflows, docs, feedback) is never touched. `setup-control-plane.test.sh`
+enforces both halves.
 
-The harness is maintained via **scoped changes** (every improvement this cycle was a
-`/task`), not a phased greenfield build. So:
+## The plugin, and why `--sync` survives it
 
-- The **control plane's** manifest is `ceremony: task` (set by the setup script). Phase
-  machinery (`/start-phase`, handoff Steps 7–8) no-ops; no phase docs to fill, so no
-  phase-doc shell to leak.
-- **This repo's own `.claude/project.json`** is now `ceremony: task` too, which (a)
-  matches how it's actually developed and (b) resolves the prior inconsistency of
-  claiming `phased` while shipping placeholder phase docs. The full greenfield `phased`
-  flow is still fully available to consumers — `/init-project` sets `phased` when it
-  scaffolds from a spec.
+Since Phase 5 the durable core also ships as the **guv plugin**: `plugin/` is generated
+by `maintainers/build-plugin.sh` from `.claude/` + `maintainers/plugin-src/` (authored
+plugin-only sources), and the marketplace serves it from the default branch. That gives
+the harness two delivery channels, and the `setup-control-plane.sh` disposition is
+decided by audience:
+
+- **Consumers, default path:** install the plugin. Updates arrive as versioned releases
+  — see `RELEASING.md`: the version bump _is_ the release. On this path plugin updates
+  replace `--sync` entirely; nothing in a plugin-installed project ever runs this
+  script.
+- **Consumers, template-clone fallback:** kept and supported — for forks that customize
+  harness-owned files (the plugin's surfaces aren't editable; a clone's are) or
+  environments that can't install plugins. `--sync` remains their update path. The
+  README's Quick Start states the decided migrate-or-keep-syncing answer for existing
+  clones.
+- **Maintainers (this doc):** the script is **kept, scoped to maintainers**, because
+  the dogfooding loop tests **unreleased** core changes. By RELEASING.md's own framing,
+  a change that hasn't shipped in a version bump reaches no plugin consumer — so plugin
+  updates structurally cannot serve the loop. `--sync` is the only mechanism that moves
+  not-yet-released core into a live control plane.
+
+### Standing plugin install (dual load)
+
+A maintainer machine may also have `guv@guv` installed at user scope — dogfooding the
+released plugin while developing the next one. A control-plane session then loads BOTH
+surfaces: the project `.claude/` copy (possibly carrying unreleased changes) and the
+plugin's `/guv:`-namespaced copies (the last release). Expect doubled command listings.
+The plugin's `hooks.json` rides along too; its reviewer read-only guard is
+agent-type-gated, so it stays inert outside `guv:`-spawned reviewers. When testing
+unreleased changes, mind which copy you invoke: bare names are the synced project copy,
+`/guv:` names are the release.
+
+## Ceremony: seeded `task`, flipped per initiative
+
+The setup script seeds the control plane's manifest with `ceremony: task` — the
+harness's resting state is scoped maintenance, where every improvement is a `/task`.
+When a phased initiative runs against the harness, `/plan-initiative` flips the control
+plane to `ceremony: phased` and generates the phase docs in the control plane's `docs/`
+(the native-alignment initiative did exactly this on 2026-06-10); archiving the
+initiative returns it to rest. Phase machinery is therefore present when an initiative
+is active and silent otherwise — nothing about the split changes either way.
+
+**This repo's own `.claude/project.json`** stays `ceremony: task`: it matches how the
+template's defaults are maintained and ships no phase docs. The full greenfield
+`phased` flow remains available to consumers — `/init-project` sets `phased` when it
+scaffolds from a spec.
 
 ## Setup
 
@@ -87,8 +132,8 @@ The harness is maintained via **scoped changes** (every improvement this cycle w
 # from the harness repo:
 bash maintainers/setup-control-plane.sh ../claude-code-sandbox-control
 cd ../claude-code-sandbox-control
-claude            # or: make sandbox, once you copy a Makefile / point at the harness
-/status           # confirm roots.code points back at the harness, ceremony: task
+claude
+/status           # confirm roots.code points back at the harness (ceremony starts as task)
 ```
 
 Re-run with `--sync` after editing the harness to pull your changes into the control
@@ -96,12 +141,19 @@ plane before testing them.
 
 ## What still lives in the harness repo
 
-Durable maintainer tooling (this file, the setup script, the CI clean-check —
-`check-template-clean.sh` here plus the `maintainer-ci` workflow at
-`.github/workflows/template-clean.yml`, which is pinned to the template repo so it
-never runs in a consumer copy) is the
-_bootstrap_ for the split, so it lives here — you need it before the control plane
-exists. Ongoing **session** artifacts do not: they belong in the control plane. The
+Durable maintainer tooling is the _bootstrap_ for the split, so it lives here — you
+need it before the control plane exists:
+
+- this file and `setup-control-plane.sh` (the split itself);
+- `RELEASING.md` (what a release is, the bump policy, the release half of the
+  feedback drain);
+- `build-plugin.sh` + `plugin-src/` (the plugin generator and its authored sources —
+  `plugin/` is generated output, drift-guarded by `plugin.test.sh`);
+- the CI clean-check: `check-template-clean.sh` plus the `maintainer-ci` workflow at
+  `.github/workflows/template-clean.yml`, repo-pinned so it never runs in a consumer
+  copy.
+
+Ongoing **session** artifacts do not live here: they belong in the control plane. The
 distinction is the same one the feedback log's `routing` field encodes: _is this about
 building the harness (quarantine to the control plane), or part of the shipped template
 (commit here)?_

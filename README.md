@@ -61,7 +61,17 @@ Under a plugin install every harness command carries the `guv:` prefix —
 `/guv:init-project`, `/guv:status`, `/guv:handoff` — and the reviewer agents
 resolve as `guv:evaluator` / `guv:product-reviewer`.
 
-**Fallback — template-clone** (unversioned; updates via `setup-control-plane.sh --sync`):
+**Fallback — template-clone** (unversioned): for forks that customize harness-owned
+files (a plugin's surfaces aren't editable; a clone's are) or environments without
+plugin support. Updates arrive via `maintainers/setup-control-plane.sh --sync` —
+supported indefinitely, though new surface ships plugin-first.
+
+**Already on a template clone?** The decided disposition: **migrate to the plugin**
+if you haven't customized harness-owned files — install it, then delete the copied
+harness-owned core (commands, skills, agents, hooks, `guv-*` rules, harness-shipped
+workflows) so the two copies don't double-load; your manifest, docs, feedback log,
+and unprefixed rules are consumer-owned and stay. If you **have** customized
+harness-owned surfaces, keep syncing — that path remains supported.
 
 Click **"Use this template"** on GitHub, or:
 
@@ -207,7 +217,8 @@ code .
 ├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)
 │   ├── DOGFOODING.md                  # How to dogfood the harness via a control-plane split
 │   ├── RELEASING.md                   # Release flow: bump policy, checklist, feedback drain
-│   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane
+│   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane (also the
+│   │                                  #   template-clone fallback's --sync update path)
 │   ├── build-plugin.sh                # Generates plugin/ from .claude/ + plugin-src/ (Phase 5)
 │   └── plugin-src/                    # Authored plugin-only sources (manifest, hooks.json, guv-only skills)
 ├── plugin/                            # GENERATED — the guv plugin package; never hand-edit, run
