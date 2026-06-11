@@ -128,6 +128,13 @@ grep -q 'external project' "$REL" 2>/dev/null \
 grep -q 'on the release that ships the fix' "$REL" 2>/dev/null \
   && ok "graduation step: entries flip on the release that ships the fix" \
   || no "RELEASING.md must document the graduation step of the feedback drain"
+# T9b — the drain covers fixes with no release vehicle: files the plugin never
+# ships (maintainer tooling, repo-only docs) reach their audience on the merge
+# to the default branch, so graduation names the merge commit, not a version
+# (Phase 5 D4 — the runner-sync entry is the first of this class).
+grep -qi 'never ships' "$REL" 2>/dev/null && grep -qi 'merge commit' "$REL" 2>/dev/null \
+  && ok "drain: no-release-vehicle graduation path documented (merge commit)" \
+  || no "RELEASING.md must say how non-plugin-shipped fixes graduate (merge, not version)"
 WID=$(awk '/^## Worked example/,0' "$REL" 2>/dev/null | grep -m1 -oE '[0-9TZ:-]+Z-[0-9]+')
 if [ -n "$WID" ]; then
   ok "worked example cites an entry id ($WID)"

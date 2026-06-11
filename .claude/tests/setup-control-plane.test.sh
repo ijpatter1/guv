@@ -148,8 +148,11 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   || no "sync: must not touch CLAUDE.md or the manifest"
 
 # T5 — create-mode never-clobber: re-running create on an existing control
-# plane must not overwrite the manifest, CLAUDE.md, or the test runner
-# ("write ... ONLY if they don't exist yet").
+# plane must not overwrite the manifest or CLAUDE.md ("write ... ONLY if they
+# don't exist yet"). The generated test runner is the exception: it carries no
+# consumer state, so it is harness-owned and refreshed like guv-* rules
+# (entry 2026-06-11T23:17:51Z-15612590 — create-only meant generator
+# improvements never reached existing control planes).
 H=$(make_harness)
 D="$WORK/control4"
 run_setup "$H" "$D"
@@ -163,9 +166,14 @@ grep -q "edited-again" "$D/.claude/rules/guv-core.md" 2>/dev/null \
   || no "create re-run positive control: second run should re-sync the core"
 grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   && grep -q "sentinel-manifest" "$D/.claude/project.json" 2>/dev/null \
-  && grep -q "sentinel-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null \
-  && ok "create re-run: existing manifest/CLAUDE.md/runner not clobbered" \
-  || no "create re-run must not clobber existing control-plane files"
+  && ok "create re-run: existing manifest/CLAUDE.md not clobbered" \
+  || no "create re-run must not clobber the manifest or CLAUDE.md"
+if ! grep -q "sentinel-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null \
+  && grep -q '\[stderr\]' "$D/.claude/run-harness-tests.sh" 2>/dev/null; then
+  ok "create re-run: drifted runner refreshed (harness-owned, no consumer state)"
+else
+  no "create re-run should refresh the generated runner — it is harness-owned"
+fi
 
 # T6 — generated runner enforces the empty-stderr gate: a suite that PASSES but
 # writes to stderr must fail the run (a green summary above a parse error is
@@ -199,6 +207,80 @@ if [ -f "$CI_YML" ]; then
     || no "CI inline loop drifted from the runner: per-suite stderr capture/fail missing"
 else
   echo "  - .github workflow absent (fork) — CI stderr-gate drift guard skips"
+fi
+
+# T8 — --sync refreshes the generated test runner (the same entry as T5's
+# exception: the D3 stderr-gate fix changed the runner heredoc and the live
+# copy had to be hand-edited to match — any drift from the generator is stale
+# harness code, not consumer state).
+H=$(make_harness)
+D="$WORK/control5"
+run_setup "$H" "$D"
+echo "# stale-runner" > "$D/.claude/run-harness-tests.sh"
+OUT=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
+if grep -q '\[stderr\]' "$D/.claude/run-harness-tests.sh" 2>/dev/null \
+  && ! grep -q "stale-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null; then
+  ok "sync: drifted runner refreshed to the generator's content"
+else
+  no "sync must refresh the generated runner (create-only leaves drift in place)"
+fi
+[ -x "$D/.claude/run-harness-tests.sh" ] \
+  && ok "sync: refreshed runner stays executable" \
+  || no "sync: refreshed runner lost its executable bit"
+echo "$OUT" | grep -q "refreshed .claude/run-harness-tests.sh" \
+  && ok "sync: runner refresh announced (not rewritten silently)" \
+  || no "sync must announce the runner refresh"
+OUT2=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
+echo "$OUT2" | grep -q "refreshed .claude/run-harness-tests.sh" \
+  && no "sync: refresh notice should not repeat when the runner is already current" \
+  || ok "sync: refresh notice fires only on change, silent when current"
+
+# T9 — DOGFOODING.md re-derived against current reality (Phase 5 D4). The doc
+# documents this script's loop, so its accuracy guards live with this suite.
+# Conditional like T7: a fork may strip individual maintainer docs.
+DOG="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)/DOGFOODING.md"
+if [ -f "$DOG" ]; then
+  grep -v '\.github' "$DOG" | grep -q 'workflows' \
+    && ok "DOGFOODING: workflows/ present in the synced-core description" \
+    || no "DOGFOODING must name workflows/ among the synced core (Phase 4 addition — the .github/workflows CI path does not count)"
+  grep -q 'build-plugin\.sh' "$DOG" && grep -q 'plugin-src' "$DOG" \
+    && ok "DOGFOODING: plugin generator + authored sources named" \
+    || no "DOGFOODING must name build-plugin.sh and plugin-src/ (Phase 5 tooling)"
+  grep -q 'RELEASING\.md' "$DOG" \
+    && ok "DOGFOODING: RELEASING.md in the what-lives-in-the-harness-repo list" \
+    || no "DOGFOODING must list RELEASING.md among durable maintainer tooling"
+  grep -q 'unreleased' "$DOG" \
+    && ok "DOGFOODING: maintainer disposition — --sync kept for unreleased changes" \
+    || no "DOGFOODING must state why --sync survives the plugin (unreleased changes)"
+  grep -q 'plan-initiative' "$DOG" \
+    && ok "DOGFOODING: ceremony flip acknowledged (seeded task, initiative flips it)" \
+    || no "DOGFOODING must reflect that /plan-initiative can flip the control plane to phased"
+  if grep -q 'pinned to the template repo' "$DOG"; then
+    no "DOGFOODING: stale single-pin CI phrasing survives ('pinned to the template repo')"
+  else
+    ok "DOGFOODING: stale single-pin CI phrasing gone"
+  fi
+  # Positive control: an absence grep passes vacuously if the pattern is typo'd.
+  printf 'x pinned to the template repo x\n' | grep -q 'pinned to the template repo' \
+    && ok "DOGFOODING: stale-phrase decoder matches a planted violation" \
+    || no "DOGFOODING: stale-phrase decoder broken (planted violation not matched)"
+else
+  echo "  - maintainers/DOGFOODING.md absent (fork) — re-derivation guards skip"
+fi
+
+# T10 — the README's template-clone fallback states the DECIDED consumer
+# disposition (Phase 5 D4): an existing clone is told whether to migrate to
+# plugin updates or keep syncing — an answer, not an inherited parenthetical.
+RM="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/README.md"
+if [ -f "$RM" ]; then
+  grep -qi 'keep syncing' "$RM" && grep -qi 'migrat' "$RM" \
+    && ok "README: existing clones told migrate-or-keep-syncing (decided disposition)" \
+    || no "README fallback must state the disposition for existing template clones"
+  grep -qiE 'double.load|dual.load' "$RM" \
+    && ok "README: migration guidance names the double-load hazard" \
+    || no "README migration guidance must warn about double-loading the copied core"
+else
+  echo "  - README.md absent (fork) — disposition guards skip"
 fi
 
 echo ""
