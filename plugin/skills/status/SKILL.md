@@ -1,0 +1,36 @@
+---
+description: "Give a quick status overview of the project without the full session initialization."
+---
+
+
+## Gather State
+
+1. Read `.claude/project.json`. Run its `scaffoldCheck`. If it fails, note the project isn't scaffolded yet. If it passes, also run `readyCheck` (when present): if `readyCheck` **fails** the project is **NOT_INSTALLED** — report "scaffolded, deps not installed (run `commands.install`)" and **do not** run the tests (they'd fail spuriously). Only when scaffolded and ready (or no `readyCheck`) run `commands.test` and capture pass/fail counts (skip cleanly if `commands.test` is `null`).
+2. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -5` for recent code activity (if git is initialized; otherwise note "no git history"). `roots.code` is `"."` for single-repo, so this is a no-op there.
+3. Read `docs/PHASE_STATUS.md` for phase completion state (only in `phased` projects; if it's absent — `task`/`onboard` mode — report the current phase as "N/A (`<ceremony>` mode)" and skip phase progress). In phased projects, also read the **lineage header** at the top of `docs/REQUIREMENTS.md` (if present) for the current initiative's name/spec and phase range.
+4. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" status` for any uncommitted code changes
+5. List the most recent file in `docs/sessions/` and read its **Next Steps** section (if no session files exist, note "no prior sessions")
+6. Run `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/check-citations.sh` — an advisory check that flags session-handoff citations whose commit hashes no longer resolve in the code repo. It self-limits to a control-plane split (`roots.code != roots.control`) and is silent otherwise. Capture its output.
+7. Count open harness-feedback entries: `f=.claude/feedback/feedback.ndjson; [ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0`.
+8. **Refresh the README status block** from the state just gathered. `/handoff` keeps it current at session end, but a session that skips handoff (common in `task`/`onboard` mode, or an interrupted one) would leave it stale — `/status` is run often in every mode, so refreshing here bounds staleness. Compose the same one-line status you'll report below (phased: `**Phase N — [name]** · X/Y deliverables`; otherwise the non-phase line) and pipe it to the updater:
+
+   ```bash
+   printf '%s\n' "<the status line>" | bash "${CLAUDE_PLUGIN_ROOT}"/scripts/update-readme-status.sh README.md
+   ```
+
+   This is **idempotent and silent**: it derives from the same `docs/PHASE_STATUS.md` you just read (never a second source of truth), rewrites only the marked block, no-ops when the README has no markers, and produces **no git diff when the status is already current**. Don't announce it.
+
+## Report
+
+Present a concise summary:
+
+- **Current phase:** N — [Name] — X of Y deliverables complete
+- **Initiative:** _include this line only if a lineage header exists_ — [name/governing spec] · Phases A–B
+- **Tests:** X passing, Y failing
+- **Last commit:** [hash] [message] [time ago]
+- **Uncommitted changes:** yes/no
+- **Next up:** [the recommended next feature from the last handoff]
+- **Citation warnings:** _include this line only if `check-citations.sh` printed something_ — list the flagged artifact(s)/hash(es) it reported. If the script was silent, omit this line entirely.
+- **Open harness feedback:** _include this line only if the count from step 7 is > 0_ — "N open (triage with the `log-feedback` skill)". If 0, omit entirely.
+
+Keep this to 10 lines or fewer. This is a quick orientation, not a deep dive. The citation check is silent in the common case, so it costs no budget unless there's something to report.

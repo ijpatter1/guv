@@ -1,0 +1,10 @@
+{
+  "name": "guv",
+  "displayName": "Governor",
+  "version": "0.1.0",
+  "description": "Governor (guv) — a control plane for Claude Code",
+  "author": {
+    "name": "Ian Patterson"
+  },
+  "keywords": ["harness", "control-plane", "governance", "qa", "phased-development"]
+}
