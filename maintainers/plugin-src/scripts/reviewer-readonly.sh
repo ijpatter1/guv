@@ -12,9 +12,10 @@
 #
 # Patterns and deny messages are verbatim from the original agent frontmatter —
 # the Phase 4 spike verified those exact denials live. Both bare and
-# guv:-prefixed agent_type values are matched: the docs say agent_type carries
-# the frontmatter name, but whether plugin agents report it namespaced is
-# undocumented — match both so enforcement holds either way (pin down at UAT).
+# guv:-prefixed agent_type values are matched: plugin-shipped agents resolve
+# namespaced (guv:evaluator — verified live 2026-06-11, the denial fired with
+# the file confirmed absent), while project .claude/agents/ copies report the
+# bare name; one guard covers both install modes.
 set -u
 INPUT=$(cat)
 AGENT=$(echo "$INPUT" | jq -r '.agent_type // empty')

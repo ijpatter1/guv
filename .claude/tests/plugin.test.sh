@@ -175,6 +175,16 @@ if [ -f "$READONLY_SH" ]; then
   [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
     && ok "other subagents -> guard stands aside" \
     || no "non-reviewer subagents must not be blocked by the reviewer guard"
+  # plugin agents resolve NAMESPACED (guv:evaluator) — verified live 2026-06-11:
+  # agent_type arrives prefixed, so the guard must match that form too
+  out=$(printf '%s' '{"agent_type":"guv:evaluator","tool_name":"Bash","tool_input":{"command":"echo x > /tmp/f"}}' | bash "$READONLY_SH")
+  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
+    && ok "guv:evaluator (namespaced plugin form) + write-pattern -> deny" \
+    || no "guv:evaluator write-pattern must be denied (plugin agents resolve namespaced)"
+  out=$(printf '%s' '{"agent_type":"guv:product-reviewer","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | bash "$READONLY_SH")
+  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
+    && ok "guv:product-reviewer (namespaced plugin form) + write-pattern -> deny" \
+    || no "guv:product-reviewer write-pattern must be denied (plugin agents resolve namespaced)"
 else
   no "reviewer-readonly.sh missing: $READONLY_SH"
 fi
@@ -206,12 +216,24 @@ for r in "$SRC"/rules/guv-*.md; do
 done
 [ "$T10_OK" -eq 1 ] && ok "all $RULE_COUNT guv-* rules ship byte-identical in plugin/rules/"
 
-# T11 — the workflow ships as a skill-fronted asset: the script byte-identical
-# under workflows/, fronted by a skill that launches it via scriptPath +
-# \${CLAUDE_PLUGIN_ROOT} (plugins cannot ship .claude/workflows/ natively).
-cmp -s "$SRC/workflows/evaluate-parallel.js" "$PLUGIN/workflows/evaluate-parallel.js" \
-  && ok "evaluate-parallel.js asset byte-identical to the saved workflow" \
-  || no "plugin/workflows/evaluate-parallel.js missing or differs"
+# T11 — the workflow ships as a skill-fronted asset under workflows/, fronted
+# by a skill that launches it via scriptPath + \${CLAUDE_PLUGIN_ROOT} (plugins
+# cannot ship .claude/workflows/ natively). The plugin copy must spawn the
+# NAMESPACED reviewers — plugin agents resolve only as guv:<name> (verified
+# live 2026-06-11); bare names would fail for plugin-only consumers. Apart from
+# that rewrite the script is byte-identical to the saved workflow.
+WF="$PLUGIN/workflows/evaluate-parallel.js"
+if [ -f "$WF" ]; then
+  grep -q "agentType: 'guv:evaluator'" "$WF" && grep -q "agentType: 'guv:product-reviewer'" "$WF" \
+    && ! grep -qE "agentType: '(evaluator|product-reviewer)'" "$WF" \
+    && ok "plugin workflow spawns the namespaced reviewers (guv:evaluator, guv:product-reviewer)" \
+    || no "plugin workflow must use guv:-namespaced agentType (bare names don't resolve from the plugin)"
+  diff <(sed "s/agentType: 'guv:/agentType: '/g" "$WF") "$SRC/workflows/evaluate-parallel.js" >/dev/null 2>&1 \
+    && ok "workflow asset identical to the saved workflow modulo agentType namespacing" \
+    || no "plugin workflow differs from source beyond the agentType rewrite"
+else
+  no "plugin/workflows/evaluate-parallel.js missing"
+fi
 EP="$PLUGIN/skills/evaluate-parallel/SKILL.md"
 if [ -f "$EP" ] && grep -q 'scriptPath' "$EP" && grep -q 'CLAUDE_PLUGIN_ROOT.*workflows/evaluate-parallel\.js' "$EP"; then
   ok "evaluate-parallel skill fronts the asset via scriptPath + \${CLAUDE_PLUGIN_ROOT}"

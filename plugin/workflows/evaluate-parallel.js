@@ -82,11 +82,11 @@ Your final structured output must carry the FULL report — do not stash finding
 const [tech, product] = await parallel([
   () => agent(
     `Evaluate the following work${fromPhase}. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration.\n\n${context}`,
-    { label: 'evaluator', phase: 'Review', agentType: 'evaluator', schema: REPORT_SCHEMA }
+    { label: 'evaluator', phase: 'Review', agentType: 'guv:evaluator', schema: REPORT_SCHEMA }
   ),
   () => agent(
     `Review the following work${fromPhase} for product quality. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth.\n\n${context}`,
-    { label: 'product-reviewer', phase: 'Review', agentType: 'product-reviewer', schema: REPORT_SCHEMA }
+    { label: 'product-reviewer', phase: 'Review', agentType: 'guv:product-reviewer', schema: REPORT_SCHEMA }
   ),
 ])
 

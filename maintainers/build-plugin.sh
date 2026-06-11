@@ -108,8 +108,14 @@ done
 # documented top plugin pitfall, and cp preserves uneven source modes
 chmod +x "$OUT/scripts"/*.sh
 
-# ── rules + workflow assets, byte-identical ──
+# ── rules, byte-identical ──
 cp "$SRC/rules"/guv-*.md "$OUT/rules/"
-cp "$SRC/workflows/evaluate-parallel.js" "$OUT/workflows/evaluate-parallel.js"
+
+# ── workflow asset: reviewers namespaced ──
+# Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the
+# plugin copy of the workflow spawns guv:evaluator / guv:product-reviewer;
+# the project copy keeps bare names for .claude/agents/ consumers.
+sed "s/agentType: 'evaluator'/agentType: 'guv:evaluator'/; s/agentType: 'product-reviewer'/agentType: 'guv:product-reviewer'/" \
+  "$SRC/workflows/evaluate-parallel.js" > "$OUT/workflows/evaluate-parallel.js"
 
 echo "Built plugin at $OUT"
