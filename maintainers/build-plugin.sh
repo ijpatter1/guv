@@ -60,26 +60,34 @@ rewrite_paths() {
 #   - agent spawns: the "`<name>` subagent" instruction phrasing and the
 #     @-mention form used in agent descriptions
 #   - two template-clone topology facts with no plugin counterpart path
+# Every name that registers as /<name> for consumers — commands, skills, and
+# saved workflows — DERIVED from the source tree (a hand-maintained copy of
+# this list is exactly the drift this build exists to prevent; plugin.test.sh
+# derives its detector the same way). Longest first so /evaluate-parallel is
+# consumed before /evaluate.
+slash_names() {
+  {
+    for f in "$SRC/commands"/*.md; do basename "$f" .md; done
+    for d in "$SRC/skills"/*/; do basename "$d"; done
+    for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
+  } | awk '{ print length, $0 }' | sort -rn | cut -d' ' -f2-
+}
+
 _namespace_pass() {
-  sed -E \
-    -e 's|the saved `/evaluate-parallel` workflow|the `/evaluate-parallel` skill|g' \
-    -e 's|\(`\.claude/workflows/evaluate-parallel\.js`\)|(launching the plugin-shipped workflow)|g' \
-    -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g' \
-    -e 's|(^\|[^[:alnum:].:-])/evaluate-parallel($\|[^[:alnum:]:_-])|\1/guv:evaluate-parallel\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/plan-initiative($\|[^[:alnum:]:_-])|\1/guv:plan-initiative\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/init-project($\|[^[:alnum:]:_-])|\1/guv:init-project\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/log-feedback($\|[^[:alnum:]:_-])|\1/guv:log-feedback\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/start-phase($\|[^[:alnum:]:_-])|\1/guv:start-phase\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/evaluate($\|[^[:alnum:]:_-])|\1/guv:evaluate\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/onboard($\|[^[:alnum:]:_-])|\1/guv:onboard\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/handoff($\|[^[:alnum:]:_-])|\1/guv:handoff\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/status($\|[^[:alnum:]:_-])|\1/guv:status\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/manual($\|[^[:alnum:]:_-])|\1/guv:manual\2|g' \
-    -e 's|(^\|[^[:alnum:].:-])/task($\|[^[:alnum:]:_-])|\1/guv:task\2|g' \
-    -e 's|`evaluator` subagent|`guv:evaluator` subagent|g' \
-    -e 's|`product-reviewer` subagent|`guv:product-reviewer` subagent|g' \
-    -e 's|@evaluator|@guv:evaluator|g' \
-    -e 's|@product-reviewer|@guv:product-reviewer|g'
+  local args=(-E
+    -e 's|the saved `/evaluate-parallel` workflow|the `/evaluate-parallel` skill|g'
+    -e 's|\(`\.claude/workflows/evaluate-parallel\.js`\)|(launching the plugin-shipped workflow)|g'
+    -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g')
+  local n
+  while IFS= read -r n; do
+    # '#' delimiter: the pattern itself needs both '/' and the ERE '|'
+    args+=(-e "s#(^|[^[:alnum:].:-])/$n(\$|[^[:alnum:]:_-])#\\1/guv:$n\\2#g")
+  done < <(slash_names)
+  args+=(-e 's|`evaluator` subagent|`guv:evaluator` subagent|g'
+    -e 's|`product-reviewer` subagent|`guv:product-reviewer` subagent|g'
+    -e 's|@evaluator|@guv:evaluator|g'
+    -e 's|@product-reviewer|@guv:product-reviewer|g')
+  sed "${args[@]}"
 }
 
 # The trailing-boundary guard (same class as T12b's detector — /task must not

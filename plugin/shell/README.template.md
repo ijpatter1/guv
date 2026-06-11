@@ -10,8 +10,9 @@
   This describes the PROJECT, not the harness. When rendering:
     1. Fill every [bracketed] placeholder.
     2. Keep the STATUS:START / STATUS:END marker lines verbatim — the handoff
-       command (/handoff, or /guv:handoff under the plugin) regenerates the content between them from docs/PHASE_STATUS.md. Never
-       hand-edit between the markers.
+       command (/handoff, or /guv:handoff under the plugin) regenerates the
+       content between them from docs/PHASE_STATUS.md. Never hand-edit
+       between the markers.
     3. Strip this comment block (everything from the opening to the closing
        comment delimiters, this whole banner).
 

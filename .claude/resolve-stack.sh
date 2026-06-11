@@ -177,4 +177,4 @@ jq -n \
 log "Proposed: language=$LANGUAGE packageManager=$PACKAGE_MANAGER guards=[${GUARDS[*]:-}]"
 log "This is a PROPOSAL. Confirm or override before writing .claude/project.json."
 log "roots default to single-repo ('.'); set roots.code for a control-plane split."
-log "ceremony defaults to 'onboard'; /init-project should set it to 'phased'."
+log "ceremony defaults to 'onboard'; /init-project (/guv:init-project under the plugin) should set it to 'phased'."

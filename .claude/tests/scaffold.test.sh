@@ -134,7 +134,6 @@ grep -q "MY_DOMAIN" "$P3/sandbox/init-firewall.sh" \
 
 # T8 — never touched: manifest, rendered CLAUDE.md, session docs
 P4="$WORK/live"; mkdir -p "$P4/docs/sessions"
-echo '{"name":"existing"}' > /dev/null # noop guard for set -u readability
 mkdir -p "$P4/.claude"
 printf '{"name":"my-project"}\n' > "$P4/.claude/project.json"
 printf '# My Project\n' > "$P4/CLAUDE.md"

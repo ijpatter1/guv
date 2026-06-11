@@ -258,7 +258,16 @@ STALE=$(grep -rE '\.claude/(hooks/)?(archive-initiative|resolve-stack|check-cita
 # skills/agents resolve only as guv:<name> — verified live 2026-06-11). The
 # preceding-char guard skips path segments and already-namespaced forms; the
 # trailing guard skips longer names (/task-foo) and the :-suffixed guv forms.
-CMDS='task|status|manual|handoff|onboard|evaluate|evaluate-parallel|init-project|plan-initiative|start-phase|log-feedback'
+# Derived from the source tree exactly as the build's slash_names() derives
+# its rewrite list — a future command/skill/workflow is covered by both or by
+# neither, never silently by one.
+CMDS=$(
+  {
+    for f in "$SRC/commands"/*.md; do basename "$f" .md; done
+    for d in "$SRC/skills"/*/; do basename "$d"; done
+    for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
+  } | paste -sd'|' -
+)
 BARE=$(grep -rE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
 [ "$BARE" -eq 0 ] \
   && ok "no bare /command references in plugin skills or agents (all /guv:-namespaced)" \
@@ -276,17 +285,24 @@ DEAD=$(grep -rE '\.claude/(skills|workflows)/' "$PLUGIN/skills" | wc -l | tr -d 
   && ok "no dead .claude/skills|workflows paths in plugin skills" \
   || no "$DEAD dead template-topology path(s) remain in plugin/skills"
 
-# T12d — rules and shell templates deploy byte-identical into BOTH install
-# modes, so they may keep bare /command mentions — but only with the decoder
-# in the same file (a guv: mention telling a plugin consumer the namespaced
-# form). A bare mention with no in-file guv: reference is a dead pointer.
+# T12d — files that deploy byte-identical into BOTH install modes (rules,
+# shell templates and gitignore) or whose runtime output reaches plugin
+# consumers verbatim (shipped scripts, the workflow) may keep bare /command
+# mentions — but only with a real decoder in the same file (a /guv:-, `guv:-,
+# or @guv:-form telling the plugin consumer the resolvable name). A bare
+# mention with no in-file decoder is a dead pointer.
 T12D_OK=1
 while IFS= read -r f; do
   if grep -qE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$f" 2>/dev/null; then
-    grep -q 'guv:' "$f" || { no "$(basename "$f") has bare /command mentions and no guv: decoder"; T12D_OK=0; }
+    grep -qE '(/|`|@)guv:' "$f" || { no "$(basename "$f") has bare /command mentions and no guv: decoder"; T12D_OK=0; }
   fi
-done < <(find "$PLUGIN/rules" "$PLUGIN/shell" -name '*.md' -not -path '*/sandbox/*')
-[ "$T12D_OK" -eq 1 ] && ok "every rules/shell file with bare /command mentions carries the guv: decoder"
+done < <(
+  find "$PLUGIN/rules" "$PLUGIN/shell" -name '*.md' -not -path '*/sandbox/*'
+  find "$PLUGIN/scripts" -name '*.sh'
+  find "$PLUGIN/workflows" -name '*.js'
+  echo "$PLUGIN/shell/gitignore"
+)
+[ "$T12D_OK" -eq 1 ] && ok "every dual-mode or runtime-emitting file with bare /command mentions carries the guv: decoder"
 
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
@@ -327,6 +343,28 @@ if [ -f "$BUILD" ]; then
       ok "build fails loud on authored/derived skill-name collision"
     fi
     rm -rf "$TMP2" "$FIXTURE"
+    trap - EXIT
+  fi
+
+  # T15b — adjacent-mention rewrite: the boundary guard consumes the char
+  # between two adjacent /commands, so a single sed pass misses the second —
+  # the double-pass exists for exactly this. Fixture command exercises it
+  # end-to-end through a real build.
+  FIX2="$SRC/commands/zzadjacency-fixture.md"
+  if [ -e "$FIX2" ]; then
+    no "adjacency fixture path unexpectedly exists: $FIX2"
+  else
+    trap 'rm -f "$FIX2"' EXIT
+    printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /evaluate too.\n' > "$FIX2"
+    TMP3=$(mktemp -d)
+    if bash "$BUILD" --out "$TMP3/plugin" >/dev/null 2>&1 \
+       && grep -q '/guv:task /guv:handoff' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md" \
+       && grep -q '/guv:status /guv:evaluate' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
+      ok "adjacent /command mentions both rewritten (double-pass verified end-to-end)"
+    else
+      no "adjacent /command mentions must both be namespaced by the double-pass"
+    fi
+    rm -rf "$TMP3" "$FIX2"
     trap - EXIT
   fi
 

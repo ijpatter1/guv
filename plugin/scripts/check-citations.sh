@@ -13,7 +13,7 @@
 # nothing to verify. The check activates ONLY in the split configuration that needs it.
 #
 # POSTURE: read-time, advisory. Wired into /status (where artifacts are read), not
-# /handoff (where they're written). Mirrors stop-check.sh — a reminder, not a gate.
+# /handoff (where they're written; /guv:-namespaced forms under the plugin). Mirrors stop-check.sh — a reminder, not a gate.
 #
 # WHICH HASHES ARE FLAGGED: a token is flagged only if it resolves in NEITHER the
 # code repo NOR the control plane. Split-mode handoffs legitimately cite BOTH (code
