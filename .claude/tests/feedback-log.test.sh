@@ -1,12 +1,19 @@
 #!/bin/bash
 # Tests for the log-feedback skill's data contract: the NDJSON append, the open-count
 # query, and the triage rewrite all behave and stay valid. Exercises the exact commands
-# the skill documents (no test runner needed). Run: bash .claude/tests/feedback-log.test.sh
+# the skill documents (no test runner needed). T6–T9 guard the skill TEXT: as of
+# Phase 5 D3 the feedback drain is live, so the Half-B deferral language must be
+# gone from both shipped copies and the live process documented.
+# Run: bash .claude/tests/feedback-log.test.sh
 set -u
 
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SKILL_SRC="$ROOT/.claude/skills/log-feedback/SKILL.md"
+SKILL_PLUGIN="$ROOT/plugin/skills/log-feedback/SKILL.md"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -74,6 +81,50 @@ ok "every line still valid JSON after triage"
 # T5 — open-count is 0 (not an error) when the log doesn't exist yet
 rm -f "$F"
 [ "$(open_count)" = 0 ] && ok "missing log: open-count is 0, no error" || no "missing log should yield 0"
+
+# ── Skill-text guards (Phase 5 D3): the drain is live, the Half-B deferral is gone ──
+# The deferral-language class, as a function so T9's positive control can prove
+# the detector fires (standing rule: detector-style guards ship a positive control).
+has_deferral() { grep -qiE 'half[ -]b|DISTRIBUTION_OPTIONS|not built yet' "$1"; }
+
+# T6 — no Half-B deferral language survives in either shipped copy
+for copy in "$SKILL_SRC" "$SKILL_PLUGIN"; do
+  if [ -f "$copy" ]; then
+    has_deferral "$copy" \
+      && no "Half-B deferral language still in ${copy#"$ROOT"/}" \
+      || ok "no Half-B deferral language in ${copy#"$ROOT"/}"
+  else
+    no "skill copy missing: $copy"
+  fi
+done
+
+# T7 — the live drain is documented: upstream entry → issue/PR → graduated on the
+# release that ships the fix; resolved kept distinct (fixed before any release)
+grep -q 'issue or PR against the harness repo' "$SKILL_SRC" \
+  && ok "drain step 1: upstream entries become issues/PRs" \
+  || no "skill must document: upstream entries become an issue or PR against the harness repo"
+grep -q 'on the release that ships the fix' "$SKILL_SRC" \
+  && ok "drain step 2: graduated flips on the shipping release" \
+  || no "skill must document: graduated flips on the release that ships the fix"
+grep -q 'fixed before any release' "$SKILL_SRC" \
+  && ok "graduated vs resolved distinction present" \
+  || no "skill must distinguish resolved (fixed before any release) from graduated"
+
+# T8 — routing:local entries have an explicit live statement in Closing the loop
+awk '/^## Closing the loop/,0' "$SKILL_SRC" | grep -q '`local`' \
+  && ok "Closing the loop states what local entries do now" \
+  || no "Closing the loop must state explicitly what routing:local entries do now"
+
+# T9 — positive control: the deferral detector fires on planted deferral text
+# and stays quiet on clean text (proves T6 isn't passing vacuously)
+printf 'a local overlay adaptation — _deferred "Half B" work_\n' > planted.md
+printf 'entries drain through the live triage flow\n' > clean.md
+has_deferral planted.md \
+  && ok "positive control: detector fires on planted deferral text" \
+  || no "positive control failed: detector missed planted 'Half B'"
+has_deferral clean.md \
+  && no "positive control failed: detector fired on clean text" \
+  || ok "positive control: detector quiet on clean text"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
