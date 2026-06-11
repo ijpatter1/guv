@@ -24,8 +24,8 @@ no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 # The whole suite drives the COMMITTED plugin/ — a template-clone fork that
 # deleted the generated tree (README's note) has nothing to scaffold from;
-# skip cleanly, never as failures.
-if [ ! -d "$PLUGIN" ]; then
+# skip cleanly, never as failures. SCAFFOLD_PLUGIN_TREE is the self-check seam.
+if [ ! -d "${SCAFFOLD_PLUGIN_TREE:-$PLUGIN}" ]; then
   echo "  - plugin/ absent (template-clone fork) — suite skips"
   echo ""
   echo "Results: 0 passed, 0 failed"
@@ -213,6 +213,17 @@ if [ -f "$SK" ]; then
     || no "scaffold skill must offer the Docker tier option"
 else
   no "scaffold skill missing: $SK"
+fi
+
+# Fork self-check: the wholesale skip fires and shows itself (output-grepped —
+# exit 0 alone would pass in the canonical repo even with the skip deleted)
+if [ -z "${SCAFFOLD_TEST_INNER:-}" ]; then
+  INNER=$(SCAFFOLD_TEST_INNER=1 SCAFFOLD_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
+    ok "suite visibly skips in a fork that deleted plugin/"
+  else
+    no "suite must exit 0 and visibly skip when plugin/ is absent"
+  fi
 fi
 
 echo ""

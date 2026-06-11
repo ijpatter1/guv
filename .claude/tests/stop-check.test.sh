@@ -79,12 +79,25 @@ OUT=$(run_hook "$WORK/clean" "$INACTIVE"); RC=$?
 # T6 — the plugin ships this hook byte-identical (the gate must reach plugin
 # consumers, where it matters most). A template-clone fork that deleted the
 # generated plugin/ (README's note) has no copy to compare — skip, not fail.
-if [ -d "$ROOT/plugin" ]; then
+# STOPCHECK_PLUGIN_TREE is the T7 seam.
+if [ -d "${STOPCHECK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
   cmp -s "$HOOK" "$ROOT/plugin/scripts/stop-check.sh" \
     && ok "plugin copy of stop-check.sh byte-identical" \
     || no "plugin/scripts/stop-check.sh differs from the source hook"
 else
   echo "  - plugin/ absent (template-clone fork) — byte-identity guard skips"
+fi
+
+# T7 — fork self-check: the byte-identity skip fires and shows itself
+# (output-grepped — exit 0 alone would pass in the canonical repo even with
+# the skip branch deleted)
+if [ -z "${STOPCHECK_TEST_INNER:-}" ]; then
+  INNER=$(STOPCHECK_TEST_INNER=1 STOPCHECK_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$0" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "byte-identity guard skips"; then
+    ok "byte-identity guard visibly skips in a fork that deleted plugin/"
+  else
+    no "suite must exit 0 and visibly skip the byte-identity guard when plugin/ is absent"
+  fi
 fi
 
 echo ""

@@ -12,6 +12,7 @@ ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — the suite cd's away from $0's base
 SKILL_SRC="$ROOT/.claude/skills/log-feedback/SKILL.md"
 SKILL_PLUGIN="$ROOT/plugin/skills/log-feedback/SKILL.md"
 
@@ -90,16 +91,17 @@ has_deferral() { grep -qiE 'half[ -]b|DISTRIBUTION_OPTIONS|not built yet' "$1"; 
 # The plugin copy exists only where plugin/ does — a template-clone fork may
 # delete the generated tree (README's note), and that must skip, not fail.
 # In the canonical repo (or any tree keeping plugin/) a missing copy IS a
-# failure: the skill ships in both install modes.
-COPIES="$SKILL_SRC"
-if [ -d "$ROOT/plugin" ]; then
-  COPIES="$COPIES $SKILL_PLUGIN"
+# failure: the skill ships in both install modes. Array, not word-split — the
+# checkout path may contain spaces. FEEDBACK_PLUGIN_TREE is the T10 seam.
+COPIES=("$SKILL_SRC")
+if [ -d "${FEEDBACK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
+  COPIES+=("$SKILL_PLUGIN")
 else
   echo "  - plugin/ absent (template-clone fork) — plugin-copy guards skip"
 fi
 
 # T6 — no Half-B deferral language survives in any shipped copy
-for copy in $COPIES; do
+for copy in "${COPIES[@]}"; do
   if [ -f "$copy" ]; then
     has_deferral "$copy" \
       && no "Half-B deferral language still in ${copy#"$ROOT"/}" \
@@ -113,7 +115,7 @@ done
 # carry no slash-commands, so the plugin namespace rewrite leaves them intact):
 # upstream entry → issue/PR → graduated on the release that ships the fix;
 # resolved kept distinct (fixed before any release)
-for copy in $COPIES; do
+for copy in "${COPIES[@]}"; do
   label="${copy#"$ROOT"/}"
   grep -q 'issue or PR against the harness repo' "$copy" \
     && ok "drain step 1 (issues/PRs) in $label" \
@@ -141,6 +143,18 @@ has_deferral planted.md \
 has_deferral clean.md \
   && no "positive control failed: detector fired on clean text" \
   || ok "positive control: detector quiet on clean text"
+
+# T10 — fork self-check: with the plugin tree absent the plugin-copy guards
+# visibly skip and the suite still exits 0 (output-grepped — exit 0 alone
+# would pass in the canonical repo even with the skip branch deleted)
+if [ -z "${FEEDBACK_TEST_INNER:-}" ]; then
+  INNER=$(FEEDBACK_TEST_INNER=1 FEEDBACK_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "plugin-copy guards skip"; then
+    ok "plugin-copy guards visibly skip in a fork that deleted plugin/"
+  else
+    no "suite must exit 0 and visibly skip plugin-copy guards when plugin/ is absent"
+  fi
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
