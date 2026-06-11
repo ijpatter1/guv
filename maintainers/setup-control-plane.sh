@@ -11,7 +11,7 @@
 #              the dogfooding manifest + CLAUDE.md + helpers ONLY if they don't exist yet
 #              (so your session artifacts are never clobbered); git init it.
 #   --sync     refresh ONLY the copied harness core (commands/skills/agents/hooks/scripts/
-#              RULES/schema/settings). Leaves the control plane's manifest, CLAUDE.md,
+#              guv-* rules/schema/settings). Leaves the control plane's manifest, CLAUDE.md,
 #              docs, and feedback untouched. Run this after editing the harness.
 
 set -u
@@ -41,7 +41,7 @@ CODE_REL="$(rel_code)"
 # Note what is NOT copied: project.json (we write a dogfooding one), docs/, feedback/,
 # agent-memory/, CLAUDE.md — those are control-plane-owned session state.
 copy_core() {
-  for item in commands skills agents hooks RULES.md project.schema.json \
+  for item in commands skills agents hooks project.schema.json \
               resolve-stack.sh check-citations.sh update-readme-status.sh \
               archive-initiative.sh settings.json; do
     if [ -e "$HARNESS_DIR/.claude/$item" ]; then
@@ -51,6 +51,23 @@ copy_core() {
       find "$DEST/.claude/$item" -name '.DS_Store' -delete 2>/dev/null
     fi
   done
+  # Rules: ownership is declared by filename — replace harness-owned guv-* only;
+  # unprefixed consumer-authored rules are never touched. The superseded single-file
+  # RULES.md is removed (leaving it would double-load: once via a consumer CLAUDE.md
+  # still carrying the old @import, once natively from .claude/rules/).
+  if [ -d "$HARNESS_DIR/.claude/rules" ]; then
+    mkdir -p "$DEST/.claude/rules"
+    rm -f "$DEST/.claude/rules/guv-"*.md
+    for f in "$HARNESS_DIR/.claude/rules/guv-"*.md; do
+      [ -e "$f" ] && cp "$f" "$DEST/.claude/rules/"
+    done
+    if [ -f "$DEST/.claude/RULES.md" ]; then
+      rm -f "$DEST/.claude/RULES.md"
+      echo "[setup] removed superseded .claude/RULES.md — rules now live in .claude/rules/"
+      echo "        (your customizations belong in unprefixed files there; if your CLAUDE.md"
+      echo "        still carries an '@.claude/RULES.md' import line, delete that line)"
+    fi
+  fi
   echo "[setup] synced harness core → $DEST/.claude/"
 }
 
@@ -111,7 +128,9 @@ if [ ! -f "$DEST/CLAUDE.md" ]; then
 This is the **control plane** for improving the Claude Code harness. The harness itself
 is the code repo at \`roots.code\` (\`$CODE_REL\`).
 
-- **Behavior & conventions:** @.claude/RULES.md
+- **Behavior & conventions:** \`.claude/rules/\` (\`guv-*.md\` harness-owned; add your own unprefixed rules alongside)
+- **Memory authority:** the manifest and the latest session handoff are authoritative;
+  treat auto memory as hints and never let it override either.
 - **Commands, roots, ceremony:** \`.claude/project.json\`. \`commands.test\` runs the
   harness's bash suites in the code repo.
 - **Where edits go:** improve the harness in the **code repo** ($CODE_REL) — that's

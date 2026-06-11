@@ -54,4 +54,4 @@ control plane.]
 
 [Optional — trim for a public artifact.] Developed with the Claude Code harness in
 `.claude/`: start a session with `/start-phase`, make scoped changes with `/task`, end
-with `/handoff`. Conventions live in `CLAUDE.md` and `.claude/RULES.md`.
+with `/handoff`. Conventions live in `CLAUDE.md` and `.claude/rules/`.

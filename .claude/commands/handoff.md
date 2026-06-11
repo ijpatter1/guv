@@ -262,8 +262,8 @@ The phase is not considered accepted until UAT passes. The next session's `/star
 
 The live `CLAUDE.md` is the lean file rendered from `CLAUDE.template.md`: it holds only
 the "Project facts Claude can't infer" and points at `.claude/project.json` for commands
-and `@.claude/RULES.md` for behavior. Keep it lean — facts that belong in the manifest or
-RULES.md go there, **not** into `CLAUDE.md`. Check for drift in the right place:
+and `.claude/rules/` for behavior (loaded natively). Keep it lean — facts that belong in
+the manifest or the rules go there, **not** into `CLAUDE.md`. Check for drift in the right place:
 
 - **Command drift → the manifest, not CLAUDE.md.** Did the test/build/lint/format/dev
   command change, or a new step get added? Update `.claude/project.json`. `CLAUDE.md`

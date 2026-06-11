@@ -12,7 +12,8 @@
   RENDER STEP (for the generator):
     1. Fill the placeholders: project identity (top), "Project facts Claude
        can't infer", and — for /init-project only — "Bootstrapping".
-    2. Leave the @.claude/RULES.md import and the manifest pointers as-is.
+    2. Leave the manifest pointers as-is (behavioral rules load natively
+       from .claude/rules/ — no import line needed).
     3. Write the result to ${roots.control}/CLAUDE.md (cwd auto-loads it).
     4. Strip this comment block — it has no meaning in a live CLAUDE.md.
 ═══════════════════════════════════════════════════════════════════════════
@@ -28,7 +29,8 @@ fact lives somewhere more specific, it lives there, not here.
 
 ## How this project is wired
 
-- **Behavior & conventions:** @.claude/RULES.md — the engineering rules that govern how you work. Always in effect.
+- **Behavior & conventions:** `.claude/rules/guv-*.md` — the engineering rules that govern how you work, loaded natively every session. Always in effect. Add project-specific rules as unprefixed files alongside; harness updates replace `guv-*` only.
+- **Memory authority:** the manifest and the latest session handoff are authoritative; treat auto memory as hints and never let it override either.
 - **Commands, stack, roots, ceremony, guards:** `.claude/project.json` — the single source of truth for _facts_. Read the test/build/lint/format/dev commands from there and run them; **never hardcode a command in this file or assume one**. A `null` command means the project has no such step — skip it, don't substitute a default.
 - **Process commands:** `/task` (scoped change), `/onboard` (adopt an existing repo), `/init-project` (greenfield setup), `/plan-initiative` (multi-phase initiative on an existing project), then `/start-phase`, `/evaluate`, `/handoff`, `/status`, `/manual`. The commands carry the repeatable procedure; follow their steps.
 - **Sometimes-relevant workflows & domain knowledge:** `.claude/skills/` — loaded on demand so they don't cost context every session.
@@ -78,7 +80,7 @@ to the pruning test: *would removing it cause a mistake?* If not, cut it.]
 So future edits don't drift it back toward bloat:
 
 - **Commands** → `.claude/project.json`. Never restated here.
-- **Behavior, TDD discipline, commit conventions, "write clean code"** → `@.claude/RULES.md`. Standard conventions Claude already knows are omitted entirely.
+- **Behavior, TDD discipline, commit conventions, "write clean code"** → `.claude/rules/`. Standard conventions Claude already knows are omitted entirely.
 - **Directory-by-directory tours, API docs, tutorials** → the code is the source; link to real docs if needed.
 
 ## Bootstrapping (first session, `phased` greenfield only)

@@ -36,7 +36,8 @@ make_harness() {
   echo "# task" > "$h/.claude/skills/task/SKILL.md"
   echo "# cmd" > "$h/.claude/commands/status.md"
   echo "hook" > "$h/.claude/hooks/guard.sh"
-  echo "rules" > "$h/.claude/RULES.md"
+  mkdir -p "$h/.claude/rules"
+  printf 'guv rule body v1\n' > "$h/.claude/rules/guv-core.md"
   echo "archive" > "$h/.claude/archive-initiative.sh"
   echo '{}' > "$h/.claude/settings.json"
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/commands/.DS_Store"
@@ -48,10 +49,10 @@ run_setup() { ( bash "$1/maintainers/setup-control-plane.sh" "$2" ${3:-} ) >> "$
 H=$(make_harness)
 D="$WORK/control"
 run_setup "$H" "$D"
-[ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/RULES.md" ] \
+[ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/rules/guv-core.md" ] \
   && [ -f "$D/.claude/archive-initiative.sh" ] \
-  && ok "create: core copied (skills, RULES.md, archive-initiative.sh present)" \
-  || no "create: core (incl. archive-initiative.sh) should be copied to the control plane"
+  && ok "create: core copied (skills, guv rules, archive-initiative.sh present)" \
+  || no "create: core (incl. .claude/rules/guv-*) should be copied to the control plane"
 
 # T2 — ...but no .DS_Store comes along, at any depth.
 FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
@@ -59,6 +60,14 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
   || no "create: .DS_Store leaked into the control plane: $FOUND"
 grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
   || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
+grep -q "auto memory as hints" "$D/CLAUDE.md" \
+  && ok "create: generated CLAUDE.md carries the memory-authority line" \
+  || no "generated CLAUDE.md should declare manifest+handoff authority over auto memory"
+# The heredoc is unquoted (it interpolates $CODE_REL) — an unescaped backtick
+# would silently execute as command substitution. Pin the literal backticks.
+grep -qF '`.claude/rules/`' "$D/CLAUDE.md" \
+  && ok "create: heredoc backticks render literally (escaping intact)" \
+  || no "generated CLAUDE.md lost its literal backticks — unquoted-heredoc escaping broke"
 
 # T3 — --sync also scrubs a .DS_Store that already sits in the destination core
 # (rm -rf + re-copy of each item must not leave or re-introduce one).
@@ -83,10 +92,29 @@ echo '{"id":"sentinel-feedback"}' > "$D/.claude/feedback/feedback.ndjson"
 echo "# sentinel-handoff" > "$D/docs/sessions/session-1.md"
 echo "sentinel-claude-md" > "$D/CLAUDE.md"
 echo '{"name":"sentinel-manifest"}' > "$D/.claude/project.json"
-echo "edited" > "$H/.claude/RULES.md"
-run_setup "$H" "$D" --sync
-grep -q "edited" "$D/.claude/RULES.md" && ok "sync: core refreshed (RULES.md updated)" \
-  || no "sync: core should be refreshed"
+mkdir -p "$D/.claude/rules"
+echo "consumer rule — mine" > "$D/.claude/rules/team-style.md"
+cp "$D/.claude/rules/team-style.md" "$WORK/team-style.before"
+echo "legacy rules file" > "$D/.claude/RULES.md"
+echo "edited" > "$H/.claude/rules/guv-core.md"
+( bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) > "$WORK/sync.out" 2>&1
+grep -q "edited" "$D/.claude/rules/guv-core.md" 2>/dev/null \
+  && ok "sync: stale guv-* rule refreshed" \
+  || no "sync: guv-* rules should be refreshed"
+cmp -s "$WORK/team-style.before" "$D/.claude/rules/team-style.md" \
+  && ok "sync: consumer-authored rule survives byte-for-byte (cmp)" \
+  || no "sync: unprefixed consumer rules must never be touched"
+[ ! -f "$D/.claude/RULES.md" ] \
+  && ok "sync: superseded .claude/RULES.md deleted (no double-load)" \
+  || no "sync: legacy .claude/RULES.md should be removed"
+grep -q "removed superseded .claude/RULES.md" "$WORK/sync.out" \
+  && ok "sync: deletion announced (where customizations belong, import-line edit)" \
+  || no "sync must announce the RULES.md removal, not delete silently"
+OUT2=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
+echo "$OUT2" | grep -q "synced harness core" || no "second sync should still complete"
+echo "$OUT2" | grep -q "removed superseded" \
+  && no "sync: deletion notice should not repeat once the file is gone" \
+  || ok "sync: deletion notice fires once, silent thereafter"
 grep -q "sentinel-feedback" "$D/.claude/feedback/feedback.ndjson" 2>/dev/null \
   && grep -q "sentinel-handoff" "$D/docs/sessions/session-1.md" 2>/dev/null \
   && ok "sync: feedback + session artifact contents untouched" \
@@ -105,9 +133,9 @@ run_setup "$H" "$D"
 echo "sentinel-claude-md" > "$D/CLAUDE.md"
 echo '{"name":"sentinel-manifest"}' > "$D/.claude/project.json"
 echo "# sentinel-runner" > "$D/.claude/run-harness-tests.sh"
-echo "edited-again" > "$H/.claude/RULES.md"
+echo "edited-again" > "$H/.claude/rules/guv-core.md"
 run_setup "$H" "$D"
-grep -q "edited-again" "$D/.claude/RULES.md" 2>/dev/null \
+grep -q "edited-again" "$D/.claude/rules/guv-core.md" 2>/dev/null \
   && ok "create re-run: executed (core re-synced)" \
   || no "create re-run positive control: second run should re-sync the core"
 grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \

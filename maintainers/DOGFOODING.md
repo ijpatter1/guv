@@ -27,7 +27,7 @@ different repo — and it dogfoods the least-tested path in the harness.
 │                                   #   data, docs/ stay placeholders.
 └── claude-code-sandbox-control/    # CONTROL PLANE = cwd. Claude launches here. Its own
     ├── .claude/                    #   git repo, its own commit stream.
-    │   ├── (core copied from the harness — commands, skills, agents, hooks, RULES,
+    │   ├── (core copied from the harness — commands, skills, agents, hooks, guv-* rules,
     │   │   scripts, schema, settings)   ← refreshed by setup-control-plane.sh --sync
     │   ├── project.json             #   dogfooding manifest: roots.code → the harness,
     │   │                            #   ceremony: task
