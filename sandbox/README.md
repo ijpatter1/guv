@@ -69,7 +69,7 @@ File changes from Claude Code appear instantly via bind mount. Hot reload works 
 
 ## Security Model
 
-**Filesystem isolation:** Only `/workspace` (your project) is visible. No host home directory, SSH keys, or `.env` files.
+**Filesystem isolation:** Only `/workspace` (your project) is visible. No host home directory, SSH keys, or `.env` files. The container is the Docker tier's spatial boundary — the role the native sandbox plays in the default tier.
 
 **Network isolation:** iptables default-deny. Edit `init-firewall.sh` to add project-specific domains.
 
