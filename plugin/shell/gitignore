@@ -1,4 +1,35 @@
 # guv-harness-gitignore — marker: the /guv:scaffold deploy appends its block only when this line is absent
+
+# ─────────────────────────────────────────────
+# guv harness core — the entries every harness-governed project needs.
+# /guv:scaffold appends exactly this block (markers included) to a
+# pre-existing .gitignore; keep it self-contained and stack-agnostic.
+# ─────────────────────────────────────────────
+# guv-core-start
+# Environment & secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*-service-account.json
+*-credentials.json
+# Claude Code: personal overrides, not committed
+.claude/settings.local.json
+# Auto-generated agent memory — the evaluator / product-reviewer write this on
+# the first /evaluate or /handoff. Ignored by default so it doesn't sit
+# untracked in every consumer project. A team that wants shared agent memory
+# can force-add it (git add -f .claude/agent-memory/) and remove this line.
+.claude/agent-memory/
+# OS files
+.DS_Store
+Thumbs.db
+# Docker sandbox (opt-in tier)
+sandbox/*.log
+sandbox/tmp/
+# guv-core-end
+
 # ─────────────────────────────────────────────
 # Dependencies
 # ─────────────────────────────────────────────
@@ -14,27 +45,6 @@ out/
 dist/
 build/
 *.tsbuildinfo
-
-# ─────────────────────────────────────────────
-# Environment & secrets
-# ─────────────────────────────────────────────
-.env
-.env.*
-!.env.example
-secrets/
-*.pem
-*.key
-
-# ─────────────────────────────────────────────
-# Claude Code
-# ─────────────────────────────────────────────
-# Local settings — personal overrides, not committed
-.claude/settings.local.json
-# Auto-generated agent memory — the evaluator / product-reviewer write this on the
-# first /evaluate or /handoff. Ignored by default so it doesn't sit untracked in
-# every consumer project. A team that wants shared agent memory can force-add it
-# (git add -f .claude/agent-memory/) and remove this line.
-.claude/agent-memory/
 
 # ─────────────────────────────────────────────
 # Testing
@@ -55,13 +65,6 @@ blob-report/
 *.code-workspace
 
 # ─────────────────────────────────────────────
-# OS files
-# ─────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-Desktop.ini
-
-# ─────────────────────────────────────────────
 # Logs
 # ─────────────────────────────────────────────
 *.log
@@ -70,23 +73,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # ─────────────────────────────────────────────
-# Vercel
-# ─────────────────────────────────────────────
-.vercel/
-
-# ─────────────────────────────────────────────
-# Google Cloud
-# ─────────────────────────────────────────────
-# Service account keys — never commit these
-*-service-account.json
-*-credentials.json
-# Terraform state (if used for IaC)
-*.tfstate
-*.tfstate.*
-.terraform/
-
-# ─────────────────────────────────────────────
-# Python (background data generator, Phase 4+)
+# Python
 # ─────────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -96,16 +83,8 @@ venv/
 *.egg-info/
 
 # ─────────────────────────────────────────────
-# Docker sandbox
-# ─────────────────────────────────────────────
-sandbox/*.log
-sandbox/tmp/
-
-# ─────────────────────────────────────────────
 # Misc
 # ─────────────────────────────────────────────
 *.bak
 *.tmp
 *.temp
-docs/tag_assistant_*.json
-docs/input_artifacts/

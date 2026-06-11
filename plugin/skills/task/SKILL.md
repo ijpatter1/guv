@@ -83,7 +83,7 @@ for single-repo): `CODE=$(jq -r '.roots.code' .claude/project.json)`.
 3. Make the change
 4. Verify the test passes (run `commands.test` from the manifest)
 5. Run the full test suite to check for regressions
-6. Run `/evaluate` (both reviewers) on the change and fix what they surface
+6. Run `/guv:evaluate` (both reviewers) on the change and fix what they surface
 7. Commit to the code repo with a conventional message: `git -C "$CODE" commit …` — `fix(scope): …` for a bug, `feat(scope): …` / `refactor(scope): …` otherwise
 8. If a session handoff is in play, note it under **Completed**
 
@@ -101,7 +101,7 @@ No doc updates needed — either the spec already describes the correct behavior
    - Implement the change
    - Run the full test suite
    - Commit the doc updates (control plane) and implementation (code repo) together: `refactor(scope): description` or `feat(scope): description` depending on scope
-3. Run `/evaluate` and address findings. Note in the session handoff under **Completed** with a reference to the doc changes
+3. Run `/guv:evaluate` and address findings. Note in the session handoff under **Completed** with a reference to the doc changes
 
 ### New Capability Path (phased projects)
 
@@ -111,7 +111,7 @@ No doc updates needed — either the spec already describes the correct behavior
    - Update `docs/ARCHITECTURE.md` if it introduces new components or data flows
    - Present the doc changes to the user for approval before implementing
 2. **Then implement** using the standard red/green TDD workflow
-3. Run `/evaluate` and address findings. Commit with `feat(scope): description`
+3. Run `/guv:evaluate` and address findings. Commit with `feat(scope): description`
 4. Update `docs/PHASE_STATUS.md` to ✅ when complete
 
 ## Reminders

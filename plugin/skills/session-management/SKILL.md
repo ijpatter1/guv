@@ -69,11 +69,11 @@ Just run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -10
 
 ### Overnight / Next Day
 
-Use `/start-phase N` for the full context loading sequence. Read the latest session artifact carefully, especially Session Notes and Issues.
+Use `/guv:start-phase N` for the full context loading sequence. Read the latest session artifact carefully, especially Session Notes and Issues.
 
 ### After Multiple Days Away
 
-Use `/start-phase N` and also read the 2-3 most recent session artifacts, not just the latest. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`commands.test` / `commands.build` from `.claude/project.json`, skipping either if `null`) to confirm the codebase is healthy.
+Use `/guv:start-phase N` and also read the 2-3 most recent session artifacts, not just the latest. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`commands.test` / `commands.build` from `.claude/project.json`, skipping either if `null`) to confirm the codebase is healthy.
 
 ### After a Phase Transition
 
@@ -88,7 +88,7 @@ When starting a new phase:
 
 ## Initiative Boundaries
 
-A project can run multiple phased initiatives over its life (`/plan-initiative`). Session
+A project can run multiple phased initiatives over its life (`/guv:plan-initiative`). Session
 continuity crosses those boundaries; these conventions keep it intact:
 
 - **Archive layout:** a finished initiative's REQUIREMENTS + PHASE_STATUS pair freezes in

@@ -12,7 +12,7 @@ description: "Give a quick status overview of the project without the full sessi
 5. List the most recent file in `docs/sessions/` and read its **Next Steps** section (if no session files exist, note "no prior sessions")
 6. Run `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/check-citations.sh` — an advisory check that flags session-handoff citations whose commit hashes no longer resolve in the code repo. It self-limits to a control-plane split (`roots.code != roots.control`) and is silent otherwise. Capture its output.
 7. Count open harness-feedback entries: `f=.claude/feedback/feedback.ndjson; [ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0`.
-8. **Refresh the README status block** from the state just gathered. `/handoff` keeps it current at session end, but a session that skips handoff (common in `task`/`onboard` mode, or an interrupted one) would leave it stale — `/status` is run often in every mode, so refreshing here bounds staleness. Compose the same one-line status you'll report below (phased: `**Phase N — [name]** · X/Y deliverables`; otherwise the non-phase line) and pipe it to the updater:
+8. **Refresh the README status block** from the state just gathered. `/guv:handoff` keeps it current at session end, but a session that skips handoff (common in `task`/`onboard` mode, or an interrupted one) would leave it stale — `/guv:status` is run often in every mode, so refreshing here bounds staleness. Compose the same one-line status you'll report below (phased: `**Phase N — [name]** · X/Y deliverables`; otherwise the non-phase line) and pipe it to the updater:
 
    ```bash
    printf '%s\n' "<the status line>" | bash "${CLAUDE_PLUGIN_ROOT}"/scripts/update-readme-status.sh README.md

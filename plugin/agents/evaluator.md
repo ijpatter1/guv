@@ -1,6 +1,6 @@
 ---
 name: evaluator
-description: QA evaluator for completed features. Invoke after finishing a feature or work session to get an independent, skeptical assessment of the work. Use @evaluator or /evaluate to trigger.
+description: QA evaluator for completed features. Invoke after finishing a feature or work session to get an independent, skeptical assessment of the work. Use @guv:evaluator or /guv:evaluate to trigger.
 tools: Read, Glob, Grep, Bash
 model: inherit
 memory: project
@@ -71,7 +71,7 @@ For each feature that was built:
 - **Read the tests.** Were tests written before the implementation (red/green TDD)? Do the tests actually assert meaningful behavior, or are they shallow "renders without crashing" tests? Are edge cases covered?
 - **Check data flows and side effects** (when relevant). Where the code emits events, writes records, or calls external services, do they carry the correct data and match whatever contract/schema this project defines for them?
 - **Check for regressions.** Did the new code break or modify existing functionality? Look at `git -C "$(jq -r '.roots.code' .claude/project.json)" diff` against the last known-good commit.
-- **Check CLAUDE.md freshness.** Does the Tech Stack section match the actual dependencies? Does the Directory Structure match what's on disk? Are there established patterns in the code that aren't documented in Coding Standards? Flag any drift as a Minor issue — the `/handoff` freshness check will handle the actual update.
+- **Check CLAUDE.md freshness.** Does the Tech Stack section match the actual dependencies? Does the Directory Structure match what's on disk? Are there established patterns in the code that aren't documented in Coding Standards? Flag any drift as a Minor issue — the `/guv:handoff` freshness check will handle the actual update.
 
 **Note on interactive testing:** This evaluator cannot interact with the running application (click buttons, navigate pages, test UI behavior). It evaluates code statically and through automated tests. For UI-heavy phases, consider adding Playwright MCP to enable the evaluator to click through the live app — see Simon Willison's "Agentic manual testing" pattern. Until then, rely on E2E tests written by the main agent to cover interactive behavior.
 

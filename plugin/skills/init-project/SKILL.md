@@ -96,7 +96,7 @@ installed yet) — not by the stale template default.
 ### Step 3 — Generate docs/REQUIREMENTS.md
 
 Write `docs/REQUIREMENTS.md` following the structure and rules in the **`phase-docs`
-skill** (`.claude/skills/phase-docs/SKILL.md` — shared with `/plan-initiative`; the
+skill** (plugin-shipped — shared with `/guv:plan-initiative`; the
 templates live there, once). This is greenfield: omit the lineage header, number phases
 from 1.
 
@@ -159,7 +159,7 @@ with a **project** README rendered from `README.template.md`:
      | bash "${CLAUDE_PLUGIN_ROOT}"/scripts/update-readme-status.sh README.md
    ```
 
-Thereafter `/handoff` keeps that block current; never hand-edit between the markers.
+Thereafter `/guv:handoff` keeps that block current; never hand-edit between the markers.
 
 ## After Generation
 
@@ -180,4 +180,4 @@ git commit -m "docs: scaffold project from spec"
 git checkout -b phase/1-[phase-name]
 ```
 
-Then they can start their first session with `/start-phase 1`.
+Then they can start their first session with `/guv:start-phase 1`.

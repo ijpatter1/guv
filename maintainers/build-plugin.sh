@@ -49,6 +49,39 @@ rewrite_paths() {
   sed -E 's|\.claude/(hooks/)?(archive-initiative\|resolve-stack\|check-citations\|update-readme-status\|bash-guard\|auto-format\|stop-check)\.sh|"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh|g'
 }
 
+# Cross-references in derived content -> the namespaced forms a plugin consumer
+# can actually invoke. Plugin skills and agents resolve ONLY as guv:<name>
+# (verified live 2026-06-11), so bare /command mentions and reviewer-spawn
+# instructions are dead pointers in a plugin-only project.
+#   - slash commands: longest name first so /evaluate-parallel is consumed
+#     before /evaluate; the preceding-char guard [^[:alnum:].:-] keeps path
+#     segments (docs/manual/task-*.md) and already-namespaced (/guv:task)
+#     mentions untouched
+#   - agent spawns: the "`<name>` subagent" instruction phrasing and the
+#     @-mention form used in agent descriptions
+#   - two template-clone topology facts with no plugin counterpart path
+namespace_refs() {
+  sed -E \
+    -e 's|the saved `/evaluate-parallel` workflow|the `/evaluate-parallel` skill|g' \
+    -e 's|\(`\.claude/workflows/evaluate-parallel\.js`\)|(launching the plugin-shipped workflow)|g' \
+    -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g' \
+    -e 's|(^\|[^[:alnum:].:-])/evaluate-parallel|\1/guv:evaluate-parallel|g' \
+    -e 's|(^\|[^[:alnum:].:-])/plan-initiative|\1/guv:plan-initiative|g' \
+    -e 's|(^\|[^[:alnum:].:-])/init-project|\1/guv:init-project|g' \
+    -e 's|(^\|[^[:alnum:].:-])/log-feedback|\1/guv:log-feedback|g' \
+    -e 's|(^\|[^[:alnum:].:-])/start-phase|\1/guv:start-phase|g' \
+    -e 's|(^\|[^[:alnum:].:-])/evaluate|\1/guv:evaluate|g' \
+    -e 's|(^\|[^[:alnum:].:-])/onboard|\1/guv:onboard|g' \
+    -e 's|(^\|[^[:alnum:].:-])/handoff|\1/guv:handoff|g' \
+    -e 's|(^\|[^[:alnum:].:-])/status|\1/guv:status|g' \
+    -e 's|(^\|[^[:alnum:].:-])/manual|\1/guv:manual|g' \
+    -e 's|(^\|[^[:alnum:].:-])/task|\1/guv:task|g' \
+    -e 's|`evaluator` subagent|`guv:evaluator` subagent|g' \
+    -e 's|`product-reviewer` subagent|`guv:product-reviewer` subagent|g' \
+    -e 's|@evaluator|@guv:evaluator|g' \
+    -e 's|@product-reviewer|@guv:product-reviewer|g'
+}
+
 rm -rf "$OUT"
 mkdir -p "$OUT/.claude-plugin" "$OUT/skills" "$OUT/agents" "$OUT/hooks" \
   "$OUT/scripts" "$OUT/rules" "$OUT/workflows"
@@ -64,28 +97,40 @@ for d in "$PSRC/skills"/*/; do
 done
 
 # ── commands -> namespaced skills ──
+# Authored plugin-src skills were copied first; a derived name colliding with
+# one would silently clobber it — fail loud instead.
 for c in "$SRC/commands"/*.md; do
   name="$(basename "$c" .md)"
+  if [ -e "$OUT/skills/$name/SKILL.md" ]; then
+    echo "build-plugin: derived command '$name' collides with an authored plugin-src skill" >&2
+    exit 1
+  fi
   mkdir -p "$OUT/skills/$name"
   desc="$(head -1 "$c" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   {
     printf -- '---\ndescription: "%s"\n---\n\n' "$desc"
-    tail -n +2 "$c" | rewrite_paths
+    tail -n +2 "$c" | rewrite_paths | namespace_refs
   } > "$OUT/skills/$name/SKILL.md"
 done
 
-# ── harness skills, path-rewritten ──
+# ── harness skills, path- and namespace-rewritten ──
 for d in "$SRC/skills"/*/; do
   name="$(basename "$d")"
+  if [ -e "$OUT/skills/$name/SKILL.md" ]; then
+    echo "build-plugin: derived skill '$name' collides with an existing plugin skill" >&2
+    exit 1
+  fi
   mkdir -p "$OUT/skills/$name"
   for f in "$d"*; do
-    rewrite_paths < "$f" > "$OUT/skills/$name/$(basename "$f")"
+    rewrite_paths < "$f" | namespace_refs > "$OUT/skills/$name/$(basename "$f")"
   done
 done
 
-# ── agents, frontmatter hooks: block stripped ──
+# ── agents, frontmatter hooks: block stripped, references namespaced ──
 # hooks: is dropped from the line "hooks:" through the last indented line of
-# its block; every other frontmatter key and the body pass through untouched.
+# its block; every other frontmatter key and the body pass through with the
+# namespace rewrite (descriptions and bodies mention /evaluate, /handoff,
+# @evaluator — dead pointers in their bare forms under plugin install).
 for a in "$SRC/agents"/*.md; do
   awk '
     /^---$/ { fm++; inhooks=0; print; next }
@@ -93,7 +138,7 @@ for a in "$SRC/agents"/*.md; do
     fm==1 && inhooks && /^[^ ]/ { inhooks=0 }
     inhooks { next }
     { print }
-  ' "$a" > "$OUT/agents/$(basename "$a")"
+  ' "$a" | namespace_refs > "$OUT/agents/$(basename "$a")"
 done
 
 # ── hook + helper scripts, byte-identical ──
@@ -125,8 +170,10 @@ cp "$ROOT/Makefile" "$OUT/shell/Makefile"
 cp "$SRC/project.schema.json" "$OUT/shell/project.schema.json"
 cp "$SRC/settings.sandbox-example.json" "$OUT/shell/settings.sandbox-example.json"
 jq 'del(.hooks)' "$SRC/settings.json" > "$OUT/shell/settings.json"
-mkdir -p "$OUT/shell/sandbox"
+mkdir -p "$OUT/shell/sandbox" "$OUT/shell/docs"
 cp "$ROOT/sandbox/"* "$OUT/shell/sandbox/"
+# the three phase-doc skeletons template-clone consumers get from docs/
+cp "$ROOT/docs/REQUIREMENTS.md" "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/PHASE_STATUS.md" "$OUT/shell/docs/"
 
 # ── workflow asset: reviewers namespaced ──
 # Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the

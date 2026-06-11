@@ -17,7 +17,7 @@ runs — it is an append-only record. So log freely and early; there is no cost.
 - **Here:** anything about the _harness_ that didn't fit — a command step that errored,
   a setting that didn't apply, a manifest field that couldn't express your project, a
   doc that described something that isn't true, a hook that misfired, awkward ergonomics.
-- **Not here — project code bugs** → route through `/task` (they're about the product,
+- **Not here — project code bugs** → route through `/guv:task` (they're about the product,
   not the harness).
 - **Not here — per-agent learning** (evaluator/reviewer observations) → that's
   `.claude/agent-memory/`, a different artifact with a different lifecycle.
@@ -53,7 +53,7 @@ Fill these fields (\* = required):
 | `ts`\*       | ✓   | ISO-8601 UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)                                                                                                                                                                                                                                                                                                       |
 | `session`    |     | Latest `docs/sessions/` handoff name, or `n/a`                                                                                                                                                                                                                                                                                                               |
 | `category`\* | ✓   | `broken-command` · `inapplicable-setting` · `doc-drift` · `manifest-gap` · `hook-misfire` · `friction` · `other`                                                                                                                                                                                                                                             |
-| `artifact`   |     | The implicated file+line or command, e.g. `.claude/commands/handoff.md:7` or `/start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
+| `artifact`   |     | The implicated file+line or command, e.g. `.claude/commands/handoff.md:7` or `/guv:start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
 | `summary`\*  | ✓   | One line: what didn't fit                                                                                                                                                                                                                                                                                                                                    |
 | `detail`     |     | Optional longer context — repro, what you expected, what you did instead                                                                                                                                                                                                                                                                                     |
 | `severity`\* | ✓   | `blocker` · `major` · `minor`                                                                                                                                                                                                                                                                                                                                |
@@ -108,7 +108,7 @@ jq -c 'select(.status=="open")' .claude/feedback/feedback.ndjson
 jq -c --arg id "<id>" 'select(.id==$id)' .claude/feedback/feedback.ndjson
 ```
 
-Count open (used by `/status` and `/handoff`). Guard the file's existence first — a
+Count open (used by `/guv:status` and `/guv:handoff`). Guard the file's existence first — a
 missing slurp file makes `jq -s` both print `0` _and_ exit non-zero, so a `|| echo 0`
 fallback double-counts:
 
@@ -147,9 +147,9 @@ _reclassifying_ (`open` → `wontfix`, or holding `open` as a tracked candidate)
 `resolved`/`graduated` terminal states only become real once those drains land. That's
 fine and intended — the value of Half A is that the evidence is captured, structured, and
 pre-routed, so when a distribution channel is chosen the backlog is ready to act on. Don't
-over-claim closure before then. `/status` and `/handoff` surface the open count so the
+over-claim closure before then. `/guv:status` and `/guv:handoff` surface the open count so the
 pile stays visible rather than forgotten.
 
-`/handoff` surfaces open entries at session end; `/status` shows the open count. Triage
+`/guv:handoff` surfaces open entries at session end; `/guv:status` shows the open count. Triage
 periodically; mark entries `graduated`/`resolved`/`wontfix` rather than deleting them, so
 the history of what bit and what was done stays intact.

@@ -15,6 +15,13 @@ if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
   exit 0
 fi
 
+# Harness ceremony is opt-in: the manifest is the opt-in signal. Without it (a
+# non-harness repo where the guv plugin happens to be enabled, or a
+# pre-scaffold directory) there is no ceremony to remind about — stand aside.
+if [ ! -f ".claude/project.json" ]; then
+  exit 0
+fi
+
 REMINDERS=""
 
 # Check 1: Uncommitted changes (definitive signal that work isn't wrapped up)
@@ -36,7 +43,7 @@ if [ -d "docs/sessions" ]; then
 fi
 
 if [ -n "$REMINDERS" ]; then
-  jq -n --arg r "${REMINDERS}Before ending, consider: (1) Commit any outstanding work. (2) Run /evaluate for a QA assessment. (3) Run /handoff to generate a session artifact. If you are intentionally ending without these, that is fine — this is a reminder, not a requirement." '{
+  jq -n --arg r "${REMINDERS}Before ending, consider: (1) Commit any outstanding work. (2) Run /evaluate (/guv:evaluate under the plugin) for a QA assessment. (3) Run /handoff (/guv:handoff) to generate a session artifact. If you are intentionally ending without these, that is fine — this is a reminder, not a requirement." '{
     decision: "approve",
     reason: "Advisory reminder — not blocking",
     systemMessage: $r

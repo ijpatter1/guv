@@ -59,32 +59,43 @@ refresh_file "$SHELL_DIR/CLAUDE.template.md" "CLAUDE.template.md"
 refresh_file "$SHELL_DIR/README.template.md" "README.template.md"
 refresh_file "$SHELL_DIR/project.schema.json" ".claude/project.schema.json"
 refresh_file "$SHELL_DIR/settings.sandbox-example.json" ".claude/settings.sandbox-example.json"
+if ls .claude/rules/guv-*.md >/dev/null 2>&1; then
+  refreshed+=(".claude/rules/guv-*.md ($(ls "$RULES_DIR"/guv-*.md | wc -l | tr -d ' ') files)")
+else
+  created+=(".claude/rules/guv-*.md ($(ls "$RULES_DIR"/guv-*.md | wc -l | tr -d ' ') files)")
+fi
 rm -f .claude/rules/guv-*.md
 for r in "$RULES_DIR"/guv-*.md; do
   cp "$r" ".claude/rules/"
 done
-refreshed+=(".claude/rules/guv-*.md ($(ls "$RULES_DIR"/guv-*.md | wc -l | tr -d ' ') files)")
 
 # ── consumer-owned: settings (permissions only; the plugin's hooks.json owns
 # the hooks — the template's hook commands point at .claude/hooks/ scripts a
 # scaffolded project doesn't have) ──
 keep_file "$SHELL_DIR/settings.json" ".claude/settings.json"
 
-# ── .gitignore: full template when absent; marker-guarded append when present ──
+# ── .gitignore: full template when absent; marker-guarded append when present.
+# The appended block is EXTRACTED from the shipped template (between the
+# guv-core-start/end markers) — one source for both paths, no hardcoded copy
+# to drift. ──
 if [ ! -f .gitignore ]; then
   cp "$SHELL_DIR/gitignore" .gitignore
   created+=(".gitignore")
 elif ! grep -q "$GI_MARKER" .gitignore; then
   {
     printf '\n# %s — appended by /guv:scaffold\n' "$GI_MARKER"
-    printf '%s\n' ".env" ".env.*" "!.env.example" "secrets/" "*.pem" "*.key" \
-      ".claude/settings.local.json" ".claude/agent-memory/" ".DS_Store" \
-      "sandbox/*.log" "sandbox/tmp/"
+    awk '/^# guv-core-start/,/^# guv-core-end/' "$SHELL_DIR/gitignore"
   } >> .gitignore
-  refreshed+=(".gitignore (guv block appended)")
+  refreshed+=(".gitignore (guv core block appended)")
 else
   kept+=(".gitignore")
 fi
+
+# ── docs templates: the three phase-doc skeletons (consumer-owned the moment
+# they exist — /guv:init-project and /guv:plan-initiative fill them in) ──
+for d in REQUIREMENTS.md ARCHITECTURE.md PHASE_STATUS.md; do
+  keep_file "$SHELL_DIR/docs/$d" "docs/$d"
+done
 
 # ── Docker tier (opt-in): per-file deploy-if-absent ──
 if [ "$DOCKER" -eq 1 ]; then

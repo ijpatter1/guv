@@ -1,6 +1,6 @@
 ---
 name: product-reviewer
-description: Product reviewer for completed features. Invoke after finishing a feature or work session to get an independent, skeptical assessment of the work. Use @product-reviewer or /evaluate to trigger.
+description: Product reviewer for completed features. Invoke after finishing a feature or work session to get an independent, skeptical assessment of the work. Use @guv:product-reviewer or /guv:evaluate to trigger.
 tools: Read, Glob, Grep, Bash
 model: inherit
 memory: project

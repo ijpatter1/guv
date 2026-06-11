@@ -13,20 +13,20 @@ If no path is provided, check `docs/spec/` and the workspace for likely candidat
 
 ## When this command applies
 
-This is the **third entry path**: greenfield → `/init-project`, existing repo adoption →
-`/onboard`, scoped change → `/task`, **multi-phase initiative on an existing project →
+This is the **third entry path**: greenfield → `/guv:init-project`, existing repo adoption →
+`/guv:onboard`, scoped change → `/guv:task`, **multi-phase initiative on an existing project →
 this command**. It generates only the three phase docs and flips ceremony — it does NOT
 write a manifest, render `CLAUDE.md`, or render a README (the project already has all
 three; that is what "existing" means).
 
 Doc structures, sync rules, lineage, and archival conventions live in the
-**`phase-docs` skill** — shared with `/init-project`, referenced not restated. Read it
+**`phase-docs` skill** — shared with `/guv:init-project`, referenced not restated. Read it
 before generating.
 
 ## Step 0 — Preconditions
 
 Read `.claude/project.json`. If it doesn't exist, this project isn't harness-governed
-yet — stop and direct the user to `/init-project` (greenfield) or `/onboard` (adopt).
+yet — stop and direct the user to `/guv:init-project` (greenfield) or `/guv:onboard` (adopt).
 Confirm it parses (`jq empty .claude/project.json`) — the "before" half of the D3
 validation contract — and note `roots.control` (docs go there) and the current
 `ceremony`.
@@ -46,7 +46,7 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/archive-initiative.sh --check
 - **Exit 0 (COMPLETE):** a finished initiative is in place — it will be archived in
   Step 3. Note `max_phase=N` from the output; the new initiative numbers from N+1.
 - **Exit 4 (NONE):** no tracker exists (first initiative on this project, e.g. it was
-  adopted via `/onboard` or has run task-mode only). Nothing to archive; numbering
+  adopted via `/guv:onboard` or has run task-mode only). Nothing to archive; numbering
   starts at the value decided in Step 2 (default 1).
 - **Exit 5 (MALFORMED):** the tracker has no recognizable deliverable bullets or phase
   headers. Stop — show the user, and repair the tracker by hand before re-running;
@@ -113,8 +113,8 @@ Validate after the edit — concretely: it still parses and the flip took
 outside the schema's declared set (compare `jq -r 'keys[]'` output against the
 `properties` of `.claude/project.schema.json`, the same check the resolver's tests
 use). There is no
-revert machinery: "phased with a fully-✅ tracker" is a clean resting state (`/task`
-works inside phased projects, and the next `/plan-initiative` picks up from there).
+revert machinery: "phased with a fully-✅ tracker" is a clean resting state (`/guv:task`
+works inside phased projects, and the next `/guv:plan-initiative` picks up from there).
 Reverting to `task` for a maintenance-only project is a manual, optional act.
 
 ## After Generation
@@ -130,5 +130,5 @@ Present a summary:
 - **Ceremony:** already phased / flipped task → phased (announced)
 
 Suggest the user review the docs, commit them to the control plane, then start with
-`/start-phase A`. Verify `/status` reports phase progress correctly before ending the
+`/guv:start-phase A`. Verify `/guv:status` reports phase progress correctly before ending the
 session that ran this command.

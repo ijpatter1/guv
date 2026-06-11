@@ -10,7 +10,7 @@ This command is the **phased** entry point. Read `ceremony` from `.claude/projec
 - If `ceremony` is **`task`** or **`onboard`**, or there are no phase docs in `docs/`
   (no `PHASE_STATUS.md` / `REQUIREMENTS.md`), this project has no phase structure.
   That is a **mode signal, not an error** — don't scaffold phase docs. Tell the user
-  to use `/task "<description>"` for scoped work (or `/onboard` to adopt the repo),
+  to use `/guv:task "<description>"` for scoped work (or `/guv:onboard` to adopt the repo),
   and stop here.
 - If `ceremony` is **`phased`**, continue.
 
@@ -86,7 +86,7 @@ this order:
    ask the user which governs before proceeding.
 3. Also check CLAUDE.md's References section for any referenced spec files.
 
-**If a spec exists:** Invoke the `product-reviewer` subagent with a targeted prompt:
+**If a spec exists:** Invoke the `guv:product-reviewer` subagent with a targeted prompt:
 
 "Compare the Phase [N] deliverables in docs/REQUIREMENTS.md against the original spec at [path]. For each incomplete deliverable (⬜ or 🔄 in PHASE_STATUS.md) that the agent is about to work on this session, flag anything that was thinned out, oversimplified, or lost in translation from the spec. Don't review the whole project or completed deliverables — just what's in scope for this session. Be specific: quote the spec and quote the requirement side by side where there's a gap."
 

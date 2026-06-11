@@ -17,8 +17,9 @@ Invoke the **Workflow** tool with:
   defaults to everything since the last session handoff).
 
 The run executes in the background: the Scope stage resolves the commit range,
-then both calibrated reviewers — `evaluator` and `product-reviewer`, spawned by
-name per the workflow-verification rule — review concurrently.
+then both calibrated reviewers — `guv:evaluator` and `guv:product-reviewer`,
+spawned by name per the workflow-verification rule (plugin agents resolve only
+under the namespaced form) — review concurrently.
 
 ## Step 2 — Report
 

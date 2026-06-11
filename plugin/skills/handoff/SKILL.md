@@ -3,11 +3,11 @@ description: "End the current work session by running QA evaluation, generating 
 ---
 
 
-> Steps 1 and 2 can run as one concurrent pass via the saved `/evaluate-parallel` workflow — it mirrors the `/evaluate` skill's Steps 1–4 and returns both reports plus the combined summary. The verdict gates below still apply to its results; any fix loop stays conversational, in the main session. For a pre-scaffold session — or, in a control-plane split, any session whose commits live only in the control plane — keep the conversational Steps 1–2: the workflow's default scope targets the code repo and will (loudly) find no commits there. (Single-repo projects are unaffected: `roots.code` is `.`, so every commit is in scope.)
+> Steps 1 and 2 can run as one concurrent pass via the `/guv:evaluate-parallel` skill — it mirrors the `/guv:evaluate` skill's Steps 1–4 and returns both reports plus the combined summary. The verdict gates below still apply to its results; any fix loop stays conversational, in the main session. For a pre-scaffold session — or, in a control-plane split, any session whose commits live only in the control plane — keep the conversational Steps 1–2: the workflow's default scope targets the code repo and will (loudly) find no commits there. (Single-repo projects are unaffected: `roots.code` is `.`, so every commit is in scope.)
 
 ## Step 1 — Invoke the Evaluator
 
-Before anything else, invoke the `evaluator` subagent using the Agent tool. First decide **which repo's commits to evaluate**. Normally it's the code repo, but a pre-scaffold session has no code history yet (`git -C roots.code log` would error or be empty), and a docs-only session in a control-plane split — at any point in the project's life — made no code commits *this session* even though the code repo has history. Pick the target:
+Before anything else, invoke the `guv:evaluator` subagent using the Agent tool. First decide **which repo's commits to evaluate**. Normally it's the code repo, but a pre-scaffold session has no code history yet (`git -C roots.code log` would error or be empty), and a docs-only session in a control-plane split — at any point in the project's life — made no code commits *this session* even though the code repo has history. Pick the target:
 
 ```
 CODE=$(jq -r '.roots.code' .claude/project.json)
@@ -35,17 +35,17 @@ Then pass a prompt like: "Evaluate the following work from Phase [N]. Commits th
 
 Present the evaluator's full report to the user without modification or softening.
 
-- **If FAIL:** Stop the handoff here. Fix the critical issues identified by the evaluator, then invoke `/handoff` again from the top (the evaluator will re-run on the fixed code).
+- **If FAIL:** Stop the handoff here. Fix the critical issues identified by the evaluator, then invoke `/guv:handoff` again from the top (the evaluator will re-run on the fixed code).
 - **If PASS WITH ISSUES:** Note the issues but continue with Step 2.
 - **If PASS:** Continue with Step 2.
 
 ## Step 2 — Invoke the Product Reviewer
 
-Invoke the `product-reviewer` subagent using the Agent tool. Pass a prompt like: "Review the following work from Phase [N] for product quality. Commits this session: [list]. Changed files: [list]. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md."
+Invoke the `guv:product-reviewer` subagent using the Agent tool. Pass a prompt like: "Review the following work from Phase [N] for product quality. Commits this session: [list]. Changed files: [list]. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md."
 
 Present the product reviewer's full report to the user without modification or softening.
 
-- **If NEEDS WORK with Critical issues:** Stop the handoff. Address critical product issues, then invoke `/handoff` again.
+- **If NEEDS WORK with Critical issues:** Stop the handoff. Address critical product issues, then invoke `/guv:handoff` again.
 - **If NEEDS WORK with Major/Minor issues only:** Note the issues but continue with Step 3. Issues will be captured in the handoff artifact.
 - **If PASS:** Continue with Step 3.
 
@@ -207,11 +207,11 @@ If the phase is complete, generate a user acceptance testing plan. The UAT plan 
 
 ### Generating the UAT Plan
 
-Invoke the `product-reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
+Invoke the `guv:product-reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
 
-Use the product reviewer's scenarios to produce the UAT artifact. **Follow the same automation-first hierarchy as `/manual`:**
+Use the product reviewer's scenarios to produce the UAT artifact. **Follow the same automation-first hierarchy as `/guv:manual`:**
 
-1. **If the project is a CLI tool or backend service:** Produce a UAT script at `docs/uat/phase-N-uat.sh`. The script should set up prerequisites, run each scenario, pause for human observation where visual verification is needed, collect pass/fail results, and print a summary. Use the same `verify()` pattern from the `/manual` script template for automated checks. For steps requiring human judgment, use a `confirm()` helper:
+1. **If the project is a CLI tool or backend service:** Produce a UAT script at `docs/uat/phase-N-uat.sh`. The script should set up prerequisites, run each scenario, pause for human observation where visual verification is needed, collect pass/fail results, and print a summary. Use the same `verify()` pattern from the `/guv:manual` script template for automated checks. For steps requiring human judgment, use a `confirm()` helper:
 
 ```bash
 confirm() {
@@ -263,7 +263,7 @@ Note in the handoff artifact under **Next Steps** that UAT is ready to run:
 2. [Next phase planning — if UAT passes]
 ```
 
-The phase is not considered accepted until UAT passes. The next session's `/start-phase` should check for UAT results before starting new phase work.
+The phase is not considered accepted until UAT passes. The next session's `/guv:start-phase` should check for UAT results before starting new phase work.
 
 ## Step 9 — CLAUDE.md / Manifest Freshness Check
 

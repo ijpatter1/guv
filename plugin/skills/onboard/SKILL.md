@@ -3,12 +3,12 @@ description: "Adopt an existing repository — infer its stack and conventions, 
 ---
 
 
-Use this for code that **already exists**. Unlike `/init-project` (greenfield, full
-phased plan), `/onboard` reads what's there and records it. It does not scaffold new
+Use this for code that **already exists**. Unlike `/guv:init-project` (greenfield, full
+phased plan), `/guv:onboard` reads what's there and records it. It does not scaffold new
 conventions, and it does not create phase docs. Most real work is on existing code —
 this is the path that unlocks it.
 
-> **`/onboard` supersedes Claude Code's native `/init` in harness projects.** `/init`
+> **`/guv:onboard` supersedes Claude Code's native `/init` in harness projects.** `/init`
 > inlines commands and stack facts into `CLAUDE.md`, which violates the manifest
 > contract (commands live in `.claude/project.json` and are never restated). Run this
 > command instead; don't run `/init` in a harness-governed repo.
@@ -82,7 +82,7 @@ must be respected (the "Match the codebase's conventions" rule). Decide by what'
 
 - **The repo's README is the harness template README** (e.g. it still says "Claude Code
   Development Environment" — common when someone copied this template without rendering):
-  render `README.template.md` → `README.md` as `/init-project` does, describing what's
+  render `README.template.md` → `README.md` as `/guv:init-project` does, describing what's
   already there. (The one greenfield line, `_Status: not yet scaffolded._`, is replaced
   by the status block update in the next step anyway.)
 - **The repo has its own real project README:** leave its prose alone. Only ensure a
@@ -99,9 +99,9 @@ owns that region and no-ops safely when the markers are absent.
 
 Crucially: **do not create `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, or
 `docs/PHASE_STATUS.md`.** Onboard mode has no phase ceremony. From here, scoped work
-runs through `/task`; `/start-phase` and the phased machinery stay dormant (they
+runs through `/guv:task`; `/guv:start-phase` and the phased machinery stay dormant (they
 no-op when `ceremony != "phased"`). If the project later needs a multi-phase
-initiative, the sanctioned route is `/plan-initiative <spec>` — it generates the
+initiative, the sanctioned route is `/guv:plan-initiative <spec>` — it generates the
 phase docs and flips ceremony deliberately, which is different from onboard imposing
 them.
 
@@ -112,7 +112,7 @@ Present a short summary:
 - **Stack:** language + package manager + commands detected and confirmed
 - **Conventions recorded:** the key facts written into `CLAUDE.md`
 - **Topology:** single-repo, or control-plane + code split with `roots.code` set
-- **Next:** "Make scoped changes with `/task \"<description>\"`."
+- **Next:** "Make scoped changes with `/guv:task \"<description>\"`."
 
 Then commit: the manifest and rendered `CLAUDE.md` are doc/control-plane artifacts, so
 commit them in the control plane (`git -C "$(jq -r '.roots.control' .claude/project.json)"`):

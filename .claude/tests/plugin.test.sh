@@ -25,7 +25,7 @@ SRC="$ROOT/.claude"
 MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
 HOOKS_JSON="$PLUGIN/hooks/hooks.json"
 READONLY_SH="$PLUGIN/scripts/reviewer-readonly.sh"
-BUILD="$ROOT/maintainers/build-plugin.sh"
+BUILD="${PLUGIN_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -123,9 +123,13 @@ for a in evaluator product-reviewer; do
   awk '/^---$/{n++} n==1' "$pa" | grep -q '^hooks:' && { no "agent $a still carries frontmatter hooks (unsupported in plugins)"; T6_OK=0; }
   awk '/^---$/{n++} n==1' "$pa" | grep -q "^name: $a$" || { no "agent $a frontmatter name not preserved"; T6_OK=0; }
   awk '/^---$/{n++} n==1' "$pa" | grep -q '^tools: Read, Glob, Grep, Bash$' || { no "agent $a restricted tool list not preserved"; T6_OK=0; }
-  # body (after the closing ---) must be identical to the source body
-  diff <(awk '/^---$/{n++; next} n>=2' "$sa") <(awk '/^---$/{n++; next} n>=2' "$pa") >/dev/null 2>&1 \
-    || { no "agent $a body differs from source"; T6_OK=0; }
+  # body (after the closing ---) must be identical to the source body modulo
+  # the namespace rewrite (plugin copies reference /guv:* and @guv:* because
+  # bare names don't resolve under plugin install) — un-namespace the plugin
+  # side and compare
+  diff <(awk '/^---$/{n++; next} n>=2' "$sa") \
+       <(awk '/^---$/{n++; next} n>=2' "$pa" | sed -E 's|/guv:|/|g; s|@guv:|@|g; s|`guv:(evaluator\|product-reviewer)` subagent|`\1` subagent|g') >/dev/null 2>&1 \
+    || { no "agent $a body differs from source beyond the namespace rewrite"; T6_OK=0; }
 done
 [ "$T6_OK" -eq 1 ] && ok "both agents ship hook-free with name/tools/body preserved"
 
@@ -249,6 +253,29 @@ STALE=$(grep -rE '\.claude/(hooks/)?(archive-initiative|resolve-stack|check-cita
   && ok "no stale .claude/ script paths in plugin skills (all rewritten to plugin root)" \
   || no "$STALE stale .claude/ script reference(s) remain in plugin/skills"
 
+# T12b — cross-references are namespaced: bare /command mentions and bare
+# reviewer-spawn instructions are dead pointers for plugin consumers (plugin
+# skills/agents resolve only as guv:<name> — verified live 2026-06-11). The
+# preceding-char guard skips path segments and already-namespaced forms; the
+# trailing guard skips longer names (/task-foo) and the :-suffixed guv forms.
+CMDS='task|status|manual|handoff|onboard|evaluate|evaluate-parallel|init-project|plan-initiative|start-phase|log-feedback'
+BARE=$(grep -rE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
+[ "$BARE" -eq 0 ] \
+  && ok "no bare /command references in plugin skills or agents (all /guv:-namespaced)" \
+  || no "$BARE bare /command reference(s) remain in plugin skills/agents"
+SPAWN=$(grep -rE '`(evaluator|product-reviewer)` subagent|@(evaluator|product-reviewer)([^-]|$)' "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
+[ "$SPAWN" -eq 0 ] \
+  && ok "no bare reviewer-spawn references in plugin skills or agents" \
+  || no "$SPAWN bare reviewer-spawn reference(s) remain"
+
+# T12c — no template-clone topology paths survive in plugin skills: a plugin
+# consumer has no .claude/skills/ or .claude/workflows/ (skills and the
+# workflow ship inside the plugin)
+DEAD=$(grep -rE '\.claude/(skills|workflows)/' "$PLUGIN/skills" | wc -l | tr -d ' ')
+[ "$DEAD" -eq 0 ] \
+  && ok "no dead .claude/skills|workflows paths in plugin skills" \
+  || no "$DEAD dead template-topology path(s) remain in plugin/skills"
+
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
 T13_OK=1
@@ -258,8 +285,11 @@ jq -e '.scripts // .install // .postinstall' "$MANIFEST" >/dev/null 2>&1 && { no
 
 # T14 — drift guard: the committed plugin/ is exactly what build-plugin.sh
 # produces from today's sources. A diff here means someone edited plugin/ by
-# hand or changed .claude/ without rebuilding.
-if [ -x "$BUILD" ] || [ -f "$BUILD" ]; then
+# hand or changed .claude/ without rebuilding. A template-clone consumer fork
+# that dropped maintainers/ has no build to drift from — skip cleanly with a
+# message (same pattern as sandbox-example's removed-Docker-tier skip), never
+# silently and never as a failure.
+if [ -f "$BUILD" ]; then
   TMP=$(mktemp -d)
   if bash "$BUILD" --out "$TMP/plugin" >/dev/null 2>&1 && diff -r "$TMP/plugin" "$PLUGIN" >/dev/null 2>&1; then
     ok "rebuild reproduces the committed plugin/ byte-for-byte (no drift)"
@@ -267,8 +297,39 @@ if [ -x "$BUILD" ] || [ -f "$BUILD" ]; then
     no "build-plugin.sh --out output differs from committed plugin/ (rebuild needed?)"
   fi
   rm -rf "$TMP"
+
+  # T15 — the build fails loud on an authored/derived skill-name collision
+  # instead of silently clobbering the authored copy. Fixture: a plugin-src
+  # skill named like an existing command; cleaned up by trap even on failure.
+  FIXTURE="$ROOT/maintainers/plugin-src/skills/status"
+  if [ -e "$FIXTURE" ]; then
+    no "collision fixture path unexpectedly exists: $FIXTURE"
+  else
+    trap 'rm -rf "$FIXTURE"' EXIT
+    mkdir -p "$FIXTURE"
+    printf -- '---\ndescription: "collision fixture"\n---\nx\n' > "$FIXTURE/SKILL.md"
+    TMP2=$(mktemp -d)
+    if bash "$BUILD" --out "$TMP2/plugin" >/dev/null 2>&1; then
+      no "build must fail when a derived command collides with an authored skill"
+    else
+      ok "build fails loud on authored/derived skill-name collision"
+    fi
+    rm -rf "$TMP2" "$FIXTURE"
+    trap - EXIT
+  fi
+
+  # T16 — consumer-fork resilience: with the build script absent, the whole
+  # suite must still exit 0 (the drift guard skips; nothing else needs
+  # maintainers/). Guarded against recursion via PLUGIN_TEST_INNER.
+  if [ -z "${PLUGIN_TEST_INNER:-}" ]; then
+    if PLUGIN_TEST_INNER=1 PLUGIN_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$0" >/dev/null 2>&1; then
+      ok "suite passes in a consumer fork (build script absent -> drift guard skips)"
+    else
+      no "suite must exit 0 when maintainers/build-plugin.sh is absent (consumer fork)"
+    fi
+  fi
 else
-  no "maintainers/build-plugin.sh missing"
+  echo "  - maintainers/build-plugin.sh absent (consumer fork) — skipping drift guard"
 fi
 
 finish
