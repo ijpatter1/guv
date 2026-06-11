@@ -70,6 +70,8 @@ slash_names() {
     for f in "$SRC/commands"/*.md; do basename "$f" .md; done
     for d in "$SRC/skills"/*/; do basename "$d"; done
     for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
+    # plugin-only skills (zen, scaffold, …) register as /guv:<name> too
+    for d in "$PSRC/skills"/*/; do basename "$d"; done
   } | awk '{ print length, $0 }' | sort -rn | cut -d' ' -f2-
 }
 
@@ -122,7 +124,8 @@ for c in "$SRC/commands"/*.md; do
     exit 1
   fi
   mkdir -p "$OUT/skills/$name"
-  desc="$(head -1 "$c" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  # the description ships to plugin consumers too — namespace it like the body
+  desc="$(head -1 "$c" | namespace_refs | sed 's/\\/\\\\/g; s/"/\\"/g')"
   {
     printf -- '---\ndescription: "%s"\n---\n\n' "$desc"
     tail -n +2 "$c" | rewrite_paths | namespace_refs

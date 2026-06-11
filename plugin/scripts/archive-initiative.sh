@@ -1,9 +1,9 @@
 #!/bin/bash
 # .claude/archive-initiative.sh
-# The scriptable half of initiative archival, used by /plan-initiative — /guv:plan-initiative
-# under the plugin — (the
-# judgment half — spec analysis, doc generation, lineage wording — stays in the
-# command). Operates on the CONTROL root: run it from ${roots.control}.
+# The scriptable half of initiative archival, used by /plan-initiative
+# (/guv:plan-initiative under the plugin). The judgment half — spec analysis,
+# doc generation, lineage wording — stays in the command. Operates on the
+# CONTROL root: run it from ${roots.control}.
 #
 # Lifecycle model (see the phase-docs skill): REQUIREMENTS + PHASE_STATUS
 # describe WORK — they complete and freeze into docs/initiatives/NNN-<name>/.

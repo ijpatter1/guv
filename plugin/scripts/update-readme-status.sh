@@ -3,8 +3,9 @@
 # Replace the content between the README status markers with text read from stdin.
 # Deterministic, in-place, and SAFE: if BOTH markers aren't present, it does nothing —
 # so it never clobbers a consumer README that has no status block (important for
-# /onboard — /guv:onboard under the plugin — which must not rewrite an existing README). It only ever touches the lines
-# between the markers; all surrounding prose is preserved.
+# /onboard — /guv:onboard under the plugin — which must not rewrite an existing
+# README). It only ever touches the lines between the markers; all surrounding
+# prose is preserved.
 #
 # Markers in the README:
 #   <!-- STATUS:START (…anything…) -->   ...replaced...   <!-- STATUS:END -->

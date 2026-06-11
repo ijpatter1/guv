@@ -260,12 +260,17 @@ STALE=$(grep -rE '\.claude/(hooks/)?(archive-initiative|resolve-stack|check-cita
 # trailing guard skips longer names (/task-foo) and the :-suffixed guv forms.
 # Derived from the source tree exactly as the build's slash_names() derives
 # its rewrite list — a future command/skill/workflow is covered by both or by
-# neither, never silently by one.
+# neither, never silently by one. plugin-src skills (zen, scaffold) register
+# as /guv:<name> too; the guard tolerates their absence in a consumer fork
+# (maintainers/ deleted), where the detector is just slightly narrower.
 CMDS=$(
   {
     for f in "$SRC/commands"/*.md; do basename "$f" .md; done
     for d in "$SRC/skills"/*/; do basename "$d"; done
     for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
+    for d in "$ROOT/maintainers/plugin-src/skills"/*/; do
+      [ -e "$d" ] && basename "$d"
+    done
   } | paste -sd'|' -
 )
 BARE=$(grep -rE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
@@ -297,12 +302,12 @@ while IFS= read -r f; do
     grep -qE '(/|`|@)guv:' "$f" || { no "$(basename "$f") has bare /command mentions and no guv: decoder"; T12D_OK=0; }
   fi
 done < <(
-  find "$PLUGIN/rules" "$PLUGIN/shell" -name '*.md' -not -path '*/sandbox/*'
-  find "$PLUGIN/scripts" -name '*.sh'
-  find "$PLUGIN/workflows" -name '*.js'
-  echo "$PLUGIN/shell/gitignore"
+  # the whole tree EXCEPT skills/ and agents/, which T12b holds to the
+  # stronger zero-bare rule — an inverted scan, so a new file type can never
+  # sit outside the guard the way each previous pass's enumeration did
+  find "$PLUGIN" -type f -not -path "$PLUGIN/skills/*" -not -path "$PLUGIN/agents/*"
 )
-[ "$T12D_OK" -eq 1 ] && ok "every dual-mode or runtime-emitting file with bare /command mentions carries the guv: decoder"
+[ "$T12D_OK" -eq 1 ] && ok "every dual-mode or runtime-emitting file with bare /command mentions carries the guv: decoder (full-tree scan)"
 
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
