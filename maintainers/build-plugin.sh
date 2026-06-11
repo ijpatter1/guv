@@ -60,26 +60,34 @@ rewrite_paths() {
 #   - agent spawns: the "`<name>` subagent" instruction phrasing and the
 #     @-mention form used in agent descriptions
 #   - two template-clone topology facts with no plugin counterpart path
-namespace_refs() {
+_namespace_pass() {
   sed -E \
     -e 's|the saved `/evaluate-parallel` workflow|the `/evaluate-parallel` skill|g' \
     -e 's|\(`\.claude/workflows/evaluate-parallel\.js`\)|(launching the plugin-shipped workflow)|g' \
     -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g' \
-    -e 's|(^\|[^[:alnum:].:-])/evaluate-parallel|\1/guv:evaluate-parallel|g' \
-    -e 's|(^\|[^[:alnum:].:-])/plan-initiative|\1/guv:plan-initiative|g' \
-    -e 's|(^\|[^[:alnum:].:-])/init-project|\1/guv:init-project|g' \
-    -e 's|(^\|[^[:alnum:].:-])/log-feedback|\1/guv:log-feedback|g' \
-    -e 's|(^\|[^[:alnum:].:-])/start-phase|\1/guv:start-phase|g' \
-    -e 's|(^\|[^[:alnum:].:-])/evaluate|\1/guv:evaluate|g' \
-    -e 's|(^\|[^[:alnum:].:-])/onboard|\1/guv:onboard|g' \
-    -e 's|(^\|[^[:alnum:].:-])/handoff|\1/guv:handoff|g' \
-    -e 's|(^\|[^[:alnum:].:-])/status|\1/guv:status|g' \
-    -e 's|(^\|[^[:alnum:].:-])/manual|\1/guv:manual|g' \
-    -e 's|(^\|[^[:alnum:].:-])/task|\1/guv:task|g' \
+    -e 's|(^\|[^[:alnum:].:-])/evaluate-parallel($\|[^[:alnum:]:_-])|\1/guv:evaluate-parallel\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/plan-initiative($\|[^[:alnum:]:_-])|\1/guv:plan-initiative\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/init-project($\|[^[:alnum:]:_-])|\1/guv:init-project\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/log-feedback($\|[^[:alnum:]:_-])|\1/guv:log-feedback\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/start-phase($\|[^[:alnum:]:_-])|\1/guv:start-phase\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/evaluate($\|[^[:alnum:]:_-])|\1/guv:evaluate\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/onboard($\|[^[:alnum:]:_-])|\1/guv:onboard\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/handoff($\|[^[:alnum:]:_-])|\1/guv:handoff\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/status($\|[^[:alnum:]:_-])|\1/guv:status\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/manual($\|[^[:alnum:]:_-])|\1/guv:manual\2|g' \
+    -e 's|(^\|[^[:alnum:].:-])/task($\|[^[:alnum:]:_-])|\1/guv:task\2|g' \
     -e 's|`evaluator` subagent|`guv:evaluator` subagent|g' \
     -e 's|`product-reviewer` subagent|`guv:product-reviewer` subagent|g' \
     -e 's|@evaluator|@guv:evaluator|g' \
     -e 's|@product-reviewer|@guv:product-reviewer|g'
+}
+
+# The trailing-boundary guard (same class as T12b's detector — /task must not
+# eat /task-tier or /evaluated) consumes the boundary character, so two
+# adjacent mentions ("/task /handoff") leave the second unmatched on a single
+# pass. All rewrites are idempotent, so run the pass twice.
+namespace_refs() {
+  _namespace_pass | _namespace_pass
 }
 
 rm -rf "$OUT"

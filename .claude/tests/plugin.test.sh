@@ -276,6 +276,18 @@ DEAD=$(grep -rE '\.claude/(skills|workflows)/' "$PLUGIN/skills" | wc -l | tr -d 
   && ok "no dead .claude/skills|workflows paths in plugin skills" \
   || no "$DEAD dead template-topology path(s) remain in plugin/skills"
 
+# T12d — rules and shell templates deploy byte-identical into BOTH install
+# modes, so they may keep bare /command mentions — but only with the decoder
+# in the same file (a guv: mention telling a plugin consumer the namespaced
+# form). A bare mention with no in-file guv: reference is a dead pointer.
+T12D_OK=1
+while IFS= read -r f; do
+  if grep -qE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$f" 2>/dev/null; then
+    grep -q 'guv:' "$f" || { no "$(basename "$f") has bare /command mentions and no guv: decoder"; T12D_OK=0; }
+  fi
+done < <(find "$PLUGIN/rules" "$PLUGIN/shell" -name '*.md' -not -path '*/sandbox/*')
+[ "$T12D_OK" -eq 1 ] && ok "every rules/shell file with bare /command mentions carries the guv: decoder"
+
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
 T13_OK=1

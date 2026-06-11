@@ -15,7 +15,9 @@ export const meta = {
 //
 // Both review stages spawn the CALIBRATED project agents by name (rule 14 in
 // .claude/rules/guv-workflows.md — ad-hoc reviewers are prohibited). agentType
-// resolves the .claude/agents/ definition, so the evaluator runs with its own
+// resolves the calibrated agent definition (.claude/agents/ on a template
+// install; the plugin's namespaced agents under plugin install), so the
+// evaluator runs with its own
 // restricted tool set (Read/Glob/Grep/Bash) and its read-only PreToolUse hook,
 // which fires under workflow execution — verified empirically; the workflow
 // runtime is a research preview, so re-verify if its behavior shifts.

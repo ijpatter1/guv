@@ -53,7 +53,7 @@ Fill these fields (\* = required):
 | `ts`\*       | ✓   | ISO-8601 UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)                                                                                                                                                                                                                                                                                                       |
 | `session`    |     | Latest `docs/sessions/` handoff name, or `n/a`                                                                                                                                                                                                                                                                                                               |
 | `category`\* | ✓   | `broken-command` · `inapplicable-setting` · `doc-drift` · `manifest-gap` · `hook-misfire` · `friction` · `other`                                                                                                                                                                                                                                             |
-| `artifact`   |     | The implicated file+line or command, e.g. `.claude/commands/handoff.md:7` or `/guv:start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
+| `artifact`   |     | The implicated file+line or command, e.g. `.claude/rules/guv-verification.md:7` or `/guv:start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
 | `summary`\*  | ✓   | One line: what didn't fit                                                                                                                                                                                                                                                                                                                                    |
 | `detail`     |     | Optional longer context — repro, what you expected, what you did instead                                                                                                                                                                                                                                                                                     |
 | `severity`\* | ✓   | `blocker` · `major` · `minor`                                                                                                                                                                                                                                                                                                                                |
@@ -71,7 +71,7 @@ jq -cn \
   --arg ts "$TS" \
   --arg session "${SESSION:-n/a}" \
   --arg category "friction" \
-  --arg artifact ".claude/commands/handoff.md:7" \
+  --arg artifact ".claude/rules/guv-verification.md:7" \
   --arg summary "one line: what didn't fit" \
   --arg detail "optional longer context" \
   --arg severity "minor" \
