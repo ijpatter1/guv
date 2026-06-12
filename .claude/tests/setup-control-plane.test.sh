@@ -465,6 +465,61 @@ else
   no "undocumented mode aliases must refuse, not silently run sync"
 fi
 
+# ── [7.7] — control planes carry the installed test suite. The suites are
+# location-relative by design, so the plane's copy verifies the plane's
+# INSTALLED scripts — the installation tests itself, one sync behind the
+# source. The fixture harness gets the REAL resolver + its REAL suite so
+# the divergence proof below is genuine, plus the REAL copy of this very
+# suite to prove the maintainers-shape skip in the plane. Outer-run only
+# (the T10b seamed self-invocations re-run this whole file; real-suite
+# executions in every inner run would multiply runtime and couple T10b's
+# exit-code assertions to this block's state).
+if [ -z "${SCP_TEST_INNER:-}" ]; then
+REALROOT="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)"
+H77=$(make_harness)
+mkdir -p "$H77/.claude/tests"
+cp "$REALROOT/.claude/resolve-ready.sh" "$H77/.claude/resolve-ready.sh"
+# The resolver suite cross-checks regex parity against its sibling
+# archive-initiative.sh — the fixture needs the real one beside it.
+cp "$REALROOT/.claude/archive-initiative.sh" "$H77/.claude/archive-initiative.sh"
+cp "$REALROOT/.claude/tests/resolve-ready.test.sh" "$H77/.claude/tests/"
+cp "$REALROOT/.claude/tests/setup-control-plane.test.sh" "$H77/.claude/tests/"
+D77="$WORK/plane77"
+run_setup "$H77" "$D77"
+[ -d "$D77/.claude/tests" ] \
+  && cmp -s "$H77/.claude/tests/resolve-ready.test.sh" "$D77/.claude/tests/resolve-ready.test.sh" \
+  && cmp -s "$H77/.claude/tests/setup-control-plane.test.sh" "$D77/.claude/tests/setup-control-plane.test.sh" \
+  && ok "[7.7] create: plane carries .claude/tests byte-identical to the source's" \
+  || no "[7.7] create must copy the test suite beside the installed scripts"
+{ echo "drifted" > "$D77/.claude/tests/resolve-ready.test.sh"; } 2>/dev/null
+run_setup "$H77" "$D77" --sync
+cmp -s "$H77/.claude/tests/resolve-ready.test.sh" "$D77/.claude/tests/resolve-ready.test.sh" \
+  && ok "[7.7] sync: a drifted plane suite is refreshed (harness-owned, like the core)" \
+  || no "[7.7] --sync must refresh the plane's tests copy"
+
+# The point of the whole deliverable: the plane's suite tests the plane's
+# INSTALLED copies, not the source. Green against the intact installation;
+# corrupt the installed resolver and the plane-local suite goes red while
+# the source's own suite stays green.
+P_OUT=$(cd "$D77" && bash .claude/tests/resolve-ready.test.sh 2>&1); P_RC=$?
+[ "$P_RC" -eq 0 ] \
+  && ok "[7.7] self-check: plane-local resolver suite green against the intact installation" \
+  || no "[7.7] plane-local suite must pass on a healthy plane (rc=$P_RC: $(echo "$P_OUT" | tail -2))"
+printf '#!/bin/bash\necho CORRUPTED; exit 99\n' > "$D77/.claude/resolve-ready.sh"
+P_OUT=$(cd "$D77" && bash .claude/tests/resolve-ready.test.sh 2>&1); P_RC=$?
+S_OUT=$(bash "$H77/.claude/tests/resolve-ready.test.sh" 2>&1); S_RC=$?
+[ "$P_RC" -ne 0 ] && [ "$S_RC" -eq 0 ] \
+  && ok "[7.7] divergence: corrupted installed copy turns the PLANE suite red, source suite stays green" \
+  || no "[7.7] the plane copy must test the installation, not the source (plane rc=$P_RC, source rc=$S_RC)"
+
+# Maintainers-dependent suites skip cleanly in the plane shape (no
+# maintainers/ there) — the consumer-shape guard, exercised from a plane.
+SKIP_OUT=$(cd "$D77" && bash .claude/tests/setup-control-plane.test.sh 2>&1); SKIP_RC=$?
+[ "$SKIP_RC" -eq 0 ] && echo "$SKIP_OUT" | grep -q "skipping" \
+  && ok "[7.7] plane shape: maintainers-dependent suite skips cleanly, exit 0" \
+  || no "[7.7] a maintainers suite run from a plane must skip, not fail (rc=$SKIP_RC)"
+fi  # SCP_TEST_INNER guard ([7.7] block)
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
