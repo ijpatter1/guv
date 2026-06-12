@@ -6,7 +6,9 @@
 # and validated for well-formedness by archive-initiative.sh — this script
 # repeats the well-formedness gate (a resolver must not compute on a
 # malformed tracker) and owns the dep SEMANTICS the archive script does not:
-# unknown IDs, cycles, forward cross-phase deps.
+# unknown IDs, cycles. (Forward cross-phase deps were MALFORMED until [7.6]
+# repealed the lint with the phase barrier whose companion it was — a
+# forward dep is now an ordinary edge.)
 #
 # Usage:
 #   bash .claude/resolve-ready.sh [tracker-path] [--json]   # default docs/PHASE_STATUS.md
@@ -20,12 +22,16 @@
 #
 # Output (name=value, one per line):
 #   mode=GRAMMAR|LEGACY
-#   phase=N            current phase (first phase with a ⬜ or 🔄), GRAMMAR only
+#   phase=N            first phase with open work (⬜ or 🔄) — reporting
+#                      only, never gates dispatch ([7.6]); GRAMMAR only
 #   in_progress=…      🔄 IDs, document order (finish before starting new work)
-#   ready=…            every current-phase ⬜ whose deps are all ✅, document order
-#   blocked=…          current-phase ⬜ entries as ID:ROOT — ROOT is the
-#                      transitive blocking ID (the deepest unsatisfied dep that
-#                      is itself ready, in progress, or ❌)
+#   ready=…            every ⬜ whose deps are all ✅ — document order,
+#                      across ALL phases (deps are the only ordering; the
+#                      phase barrier stopped gating dispatch at [7.6])
+#   blocked=…          every open ⬜ with an unsatisfied dep, as ID:ROOT —
+#                      ROOT is the transitive blocking ID (the deepest
+#                      unsatisfied dep that is itself ready, in progress,
+#                      or ❌)
 #   serial=…           serial resume: first 🔄, else first ready. In LEGACY
 #                      mode this is line *text* (no IDs exist) — the first
 #                      🔄's, else the first ⬜'s (finish before start) —
@@ -33,9 +39,9 @@
 #                      emitted explicitly empty (nothing to list IDs for;
 #                      an in-flight line surfaces via serial=). Document
 #                      order encodes dependency order, exactly as before.
-#   in_progress is collected UNSCOPED: a 🔄 in a later phase than the first
-#   open ⬜ still wins serial= — in-flight work is finished first, wherever
-#   it sits; phase= still reports the first open phase.
+#   A 🔄 anywhere wins serial= over any ready item — in-flight work is
+#   finished first, wherever it sits; phases remain the unit of narrative,
+#   review, and UAT — dispatch is deps-only.
 # Exit: 0 resolved (a complete tracker is an empty frontier, not an error)
 #       2 usage · 4 no tracker · 5 MALFORMED (offenders named on stderr)
 set -u
@@ -178,12 +184,12 @@ deps_of()   { eval "printf '%s' \"\$deps_${1//./_}\""; }
 text_of()   { eval "printf '%s' \"\$text_${1//./_}\""; }
 has_id()    { case " $ids " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-# ── Dep semantics: unknown IDs, forward cross-phase deps, cycles ──
+# ── Dep semantics: unknown IDs, cycles — the whole semantic MALFORMED set
+# post-[7.6] (a forward cross-phase dep is an ordinary edge; the lint
+# repealed with the phase barrier it accompanied) ──
 for id in $ids; do
   for d in $(deps_of "$id"); do
     has_id "$d" || die5 "unknown dep ID: $id depends on $d, which does not exist"
-    [ "${d%%.*}" -gt "${id%%.*}" ] \
-      && die5 "forward cross-phase dep: $id (phase ${id%%.*}) depends on $d (phase ${d%%.*}) — the phasing is wrong"
   done
 done
 
@@ -208,7 +214,8 @@ done
 remaining=$(echo "$remaining" | sed -E 's/^ +//; s/ +$//')
 [ -n "$remaining" ] && die5 "dependency cycle among (or depending on a cycle): $remaining"
 
-# ── Frontier: current phase = first phase with a ⬜ or 🔄 ──
+# ── Frontier: phase = first phase with open work (⬜ or 🔄) — reporting
+# only; ready/blocked span all phases ──
 phase=""
 for id in $ids; do
   m=$(marker_of "$id")
@@ -238,7 +245,6 @@ in_progress=""; ready=""; blocked=""
 for id in $ids; do
   m=$(marker_of "$id")
   [ "$m" = "🔄" ] && in_progress="$in_progress $id"
-  [ "${id%%.*}" = "$phase" ] || continue
   [ "$m" = "⬜" ] || continue
   open=0
   for d in $(deps_of "$id"); do satisfied "$d" || { open=1; break; }; done

@@ -49,8 +49,8 @@ malformed() {
 # ── Grammar-token validation ──
 # The grammar is defined ONCE in the phase-docs skill ("Tracker grammar"):
 # leading bold ID **[N.M]**, trailing `[deps: …]` token, `none` mandatory where
-# empty. This validates well-formedness only — dep SEMANTICS (cycles, forward
-# cross-phase deps) belong to the resolver. A token-free tracker is LEGACY and
+# empty. This validates well-formedness only — dep SEMANTICS (unknown IDs,
+# cycles) belong to the resolver. A token-free tracker is LEGACY and
 # skips validation entirely, so old initiatives parse exactly as before.
 ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
 DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'

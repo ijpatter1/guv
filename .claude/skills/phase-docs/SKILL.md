@@ -167,10 +167,12 @@ tolerated and ignored.
 
 - Deps tokens encode "must follow"; document order is presentation only.
   A deliverable is *ready* when every ID in its deps token is ✅.
-- Phases coarse-gate; deps refine within a phase. Backward cross-phase deps are
-  legal (a ❌ prior-phase item propagates blockage). Forward cross-phase deps
-  are MALFORMED — they mean the phasing is wrong, and tooling must not paper
-  over that.
+- Deps are the only ordering; phases are reporting ([7.6], per the A-002
+  decision). A cross-phase dep in either direction is an ordinary edge — a
+  ❌ dep propagates blockage wherever it sits. Phases remain the unit of
+  narrative, review, and UAT; dispatch is deps-only. (Forward cross-phase
+  deps were MALFORMED while the phase barrier gated dispatch; the lint
+  repealed with the barrier whose companion it was.)
 - Deps live in the deliverable's wording, never in the annotation zone — they
   sync verbatim, and dep changes happen in REQUIREMENTS first like any other
   wording change.
@@ -189,10 +191,10 @@ that commit on, `/replan` owns every mutation.
 
 **MALFORMED (fail loud, exit 5 in tooling):** duplicate IDs; an ID'd line
 missing its deps token; a malformed token (empty list, unknown format, missing
-backticks); a deps token on a line with no ID; a forward cross-phase dep;
-a dep on an unknown ID; a dependency cycle. `archive-initiative.sh --check`
-validates well-formedness (the first four); the resolver owns dep semantics
-(the rest).
+backticks); a deps token on a line with no ID; a dep on an unknown ID; a
+dependency cycle. `archive-initiative.sh --check` validates well-formedness
+(the first four); the resolver owns dep semantics (unknown ID + cycle — the
+whole semantic set since [7.6] repealed the forward-cross-phase-dep rule).
 
 **Append-only mutation rules:**
 
@@ -237,20 +239,23 @@ split, lane dispatch, status render) program against.
 
 - **Output**, name=value, one per line:
   - `mode=GRAMMAR|LEGACY`
-  - `phase=N` — current phase: the first phase with a ⬜ or 🔄 (GRAMMAR only)
+  - `phase=N` — the first phase with open work (⬜ or 🔄) — reporting only,
+    never gates dispatch ([7.6]); GRAMMAR only
   - `in_progress=` — 🔄 IDs in document order (finish before starting new
-    work; unscoped, so an in-flight later-phase item still surfaces)
-  - `ready=` — every current-phase ⬜ whose deps are all ✅, document order
-  - `blocked=` — current-phase ⬜ entries as `ID:ROOT`, where ROOT is the
-    transitive blocking ID (the deepest unsatisfied dep that is itself
-    ready, in progress, or ❌ — a ❌ propagates blockage)
+    work, wherever the in-flight item sits)
+  - `ready=` — every ⬜ whose deps are all ✅ — document order, across ALL
+    phases ([7.6]: deps are the only ordering; the phase barrier stopped
+    gating dispatch; phases remain the unit of narrative, review, and UAT)
+  - `blocked=` — every open ⬜ with an unsatisfied dep, as `ID:ROOT`, where
+    ROOT is the transitive blocking ID (the deepest unsatisfied dep that is
+    itself ready, in progress, or ❌ — a ❌ propagates blockage)
   - `serial=` — first 🔄, else first ready item
 - **Exit codes:** 0 resolved (a complete tracker resolves to an empty
   frontier — a resting state, not an error) · 2 usage (unknown argument,
   or `--json` without jq) · 4 no tracker · 5 on any
   MALFORMED condition above (unknown ID, duplicate ID, cycle, missing
-  token, forward cross-phase dep, or a tracker with no deliverable bullets
-  at all), naming the offenders on stderr.
+  token, or a tracker with no deliverable bullets at all), naming the
+  offenders on stderr.
 - **LEGACY mode:** no IDs exist, so `serial=` carries the line *text* —
   first 🔄's, else first ⬜'s (finish before start) — and `ready=`,
   `in_progress=`, and `blocked=` are all emitted explicitly empty (nothing
@@ -276,11 +281,18 @@ feedback (the `grammar-version` entry in the harness project's own feedback
 ledger — not shipped with the template) and drains on evidence: act when an
 external consumer or a breaking shape change actually appears, not before.
 
+[7.6] changed frontier *semantics* with the shape structurally unchanged:
+`ready`/`blocked` widened from current-phase to all phases, and `phase`
+demoted to reporting (first phase with open work). Recorded here — and as a
+data point on the parked `grammar-version` entry — rather than as a version
+bump: same fields, same types, different meaning.
+
 ```json
 {
   "generated": "2026-06-12T14:57:21Z",      // ISO-8601 UTC stamp
   "mode": "GRAMMAR",                        // or "LEGACY"
-  "phase": 6,                               // current phase; null when none open
+  "phase": 6,                               // first open phase (reporting only);
+                                            //   null when none open
   "phases": [6, 7, 8],                      // phase boundaries, document order
   "deliverables": [                         // document order
     { "id": "6.4",                          // null in LEGACY (no IDs exist)
@@ -292,7 +304,7 @@ external consumer or a breaking shape change actually appears, not before.
   ],
   "frontier": {                             // field-for-field the shell output
     "in_progress": [],                      // 🔄 IDs, unscoped
-    "ready": ["6.6"],                       // current-phase dispatchable ⬜
+    "ready": ["6.6"],                       // dispatchable ⬜, all phases ([7.6])
     "blocked": [ { "id": "6.5", "blocked_by": "6.6" } ],
     "serial": "6.6"                         // null when the tracker is complete;
                                             //   line TEXT in LEGACY mode

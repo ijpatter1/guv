@@ -173,8 +173,8 @@ run "$P" --archive '!!!' >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage: name sluggi
 
 # ── Tracker grammar validation (the phase-docs skill defines the grammar:
 # leading **[N.M]** ID, trailing `[deps: …]` token, mandatory `none`).
-# The script validates well-formedness only — dep SEMANTICS (cycles, forward
-# cross-phase deps) belong to the resolver, not here.
+# The script validates well-formedness only — dep SEMANTICS (unknown IDs,
+# cycles) belong to the resolver, not here.
 
 # Writes a grammar-mode tracker into an existing project. $1 = variant.
 write_grammar_tracker() {
