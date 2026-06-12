@@ -9,7 +9,13 @@
 # unknown IDs, cycles, forward cross-phase deps.
 #
 # Usage:
-#   bash .claude/resolve-ready.sh [tracker-path]    # default docs/PHASE_STATUS.md
+#   bash .claude/resolve-ready.sh [tracker-path] [--json]   # default docs/PHASE_STATUS.md
+#
+#   --json emits the SAME parse and frontier as canonical status.json (shape
+#   documented in the phase-docs skill alongside the grammar — it is contract
+#   surface per the A-001 one-parser decision; every other reader of plan
+#   state consumes this JSON and never parses the tracker). Exit codes and
+#   stderr are identical in both modes; --json additionally needs jq.
 #
 # Output (name=value, one per line):
 #   mode=GRAMMAR|LEGACY
@@ -30,10 +36,38 @@
 #   open ⬜ still wins serial= — in-flight work is finished first, wherever
 #   it sits; phase= still reports the first open phase.
 # Exit: 0 resolved (a complete tracker is an empty frontier, not an error)
-#       4 no tracker · 5 MALFORMED (offenders named on stderr)
+#       2 usage · 4 no tracker · 5 MALFORMED (offenders named on stderr)
 set -u
 
-TRACKER="${1:-docs/PHASE_STATUS.md}"
+TRACKER="docs/PHASE_STATUS.md"
+JSON=0
+USAGE="usage: bash .claude/resolve-ready.sh [tracker-path] [--json]"
+case "${1:-}" in
+  --json) JSON=1 ;;
+  "") ;;
+  *) TRACKER="$1" ;;
+esac
+# Only the literal --json is recognized past the path — anything else refuses
+# loud rather than being silently ignored (the allow-list IS the grammar).
+if [ -n "${2:-}" ]; then
+  if [ "$2" = "--json" ] && [ "$JSON" -eq 0 ]; then
+    JSON=1
+  else
+    echo "error: unknown argument '$2' — $USAGE" >&2
+    exit 2
+  fi
+fi
+
+# Marker → status word for the JSON surface (it never carries emoji).
+status_word() {
+  case "$1" in
+    ✅) printf 'done' ;;
+    🔄) printf 'in_progress' ;;
+    ⬜) printf 'todo' ;;
+    ❌) printf 'descoped' ;;
+  esac
+}
+
 [ -f "$TRACKER" ] || { echo "status=NONE — no tracker at $TRACKER" >&2; exit 4; }
 
 ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
@@ -53,13 +87,30 @@ die5() { echo "status=MALFORMED — $1" >&2; exit 5; }
 # archive-initiative.sh: lead-position IDs / deps-shaped constructs only).
 if ! echo "$LINES" | grep -qE "$LEAD_RE" \
    && ! echo "$LINES" | grep -qE '`?\[deps:[^]]*\]`?'; then
-  echo "mode=LEGACY"
-  echo "in_progress="
-  echo "ready="
-  echo "blocked="
   serial=$(echo "$LINES" | grep -E '^\s*-\s*🔄' | head -1 | sed -E 's/^[[:space:]]*-[[:space:]]*🔄[[:space:]]*//')
   [ -z "$serial" ] && serial=$(echo "$LINES" | grep -E '^\s*-\s*⬜' | head -1 | sed -E 's/^[[:space:]]*-[[:space:]]*⬜[[:space:]]*//')
-  echo "serial=$serial"
+  if [ "$JSON" -eq 1 ]; then
+    # Document order, EMPTY deps (LEGACY has no edges — degrade, don't
+    # invent), null ids/phase, text carried for the renderer's plain list.
+    dj=$(echo "$LINES" | while IFS= read -r l; do
+      m=$(printf '%s\n' "$l" | grep -oE '✅|🔄|⬜|❌' | head -1)
+      txt=$(printf '%s\n' "$l" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*//')
+      jq -cn --arg st "$(status_word "$m")" --arg text "$txt" \
+        '{id:null, phase:null, status:$st, deps:[], text:$text}'
+    done)
+    printf '%s\n' "$dj" | jq -s \
+      --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg serial "$serial" \
+      '{generated:$generated, mode:"LEGACY", phase:null, phases:[], deliverables:.,
+        frontier:{in_progress:[], ready:[], blocked:[],
+                  serial:(if $serial=="" then null else $serial end)}}'
+  else
+    echo "mode=LEGACY"
+    echo "in_progress="
+    echo "ready="
+    echo "blocked="
+    echo "serial=$serial"
+  fi
   exit 0
 fi
 
@@ -87,9 +138,11 @@ while IFS= read -r l; do
   deps=$(printf '%s\n' "$l" | grep -oE '`?\[deps:[^]]*\]`?' | tail -1 \
          | sed -E 's/^`?\[deps: //; s/\]`?$//; s/,/ /g')
   [ "$deps" = "none" ] && deps=""
+  txt=$(printf '%s\n' "$l" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*//')
   v=${id//./_}
   eval "marker_$v=\$marker"
   eval "deps_$v=\$deps"
+  eval "text_$v=\$txt"
   ids="$ids $id"
 done <<EOF
 $LINES
@@ -98,6 +151,7 @@ ids=${ids# }
 
 marker_of() { eval "printf '%s' \"\$marker_${1//./_}\""; }
 deps_of()   { eval "printf '%s' \"\$deps_${1//./_}\""; }
+text_of()   { eval "printf '%s' \"\$text_${1//./_}\""; }
 has_id()    { case " $ids " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 # ── Dep semantics: unknown IDs, forward cross-phase deps, cycles ──
@@ -175,10 +229,46 @@ in_progress=${in_progress# }; ready=${ready# }; blocked=${blocked# }
 serial=${in_progress%% *}
 [ -z "$serial" ] && serial=${ready%% *}
 
-echo "mode=GRAMMAR"
-echo "phase=$phase"
-echo "in_progress=$in_progress"
-echo "ready=$ready"
-echo "blocked=$blocked"
-echo "serial=$serial"
+if [ "$JSON" -eq 1 ]; then
+  dj=""
+  plist=""
+  for id in $ids; do
+    p=${id%%.*}
+    case " $plist " in *" $p "*) ;; *) plist="$plist $p" ;; esac
+    dj="$dj$(jq -cn --arg id "$id" --argjson phase "$p" \
+      --arg st "$(status_word "$(marker_of "$id")")" \
+      --arg deps "$(deps_of "$id")" --arg text "$(text_of "$id")" \
+      '{id:$id, phase:$phase, status:$st,
+        deps:($deps | split(" ") | map(select(. != ""))), text:$text}')
+"
+  done
+  plist=${plist# }
+  bj=""
+  for b in $blocked; do
+    bj="$bj$(jq -cn --arg id "${b%%:*}" --arg by "${b#*:}" '{id:$id, blocked_by:$by}')
+"
+  done
+  frontier=$(jq -cn \
+    --arg ip "$in_progress" --arg rd "$ready" --arg serial "$serial" \
+    --argjson blocked "$(printf '%s' "$bj" | jq -s '.')" \
+    '{in_progress:($ip | if .=="" then [] else split(" ") end),
+      ready:($rd | if .=="" then [] else split(" ") end),
+      blocked:$blocked,
+      serial:(if $serial=="" then null else $serial end)}')
+  printf '%s' "$dj" | jq -s \
+    --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson phase "${phase:-null}" \
+    --argjson phases "$(jq -cn --arg p "$plist" \
+      '$p | if .=="" then [] else split(" ") end | map(tonumber)')" \
+    --argjson frontier "$frontier" \
+    '{generated:$generated, mode:"GRAMMAR", phase:$phase, phases:$phases,
+      deliverables:., frontier:$frontier}'
+else
+  echo "mode=GRAMMAR"
+  echo "phase=$phase"
+  echo "in_progress=$in_progress"
+  echo "ready=$ready"
+  echo "blocked=$blocked"
+  echo "serial=$serial"
+fi
 exit 0

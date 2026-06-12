@@ -256,10 +256,50 @@ split, lane dispatch, status render) program against.
   to list IDs for; an in-flight line surfaces via `serial=`). Only `phase=`
   is absent (GRAMMAR-only, as above).
 - Pure bash plus standard Unix text tools (grep, sed, sort, uniq, head,
-  tail) — no jq needed; runs on stock macOS bash 3.2. The parse (lead-position IDs,
+  tail) — no jq needed for the name=value output (`--json` adds jq); runs on
+  stock macOS bash 3.2. The parse (lead-position IDs,
   last-construct deps token, comma-space separator) is the same grammar
   `archive-initiative.sh` enforces — one dialect, with the shared ID/token
   regexes guarded identical by the resolver's suite.
+
+### status.json shape
+
+`bash .claude/resolve-ready.sh [tracker-path] --json` emits the same parse and
+frontier as one canonical JSON document. This shape is **published contract
+surface** alongside the tracker grammar and the manifest schema (the A-001
+one-parser decision): the resolver is the grammar's only implementation, and
+every other reader of plan state — the status renderer first, external tools
+later — consumes this JSON and never parses the tracker. Changing the shape
+pays contract cost; the versioning question is parked in feedback entry
+`2026-06-12T14:53:17Z-218718043` (grammar-version) and drains on evidence.
+
+```json
+{
+  "generated": "2026-06-12T14:57:21Z",      // ISO-8601 UTC stamp
+  "mode": "GRAMMAR",                        // or "LEGACY"
+  "phase": 6,                               // current phase; null when none open
+  "phases": [6, 7, 8],                      // phase boundaries, document order
+  "deliverables": [                         // document order
+    { "id": "6.1",                          // null in LEGACY (no IDs exist)
+      "phase": 6,                           // null in LEGACY
+      "status": "done",                     // done | in_progress | todo | descoped
+      "deps": ["6.1", "6.3"],               // always [] in LEGACY — empty edges,
+                                            //   never invented from document order
+      "text": "wording after the marker, verbatim (deps token included)" }
+  ],
+  "frontier": {                             // field-for-field the shell output
+    "in_progress": [],                      // 🔄 IDs, unscoped
+    "ready": ["6.6"],                       // current-phase dispatchable ⬜
+    "blocked": [ { "id": "6.5", "blocked_by": "6.6" } ],
+    "serial": "6.6"                         // null when the tracker is complete;
+                                            //   line TEXT in LEGACY mode
+  }
+}
+```
+
+Exit codes and stderr are identical in both output modes — MALFORMED is
+MALFORMED regardless of how the answer would have been formatted. Status words
+never carry emoji; the markers stay a tracker-surface concern.
 
 ## Spec provenance
 
