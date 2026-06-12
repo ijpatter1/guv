@@ -174,7 +174,8 @@ it, and since git 2.25 the sequencer does too — a `revert` or `cherry-pick`
 that lands tracker changes regenerates like a direct commit, with cherry-pick's
 nested render commit sometimes refused while the sequencer holds the index,
 which the loud recording-FAILED rung covers. A merge does NOT fire post-commit
-(a `pull` is fetch+merge, so it follows), and during a rebase the hook's
+(a default `pull` is fetch+merge, so it follows; a rebase-pull follows the
+rebase rule below), and during a rebase the hook's
 detached-HEAD guard skips deliberately — in those cases the next direct tracker
 commit or a manual render catches up. The revert-fires, cherry-pick-fires, and
 merge-no-fire claims are each pinned behaviorally by `render-hook.test.sh`.)

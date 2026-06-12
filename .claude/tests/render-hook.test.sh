@@ -134,6 +134,9 @@ ISLAND=$(sed -n 2>/dev/null '/id="status-data"/{n;p;}' "$CP/status.html" | sed '
 # regenerates like a direct commit; a merge does NOT fire. Pinned because a
 # stale-man-page "no-fire" claim shipped to the docs once and only the Phase
 # 6 UAT's second run caught it — fire/no-fire claims must be executable.
+# (No git-version guard, by decision: on pre-2.25 git these fail LOUD, which
+# is right — the documented matrix genuinely differs there, and a red suite
+# beats a silent skip on a machine where the docs are wrong.)
 ( cd "$CP" && git revert --no-edit HEAD~1 ) > "$WORK/t4b.log" 2>&1
 [ "$(git -C "$CP" log -1 --pretty=%s)" = "chore(render): regenerate status.html (post-commit hook)" ] \
   && git -C "$CP" log -2 --pretty=%s | grep -q '^Revert' \
@@ -395,6 +398,13 @@ grep -qi 'repo access' "$DOG" && grep -qi 'push is the deploy' "$DOG" \
 grep -qi 'convenience' "$DOG" \
   && ok "docs: hook taught as convenience, never a dependency" \
   || no "the docs must teach the manual-render degradation"
+# The fire-matrix attribution must stay true: DOGFOODING claims three
+# behavioral pins by name; this suite must actually contain all three
+# sequencer cases, or the attribution sentence has gone silently false.
+grep -q 'pinned behaviorally by `render-hook.test.sh`' "$DOG" \
+  && [ "$(grep -c 'ok "se[q]uencer:' "${BASH_SOURCE[0]}")" -eq 3 ] \
+  && ok "docs: fire-matrix pin attribution matches the three live sequencer cases" \
+  || no "DOGFOODING's pin-attribution sentence and this suite's sequencer cases must agree"
 # The visibility caveat is load-bearing: private-repo Pages sites are PUBLIC
 # on non-Enterprise plans. The framing alone, unhedged, is a privacy footgun
 # — this pin keeps the correction from being reverted by spec-faithful edits.
