@@ -156,7 +156,9 @@ cat > "$(fx notoken)" <<'MD'
 - ⬜ **[6.2]** B has no token
 MD
 OUT=$(bash "$SCRIPT" "$(fx notoken)" 2>&1); RC=$?
-[ "$RC" -eq 5 ] && ok "missing token: exit 5" || no "missing token should exit 5 (rc=$RC: $OUT)"
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "B has no token" \
+  && ok "missing token: exit 5, offending line named" \
+  || no "missing token should exit 5 naming the line (rc=$RC: $OUT)"
 
 # T9 — LEGACY (token-free): first ⬜ in document order as the serial resume,
 # parallel set explicitly empty; a 🔄 wins serial per today's semantics.
@@ -183,6 +185,110 @@ MD
 OUT=$(bash "$SCRIPT" "$(fx legacywip)" 2>&1)
 [ "$(val serial "$OUT")" = "Deliverable C going" ] && ok "legacy: 🔄 wins serial (finish before start)" \
   || no "expected serial=Deliverable C going (got: $OUT)"
+
+# T9b — two deps-shaped constructs on one line: the resolver parses the LAST
+# construct as the deliverable's own, exactly like archive-initiative.sh —
+# no second dialect. A valid example earlier never masks a malformed real
+# token (exit 5), and a well-formed shadow AFTER the real token is read in
+# its place (the grammar's authoring rule — examples precede the token —
+# is undetectable by tooling; this pins the documented last-construct
+# outcome so dispatch behavior is deliberate, not accidental).
+cat > "$(fx masked)" <<'MD'
+## Phase 6 — Build
+
+- ✅ **[6.1]** A `[deps: none]`
+- ⬜ **[6.2]** Quoting a `[deps: 6.1]` example then malformed `[deps: ]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx masked)" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && ok "masked malformed token: exit 5 despite valid example earlier" \
+  || no "a valid example must not mask a malformed trailing token (rc=$RC: $OUT)"
+cat > "$(fx examplefirst)" <<'MD'
+## Phase 6 — Build
+
+- ✅ **[6.1]** A `[deps: none]`
+- ⬜ **[6.2]** Building on **[6.1]** and its `[deps: 6.1]` example, for real `[deps: 6.1]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx examplefirst)" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && [ "$(val ready "$OUT")" = "6.2" ] \
+  && ok "example-before-token: parses the real trailing token, 6.2 ready" \
+  || no "a preceding example must not confuse the parse (rc=$RC: $OUT)"
+cat > "$(fx shadow)" <<'MD'
+## Phase 6 — Build
+
+- ✅ **[6.1]** A `[deps: none]`
+- 🔄 **[6.2]** B `[deps: 6.1]`
+- ⬜ **[6.3]** C `[deps: 6.2]` (note quoting `[deps: none]` in the annotation)
+MD
+OUT=$(bash "$SCRIPT" "$(fx shadow)" 2>&1)
+[ "$(val ready "$OUT")" = "6.3" ] \
+  && ok "annotation shadow: last construct wins (documented hazard, pinned)" \
+  || no "the last-construct rule should read the annotation's token (got: $OUT)"
+
+# T9c — parser parity guard: the grammar regexes are byte-identical between
+# the resolver and archive-initiative.sh. The two scripts deliberately share
+# one dialect; this catches a future edit to one drifting from the other.
+ARCHIVE="$(dirname "$SCRIPT")/archive-initiative.sh"
+for var in ID_RE DEPS_RE; do
+  a=$(grep -E "^$var=" "$SCRIPT"); b=$(grep -E "^$var=" "$ARCHIVE")
+  [ -n "$a" ] && [ "$a" = "$b" ] && ok "parity: $var identical in both scripts" \
+    || no "$var drifted between resolver and archive-initiative ('$a' vs '$b')"
+done
+
+# T9d — root blocker that is itself in progress: a ⬜ whose chain ends at a
+# 🔄 names the 🔄 as the root.
+cat > "$(fx wiproot)" <<'MD'
+## Phase 6 — Build
+
+- 🔄 **[6.1]** A going `[deps: none]`
+- ⬜ **[6.2]** B `[deps: 6.1]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx wiproot)" 2>&1)
+[ "$(val blocked "$OUT")" = "6.2:6.1" ] && ok "wip root: blocked by the in-progress dep" \
+  || no "expected blocked=6.2:6.1 (got: $OUT)"
+
+# T9e — a later-phase 🔄 still wins serial (in-flight work is finished first,
+# wherever it sits) while phase= reports the first open phase. Pinned: the
+# contract's finish-before-start rule is global, the scope rule applies to
+# ready/blocked only.
+cat > "$(fx latewip)" <<'MD'
+## Phase 6 — Build
+
+- ⬜ **[6.1]** Open `[deps: none]`
+
+## Phase 7 — Later
+
+- 🔄 **[7.1]** In flight `[deps: none]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx latewip)" 2>&1)
+[ "$(val phase "$OUT")" = "6" ] && [ "$(val serial "$OUT")" = "7.1" ] && [ "$(val ready "$OUT")" = "6.1" ] \
+  && ok "later-phase 🔄: phase=6, serial=7.1 (finish in-flight first)" \
+  || no "expected phase=6 serial=7.1 ready=6.1 (got: $OUT)"
+
+# T9f — multi-digit IDs: 1.2 and 10.2 never substring-confuse the
+# space-bounded membership checks.
+cat > "$(fx widephase)" <<'MD'
+## Phase 1 — Early
+
+- ✅ **[1.2]** Old `[deps: none]`
+
+## Phase 10 — Wide
+
+- ⬜ **[10.2]** New `[deps: 1.2]`
+- ⬜ **[10.3]** Newer `[deps: 10.2]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx widephase)" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && [ "$(val ready "$OUT")" = "10.2" ] && [ "$(val blocked "$OUT")" = "10.3:10.2" ] \
+  && ok "multi-digit IDs: 10.x vs 1.x resolve without substring confusion" \
+  || no "expected ready=10.2 blocked=10.3:10.2 (rc=$RC: $OUT)"
+
+# T9g — a tracker with headers but zero deliverable bullets is MALFORMED
+# (exit 5), matching archive-initiative.sh — a corrupt tracker must not read
+# as "nothing to do" to the resume door.
+printf '# Tracker\n## Phase 6 — Build\nno bullets here\n' > "$(fx empty)"
+OUT=$(bash "$SCRIPT" "$(fx empty)" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "MALFORMED" \
+  && ok "bullet-free tracker: exit 5, fail loud" \
+  || no "a tracker with no bullets should be MALFORMED (rc=$RC: $OUT)"
 
 # T10 — completed tracker: empty frontier, exit 0 (a resting state, not an error).
 cat > "$(fx done)" <<'MD'

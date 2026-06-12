@@ -196,22 +196,36 @@ validates well-formedness (the first four); the resolver owns dep semantics
 - Descope marks the line ❌ with a dated note; the line survives. Deletion
   does not exist.
 
-### Resolver contract (stub)
+### Resolver contract
 
-`resolve-ready.sh` computes the ready frontier from a tracker. This section
-fixes its interface against the grammar above; the script itself is a later
-deliverable — until it ships, this contract is the specification, not a
-description.
+`"${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-ready.sh` computes the ready frontier from a tracker
+(`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-ready.sh [tracker-path]`, default
+`docs/PHASE_STATUS.md`). This section is the contract its consumers (entry
+split, lane dispatch, status render) program against.
 
-- **Output:** `in_progress=` (🔄 lines — finish before starting new work),
-  `ready=` (every ⬜ whose deps are all ✅, scoped to the current phase),
-  `blocked=` (with the transitive blocking ID named).
-- **Serial resume rule:** first 🔄, else first ready item.
-- **Exit 5** on any MALFORMED condition above (unknown ID, duplicate ID,
-  cycle, missing token, forward cross-phase dep), naming the offending IDs.
-- **LEGACY mode:** returns the first ⬜ in document order and an explicitly
-  empty parallel set.
-- Pure bash + jq + grep, like the rest of the harness tooling.
+- **Output**, name=value, one per line:
+  - `mode=GRAMMAR|LEGACY`
+  - `phase=N` — current phase: the first phase with a ⬜ or 🔄 (GRAMMAR only)
+  - `in_progress=` — 🔄 IDs in document order (finish before starting new
+    work; unscoped, so an in-flight later-phase item still surfaces)
+  - `ready=` — every current-phase ⬜ whose deps are all ✅, document order
+  - `blocked=` — current-phase ⬜ entries as `ID:ROOT`, where ROOT is the
+    transitive blocking ID (the deepest unsatisfied dep that is itself
+    ready, in progress, or ❌ — a ❌ propagates blockage)
+  - `serial=` — first 🔄, else first ready item
+- **Exit codes:** 0 resolved (a complete tracker resolves to an empty
+  frontier — a resting state, not an error) · 4 no tracker · 5 on any
+  MALFORMED condition above (unknown ID, duplicate ID, cycle, missing
+  token, forward cross-phase dep, or a tracker with no deliverable bullets
+  at all), naming the offenders on stderr.
+- **LEGACY mode:** no IDs exist, so `serial=` carries the line *text* —
+  first 🔄's, else first ⬜'s (finish before start) — `ready=` is explicitly
+  empty, and `in_progress=` is left empty (nothing to list IDs for; an
+  in-flight line surfaces via `serial=`).
+- Pure bash + grep + sed — no jq needed; runs on stock macOS bash 3.2. The
+  parse (lead-position IDs, last-construct deps token, comma-space
+  separator) is byte-identical to `archive-initiative.sh`'s — one grammar,
+  no second dialect.
 
 ## Spec provenance
 

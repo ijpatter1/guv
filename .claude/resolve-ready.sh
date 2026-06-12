@@ -20,10 +20,17 @@
 #                      transitive blocking ID (the deepest unsatisfied dep that
 #                      is itself ready, in progress, or ❌)
 #   serial=…           serial resume: first 🔄, else first ready. In LEGACY
-#                      mode this is the first ⬜ line's text (no IDs exist)
-#                      and ready= is explicitly empty — document order encodes
+#                      mode this is line *text* (no IDs exist) — the first
+#                      🔄's, else the first ⬜'s (finish before start) —
+#                      ready= is explicitly empty, and in_progress= stays
+#                      empty (nothing to list IDs for; an in-flight line
+#                      surfaces via serial=). Document order encodes
 #                      dependency order, exactly as before.
-# Exit: 0 resolved · 4 no tracker · 5 MALFORMED (offenders named on stderr)
+#   in_progress is collected UNSCOPED: a 🔄 in a later phase than the first
+#   open ⬜ still wins serial= — in-flight work is finished first, wherever
+#   it sits; phase= still reports the first open phase.
+# Exit: 0 resolved (a complete tracker is an empty frontier, not an error)
+#       4 no tracker · 5 MALFORMED (offenders named on stderr)
 set -u
 
 TRACKER="${1:-docs/PHASE_STATUS.md}"
@@ -36,6 +43,11 @@ LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*$ID_RE"
 LINES=$(grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$TRACKER")
 
 die5() { echo "status=MALFORMED — $1" >&2; exit 5; }
+
+# A tracker with no deliverable bullets at all is not resolvable — fail loud
+# (archive-initiative.sh exits 5 on the same shape; a corrupt tracker must
+# not read as "nothing to do" to the resume door).
+[ -n "$LINES" ] || die5 "$TRACKER has no recognizable deliverable bullets"
 
 # ── LEGACY: token-free trackers keep today's semantics exactly (same gate as
 # archive-initiative.sh: lead-position IDs / deps-shaped constructs only).
@@ -115,7 +127,7 @@ while :; do
   [ "$removed" -eq 0 ] && break
 done
 remaining=$(echo "$remaining" | sed -E 's/^ +//; s/ +$//')
-[ -n "$remaining" ] && die5 "dependency cycle among: $remaining"
+[ -n "$remaining" ] && die5 "dependency cycle among (or depending on a cycle): $remaining"
 
 # ── Frontier: current phase = first phase with a ⬜ or 🔄 ──
 phase=""
