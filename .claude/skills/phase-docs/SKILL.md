@@ -246,7 +246,8 @@ split, lane dispatch, status render) program against.
     ready, in progress, or ❌ — a ❌ propagates blockage)
   - `serial=` — first 🔄, else first ready item
 - **Exit codes:** 0 resolved (a complete tracker resolves to an empty
-  frontier — a resting state, not an error) · 4 no tracker · 5 on any
+  frontier — a resting state, not an error) · 2 usage (unknown argument,
+  or `--json` without jq) · 4 no tracker · 5 on any
   MALFORMED condition above (unknown ID, duplicate ID, cycle, missing
   token, forward cross-phase dep, or a tracker with no deliverable bullets
   at all), naming the offenders on stderr.

@@ -426,6 +426,12 @@ OUT=$(bash "$SCRIPT" "$(fx own)" --json extra 2>&1); RC=$?
 [ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "unexpected argument" \
   && ok "json: a third argument refuses loud (never silently discarded)" \
   || no "<path> --json <extra> must exit 2 naming the extra (rc=$RC: $OUT)"
+# A flag-shaped FIRST argument that isn't --json is a usage error (exit 2),
+# not a missing tracker named '--jsno' (exit 4).
+OUT=$(bash "$SCRIPT" --jsno 2>&1); RC=$?
+[ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "unknown argument" \
+  && ok "json: flag-shaped first argument refuses as usage, not missing-tracker" \
+  || no "a sole typo'd flag must exit 2 as usage (rc=$RC: $OUT)"
 
 # T12h — jq absent: --json refuses LOUD before resolving (a silently-empty
 # status.json under exit 0 is the stale-view failure class this surface

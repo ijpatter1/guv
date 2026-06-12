@@ -15,7 +15,8 @@
 #   documented in the phase-docs skill alongside the grammar — it is contract
 #   surface per the A-001 one-parser decision; every other reader of plan
 #   state consumes this JSON and never parses the tracker). Exit codes and
-#   stderr are identical in both modes; --json additionally needs jq.
+#   stderr are identical in both modes, with one exception: --json needs jq
+#   and refuses exit 2 before resolving when it is absent.
 #
 # Output (name=value, one per line):
 #   mode=GRAMMAR|LEGACY
@@ -45,6 +46,10 @@ USAGE="usage: bash .claude/resolve-ready.sh [tracker-path] [--json]"
 case "${1:-}" in
   --json) JSON=1 ;;
   "") ;;
+  -?*)
+    echo "error: unknown argument '$1' — $USAGE" >&2
+    exit 2
+    ;;
   *) TRACKER="$1" ;;
 esac
 # Only the literal --json is recognized past the path — anything else refuses
