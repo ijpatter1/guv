@@ -131,11 +131,37 @@ OUT=$(bash "$SCRIPT" "$(fx fwd)" 2>&1); RC=$?
   || no "expected ready=7.1 (got: $OUT)"
 [ "$(val blocked "$OUT")" = "6.1:7.1" ] && ok "forward dep: dependent blocked with the forward root named" \
   || no "expected blocked=6.1:7.1 (got: $OUT)"
+[ "$(val serial "$OUT")" = "7.1" ] && ok "forward dep: serial= follows the frontier cross-phase (first ready)" \
+  || no "expected serial=7.1 (got: $OUT)"
 JF=$(bash "$SCRIPT" "$(fx fwd)" --json 2>/dev/null); RCJ=$?
 [ "$RCJ" -eq 0 ] && echo "$JF" | jq -e '.phase==6 and .frontier.ready==["7.1"]
   and (.frontier.blocked|map(.id+":"+.blocked_by))==["6.1:7.1"]' >/dev/null \
   && ok "forward dep: --json agrees (ready, blocked root, reporting phase)" \
   || no "forward-dep fixture must resolve identically under --json (rc=$RCJ: $JF)"
+
+# T5b — forward ❌/🔄 propagation: the ordinary-edge claim holds for every
+# marker, not just ⬜ — a dep on a later-phase ❌ blocks with the ❌ named
+# (descope propagates wherever it sits), a dep on a later-phase 🔄 names
+# the 🔄, and the 🔄 still wins serial= over the ready item.
+cat > "$(fx fwdmark)" <<'MD'
+## Phase 6 — Build
+
+- ⬜ **[6.1]** Needs a dead future thing `[deps: 7.2]`
+- ⬜ **[6.2]** Needs an in-flight future thing `[deps: 7.3]`
+
+## Phase 7 — Later
+
+- ⬜ **[7.1]** Open `[deps: none]`
+- ❌ **[7.2]** Dead (descoped 2026-06-12: gone) `[deps: none]`
+- 🔄 **[7.3]** Going `[deps: none]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx fwdmark)" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && [ "$(val blocked "$OUT")" = "6.1:7.2 6.2:7.3" ] \
+  && ok "forward markers: ❌ and 🔄 in a later phase propagate as named roots" \
+  || no "expected blocked=6.1:7.2 6.2:7.3 (rc=$RC: $OUT)"
+[ "$(val ready "$OUT")" = "7.1" ] && [ "$(val serial "$OUT")" = "7.3" ] \
+  && ok "forward markers: later-phase 🔄 still wins serial over the ready item" \
+  || no "expected ready=7.1 serial=7.3 (got: $OUT)"
 
 # T6 — cycle: exit 5, the cycle's IDs named.
 cat > "$(fx cycle)" <<'MD'

@@ -56,6 +56,11 @@ Rules:
 - Every deliverable carries a leading bold ID and a trailing deps token per
   "Tracker grammar" below — the ID and token are part of the deliverable's
   wording and sync verbatim into the tracker
+- Phase placement carries no ordering ([7.6]): `[deps: none]` means
+  *dispatchable immediately*, full stop — across phases. If a deliverable
+  must follow another, same phase or not, declare the dep at authoring time;
+  a forgotten dep silently parallelizes sequential work (the A-002 authoring
+  duty — plan generators and `/guv:replan` inserts are held to this bar)
 - Include a validation/acceptance section per phase if the spec has one
 - Preserve the spec's own phase structure if it has one — do not re-sequence unless the ordering has clear dependency violations
 
