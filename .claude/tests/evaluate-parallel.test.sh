@@ -143,6 +143,12 @@ if [ -z "${EP_TEST_INNER:-}" ]; then
   else
     no "with the marker present the cross-reference guard must RUN (and fail on empty content)"
   fi
+  # Scope: probe↔plant consistency only (catches a typo'd probe). Accepted
+  # residual: if the README phrase is reworded, the sibling suite's running
+  # wholesale guard reds loudly and forces the update THERE, but this suite's
+  # probe+fixture can stay coherently stale — its drift probe then degrades to
+  # the plain visible skip, not silence. Keep the literals in step with
+  # setup-control-plane.test.sh.
   printf '# readme\n--sync replaces harness-owned surfaces wholesale.\n' > "$EPWORK/drifted.md"
   INNER=$(EP_TEST_INNER=1 EP_TEST_README="$EPWORK/drifted.md" bash "$SELF" 2>&1)
   if [ $? -ne 0 ] && echo "$INNER" | grep -q "marker/detector drift"; then

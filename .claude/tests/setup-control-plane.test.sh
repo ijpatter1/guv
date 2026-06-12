@@ -375,9 +375,12 @@ if [ -z "${SCP_TEST_INNER:-}" ]; then
   else
     no "an absent README must skip the disposition guards visibly"
   fi
-  # Drift branch: marker-less but phrase-bearing must fail LOUD — proves the
-  # probe literal matches the live README phrase (a typo'd probe would silently
-  # degrade drift back to a plain skip).
+  # Drift branch: marker-less but phrase-bearing must fail LOUD. Scope is
+  # probe↔plant consistency (the fixture is a hand-written copy of the probe
+  # literal, not derived from the live README): it catches a typo'd probe, not
+  # a coordinated rewording of probe+plant. The LIVE phrase is pinned
+  # separately by this suite's running wholesale guard, whose pattern is a
+  # superstring of the probe literal.
   FAKE4="$WORK/drifted-readme.md"
   printf '# readme\n--sync replaces harness-owned surfaces wholesale.\n' > "$FAKE4"
   INNER4=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE4" bash "$SELF" 2>&1)
