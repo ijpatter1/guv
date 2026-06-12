@@ -1,5 +1,22 @@
 # Dogfooding the harness — the control-plane split
 
+## Vocabulary
+
+Four terms, four layers — defined once here ([7.7]); the wholesale naming
+sweep is [8.2]/[8.3]'s:
+
+- **Claude Code** — the platform.
+- **guv (Governor)** — the product: *a control plane for Claude Code*, built
+  from its native primitives (manifest, rules, hooks, resolver, /replan, the
+  calibrated reviewers). "The harness" is this product's informal name, used
+  throughout these docs for the **source repo**.
+- **`<project>-guv`** — a project's *instance* of that control plane: the
+  installed behavioral core plus the governed state (plan docs, sessions,
+  feedback ledger) for that one project. When these docs say "the control
+  plane" about a repo, they mean such an instance.
+- **guv-guv** — the instance whose governed project is guv itself: guv
+  governed by guv, its installed core one sync behind the source it governs.
+
 > **Maintainer-only.** This directory is about _developing_ Governor (guv), not using
 > it. A consumer who forks the template can delete `maintainers/` — it never affects a
 > rendered project. (The repo is `ijpatter1/guv`; the local clones in the examples
@@ -40,8 +57,8 @@ machine-readable knows or cares what the directory is called.
 │                                   #   CLAUDE.md, no feedback data, docs/ stay placeholders.
 └── guv-guv/                        # CONTROL PLANE = cwd (<project>-guv). Claude launches
     ├── .claude/                    #   here. Its own git repo, its own commit stream.
-    │   ├── (core copied from the harness — commands, skills, agents, hooks, guv-* rules,
-    │   │   workflows, scripts, schema, settings)  ← refreshed by setup-control-plane.sh --sync
+    │   ├── (core copied from the harness — commands, skills, agents, hooks, tests,
+    │   │   guv-* rules, workflows, scripts, schema, settings)  ← refreshed by --sync
     │   ├── project.json             #   dogfooding manifest: roots.code → the harness
     │   ├── run-harness-tests.sh     #   commands.test → runs the harness's bash suites
     │   │                            #   (generated; harness-owned — --sync refreshes it too)
@@ -82,11 +99,26 @@ control plane → exercise the changed harness from a control-plane session → 
 harness change in the harness repo, and any session artifacts in the control plane.
 
 What `--sync` refreshes is ownership-scoped, not tree-wide: harness-owned surfaces
-(commands, skills, agents, hooks, `guv-*` rules, harness-shipped workflows, scripts,
-schema, settings — and the generated `run-harness-tests.sh`, which carries no consumer
-state) are replaced; consumer-owned state (the manifest, `CLAUDE.md`, unprefixed rules,
-consumer-saved workflows, docs, feedback) is never touched. `setup-control-plane.test.sh`
-enforces both halves.
+(commands, skills, agents, hooks, tests, `guv-*` rules, harness-shipped workflows,
+scripts, schema, settings — and the generated `run-harness-tests.sh`, which carries no
+consumer state) are replaced; consumer-owned state (the manifest, `CLAUDE.md`,
+unprefixed rules, consumer-saved workflows, docs, feedback) is never touched.
+`setup-control-plane.test.sh` enforces both halves.
+
+The synced `.claude/tests/` copy is the **installation's self-check** ([7.7]): the
+suites resolve their targets relative to their own location, so a plane's copy
+tests the plane's *installed* scripts — the one-sync-behind machinery actually
+flying your sessions — not the source. Run it on demand from the plane root:
+
+```bash
+for t in .claude/tests/*.test.sh; do bash "$t"; done
+```
+
+Maintainers-only suites skip cleanly in the plane shape (no `maintainers/` there).
+This never replaces the dogfooding battery — `commands.test` keeps running the
+source's suites via `roots.code` — but for a generic `<project>-guv` it is the
+only harness verification that exists, and on any plane it is what catches a
+bad or partial sync.
 
 ## The plugin, and why `--sync` survives it
 

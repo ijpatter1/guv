@@ -83,7 +83,7 @@ CODE_REL="$(rel_code)"
 # Note what is NOT copied: project.json (we write a dogfooding one), docs/, feedback/,
 # agent-memory/, CLAUDE.md — those are control-plane-owned session state.
 copy_core() {
-  for item in commands skills agents hooks project.schema.json \
+  for item in commands skills agents hooks tests project.schema.json \
               resolve-stack.sh resolve-ready.sh render-status.sh replan.sh check-citations.sh \
               update-readme-status.sh archive-initiative.sh settings.json; do
     if [ -e "$HARNESS_DIR/.claude/$item" ]; then
