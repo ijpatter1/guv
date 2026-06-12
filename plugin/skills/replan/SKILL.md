@@ -95,7 +95,10 @@ forever; the tracker syncs from it; ARCHITECTURE follows where touched:
    ```
 
    `<session-id>` is today's session (`session-YYYY-MM-DD-NNN`, matching the
-   handoff naming). A composed verb makes several engine calls in its table order.
+   handoff naming). In the reword line, the `''` is the TRACKER argument left
+   at its default, and `<what changed>` is the one-line record summary for
+   wording-only amendments (the deps diff records automatically when the
+   token moved). A composed verb makes several engine calls in its table order.
    If the engine refuses or rejects (exit 5/6), **stop and revert the REQUIREMENTS
    edit** — the docs move together or not at all; surface the engine's message.
 3. **`docs/ARCHITECTURE.md`** — update only where the mutation touches recorded

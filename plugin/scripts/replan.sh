@@ -240,7 +240,6 @@ case "$cmd" in
   reword)
     [ $# -ge 5 ] || usage
     SESSION="$2"; OP="$3"; ID="$4"; WORDING="$5"; T="${6:-docs/PHASE_STATUS.md}"; SUMMARY="${7:-}"
-    [ -n "$T" ] || T="docs/PHASE_STATUS.md"
     [ -n "$SESSION" ] || die2 "SESSION is mandatory — the amendment record names it"
     valid_op "$OP" || die2 "op '$OP' is not a /replan verb ($VERBS)"
     need_tracker "$T"; preflight "$T"

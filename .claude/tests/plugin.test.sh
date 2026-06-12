@@ -296,14 +296,16 @@ SPAWN=$(grep -rE '`(evaluator|product-reviewer)` subagent|@(evaluator|product-re
   && ok "no bare reviewer-spawn references in plugin skills or agents" \
   || no "$SPAWN bare reviewer-spawn reference(s) remain"
 
-# T12c — no template-clone topology paths survive in plugin skills: a plugin
-# consumer has no .claude/skills/, .claude/workflows/, or .claude/commands/
-# (skills, the workflow, and commands all ship inside the plugin — commands
-# as plugin skills, so a commands/ path is dead in BOTH directions)
-DEAD=$(grep -rE '\.claude/(skills|workflows|commands)/' "$PLUGIN/skills" | wc -l | tr -d ' ')
+# T12c — no template-clone topology paths survive in plugin skills or agents:
+# a plugin consumer has no .claude/skills/, .claude/workflows/, or
+# .claude/commands/ (skills, the workflow, and commands all ship inside the
+# plugin — commands as plugin skills, so a commands/ path is dead in BOTH
+# directions). plugin/shell/ is excluded deliberately: its templates deploy
+# into template-clone projects where those paths are real.
+DEAD=$(grep -rE '\.claude/(skills|workflows|commands)/' "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
 [ "$DEAD" -eq 0 ] \
-  && ok "no dead .claude/skills|workflows paths in plugin skills" \
-  || no "$DEAD dead template-topology path(s) remain in plugin/skills"
+  && ok "no dead .claude/skills|workflows|commands paths in plugin skills/agents" \
+  || no "$DEAD dead template-topology path(s) remain in plugin/skills|agents"
 
 # T12d — files that deploy byte-identical into BOTH install modes (rules,
 # shell templates and gitignore) or whose runtime output reaches plugin

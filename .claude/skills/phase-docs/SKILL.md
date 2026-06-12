@@ -223,7 +223,10 @@ deps-amend); composed verbs leave one record per primitive engine call, each
 under the verb. The detail is op-specific (the descope note; the old → new
 deps diff). Records use plain bracketed IDs — no bold, no deps shape — so
 they are inert to the parse rules above; they are header-local and never
-sync to REQUIREMENTS.
+sync to REQUIREMENTS. Being outside the verbatim-sync contract also bounds
+the no-hand-edit rule: deliverable lines are engine-only, but correcting the
+*content* of an engine-written record (a wrong or under-telling detail) is a
+disclosed manual act — say so in the commit, in the session that wrote it.
 
 ### Resolver contract
 
