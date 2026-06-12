@@ -58,8 +58,17 @@ if [ ! -f "$INPUT" ]; then
   exit 4
 fi
 
-if ! jq -e . "$INPUT" >/dev/null 2>&1; then
+# Validity is checked SLURPED: jq -e keys its exit to the last document, so
+# a concatenated multi-document stream would pass a per-document check and
+# ship an island the client-side JSON.parse rejects — under exit 0. Exactly
+# one document is the producer's contract.
+NDOCS=$(jq -es 'length' "$INPUT" 2>/dev/null) || NDOCS=""
+if [ -z "$NDOCS" ]; then
   echo "error: '$INPUT' is not valid JSON — this renderer consumes resolve-ready.sh --json output only" >&2
+  exit 5
+fi
+if [ "$NDOCS" != "1" ]; then
+  echo "error: '$INPUT' carries $NDOCS JSON documents — expected exactly one (the resolve-ready.sh --json contract)" >&2
   exit 5
 fi
 
@@ -172,16 +181,11 @@ cat <<'HTML_TAIL'
     return;
   }
 
-  document.getElementById('meta').textContent =
-    'mode ' + data.mode +
-    (data.phase !== null && data.phase !== undefined ? ' · phase ' + data.phase : '') +
-    ' · generated ' + data.generated;
-
   // Frontier strip — field for field what the resolver reported. In LEGACY
   // mode the ID-list fields are empty by definition (no IDs exist), so the
   // strip shows only the one real signal — the next line of work — instead
   // of three dashes.
-  (function () {
+  function renderStrip(data) {
     var f = data.frontier || {};
     var strip = document.getElementById('frontier');
     function grp(label, value) {
@@ -200,7 +204,7 @@ cat <<'HTML_TAIL'
       return b.id + ' ← ' + b.blocked_by;
     }).join(', ') || '—');
     grp('serial:', f.serial === null || f.serial === undefined ? '—' : String(f.serial));
-  })();
+  }
 
   // Legend — the status vocabulary applies in both modes; the frontier
   // distinctions exist only where there is a graph to mark.
@@ -219,7 +223,16 @@ cat <<'HTML_TAIL'
     root.appendChild(legend);
   }
 
+  // EVERYTHING that touches the parsed data renders inside one guard — a
+  // throw anywhere (meta, strip, graph) lands as a visible banner, never a
+  // silently truncated page. Shape-gate-passing garbage in any field is
+  // hand-fed-only input, but it still fails loud here.
   try {
+    document.getElementById('meta').textContent =
+      'mode ' + data.mode +
+      (data.phase !== null && data.phase !== undefined ? ' · phase ' + data.phase : '') +
+      ' · generated ' + data.generated;
+    renderStrip(data);
     if (data.mode === 'LEGACY') renderLegacy(data); else renderDag(data);
   } catch (e) {
     fail('Render failed: ' + e.message);
@@ -340,9 +353,19 @@ cat <<'HTML_TAIL'
         highlight(d.id, false);
         if (pinnedId) highlight(pinnedId, true);
       });
-      // Click pins the chain (the touch/keyboard-adjacent path); clicking
-      // the pinned node again releases it.
+      // Click pins the chain (the touch path); clicking the pinned node
+      // again releases it. Tab reaches every node, focus traces like hover,
+      // and Enter/Space pin like click — the keyboard path.
       g.addEventListener('click', function () { setPin(d.id); });
+      g.setAttribute('tabindex', '0');
+      g.addEventListener('focus', function () { highlight(d.id, true); });
+      g.addEventListener('blur', function () {
+        highlight(d.id, false);
+        if (pinnedId) highlight(pinnedId, true);
+      });
+      g.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setPin(d.id); }
+      });
     });
 
     var pinnedId = null;
@@ -374,7 +397,11 @@ cat <<'HTML_TAIL'
     root.appendChild(svg);
 
     // Per-phase detail: the full deliverable text beside the graph, grouped
-    // by the phase boundaries the JSON carries.
+    // by the phase boundaries the JSON carries. ([6.6]'s deferral revisited
+    // here, as recorded: `phases` is derived from deliverable IDs, so a
+    // planned-but-empty phase section has no entry in the JSON and is
+    // omitted from this view — accepted; the tracker itself remains where a
+    // deliverable-less phase is visible, and the JSON contract is unchanged.)
     var detail = el('div', 'phase-list');
     (data.phases || []).forEach(function (ph) {
       detail.appendChild(el('h2', '', 'Phase ' + ph));

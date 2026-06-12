@@ -152,6 +152,12 @@ echo "$HTML" | grep -Eq "createElement\(['\"]ol['\"]\)" \
 echo "$HTML" | grep -q 'is-blocked' \
   && ok "vocabulary: blocked nodes carry a standing visual mark (is-blocked)" \
   || no "blocked deliverables must be marked without requiring hover (expected token is-blocked)"
+echo "$HTML" | grep -q "'next:'" \
+  && ok "vocabulary: LEGACY strip shows the one real signal (next:)" \
+  || no "LEGACY frontier strip must render next: instead of empty GRAMMAR fields"
+[ "$(echo "$HTML" | grep -c 'buildLegend(')" -eq 3 ] \
+  && ok "vocabulary: legend built in both mode branches (one definition, two calls)" \
+  || no "buildLegend must be defined once and called from both LEGACY and DAG paths"
 
 # ── T5b — the renderer JS parses as JavaScript. The page renders client-side
 # by design, so the bash suite cannot execute it — but a syntax error that
@@ -225,6 +231,13 @@ for nonobj in '[1,2,3]' '42'; do
     && ok "malformed: non-object JSON ($nonobj) exits 5 — the shape gate fails closed" \
     || no "non-object JSON $nonobj must exit 5 naming the problem (rc=$RC: $E)"
 done
+# A concatenated multi-document stream: per-document checks key to the LAST
+# document and would pass — the gate counts documents slurped instead.
+cat "$WORK/own.json" "$WORK/own.json" > "$WORK/twodocs.json"
+E=$(bash "$SCRIPT" "$WORK/twodocs.json" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 5 ] && echo "$E" | grep -q "2 JSON documents" \
+  && ok "malformed: multi-document stream exits 5 naming the count" \
+  || no "two concatenated documents must exit 5, not ship an unparseable island (rc=$RC: $E)"
 
 # ── T10 — argument grammar closed at every position (allow-list = the
 # documented grammar: one optional positional, nothing else).
@@ -279,9 +292,10 @@ CLOSES=$(echo "$EHTML" | grep -c '</script>')
 # write-redirect targets; doc prose lives outside the scanned tree.
 CONSUMERS=$(grep -rn 'status\.html' \
     "$CLAUDE_DIR/commands" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/skills" \
-    "$CLAUDE_DIR/workflows" "$CLAUDE_DIR/tests" "$CLAUDE_DIR"/*.sh \
+    "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/workflows" \
+    "$CLAUDE_DIR/tests" "$CLAUDE_DIR"/*.sh \
     "$ROOT/maintainers" "$ROOT/Makefile" "$ROOT/plugin" 2>/dev/null \
-  | grep -Ev '^[^:]*render-status[^:]*:' \
+  | grep -Ev '^[^:]*/render-status(\.test)?\.sh:' \
   | grep -Ev '>[[:space:]]*[^[:space:]]*status\.html' \
   || true)
 [ -z "$CONSUMERS" ] \

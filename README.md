@@ -274,6 +274,7 @@ code .
 │   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane (also the
 │   │                                  #   template-clone fallback's --sync update path)
 │   ├── build-plugin.sh                # Generates plugin/ from .claude/ + plugin-src/ (Phase 5)
+│   ├── render-smoke.js                # Dev-only DOM-stub execution check for render-status.sh's in-page JS
 │   └── plugin-src/                    # Authored plugin-only sources (manifest, hooks.json, guv-only skills)
 ├── plugin/                            # GENERATED — the guv plugin package; never hand-edit, run
 │                                      #   maintainers/build-plugin.sh (drift-guarded by plugin.test.sh)

@@ -9,6 +9,8 @@
 //   bash .claude/resolve-ready.sh [tracker] --json > s.json
 //   bash .claude/render-status.sh s.json > s.html
 //   node maintainers/render-smoke.js s.html GRAMMAR   # or LEGACY
+// EMPTY mode (hand-fed shape-valid JSON with zero deliverables) asserts the
+// loud no-deliverables banner fires instead of broken geometry.
 'use strict';
 const fs = require('fs');
 const [, , htmlPath, mode] = process.argv;
@@ -20,9 +22,13 @@ if (!island || !code) { console.error('FAIL: could not extract island or script'
 
 function mkel(tag, ns) {
   const cls = new Set();
+  let ownText = '';
   const el = {
     tagName: tag, ns: ns || null, children: [], attrs: {}, dataset: {},
-    textContent: '', listeners: {},
+    listeners: {},
+    // recursive, like the real DOM — so strip/banner content is assertable
+    get textContent() { return ownText + el.children.map(c => c.textContent).join(' '); },
+    set textContent(v) { ownText = String(v); },
     setAttribute(k, v) { el.attrs[k] = String(v); if (k === 'class') { cls.clear(); String(v).split(/\s+/).filter(Boolean).forEach(c => cls.add(c)); } },
     appendChild(c) { el.children.push(c); return c; },
     insertBefore(c) { el.children.unshift(c); return c; },
@@ -55,6 +61,14 @@ const counts = {};
 walk(root, e => { counts[e.tagName] = (counts[e.tagName] || 0) + 1; });
 const errors = [];
 walk(root, e => { if (e.className.includes('error')) errors.push(e.textContent); });
+if (mode === 'EMPTY') {
+  if (errors.length && /no deliverables/.test(errors.join(' '))) {
+    console.log('OK EMPTY: loud no-deliverables banner fired, no geometry drawn');
+    process.exit(0);
+  }
+  console.error('FAIL: expected the no-deliverables banner (got: ' + (errors.join(' | ') || 'no banner') + ')');
+  process.exit(1);
+}
 if (errors.length) { console.error('FAIL: error banner rendered: ' + errors.join(' | ')); process.exit(1); }
 
 const islandData = JSON.parse(data.textContent);
@@ -66,10 +80,12 @@ if (mode === 'GRAMMAR') {
   if ((counts.svg || 0) !== 1) { console.error('FAIL: expected one svg'); process.exit(1); }
   // exercise the hover chain-highlight on every node
   walk(root, e => { if (e.listeners.mouseenter) { e.listeners.mouseenter(); e.listeners.mouseleave(); } });
+  if (!/ready:/.test(frontier.textContent)) { console.error('FAIL: frontier strip not populated (no ready: group)'); process.exit(1); }
   console.log(`OK GRAMMAR: svg=1 nodes=${counts.g} edges=${counts.path} hover-cycle clean; meta="${meta.textContent}"; frontier="${frontier.textContent}"`);
 } else {
   if (counts.svg) { console.error('FAIL: LEGACY must not draw a DAG'); process.exit(1); }
   if ((counts.ol || 0) !== 1) { console.error('FAIL: expected one ordered list'); process.exit(1); }
   if ((counts.li || 0) !== islandData.deliverables.length) { console.error('FAIL: list item count mismatch'); process.exit(1); }
-  console.log(`OK LEGACY: ol=1 li=${counts.li} svg=0; meta="${meta.textContent}"`);
+  if (!/next:/.test(frontier.textContent)) { console.error('FAIL: LEGACY strip must show the next: signal'); process.exit(1); }
+  console.log(`OK LEGACY: ol=1 li=${counts.li} svg=0; meta="${meta.textContent}"; frontier="${frontier.textContent}"`);
 }
