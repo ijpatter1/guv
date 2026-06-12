@@ -179,7 +179,13 @@ tolerated and ignored.
 order encodes dependency order (the original semantics, exactly), the first ⬜
 in document order is next, and there is no parallel set. Old initiatives are
 never misread; the grammar is opt-in by annotation. Mixing is MALFORMED: once
-any line carries a token, every line must.
+any line carries a token, every line must. Opting in is therefore a one-time
+migration act: annotate **every** line in one edit — REQUIREMENTS first, then
+the tracker, document order becoming explicit `[deps: …]` edges — and validate
+with `archive-initiative.sh --check`. This single all-lines edit is the one
+sanctioned hand edit of a live tracker (there is no `/replan` verb for it,
+deliberately — the door requires the grammar it would be installing); from
+that commit on, `/replan` owns every mutation.
 
 **MALFORMED (fail loud, exit 5 in tooling):** duplicate IDs; an ID'd line
 missing its deps token; a malformed token (empty list, unknown format, missing
@@ -195,6 +201,9 @@ validates well-formedness (the first four); the resolver owns dep semantics
   verbatim → amendment record); its deterministic half is
   `.claude/replan.sh`. No hand edit of a live tracker is legitimate.
 - Completed phases are immutable; ordinals are never reused or reshuffled.
+  Immutability is phase-grained: a ✅ deliverable in an *open* phase may still
+  be reworded (the amendment record keeps the audit trail) but never descoped;
+  its wording freezes when its phase completes.
 - Insert appends the next ordinal at the end of its phase (max+1 discipline) —
   deps express its logical position, not list placement.
 - Descope marks the line ❌ with a dated note; the line survives. Deletion

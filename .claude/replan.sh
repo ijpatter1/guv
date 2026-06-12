@@ -18,8 +18,14 @@
 #   bash .claude/replan.sh guard TARGET [TRACKER]            # TARGET = N or N.M
 #   bash .claude/replan.sh insert SESSION OP WORDING [TRACKER]
 #   bash .claude/replan.sh descope SESSION OP ID NOTE [TRACKER]
-#   bash .claude/replan.sh reword SESSION OP ID WORDING [TRACKER]
+#   bash .claude/replan.sh reword SESSION OP ID WORDING [TRACKER [SUMMARY]]
 #   bash .claude/replan.sh sync-check ID [TRACKER [REQUIREMENTS]]
+#
+#   reword's SUMMARY is a one-line "what changed" for the amendment record;
+#   pass '' for TRACKER to keep the default. When the deps token changed the
+#   record carries the old → new diff automatically (the summary appends);
+#   when only wording changed the record carries the summary, defaulting to
+#   "wording amended" — a record never goes out with an empty detail.
 #
 #   TRACKER defaults to docs/PHASE_STATUS.md, REQUIREMENTS to
 #   docs/REQUIREMENTS.md. WORDING is the full deliverable wording, leading
@@ -196,7 +202,13 @@ case "$cmd" in
     end=$(tail -n "+$(( start + 1 ))" "$T" | grep -n '^## ' | head -1 | cut -d: -f1)
     [ -n "$end" ] && end=$(( start + end - 1 )) || end=$(( $(wc -l < "$T") + 1 ))
     at=$(sed -n "$start,$(( end - 1 ))p" "$T" | grep -nE '^\s*-\s*(✅|🔄|⬜|❌)' | tail -1 | cut -d: -f1)
-    [ -n "$at" ] && at=$(( start + at - 1 )) || at="$start"
+    if [ -n "$at" ]; then
+      at=$(( start + at - 1 ))
+    else
+      # Empty phase: land below its _Goal:_ line when present, else the header.
+      at=$(sed -n "$start,$(( end - 1 ))p" "$T" | grep -nE '^_Goal' | tail -1 | cut -d: -f1)
+      [ -n "$at" ] && at=$(( start + at - 1 )) || at="$start"
+    fi
     mk_tmp "$T"
     insert_after "$at" "- ⬜ $WORDING"
     append_record "$OP" "$ID" "$SESSION" ""
@@ -215,7 +227,7 @@ case "$cmd" in
     printf '%s\n' "$LINE" | grep -qE '^\s*-\s*✅' \
       && die6 "[$ID] is ✅ complete; a completed deliverable cannot be descoped"
     WORD="descoped"; [ "$OP" = "abandon" ] && WORD="abandoned"
-    at=$(grep -nF -e "$LINE" "$T" | head -1 | cut -d: -f1)
+    at=$(grep -nxF -e "$LINE" "$T" | head -1 | cut -d: -f1)
     NEW=$(printf '%s\n' "$LINE" | sed -E "s/^([[:space:]]*-[[:space:]]*)(✅|🔄|⬜|❌)/\1❌/")
     NEW="$NEW ($WORD $(date +%F): $NOTE)"
     mk_tmp "$T"
@@ -227,7 +239,8 @@ case "$cmd" in
 
   reword)
     [ $# -ge 5 ] || usage
-    SESSION="$2"; OP="$3"; ID="$4"; WORDING="$5"; T="${6:-docs/PHASE_STATUS.md}"
+    SESSION="$2"; OP="$3"; ID="$4"; WORDING="$5"; T="${6:-docs/PHASE_STATUS.md}"; SUMMARY="${7:-}"
+    [ -n "$T" ] || T="docs/PHASE_STATUS.md"
     [ -n "$SESSION" ] || die2 "SESSION is mandatory — the amendment record names it"
     valid_op "$OP" || die2 "op '$OP' is not a /replan verb ($VERBS)"
     need_tracker "$T"; preflight "$T"
@@ -242,9 +255,16 @@ case "$cmd" in
     # (everything after the last deps-shaped construct — the documented parse).
     PRE=$(printf '%s\n' "$LINE" | sed -E "s/^([[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*).*/\1/")
     ANN="${LINE##*\]\`}"
-    at=$(grep -nF -e "$LINE" "$T" | head -1 | cut -d: -f1)
-    DETAIL=""
-    [ "$OLD_DEPS" != "$NEW_DEPS" ] && DETAIL="deps: $OLD_DEPS → $NEW_DEPS"
+    at=$(grep -nxF -e "$LINE" "$T" | head -1 | cut -d: -f1)
+    # The record must tell what changed: the deps diff when the token moved,
+    # the caller's summary otherwise — never an empty detail (a record that
+    # under-tells is the defect the records exist to prevent).
+    if [ "$OLD_DEPS" != "$NEW_DEPS" ]; then
+      DETAIL="deps: $OLD_DEPS → $NEW_DEPS"
+      [ -n "$SUMMARY" ] && DETAIL="$DETAIL; $SUMMARY"
+    else
+      DETAIL="${SUMMARY:-wording amended}"
+    fi
     mk_tmp "$T"
     { head -n "$(( at - 1 ))" "$TMP"; printf '%s\n' "$PRE$WORDING$ANN"; tail -n "+$(( at + 1 ))" "$TMP"; } > "$TMP.ins"
     mv "$TMP.ins" "$TMP"

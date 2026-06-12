@@ -297,9 +297,10 @@ SPAWN=$(grep -rE '`(evaluator|product-reviewer)` subagent|@(evaluator|product-re
   || no "$SPAWN bare reviewer-spawn reference(s) remain"
 
 # T12c — no template-clone topology paths survive in plugin skills: a plugin
-# consumer has no .claude/skills/ or .claude/workflows/ (skills and the
-# workflow ship inside the plugin)
-DEAD=$(grep -rE '\.claude/(skills|workflows)/' "$PLUGIN/skills" | wc -l | tr -d ' ')
+# consumer has no .claude/skills/, .claude/workflows/, or .claude/commands/
+# (skills, the workflow, and commands all ship inside the plugin — commands
+# as plugin skills, so a commands/ path is dead in BOTH directions)
+DEAD=$(grep -rE '\.claude/(skills|workflows|commands)/' "$PLUGIN/skills" | wc -l | tr -d ' ')
 [ "$DEAD" -eq 0 ] \
   && ok "no dead .claude/skills|workflows paths in plugin skills" \
   || no "$DEAD dead template-topology path(s) remain in plugin/skills"

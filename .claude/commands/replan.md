@@ -29,20 +29,25 @@ Classify the requested change as exactly one verb:
 | **insert** | a new deliverable enters a phase | `insert` |
 | **descope** | a deliverable leaves the plan (still might return someday) | `descope` |
 | **abandon** | a deliverable leaves for good — the approach is dead | `descope` (records as abandon) |
-| **deps-amend** | a deliverable's `[deps: …]` token changes | `reword` |
+| **deps-amend** | a deliverable's synced wording is amended in place — the deps token, the prose, or both | `reword` |
 | **reorder** | the must-follow edges between deliverables change | `reword` on each affected token |
 | **split** | one deliverable becomes several | `reword` the original to its narrowed scope + `insert` the carved-out parts |
 | **merge** | several deliverables collapse into one | `reword` the absorbing deliverable + `descope` the absorbed (note: "merged into [N.M]") |
 
 If the request doesn't fit a verb, say which interpretations are possible and ask —
-don't silently pick. Note that wording-only fixes that change neither scope nor deps
-are still mutations of synced wording: route them as `deps-amend`-style rewords (the
-record's deps detail will simply be absent).
+don't silently pick. A wording-only fix that changes neither scope nor deps is still
+a mutation of synced wording: it classifies as **deps-amend** (an in-place
+amendment whose token happens not to move), and its record must say what changed —
+pass the engine a one-line summary (the `reword` SUMMARY argument); the deps diff
+is recorded automatically when the token did move.
 
 Two structural rules have no verb because they are not operations: **deletion does
 not exist** (descope/abandon mark ❌ and the line survives), and **completed phases
 refuse mutation** (the engine enforces this; history is immutable — errata about
-finished work belong in a new deliverable, not a rewrite).
+finished work belong in a new deliverable, not a rewrite). Granularity matters
+here: a ✅ deliverable in an *open* phase can still be reworded (the amendment
+record keeps the audit trail) but never descoped — done is done; only when its
+whole phase completes does its wording freeze too.
 
 ## Step 2 — Draft
 
@@ -83,7 +88,7 @@ forever; the tracker syncs from it; ARCHITECTURE follows where touched:
    ```
    bash .claude/replan.sh insert  <session-id> <verb> '<full wording>'
    bash .claude/replan.sh descope <session-id> <verb> <ID> '<note>'
-   bash .claude/replan.sh reword  <session-id> <verb> <ID> '<full wording>'
+   bash .claude/replan.sh reword  <session-id> <verb> <ID> '<full wording>' '' '<what changed>'
    ```
 
    `<session-id>` is today's session (`session-YYYY-MM-DD-NNN`, matching the
@@ -114,5 +119,9 @@ forever; the tracker syncs from it; ARCHITECTURE follows where touched:
 - The engine owns the deterministic half (ordinals, guards, records, validation,
   atomic writes); your half is judgment — classification, wording, deps reasoning,
   and the conversation. Don't re-implement either half in the other's lane.
+- Atomicity is mechanical for the tracker (the engine validates before it writes;
+  a rejected mutation changes nothing) and procedural across the three docs — the
+  fixed order, the revert-on-refusal rule, and Step 5's `sync-check` are what hold
+  the tri-doc set together. Skipping Step 5 forfeits the detector.
 - Spec-alignment gaps found at session start route here too (`/start-phase` Step 5
   detects and routes; this command mutates).

@@ -148,6 +148,41 @@ OUT=$(bash "$SCRIPT" insert "$SESH" insert '**[1.3]** Grammar thing `[deps: none
 [ "$RC" -eq 6 ] && cmp -s "$WORK/tl.md" "$WORK/legacy.md" \
   && ok "insert: LEGACY tracker refused, untouched" || no "LEGACY insert should exit 6 unchanged (rc=$RC: $OUT)"
 
+# A malformed tracker refuses mutation up front (preflight, not post-state).
+cat > "$WORK/dup.md" <<'MD'
+## Phase 6 — Build
+
+- ⬜ **[6.1]** A `[deps: none]`
+- ⬜ **[6.1]** A again `[deps: none]`
+MD
+cp "$WORK/dup.md" "$WORK/td.md"
+OUT=$(bash "$SCRIPT" descope "$SESH" descope 6.1 "nope" "$WORK/td.md" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -qi "before any mutation" && cmp -s "$WORK/td.md" "$WORK/dup.md" \
+  && ok "preflight: malformed tracker refused before any mutation, untouched" \
+  || no "duplicate-ID tracker should exit 5 pre-mutation (rc=$RC: $OUT)"
+
+# An empty phase takes its first insert below the goal line, not above it.
+cat > "$WORK/empty.md" <<'MD'
+## Phase 6 — Build
+
+_Goal: build._
+
+- ✅ **[6.1]** Done `[deps: none]`
+
+---
+
+## Phase 7 — Later
+
+_Goal: later._
+
+---
+MD
+OUT=$(bash "$SCRIPT" insert "$SESH" insert '**[7.1]** First of its phase `[deps: none]`' "$WORK/empty.md" 2>&1); RC=$?
+goal_at=$(grep -n '^_Goal: later' "$WORK/empty.md" | cut -d: -f1)
+new_at=$(grep -n '^- ⬜ \*\*\[7\.1\]' "$WORK/empty.md" | head -1 | cut -d: -f1)
+[ "$RC" -eq 0 ] && [ -n "$new_at" ] && [ "$new_at" -gt "$goal_at" ] \
+  && ok "insert: empty phase lands below its goal line" || no "7.1 should land after the goal line (rc=$RC, goal=$goal_at, new=$new_at)"
+
 # Future-phase insert lands at THAT phase's end (placement is per-phase).
 T="$(fresh)"
 OUT=$(bash "$SCRIPT" insert "$SESH" insert '**[7.2]** More plumbing `[deps: 7.1]`' "$T" 2>&1); RC=$?
@@ -214,6 +249,18 @@ cp "$WORK/cyc.md" "$WORK/tc.md"
 OUT=$(bash "$SCRIPT" reword "$SESH" reorder 6.1 '**[6.1]** A `[deps: 6.2]`' "$WORK/tc.md" 2>&1); RC=$?
 [ "$RC" -eq 5 ] && cmp -s "$WORK/tc.md" "$WORK/cyc.md" \
   && ok "reword: cycle-creating amendment rejected, tracker untouched" || no "cycle reword should exit 5 unchanged (rc=$RC: $OUT)"
+
+# A wording-only reword must still tell what changed: caller summary wins,
+# "wording amended" is the floor — a record never goes out detail-less.
+T="$(fresh)"
+bash "$SCRIPT" reword "$SESH" deps-amend 6.3 '**[6.3]** Mutation portal `[deps: 6.1]`' "$T" "four lists, not three" >/dev/null 2>&1
+grep -qE "^> - $DATE_RE — deps-amend \[6\.3\] \($SESH\) — four lists, not three" "$T" \
+  && ok "reword: wording-only record carries the caller's summary" || no "summary missing from record: $(grep '^> -' "$T")"
+T="$(fresh)"
+bash "$SCRIPT" reword "$SESH" deps-amend 6.3 '**[6.3]** Mutation portal `[deps: 6.1]`' "$T" >/dev/null 2>&1
+grep -qE "^> - $DATE_RE — deps-amend \[6\.3\] \($SESH\) — wording amended" "$T" \
+  && ok "reword: wording-only record defaults to 'wording amended', never empty" \
+  || no "default detail missing from record: $(grep '^> -' "$T")"
 
 T="$(fresh)"
 OUT=$(bash "$SCRIPT" reword "$SESH" deps-amend 6.9 '**[6.9]** Ghost `[deps: none]`' "$T" 2>&1); RC=$?

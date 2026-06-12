@@ -89,8 +89,8 @@ this order:
 
 Review the product reviewer's findings. **This step detects and routes; it does not
 mutate.** If it identifies gaps, close them by routing each finding through
-`/replan` (read `.claude/commands/replan.md` and follow its procedure — classify,
-confirm, apply REQUIREMENTS first through the engine, verify):
+the `/replan` command's procedure — classify, confirm, apply REQUIREMENTS first
+through the engine, verify:
 
 - **Thin deliverables** (the requirement is a pale summary of a richer spec
   description) and **drifted deliverables** (the requirement says something
@@ -103,8 +103,10 @@ confirm, apply REQUIREMENTS first through the engine, verify):
   ARCHITECTURE gap with no deliverable change is a direct doc edit, not a plan
   mutation — fix it in place.
 
-One `/replan` operation per finding, each with its own confirmation. Commit the
-result: `docs: fortify Phase N requirements from spec alignment review`
+One `/replan` operation per finding, each with its own confirmation and its own
+commit under `/replan`'s convention (`docs(replan): <verb> [IDs] — <one-line why>`).
+Only a pure-ARCHITECTURE fix with no plan mutation gets the umbrella message
+`docs: fortify Phase N requirements from spec alignment review`.
 
 These updates ensure the identified gaps are captured in the project's permanent
 record — with amendment records naming what changed — not just in the agent's
