@@ -45,8 +45,8 @@ CODE_REL="$(rel_code)"
 # agent-memory/, CLAUDE.md — those are control-plane-owned session state.
 copy_core() {
   for item in commands skills agents hooks project.schema.json \
-              resolve-stack.sh check-citations.sh update-readme-status.sh \
-              archive-initiative.sh settings.json; do
+              resolve-stack.sh resolve-ready.sh check-citations.sh \
+              update-readme-status.sh archive-initiative.sh settings.json; do
     if [ -e "$HARNESS_DIR/.claude/$item" ]; then
       rm -rf "$DEST/.claude/$item"
       cp -R "$HARNESS_DIR/.claude/$item" "$DEST/.claude/$item"

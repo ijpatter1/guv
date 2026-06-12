@@ -56,6 +56,7 @@ if ! echo "$LINES" | grep -qE "$LEAD_RE" \
   echo "mode=LEGACY"
   echo "in_progress="
   echo "ready="
+  echo "blocked="
   serial=$(echo "$LINES" | grep -E '^\s*-\s*🔄' | head -1 | sed -E 's/^[[:space:]]*-[[:space:]]*🔄[[:space:]]*//')
   [ -z "$serial" ] && serial=$(echo "$LINES" | grep -E '^\s*-\s*⬜' | head -1 | sed -E 's/^[[:space:]]*-[[:space:]]*⬜[[:space:]]*//')
   echo "serial=$serial"

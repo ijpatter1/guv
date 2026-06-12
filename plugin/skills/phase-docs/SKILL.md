@@ -219,13 +219,15 @@ split, lane dispatch, status render) program against.
   token, forward cross-phase dep, or a tracker with no deliverable bullets
   at all), naming the offenders on stderr.
 - **LEGACY mode:** no IDs exist, so `serial=` carries the line *text* —
-  first 🔄's, else first ⬜'s (finish before start) — `ready=` is explicitly
-  empty, and `in_progress=` is left empty (nothing to list IDs for; an
-  in-flight line surfaces via `serial=`).
-- Pure bash + grep + sed — no jq needed; runs on stock macOS bash 3.2. The
-  parse (lead-position IDs, last-construct deps token, comma-space
-  separator) is byte-identical to `archive-initiative.sh`'s — one grammar,
-  no second dialect.
+  first 🔄's, else first ⬜'s (finish before start) — and `ready=`,
+  `in_progress=`, and `blocked=` are all emitted explicitly empty (nothing
+  to list IDs for; an in-flight line surfaces via `serial=`). Only `phase=`
+  is absent (GRAMMAR-only, as above).
+- Pure bash + standard coreutils (grep, sed, sort, uniq) — no jq needed;
+  runs on stock macOS bash 3.2. The parse (lead-position IDs,
+  last-construct deps token, comma-space separator) is the same grammar
+  `archive-initiative.sh` enforces — one dialect, with the shared ID/token
+  regexes guarded identical by the resolver's suite.
 
 ## Spec provenance
 

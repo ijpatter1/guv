@@ -1,11 +1,13 @@
 #!/bin/bash
 # Tests for .claude/resolve-ready.sh — the deterministic ready-frontier
 # resolver ([6.2] of the plan-as-data spec). The contract is fixed in the
-# phase-docs skill ("Resolver contract"): in_progress= / ready= / blocked=
-# scoped to the current phase, serial resume = first 🔄 else first ready,
-# exit 5 naming offenders on unknown ID / duplicate ID / cycle / missing
-# token / forward cross-phase dep, LEGACY mode = first-⬜-in-document-order
-# with an explicitly empty parallel set.
+# phase-docs skill ("Resolver contract"): ready=/blocked= scoped to the
+# current phase, in_progress= unscoped (in-flight work is finished first
+# wherever it sits), serial resume = first 🔄 else first ready, exit 5
+# naming offenders on unknown ID / duplicate ID / cycle / missing token /
+# forward cross-phase dep / bullet-free tracker, LEGACY mode = line text in
+# serial= (first 🔄's, else first ⬜'s) with ready=/in_progress=/blocked=
+# explicitly empty.
 # Pure bash + grep, no test runner. Run: bash .claude/tests/resolve-ready.test.sh
 set -u
 
@@ -173,6 +175,9 @@ OUT=$(bash "$SCRIPT" "$(fx legacy)" 2>&1); RC=$?
 [ "$RC" -eq 0 ] && [ "$(val mode "$OUT")" = "LEGACY" ] && ok "legacy: exit 0, mode=LEGACY" \
   || no "token-free tracker should resolve as LEGACY (rc=$RC: $OUT)"
 [ "$(val ready "$OUT")" = "" ] && ok "legacy: parallel set explicitly empty" || no "legacy ready= must be empty (got: $OUT)"
+echo "$OUT" | grep -q '^blocked=$' && echo "$OUT" | grep -q '^in_progress=$' \
+  && ok "legacy: blocked= and in_progress= emitted explicitly empty (parser symmetry)" \
+  || no "legacy must emit blocked=/in_progress= as empty lines, not omit them (got: $OUT)"
 [ "$(val serial "$OUT")" = "Deliverable B not started" ] && ok "legacy: serial = first ⬜ in document order" \
   || no "expected serial=Deliverable B not started (got: $OUT)"
 cat > "$(fx legacywip)" <<'MD'

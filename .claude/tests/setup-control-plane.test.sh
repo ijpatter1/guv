@@ -42,6 +42,7 @@ make_harness() {
   echo "export const meta = {}" > "$h/.claude/workflows/evaluate-parallel.js"
   echo "dir-wf main v1" > "$h/.claude/workflows/dir-wf/main.js"
   echo "archive" > "$h/.claude/archive-initiative.sh"
+  echo "resolver" > "$h/.claude/resolve-ready.sh"
   echo '{}' > "$h/.claude/settings.json"
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/commands/.DS_Store"
   echo "$h"
@@ -53,9 +54,9 @@ H=$(make_harness)
 D="$WORK/control"
 run_setup "$H" "$D"
 [ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/rules/guv-core.md" ] \
-  && [ -f "$D/.claude/archive-initiative.sh" ] \
-  && ok "create: core copied (skills, guv rules, archive-initiative.sh present)" \
-  || no "create: core (incl. .claude/rules/guv-*) should be copied to the control plane"
+  && [ -f "$D/.claude/archive-initiative.sh" ] && [ -f "$D/.claude/resolve-ready.sh" ] \
+  && ok "create: core copied (skills, guv rules, archive + resolver scripts present)" \
+  || no "create: core (incl. helper scripts — a new helper missing from copy_core's list is unreachable by sync) should be copied"
 [ -f "$D/.claude/workflows/evaluate-parallel.js" ] \
   && ok "create: workflows dir copied (saved workflows are core)" \
   || no "create: .claude/workflows/ should be copied to the control plane"
