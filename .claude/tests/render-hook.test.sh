@@ -269,7 +269,7 @@ grep -q 'my own hook' "$CP2/.git/hooks/post-commit" \
 # the hook is convenience, never a dependency).
 NR="$WORK/nonrepo"; mkdir -p "$NR/.claude"
 OUT=$(bash "$H/maintainers/setup-control-plane.sh" "$NR" --sync 2>&1); RC=$?
-[ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'not a git repo' \
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q '^\[setup\].*not a git repo.*render hook not installed' \
   && ok "skip-announce: --sync against a non-repo says so, exits 0" \
   || no "a non-repo --sync must announce the hook skip and complete (rc=$RC: $OUT)"
 [ ! -e "$NR/.git" ] \
@@ -278,7 +278,7 @@ OUT=$(bash "$H/maintainers/setup-control-plane.sh" "$NR" --sync 2>&1); RC=$?
 WT="$WORK/wtshape"; mkdir -p "$WT/.claude"
 echo "gitdir: /nowhere" > "$WT/.git"
 OUT=$(bash "$H/maintainers/setup-control-plane.sh" "$WT" --sync 2>&1); RC=$?
-[ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'worktree' \
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q '^\[setup\].*worktree.*render hook not installed' \
   && ok "skip-announce: worktree-shape .git file announced, exits 0" \
   || no "a .git FILE must announce the worktree skip and complete (rc=$RC: $OUT)"
 [ "$(cat "$WT/.git")" = "gitdir: /nowhere" ] \

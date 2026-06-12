@@ -205,6 +205,9 @@ write_render_hook() {
     return 0
   fi
   if [ ! -f "$target" ] && [ "$MODE" = "sync" ]; then
+    # Silent BY DESIGN, not an unannounced skip: --sync doubles as the
+    # template-clone consumer update path, and a project that never had a
+    # git hook must not be handed one (T8 pins the no-creation contract).
     return 0
   fi
   if [ -f "$target" ] && ! grep -q 'Harness-owned' "$target"; then
