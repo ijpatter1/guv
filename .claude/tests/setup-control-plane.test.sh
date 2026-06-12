@@ -6,6 +6,7 @@
 set -u
 
 REAL_SCRIPT="$(cd "$(dirname "$0")/../.." && pwd)/maintainers/setup-control-plane.sh"
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 
 # Maintainer tooling — a consumer repo that deleted maintainers/ still ships
 # this suite, so skip cleanly instead of failing.
@@ -65,7 +66,7 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
   || no "create: .DS_Store leaked into the control plane: $FOUND"
 grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
   || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
-grep -q "auto memory as hints" "$D/CLAUDE.md" \
+tr '\n' ' ' < "$D/CLAUDE.md" 2>/dev/null | tr -s ' ' | grep -q "auto memory as hints" \
   && ok "create: generated CLAUDE.md carries the memory-authority line" \
   || no "generated CLAUDE.md should declare manifest+handoff authority over auto memory"
 # The heredoc is unquoted (it interpolates $CODE_REL) — an unescaped backtick
@@ -148,8 +149,11 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   || no "sync: must not touch CLAUDE.md or the manifest"
 
 # T5 — create-mode never-clobber: re-running create on an existing control
-# plane must not overwrite the manifest, CLAUDE.md, or the test runner
-# ("write ... ONLY if they don't exist yet").
+# plane must not overwrite the manifest or CLAUDE.md ("write ... ONLY if they
+# don't exist yet"). The generated test runner is the exception: it carries no
+# consumer state, so it is harness-owned and refreshed like guv-* rules
+# (entry 2026-06-11T23:17:51Z-15612590 — create-only meant generator
+# improvements never reached existing control planes).
 H=$(make_harness)
 D="$WORK/control4"
 run_setup "$H" "$D"
@@ -163,9 +167,14 @@ grep -q "edited-again" "$D/.claude/rules/guv-core.md" 2>/dev/null \
   || no "create re-run positive control: second run should re-sync the core"
 grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   && grep -q "sentinel-manifest" "$D/.claude/project.json" 2>/dev/null \
-  && grep -q "sentinel-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null \
-  && ok "create re-run: existing manifest/CLAUDE.md/runner not clobbered" \
-  || no "create re-run must not clobber existing control-plane files"
+  && ok "create re-run: existing manifest/CLAUDE.md not clobbered" \
+  || no "create re-run must not clobber the manifest or CLAUDE.md"
+if ! grep -q "sentinel-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null \
+  && grep -q '\[stderr\]' "$D/.claude/run-harness-tests.sh" 2>/dev/null; then
+  ok "create re-run: drifted runner refreshed (harness-owned, no consumer state)"
+else
+  no "create re-run should refresh the generated runner — it is harness-owned"
+fi
 
 # T6 — generated runner enforces the empty-stderr gate: a suite that PASSES but
 # writes to stderr must fail the run (a green summary above a parse error is
@@ -199,6 +208,184 @@ if [ -f "$CI_YML" ]; then
     || no "CI inline loop drifted from the runner: per-suite stderr capture/fail missing"
 else
   echo "  - .github workflow absent (fork) — CI stderr-gate drift guard skips"
+fi
+
+# T8 — --sync refreshes the generated test runner (the same entry as T5's
+# exception: the D3 stderr-gate fix changed the runner heredoc and the live
+# copy had to be hand-edited to match — any drift from the generator is stale
+# harness code, not consumer state).
+H=$(make_harness)
+D="$WORK/control5"
+run_setup "$H" "$D"
+# Fresh create is where chmod is load-bearing: cp from mktemp yields a
+# non-executable mode, so this fails if the chmod line is dropped.
+[ -x "$D/.claude/run-harness-tests.sh" ] \
+  && ok "create: freshly generated runner is executable" \
+  || no "create: freshly generated runner must be executable (cp from mktemp is not)"
+echo "# stale-runner" > "$D/.claude/run-harness-tests.sh"
+OUT=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
+if grep -q '\[stderr\]' "$D/.claude/run-harness-tests.sh" 2>/dev/null \
+  && ! grep -q "stale-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null; then
+  ok "sync: drifted runner refreshed to the generator's content"
+else
+  no "sync must refresh the generated runner (create-only leaves drift in place)"
+fi
+[ -x "$D/.claude/run-harness-tests.sh" ] \
+  && ok "sync: refreshed runner stays executable" \
+  || no "sync: refreshed runner lost its executable bit"
+echo "$OUT" | grep -q "refreshed .claude/run-harness-tests.sh" \
+  && ok "sync: runner refresh announced (not rewritten silently)" \
+  || no "sync must announce the runner refresh"
+OUT2=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
+echo "$OUT2" | grep -q "refreshed .claude/run-harness-tests.sh" \
+  && no "sync: refresh notice should not repeat when the runner is already current" \
+  || ok "sync: refresh notice fires only on change, silent when current"
+
+# T8b — refresh-only on --sync: the runner is dogfooding tooling, but --sync is
+# ALSO the template-clone consumer update path, and a consumer project never had
+# the runner. Syncing into a dest without one must not plant it.
+H=$(make_harness)
+D="$WORK/consumer-clone"
+mkdir -p "$D/.claude"
+run_setup "$H" "$D" --sync
+[ ! -e "$D/.claude/run-harness-tests.sh" ] \
+  && ok "sync: no runner planted where none existed (consumer-project shape)" \
+  || no "sync must not inject the dogfooding runner into a consumer project"
+
+# T9 — DOGFOODING.md re-derived against current reality (Phase 5 D4). The doc
+# documents this script's loop, so its accuracy guards live with this suite.
+# Conditional like T7: a fork may strip individual maintainer docs.
+# Prose guards grep a whitespace-flattened copy — an innocent reflow must not
+# break a phrase guard (it did once, in this deliverable's own wave). The
+# squeeze matters too: a wrapped line ending in a trailing space would
+# otherwise leave a double space in the flat copy and break fixed phrases.
+flat() { tr '\n' ' ' < "$1" | tr -s ' '; }
+DOG="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)/DOGFOODING.md"
+if [ -f "$DOG" ]; then
+  grep -v '\.github' "$DOG" | grep -q 'workflows' \
+    && ok "DOGFOODING: workflows/ present in the synced-core description" \
+    || no "DOGFOODING must name workflows/ among the synced core (Phase 4 addition — the .github/workflows CI path does not count)"
+  grep -q 'build-plugin\.sh' "$DOG" && grep -q 'plugin-src' "$DOG" \
+    && ok "DOGFOODING: plugin generator + authored sources named" \
+    || no "DOGFOODING must name build-plugin.sh and plugin-src/ (Phase 5 tooling)"
+  grep -q 'RELEASING\.md' "$DOG" \
+    && ok "DOGFOODING: RELEASING.md in the what-lives-in-the-harness-repo list" \
+    || no "DOGFOODING must list RELEASING.md among durable maintainer tooling"
+  grep -q 'unreleased' "$DOG" \
+    && ok "DOGFOODING: maintainer disposition — --sync kept for unreleased changes" \
+    || no "DOGFOODING must state why --sync survives the plugin (unreleased changes)"
+  grep -q 'plan-initiative' "$DOG" \
+    && ok "DOGFOODING: ceremony flip acknowledged (seeded task, initiative flips it)" \
+    || no "DOGFOODING must reflect that /plan-initiative can flip the control plane to phased"
+  flat "$DOG" | grep -qi 'replaces harness-owned surfaces[^.]*wholesale' \
+    && ok "DOGFOODING: fallback bullet carries the wholesale-replacement caveat" \
+    || no "DOGFOODING must warn that --sync replaces harness-owned surfaces wholesale (the fact, not the word, same-sentence)"
+  if flat "$DOG" | grep -q 'pinned to the template repo'; then
+    no "DOGFOODING: stale single-pin CI phrasing survives ('pinned to the template repo')"
+  else
+    ok "DOGFOODING: stale single-pin CI phrasing gone"
+  fi
+  # Positive control: an absence grep passes vacuously if the pattern is typo'd.
+  printf 'x pinned to the template repo x\n' | grep -q 'pinned to the template repo' \
+    && ok "DOGFOODING: stale-phrase decoder matches a planted violation" \
+    || no "DOGFOODING: stale-phrase decoder broken (planted violation not matched)"
+else
+  echo "  - maintainers/DOGFOODING.md absent (fork) — re-derivation guards skip"
+fi
+
+# T10 — the README's template-clone fallback states the DECIDED consumer
+# disposition (Phase 5 D4): an existing clone is told whether to migrate to
+# plugin updates or keep syncing — an answer, not an inherited parenthetical.
+# Gated on the README being the TEMPLATE's: /init-project replaces README.md
+# with a rendered project README, and deleting maintainers/ is optional — a
+# post-init consumer shape must skip here, not fail (the consumer-suite
+# contract: correct consumer usage never reads as a violation). The detector
+# is the explicit guv-template-readme marker comment, not the H1 — a headline
+# reword must not silently flip these guards into the skip branch. SCP_TEST_README
+# is the self-check seam (T10b re-invokes with a planted rendered README).
+RM="${SCP_TEST_README:-$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/README.md}"
+if [ -f "$RM" ] && ! grep -q 'guv-template-readme' "$RM"; then
+  # Detector-drift probe: a marker-less README that still carries template-only
+  # content is not a rendered project README — it means the marker (or this
+  # detector's literal) drifted, and skipping would silently disable the guards
+  # in the canonical repo. Fail loud instead. (The probe literal also lives in
+  # evaluate-parallel.test.sh's README gate — keep the two in step.)
+  if flat "$RM" | grep -qi 'replaces harness-owned surfaces'; then
+    no "README carries template content but no guv-template-readme marker — marker/detector drift"
+  else
+    echo "  - README.md is a rendered project README, not the template's — disposition guards skip"
+  fi
+elif [ -f "$RM" ]; then
+  flat "$RM" | grep -qiE 'keep the clone|keep syncing' && grep -qi 'migrat' "$RM" \
+    && ok "README: existing clones told migrate-or-keep (decided disposition)" \
+    || no "README fallback must state the disposition for existing template clones"
+  grep -qiE 'double.load|dual.load' "$RM" \
+    && ok "README: migration guidance names the double-load hazard" \
+    || no "README migration guidance must warn about double-loading the copied core"
+  # The two corrections that make the recipe safe to follow verbatim: deleting
+  # hooks/ without de-registering them leaves settings.json invoking missing
+  # scripts on every tool call, and guv-* rules are project-resident (the plugin
+  # cannot supply rules at runtime) so "delete the copied core" must not cover them.
+  flat "$RM" | grep -qF 'hooks` block from `.claude/settings.json' \
+    && ok "README: migration de-registers the hooks block from settings.json" \
+    || no "README migration must say to remove the hooks block from .claude/settings.json"
+  flat "$RM" | grep -qF 'Keep `.claude/rules/guv-*.md' \
+    && ok "README: migration keeps guv-* rules (plugin cannot supply rules at runtime)" \
+    || no "README migration must tell clones to KEEP .claude/rules/guv-*.md"
+  # The customized-fork branch must be honest about what --sync does: copy_core
+  # replaces harness-owned surfaces wholesale, which reverts exactly the edits
+  # the fallback audience is invited to make.
+  flat "$RM" | grep -qi 'replaces harness-owned surfaces[^.]*wholesale' \
+    && ok "README: customized forks warned that --sync replaces harness-owned surfaces wholesale" \
+    || no "README must warn customized forks that --sync reverts harness-owned edits"
+else
+  echo "  - README.md absent (fork) — disposition guards skip"
+fi
+
+# T10b — seamed self-checks for the README gate, BOTH directions (the b0310b2
+# convention: a skip path is only trusted when a re-invocation proves it fires
+# and is visible — and a detector is only trusted when a re-invocation proves
+# the guards RUN where it matches; one-directional self-checks are how a
+# typo'd detector silently disables guards with every suite green).
+if [ -z "${SCP_TEST_INNER:-}" ]; then
+  FAKE="$WORK/rendered-readme.md"
+  echo "# my-rendered-project" > "$FAKE"
+  INNER=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "rendered project README" \
+    && ! echo "$INNER" | grep -q "decided disposition"; then
+    ok "rendered-README shape visibly skips the disposition guards (seamed self-check)"
+  else
+    no "a rendered README must skip the disposition guards visibly (and not run them)"
+  fi
+  # Template-shape positive control: a README CARRYING the marker but missing
+  # the disposition content must make the guards run and fail — proves the
+  # detector matches the real marker and the guards execute behind it.
+  FAKE2="$WORK/marker-no-content.md"
+  printf '# some readme\n<!-- guv-template-readme -->\n' > "$FAKE2"
+  INNER2=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE2" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER2" | grep -q "must state the disposition"; then
+    ok "marker-bearing README runs the disposition guards (template-shape positive control)"
+  else
+    no "with the marker present the disposition guards must RUN (and fail on empty content)"
+  fi
+  # Absent branch, same treatment as the sibling suite's three-branch checks.
+  INNER3=$(SCP_TEST_INNER=1 SCP_TEST_README="$WORK/no-such-readme.md" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER3" | grep -q "README.md absent"; then
+    ok "absent-README shape visibly skips the disposition guards (seamed self-check)"
+  else
+    no "an absent README must skip the disposition guards visibly"
+  fi
+  # Drift branch: marker-less but phrase-bearing must fail LOUD — proves the
+  # probe literal matches the live README phrase (a typo'd probe would silently
+  # degrade drift back to a plain skip).
+  FAKE4="$WORK/drifted-readme.md"
+  printf '# readme\n--sync replaces harness-owned surfaces wholesale.\n' > "$FAKE4"
+  INNER4=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE4" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER4" | grep -q "marker/detector drift"; then
+    ok "marker-less template content fails loud (drift-probe self-check)"
+  else
+    no "a marker-less README with template content must fail loud, not skip"
+  fi
 fi
 
 echo ""

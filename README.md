@@ -1,5 +1,10 @@
 # Governor (guv) — a control plane for Claude Code
 
+<!-- guv-template-readme: this is the TEMPLATE repo's README — /init-project
+     replaces this file in rendered projects. Test suites key consumer-shape
+     skips on this marker (it survives headline rewording; remove it only if
+     you mean to disable those guards). -->
+
 A governor is a device that sits on a powerful engine and keeps it from running away — restraint built into the mechanism. That is what this harness adds to autonomous Claude Code sessions: a machine-readable project manifest, ceremony tiers, calibrated QA reviewers, deterministic safety hooks, a committed team-visible session record, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
 
 Installs as the versioned **guv plugin** from this repo's marketplace; cloning the repo as a template remains the fallback path.
@@ -61,7 +66,39 @@ Under a plugin install every harness command carries the `guv:` prefix —
 `/guv:init-project`, `/guv:status`, `/guv:handoff` — and the reviewer agents
 resolve as `guv:evaluator` / `guv:product-reviewer`.
 
-**Fallback — template-clone** (unversioned; updates via `setup-control-plane.sh --sync`):
+**Fallback — template-clone** (unversioned): for forks that customize harness-owned
+files (a plugin's surfaces aren't editable; a clone's are) or environments without
+plugin support. Updates arrive via `maintainers/setup-control-plane.sh --sync` —
+supported indefinitely, though new surface ships plugin-first.
+
+**Already on a template clone?** The decided disposition: **migrate to the plugin**
+if you haven't customized harness-owned files. In order:
+
+1. Install the plugin (marketplace add + install, as above).
+2. Delete the copied surfaces the plugin now supplies at runtime, so the two
+   copies don't double-load: `.claude/commands/`, `.claude/skills/`,
+   `.claude/agents/`, `.claude/hooks/`, the loose helper scripts
+   (`resolve-stack.sh` and friends), and harness-shipped workflows. If you've
+   added files of your own inside those directories (a custom skill or agent),
+   move them aside first — the directories have no ownership convention, so
+   the deletion takes everything.
+3. **Remove the `hooks` block from `.claude/settings.json`** — it registers the
+   just-deleted hook scripts by path, so every tool call would invoke a missing
+   file. The plugin's own `hooks.json` takes over. This is a hand edit:
+   `/guv:scaffold` never touches an existing settings file.
+4. Keep everything else. **Keep `.claude/rules/guv-*.md`** in particular: rules
+   load from the project, not from the plugin — the plugin only re-deploys them
+   via `/guv:scaffold` — so deleting them strips the engineering-rules layer with
+   nothing taking over. Your manifest (and its schema file), docs, feedback log,
+   unprefixed rules, and consumer-saved workflows are consumer-owned and stay.
+
+If you **have** customized harness-owned surfaces, keep the clone — but update
+deliberately: `--sync` replaces harness-owned surfaces **wholesale** (commands,
+skills, agents, hooks, settings, helper scripts — only unprefixed rules files and
+consumer-saved workflows are ownership-protected), so a blind sync reverts exactly
+the customizations this path exists for. Re-apply your edits after a sync, pull
+upstream changes selectively, or move the customizations into consumer-owned
+surfaces (unprefixed rules, your own workflows) and then migrate.
 
 Click **"Use this template"** on GitHub, or:
 
@@ -207,7 +244,8 @@ code .
 ├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)
 │   ├── DOGFOODING.md                  # How to dogfood the harness via a control-plane split
 │   ├── RELEASING.md                   # Release flow: bump policy, checklist, feedback drain
-│   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane
+│   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane (also the
+│   │                                  #   template-clone fallback's --sync update path)
 │   ├── build-plugin.sh                # Generates plugin/ from .claude/ + plugin-src/ (Phase 5)
 │   └── plugin-src/                    # Authored plugin-only sources (manifest, hooks.json, guv-only skills)
 ├── plugin/                            # GENERATED — the guv plugin package; never hand-edit, run

@@ -86,7 +86,11 @@ rm -f "$F"
 # ── Skill-text guards (Phase 5 D3): the drain is live, the Half-B deferral is gone ──
 # The deferral-language class, as a function so T9's positive control can prove
 # the detector fires (standing rule: detector-style guards ship a positive control).
-has_deferral() { grep -qiE 'half[ -]b|DISTRIBUTION_OPTIONS|not built yet' "$1"; }
+# Flattened first: 'not built yet' wrapping across lines must not hide a
+# deferral from this ABSENCE detector (the wrap class, swept in Phase 5 D4).
+# 'half[ -]b\b' is boundary-anchored so flattening doesn't make innocent
+# cross-line prose ("...the second half\nbecause...") read as a deferral.
+has_deferral() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qiE 'half[ -]b\b|DISTRIBUTION_OPTIONS|not built yet'; }
 
 # The plugin copy exists only where plugin/ does — a template-clone fork may
 # delete the generated tree (README's note), and that must skip, not fail.
@@ -117,13 +121,16 @@ done
 # resolved kept distinct (fixed before any release)
 for copy in "${COPIES[@]}"; do
   label="${copy#"$ROOT"/}"
-  grep -q 'issue or PR against the harness repo' "$copy" \
+  # Multi-word phrase guards grep a whitespace-flattened copy — an innocent
+  # reflow must not break them (the class swept in Phase 5 D4).
+  COPY_FLAT=$(tr '\n' ' ' < "$copy" 2>/dev/null | tr -s ' ')
+  echo "$COPY_FLAT" | grep -q 'issue or PR against the harness repo' \
     && ok "drain step 1 (issues/PRs) in $label" \
     || no "$label must document: upstream entries become an issue or PR against the harness repo"
-  grep -q 'on the release that ships the fix' "$copy" \
+  echo "$COPY_FLAT" | grep -q 'on the release that ships the fix' \
     && ok "drain step 2 (graduated on release) in $label" \
     || no "$label must document: graduated flips on the release that ships the fix"
-  grep -q 'fixed before any release' "$copy" \
+  echo "$COPY_FLAT" | grep -q 'fixed before any release' \
     && ok "graduated vs resolved distinction in $label" \
     || no "$label must distinguish resolved (fixed before any release) from graduated"
 

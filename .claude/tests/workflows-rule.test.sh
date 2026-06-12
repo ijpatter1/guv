@@ -44,17 +44,23 @@ grep -q '`product-reviewer`' "$RULE" \
 
 # T3 — ad-hoc reviewers are prohibited, stated as a prohibition (the anchor
 # requires the prohibition verb in the same sentence, not just the term;
-# newlines are flattened first since prose wraps mid-sentence).
+# newlines are flattened first since prose wraps mid-sentence). Deliberately
+# unsqueezed — the lone exception to the D4 squeeze sweep: the [^.]* gaps
+# absorb doubled spaces, so no fixed phrase here can break on a wrap. If the
+# gaps are ever replaced with literal phrases, add | tr -s ' '.
 tr '\n' ' ' < "$RULE" | grep -qiE 'ad-hoc [^.]*prohibit|prohibit[^.]* ad-hoc' \
   && ok "prohibits ad-hoc reviewer agents" \
   || no "rule must prohibit ad-hoc reviewer agents (as a prohibition)"
 
 # T4 — the planning/execution boundary: workflows are an execution primitive;
-# the plan of record stays in the phase docs.
-grep -qi 'plan of record' "$RULE" \
+# the plan of record stays in the phase docs. Multi-word phrase guards grep a
+# whitespace-flattened copy — an innocent reflow must not break them (the
+# class swept in Phase 5 D4; T3 above already flattened).
+RULE_FLAT=$(tr '\n' ' ' < "$RULE" 2>/dev/null | tr -s ' ')
+echo "$RULE_FLAT" | grep -qi 'plan of record' \
   && ok "states the plan-of-record boundary" \
   || no "rule must state that the plan of record stays in the phase docs"
-grep -qi 'execution primitive' "$RULE" \
+echo "$RULE_FLAT" | grep -qi 'execution primitive' \
   && ok "frames workflows as an execution primitive" \
   || no "rule must frame workflows as an execution primitive"
 
@@ -62,7 +68,7 @@ grep -qi 'execution primitive' "$RULE" \
 grep -qi 'fan-out' "$RULE" \
   && ok "scopes ultracode to wide mechanical fan-out" \
   || no "rule must scope ultracode to wide mechanical fan-out"
-grep -qi 'dropped back' "$RULE" \
+echo "$RULE_FLAT" | grep -qi 'dropped back' \
   && ok "says ultracode is dropped back after" \
   || no "rule must say ultracode is dropped back after the fan-out"
 

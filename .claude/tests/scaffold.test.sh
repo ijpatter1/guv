@@ -209,7 +209,7 @@ if [ -f "$SK" ]; then
   grep -q 'resolve-stack\.sh' "$SK" \
     && ok "scaffold skill writes the manifest via the resolver" \
     || no "scaffold skill must use resolve-stack.sh for the manifest"
-  grep -qE '(--docker|Docker tier)' "$SK" \
+  tr '\n' ' ' < "$SK" | tr -s ' ' | grep -qE '(--docker|Docker tier)' \
     && ok "scaffold skill offers the optional Docker tier" \
     || no "scaffold skill must offer the Docker tier option"
 else

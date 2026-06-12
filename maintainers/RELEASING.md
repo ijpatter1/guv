@@ -85,14 +85,23 @@ that carried the fix to consumers. `routing: local` entries never enter this
 flow — they are project-side adaptations, handled in the consumer's control
 plane (see the `log-feedback` skill).
 
+One class of upstream fix has **no release vehicle**: files the plugin never
+ships (maintainer tooling under `maintainers/`, repo-only docs). A version
+bump would carry nothing to plugin consumers; the audience for these files
+tracks the repo itself. Delivery is therefore the **merge to the default branch** —
+the entry graduates on that merge, and the issue closes naming the
+merge commit instead of a version. (First of this class: the runner-sync fix for
+entry `2026-06-11T23:17:51Z-15612590`.)
+
 ## Worked example (the drain's first full pass)
 
 Entry `2026-06-10T23:11:39Z-199208882` — "citation checker flags all-decimal
 feedback-entry id suffixes as unresolvable commit hashes" (minor, upstream,
 logged session-2026-06-10-002):
 
-1. **Issue:** [#7](https://github.com/ijpatter1/claude-code-sandbox/issues/7),
-   filed 2026-06-11 from the entry's summary/detail, citing the entry id.
+1. **Issue:** [#7](https://github.com/ijpatter1/guv/issues/7), filed
+   2026-06-11 from the entry's summary/detail, citing the entry id (under the
+   pre-rename slug; the rename redirects).
 2. **Fix:** `4c7032e` — all-decimal tokens excluded from hash candidates in
    `check-citations.sh`, commit message referencing #7; red test first
    (`check-citations.test.sh` T7, with a same-file positive control).
@@ -105,7 +114,7 @@ produced.** The v0.1.0 tag, the graduation, and #7's closure all happened while
 the shipping branch was still an open PR (#8): checklist step 5
 (merge-before-tag) was added in the review wave that followed, in direct
 response. v0.1.0 was never served from the default branch and a shipped file
-changed after its tag, so 0.1.1 — to be tagged on the merge commit once #8
-lands — will be the first release consumers can actually install (see the
-CHANGELOG's release-integrity note). The flow above is the contract; this
-postscript is what its first execution taught.
+changed after its tag, so 0.1.1 — tagged on the merge commit (`8da7200`)
+when #8 landed — is the first release consumers can actually install (see
+the CHANGELOG's release-integrity note). The flow above is the contract;
+this postscript is what its first execution taught.
