@@ -430,6 +430,32 @@ if [ -f "$BUILD" ]; then
     trap - EXIT
   fi
 
+  # T15c — glob-derived helper registry ([7.1]): a helper dropped into
+  # .claude/ ships and gets path-rewritten with ZERO enumeration-list edits.
+  # Fixture: a throwaway helper plus a command mentioning it; rebuild; the
+  # helper must land in scripts/ byte-identical AND the mention must be
+  # rewritten to ${CLAUDE_PLUGIN_ROOT}. Red until the HELPERS list and
+  # rewrite_paths derive from the source tree.
+  FIX3="$SRC/zzregistry-fixture.sh"
+  FIX3CMD="$SRC/commands/zzregistry-fixture-cmd.md"
+  if [ -e "$FIX3" ] || [ -e "$FIX3CMD" ]; then
+    no "registry fixture paths unexpectedly exist: $FIX3 / $FIX3CMD"
+  else
+    trap 'rm -f "$FIX3" "$FIX3CMD"' EXIT
+    printf '#!/bin/bash\necho zzregistry-fixture\n' > "$FIX3"
+    printf 'Registry fixture.\n\nRun `bash .claude/zzregistry-fixture.sh` to exercise the registry.\n' > "$FIX3CMD"
+    TMP4=$(mktemp -d)
+    if bash "$BUILD" --out "$TMP4/plugin" >/dev/null 2>&1 \
+       && cmp -s "$FIX3" "$TMP4/plugin/scripts/zzregistry-fixture.sh" \
+       && grep -q 'CLAUDE_PLUGIN_ROOT.*scripts/zzregistry-fixture\.sh' "$TMP4/plugin/skills/zzregistry-fixture-cmd/SKILL.md"; then
+      ok "fixture helper ships and rewrites with zero enumeration-list edits (registry is glob-derived)"
+    else
+      no "a dropped-in helper must ship in scripts/ and be path-rewritten without touching any list"
+    fi
+    rm -rf "$TMP4" "$FIX3" "$FIX3CMD"
+    trap - EXIT
+  fi
+
   # T16 — consumer-fork resilience: with the build script absent, the whole
   # suite must still exit 0 (the drift guard skips; nothing else needs
   # maintainers/). The inner output must SHOW the skip fired — exit 0 alone

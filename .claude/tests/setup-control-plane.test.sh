@@ -61,6 +61,22 @@ run_setup "$H" "$D"
   && ok "create: workflows dir copied (saved workflows are core)" \
   || no "create: .claude/workflows/ should be copied to the control plane"
 
+# T1b — glob-derived helper registry ([7.1]): a helper the enumeration never
+# heard of must reach the plane on create AND refresh on --sync, with zero
+# copy_core edits. Red until copy_core derives the .sh set by glob.
+H2=$(make_harness)
+echo "fixture v1" > "$H2/.claude/zzregistry-fixture.sh"
+D2="$WORK/control-registry"
+run_setup "$H2" "$D2"
+[ -f "$D2/.claude/zzregistry-fixture.sh" ] \
+  && ok "create: unlisted helper reaches the plane (registry is glob-derived)" \
+  || no "create: a dropped-in helper must be copied without touching copy_core"
+echo "fixture v2" > "$H2/.claude/zzregistry-fixture.sh"
+run_setup "$H2" "$D2" --sync
+grep -q "fixture v2" "$D2/.claude/zzregistry-fixture.sh" 2>/dev/null \
+  && ok "sync: unlisted helper refreshed (registry is glob-derived)" \
+  || no "sync: a dropped-in helper must refresh without touching copy_core"
+
 # T2 — ...but no .DS_Store comes along, at any depth.
 FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
 [ -z "$FOUND" ] && ok "create: no .DS_Store copied into the control plane" \
