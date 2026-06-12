@@ -133,10 +133,17 @@ OUT=$(bash "$SCRIPT" insert "$SESH" insert '**[6.4]** Ghost dep `[deps: 6.99]`' 
 [ "$RC" -eq 5 ] && cmp -s "$T" "$WORK/base.md" \
   && ok "insert: unknown dep rejected by validation, tracker untouched" || no "ghost-dep insert should exit 5 unchanged (rc=$RC: $OUT)"
 
+# A forward cross-phase dep is an ordinary edge ([7.6] repealed the lint
+# with the phase barrier) — the engine accepts it like any other dep.
 T="$(fresh)"
 OUT=$(bash "$SCRIPT" insert "$SESH" insert '**[6.4]** Jumps ahead `[deps: 7.1]`' "$T" 2>&1); RC=$?
-[ "$RC" -eq 5 ] && cmp -s "$T" "$WORK/base.md" \
-  && ok "insert: forward cross-phase dep rejected, tracker untouched" || no "forward-dep insert should exit 5 unchanged (rc=$RC: $OUT)"
+[ "$RC" -eq 0 ] && grep -q '^- ⬜ \*\*\[6\.4\]\*\* Jumps ahead `\[deps: 7\.1\]`$' "$T" \
+  && ok "insert: forward cross-phase dep accepted (ordinary edge per [7.6])" \
+  || no "forward-dep insert should land like any other (rc=$RC: $OUT)"
+RES=$(bash "$SRC/resolve-ready.sh" "$T" 2>&1)
+echo "$RES" | grep -E '^blocked=' | grep -q '6.4:7.1' \
+  && ok "insert: forward edge resolves with the forward root named" \
+  || no "6.4 should be blocked by 7.1 (got: $RES)"
 
 T="$(fresh)"
 OUT=$(bash "$SCRIPT" insert "$SESH" insert '**[5.3]** Into history `[deps: none]`' "$T" 2>&1); RC=$?

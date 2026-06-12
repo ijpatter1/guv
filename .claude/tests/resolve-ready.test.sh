@@ -1,13 +1,16 @@
 #!/bin/bash
 # Tests for .claude/resolve-ready.sh — the deterministic ready-frontier
-# resolver ([6.2] of the plan-as-data spec). The contract is fixed in the
-# phase-docs skill ("Resolver contract"): ready=/blocked= scoped to the
-# current phase, in_progress= unscoped (in-flight work is finished first
+# resolver ([6.2] of the plan-as-data spec; cross-phase frontier per [7.6]).
+# The contract is fixed in the phase-docs skill ("Resolver contract"):
+# ready=/blocked= span ALL phases — every open ⬜ is either ready or blocked;
+# deps are the only ordering and phase= demotes to reporting (first phase
+# with open work) — in_progress= unscoped (in-flight work is finished first
 # wherever it sits), serial resume = first 🔄 else first ready, exit 5
 # naming offenders on unknown ID / duplicate ID / cycle / missing token /
-# forward cross-phase dep / bullet-free tracker, LEGACY mode = line text in
-# serial= (first 🔄's, else first ⬜'s) with ready=/in_progress=/blocked=
-# explicitly empty.
+# bullet-free tracker (a forward cross-phase dep is an ordinary edge — the
+# MALFORMED rule repealed with the phase barrier whose lint companion it
+# was), LEGACY mode = line text in serial= (first 🔄's, else first ⬜'s)
+# with ready=/in_progress=/blocked= explicitly empty.
 # Pure bash + grep, no test runner. Run: bash .claude/tests/resolve-ready.test.sh
 set -u
 
@@ -24,10 +27,11 @@ fx() { printf '%s\n' "$WORK/$1.md"; }
 val() { echo "$2" | grep -E "^$1=" | head -1 | sed "s/^$1=//"; }
 
 # ── Fixture: this initiative's own shape at plan generation — 6.1 ✅, the
-# rest ⬜. Hand-computed frontier: ready = 6.2 6.3 (deps on ✅ 6.1);
-# blocked = 6.4 by 6.3 (first unsatisfied, itself ready), 6.5 by 6.2;
-# in_progress empty; serial = 6.2. Phase 7 items NOT in ready despite
-# 7.1/7.3 having `none` deps — current phase scope.
+# rest ⬜. Hand-computed frontier: ready = 6.2 6.3 (deps on ✅ 6.1) and the
+# cross-phase 7.1 7.3 (`none` deps — the phase barrier stopped gating
+# dispatch at [7.6]); blocked = 6.4 by 6.3 (first unsatisfied, itself
+# ready), 6.5 by 6.2; in_progress empty; serial = 6.2 (first ready,
+# document order). phase= still reports 6, the first phase with open work.
 cat > "$(fx own)" <<'MD'
 # Phase Status Tracker
 
@@ -53,7 +57,7 @@ OUT=$(bash "$SCRIPT" "$(fx own)" 2>&1); RC=$?
 [ "$(val mode "$OUT")" = "GRAMMAR" ] && ok "own: mode=GRAMMAR" || no "expected mode=GRAMMAR (got: $OUT)"
 [ "$(val phase "$OUT")" = "6" ] && ok "own: phase=6" || no "expected phase=6 (got: $OUT)"
 [ "$(val in_progress "$OUT")" = "" ] && ok "own: in_progress empty" || no "expected empty in_progress (got: $OUT)"
-[ "$(val ready "$OUT")" = "6.2 6.3" ] && ok "own: ready=6.2 6.3 (document order)" || no "expected ready=6.2 6.3 (got: $OUT)"
+[ "$(val ready "$OUT")" = "6.2 6.3 7.1 7.3" ] && ok "own: ready=6.2 6.3 7.1 7.3 (document order, cross-phase)" || no "expected ready=6.2 6.3 7.1 7.3 (got: $OUT)"
 [ "$(val blocked "$OUT")" = "6.4:6.3 6.5:6.2" ] && ok "own: blocked named with root blocker" \
   || no "expected blocked=6.4:6.3 6.5:6.2 (got: $OUT)"
 [ "$(val serial "$OUT")" = "6.2" ] && ok "own: serial=6.2 (first ready)" || no "expected serial=6.2 (got: $OUT)"
@@ -104,7 +108,11 @@ OUT=$(bash "$SCRIPT" "$(fx crossback)" 2>&1); RC=$?
   || no "expected blocked=6.1:5.2 (got: $OUT)"
 [ "$(val ready "$OUT")" = "6.2" ] && ok "crossback: ✅ prior-phase dep satisfies" || no "expected ready=6.2 (got: $OUT)"
 
-# T5 — forward cross-phase dep is MALFORMED: exit 5, offending ID named.
+# T5 — forward cross-phase dep is an ORDINARY EDGE ([7.6]: the MALFORMED
+# rule repealed with the phase barrier whose lint companion it was): the
+# fixture RESOLVES — the dependent is blocked with the forward root named,
+# the later-phase item is ready while the earlier phase is open, and phase=
+# still reports the first open phase — under both output modes.
 cat > "$(fx fwd)" <<'MD'
 ## Phase 6 — Build
 
@@ -115,8 +123,19 @@ cat > "$(fx fwd)" <<'MD'
 - ⬜ **[7.1]** Future `[deps: none]`
 MD
 OUT=$(bash "$SCRIPT" "$(fx fwd)" 2>&1); RC=$?
-[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "6.1" && echo "$OUT" | grep -qi "forward" \
-  && ok "forward dep: exit 5, offender named" || no "forward cross-phase dep should exit 5 naming 6.1 (rc=$RC: $OUT)"
+[ "$RC" -eq 0 ] && ok "forward dep: resolves (ordinary edge, exit 0)" \
+  || no "forward cross-phase dep must resolve (rc=$RC: $OUT)"
+[ "$(val phase "$OUT")" = "6" ] && ok "forward dep: phase= still reports the first open phase" \
+  || no "expected phase=6 (got: $OUT)"
+[ "$(val ready "$OUT")" = "7.1" ] && ok "forward dep: later-phase item ready while an earlier phase is open" \
+  || no "expected ready=7.1 (got: $OUT)"
+[ "$(val blocked "$OUT")" = "6.1:7.1" ] && ok "forward dep: dependent blocked with the forward root named" \
+  || no "expected blocked=6.1:7.1 (got: $OUT)"
+JF=$(bash "$SCRIPT" "$(fx fwd)" --json 2>/dev/null); RCJ=$?
+[ "$RCJ" -eq 0 ] && echo "$JF" | jq -e '.phase==6 and .frontier.ready==["7.1"]
+  and (.frontier.blocked|map(.id+":"+.blocked_by))==["6.1:7.1"]' >/dev/null \
+  && ok "forward dep: --json agrees (ready, blocked root, reporting phase)" \
+  || no "forward-dep fixture must resolve identically under --json (rc=$RCJ: $JF)"
 
 # T6 — cycle: exit 5, the cycle's IDs named.
 cat > "$(fx cycle)" <<'MD'
@@ -368,9 +387,10 @@ echo "$JS" | jq -e '[.deliverables[].status] == ["done","in_progress","todo","de
   && ok "json: markers map to done/in_progress/todo/descoped" \
   || no "status vocabulary must be done/in_progress/todo/descoped (got: $(echo "$JS" | jq -c '[.deliverables[].status]'))"
 
-# T12d — exit-5 parity: cycle and forward-dep fixtures fail identically
-# under both output modes (same rc, same stderr — one resolver, one gate).
-for bad in cycle fwd; do
+# T12d — exit-5 parity: cycle and unknown-dep fixtures fail identically
+# under both output modes (same rc, same stderr — one resolver, one gate;
+# unknown ID + cycle are the whole semantic MALFORMED set post-[7.6]).
+for bad in cycle unknown; do
   E1=$(bash "$SCRIPT" "$(fx $bad)" 2>&1 >/dev/null); R1=$?
   E2=$(bash "$SCRIPT" "$(fx $bad)" --json 2>&1 >/dev/null); R2=$?
   if [ "$R1" -eq 5 ] && [ "$R2" -eq 5 ] && [ "$E1" = "$E2" ]; then
@@ -443,7 +463,8 @@ OUT=$(PATH=/nonexistent /bin/bash "$SCRIPT" "$(fx own)" --json 2>&1); RC=$?
 
 # T12i — the post-A-001 shape of this initiative's own tracker (7 Phase-6
 # deliverables, 6.5 re-pointed at 6.6, 6.7 chained behind 6.5), hand-computed:
-# ready = 6.6 alone; 6.5 and 6.7 both blocked with root 6.6; serial = 6.6.
+# ready = 6.6 plus the cross-phase 7.1 ([7.6]); 6.5 and 6.7 both blocked
+# with root 6.6; serial = 6.6 (first ready, document order).
 cat > "$(fx own2)" <<'MD'
 ## Phase 6 — Plan as Data
 
@@ -460,11 +481,61 @@ cat > "$(fx own2)" <<'MD'
 - ⬜ **[7.1]** Plumbing extraction `[deps: none]`
 MD
 J2=$(bash "$SCRIPT" "$(fx own2)" --json 2>/dev/null)
-echo "$J2" | jq -e '.frontier.ready==["6.6"] and .frontier.serial=="6.6"
+echo "$J2" | jq -e '.frontier.ready==["6.6","7.1"] and .frontier.serial=="6.6"
   and (.frontier.blocked|map(.id+":"+.blocked_by))==["6.5:6.6","6.7:6.6"]
   and .phases==[6,7] and (.deliverables|length==8)' >/dev/null \
   && ok "json: post-amendment own-tracker shape matches the hand-computed frontier" \
   || no "post-A-001 fixture frontier wrong (got: $(echo "$J2" | jq -c .frontier))"
+
+# T13 — the [7.6] acceptance fixture: this initiative's own tracker with
+# Phase 6 complete and Phases 7–8 open (the live shape at [7.6]'s landing,
+# 7.7 already ✅). Hand-computed: ready = 7.1 7.2 7.3 7.6 (7.2's dep 6.2 is
+# ✅); blocked = 7.4 and 7.5 by 7.1, every 8.x by 7.2 (transitive roots);
+# phase=7 reports the first open phase; serial = 7.1.
+cat > "$(fx own3)" <<'MD'
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Grammar amendment `[deps: none]`
+- ✅ **[6.2]** Resolver `[deps: 6.1]`
+- ✅ **[6.3]** Mutation primitive `[deps: 6.1]`
+- ✅ **[6.4]** Docs sweep `[deps: 6.1, 6.3]`
+- ✅ **[6.5]** Status render `[deps: 6.6]`
+- ✅ **[6.6]** status.json emission `[deps: 6.2]`
+- ✅ **[6.7]** Self-aware regeneration `[deps: 6.5]`
+
+## Phase 7 — Execution Surfaces
+
+- ⬜ **[7.1]** Plumbing extraction `[deps: none]`
+- ⬜ **[7.2]** Entry split `[deps: 6.2]`
+- ⬜ **[7.3]** Single-writer hook `[deps: none]`
+- ⬜ **[7.4]** Gated merge queue `[deps: 7.1, 7.3]`
+- ⬜ **[7.5]** Lane dispatch `[deps: 6.2, 7.4]`
+- ⬜ **[7.6]** Cross-phase frontier `[deps: 6.2, 6.6]`
+- ✅ **[7.7]** Installed test suite `[deps: none]`
+
+## Phase 8 — Grammar, Rename, Go-Public Prep
+
+- ⬜ **[8.1]** Routing collapse `[deps: 7.2]`
+- ⬜ **[8.2]** Verb grammar `[deps: 8.1, 7.5]`
+- ⬜ **[8.3]** Rename sweep `[deps: 8.2, 7.5]`
+- ⬜ **[8.4]** Go-public gate `[deps: 8.3]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx own3)" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && [ "$(val phase "$OUT")" = "7" ] \
+  && ok "own3: resolves with phase=7 (first open phase, reporting)" \
+  || no "own3 should resolve with phase=7 (rc=$RC: $OUT)"
+[ "$(val ready "$OUT")" = "7.1 7.2 7.3 7.6" ] \
+  && ok "own3: frontier spans Phases 7 AND 8 — deps-satisfied items of both listed" \
+  || no "expected ready=7.1 7.2 7.3 7.6 (got: $OUT)"
+[ "$(val blocked "$OUT")" = "7.4:7.1 7.5:7.1 8.1:7.2 8.2:7.2 8.3:7.2 8.4:7.2" ] \
+  && ok "own3: 8.x blocked with transitive roots named" \
+  || no "expected 8.x blocked by 7.2, 7.4/7.5 by 7.1 (got: $OUT)"
+[ "$(val serial "$OUT")" = "7.1" ] && ok "own3: serial=7.1 (first ready, document order)" \
+  || no "expected serial=7.1 (got: $OUT)"
+J3=$(bash "$SCRIPT" "$(fx own3)" --json 2>/dev/null)
+echo "$J3" | jq -e '.phase==7 and .frontier.ready==["7.1","7.2","7.3","7.6"]' >/dev/null \
+  && ok "own3: --json agrees (cross-phase ready under both output modes)" \
+  || no "own3 --json frontier wrong (got: $(echo "$J3" | jq -c .frontier))"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

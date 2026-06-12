@@ -49,10 +49,11 @@ val() { echo "$2" | grep -E "^$1=" | head -1 | sed "s/^$1=//"; }
 island() { sed -n '/id="status-data"/{n;p;}' | sed 's|<\\/|</|g'; }
 
 # ── Fixture: a GRAMMAR tracker exercising every status. Hand-computed
-# frontier: in_progress=6.2, ready=6.3 (deps ✅), blocked=6.4:6.2,
-# serial=6.2 (first 🔄). 6.5 is ❌ descoped; 7.1 sits outside the current
-# phase. The renderer gets this AS status.json via the resolver — the suite
-# itself exercises the one sanctioned production chain.
+# frontier: in_progress=6.2, ready=6.3 7.1 (deps ✅; 7.1 is the cross-phase
+# item — the frontier spans all phases per [7.6]), blocked=6.4:6.2,
+# serial=6.2 (first 🔄). 6.5 is ❌ descoped. The renderer gets this AS
+# status.json via the resolver — the suite itself exercises the one
+# sanctioned production chain.
 cat > "$WORK/own.md" <<'MD'
 # Phase Status Tracker
 
@@ -111,6 +112,12 @@ echo "$ISLAND" | jq -e . >/dev/null 2>&1 \
 [ "$(echo "$ISLAND" | jq -r '.frontier.ready | join(" ")')" = "$(val ready "$SHELL_OUT")" ] \
   && ok "tripwire: island ready == resolver ready" \
   || no "island frontier.ready must equal the resolver's ready="
+# [7.6] acceptance: the cross-phase ready item reaches the island unchanged —
+# the ready-ring follows the frontier through the shared JSON with zero
+# renderer changes (the view styles frontier.ready; it never re-derives it).
+echo "$ISLAND" | jq -e '.frontier.ready | index("7.1")' >/dev/null \
+  && ok "tripwire: cross-phase ready item (7.1) reaches the island — ready-ring follows with zero renderer changes" \
+  || no "later-phase ready item must appear in the island's frontier.ready (got: $(echo "$ISLAND" | jq -c .frontier.ready))"
 [ "$(echo "$ISLAND" | jq -r '.frontier.in_progress | join(" ")')" = "$(val in_progress "$SHELL_OUT")" ] \
   && ok "tripwire: island in_progress == resolver in_progress" \
   || no "island frontier.in_progress must equal the resolver's in_progress="
