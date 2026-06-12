@@ -53,15 +53,19 @@ malformed() {
 # cross-phase deps) belong to the resolver. A token-free tracker is LEGACY and
 # skips validation entirely, so old initiatives parse exactly as before.
 ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
-DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, ?[0-9]+\.[0-9]+)*)\]`'
+DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
 marker_lines() { grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$TRACKER"; }
 
 # Emits one line per violation; emits nothing for LEGACY or a clean tracker.
 grammar_errors() {
   local lines bad dups
   lines=$(marker_lines)
-  # LEGACY: no ID and no deps token anywhere → nothing to validate
-  if ! echo "$lines" | grep -qE "$ID_RE" && ! echo "$lines" | grep -q '\[deps:'; then
+  # LEGACY: no ID and no deps token anywhere → nothing to validate. Gate on
+  # lead-position IDs and deps-shaped constructs — a bold cross-reference or a
+  # stray "[deps:" substring in legacy prose must not flip a token-free
+  # tracker into grammar mode.
+  if ! echo "$lines" | grep -qE "^\s*-\s*(✅|🔄|⬜|❌)\s*$ID_RE" \
+     && ! echo "$lines" | grep -qE '`?\[deps:[^]]*\]`?'; then
     return 0
   fi
   # every deliverable line leads with an ID (right after the status marker)

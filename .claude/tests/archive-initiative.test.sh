@@ -276,6 +276,25 @@ MD
 - ⬜ **[6.2]** Resolver building on **[6.1]** and its `[deps: 6.1]` example, for real `[deps: 6.1]`
 MD
     ;;
+    nospace-sep) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- ✅ **[6.2]** Ready-frontier resolver `[deps: 6.1]`
+- ⬜ **[6.3]** Plan-mutation primitive `[deps: 6.1,6.2]`
+MD
+    ;;
+    legacy-cross-ref) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 5 — Wrap-up
+
+- ✅ Deliverable A, building on **[4.2]** from the prior phase
+- ✅ Deliverable B quoting a [deps: discussion in prose
+MD
+    ;;
   esac
 }
 
@@ -304,24 +323,33 @@ OUT=$(run "$P" --archive x); RC=$?
   && ok "grammar dup-id: --archive refuses, files in place" \
   || no "--archive should refuse a duplicate-ID tracker (rc=$RC)"
 
-# T14 — an ID'd tracker with a token-free line is MALFORMED (exit 5): mandatory
-# `[deps: none]` — a forgotten annotation must fail loud, not read as no-deps.
+# T14 — an ID'd tracker with a token-free line is MALFORMED (exit 5) and the
+# offending line is named: mandatory `[deps: none]` — a forgotten annotation
+# must fail loud, not read as no-deps.
 P=$(make_project complete); write_grammar_tracker "$P" missing-token
 OUT=$(run "$P" --check); RC=$?
-[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "MALFORMED" \
-  && ok "grammar missing-token: exit 5" \
-  || no "missing deps token should be MALFORMED (rc=$RC: $OUT)"
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "MALFORMED" && echo "$OUT" | grep -q "Ready-frontier resolver" \
+  && ok "grammar missing-token: exit 5, offending line named" \
+  || no "missing deps token should be MALFORMED naming the line (rc=$RC: $OUT)"
 
-# T15 — malformed tokens are MALFORMED (exit 5): empty deps list, and a token
-# without the backticks the grammar mandates.
+# T15 — malformed tokens are MALFORMED (exit 5) with the offender named:
+# empty deps list, a token without the backticks the grammar mandates, and a
+# comma-only separator (the grammar pins comma-space exactly).
 P=$(make_project complete); write_grammar_tracker "$P" malformed-token
 OUT=$(run "$P" --check); RC=$?
-[ "$RC" -eq 5 ] && ok "grammar malformed-token (empty deps): exit 5" \
-  || no "empty deps list should be MALFORMED (rc=$RC: $OUT)"
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "Tracker grammar amendment" \
+  && ok "grammar malformed-token (empty deps): exit 5, offender named" \
+  || no "empty deps list should be MALFORMED naming the line (rc=$RC: $OUT)"
 P=$(make_project complete); write_grammar_tracker "$P" unbackticked-token
 OUT=$(run "$P" --check); RC=$?
-[ "$RC" -eq 5 ] && ok "grammar unbackticked token: exit 5" \
-  || no "unbackticked deps token should be MALFORMED (rc=$RC: $OUT)"
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "Tracker grammar amendment" \
+  && ok "grammar unbackticked token: exit 5, offender named" \
+  || no "unbackticked deps token should be MALFORMED naming the line (rc=$RC: $OUT)"
+P=$(make_project complete); write_grammar_tracker "$P" nospace-sep
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "Plan-mutation primitive" \
+  && ok "grammar comma-only separator: exit 5, offender named" \
+  || no "a comma-only separator should be MALFORMED (rc=$RC: $OUT)"
 
 # T15b — mixing is MALFORMED in both directions: a deps token on a line with
 # no ID (exit 5), and an ID not in lead position (exit 5).
@@ -341,7 +369,8 @@ OUT=$(run "$P" --check); RC=$?
 # valid line; a bold cross-reference mid-wording is not a duplicate ID.
 P=$(make_project complete); write_grammar_tracker "$P" masked-token
 OUT=$(run "$P" --check); RC=$?
-[ "$RC" -eq 5 ] && ok "grammar masked malformed token: exit 5 despite valid example earlier" \
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "Resolver quoting" \
+  && ok "grammar masked malformed token: exit 5 despite valid example earlier, offender named" \
   || no "a valid example must not mask a malformed trailing token (rc=$RC: $OUT)"
 P=$(make_project complete); write_grammar_tracker "$P" cross-ref
 OUT=$(run "$P" --check); RC=$?
@@ -356,6 +385,14 @@ OUT=$(run "$P" --check); RC=$?
 [ "$RC" -eq 0 ] && [ "$OUT" = "status=COMPLETE
 max_phase=5" ] && ok "LEGACY tracker: byte-exact --check output unchanged" \
   || no "token-free tracker must parse exactly as today (rc=$RC: $OUT)"
+# ...and the LEGACY gate is position-aware: a bold cross-reference or a stray
+# "[deps:" substring in legacy prose must not flip the tracker into grammar
+# mode (a mid-wording bold ref is a cross-reference, not an ID).
+P=$(make_project complete); write_grammar_tracker "$P" legacy-cross-ref
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q "status=COMPLETE" \
+  && ok "LEGACY tracker with cross-ref + [deps: prose: still LEGACY, exit 0" \
+  || no "legacy prose must not trigger grammar mode (rc=$RC: $OUT)"
 
 # T17 — a complete grammar tracker archives normally: tokens flow through
 # verbatim into the frozen copy.

@@ -151,8 +151,9 @@ validation, the resolver contract below) follows this section.
 numbering (below) makes IDs globally unique across the project's history.
 
 **Deps token:** every deliverable's *wording* ends with a backticked deps
-token — `` `[deps: 6.1]` ``, comma-separated for multiples
-(`` `[deps: 6.1, 6.3]` ``), and **mandatory `` `[deps: none]` `` where
+token — `` `[deps: 6.1]` ``, comma-separated for multiples with the separator
+exactly comma-space (`` `[deps: 6.1, 6.3]` ``, never `6.1,6.3`), and
+**mandatory `` `[deps: none]` `` where
 empty**. In the tracker, tracker-local completion annotations may follow it.
 Backticks because inline code survives the auto-format hook untouched;
 mandatory `none` because absence-means-no-deps would let a forgotten
