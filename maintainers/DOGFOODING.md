@@ -91,17 +91,29 @@ unprefixed rules, consumer-saved workflows, docs, feedback) is never touched.
 The synced `.claude/tests/` copy is the **installation's self-check** ([7.7]): the
 suites resolve their targets relative to their own location, so a plane's copy
 tests the plane's *installed* scripts — the one-sync-behind machinery actually
-flying your sessions — not the source. Run it on demand from the plane root:
+flying your sessions — not the source. Run it on demand from the plane root,
+**aggregated and stderr-gated** (a bare loop exits with the last suite's status —
+the green-summary-above-an-error class the runner's header documents):
 
 ```bash
-for t in .claude/tests/*.test.sh; do bash "$t"; done
+fail=0
+for t in .claude/tests/*.test.sh; do
+  err=$(mktemp); bash "$t" 2>"$err" || fail=1
+  [ -s "$err" ] && { echo "[stderr] $(basename "$t")"; cat "$err"; fail=1; }
+  rm -f "$err"
+done
+[ "$fail" -eq 0 ] && echo "self-check: PASS" || { echo "self-check: FAIL"; false; }
 ```
 
-Maintainers-only suites skip cleanly in the plane shape (no `maintainers/` there).
-This never replaces the dogfooding battery — `commands.test` keeps running the
-source's suites via `roots.code` — but for a generic `<project>-guv` it is the
-only harness verification that exists, and on any plane it is what catches a
-bad or partial sync.
+Suites whose subjects a plane doesn't carry skip cleanly and say so — the
+maintainers tooling, the plugin tree, the sandbox tier, and the template doc
+surface all live source-side, so expect roughly a dozen suites asserting and
+the rest visibly skipping. (The installed post-commit render hook is likewise
+outside this loop's reach — it is generator-tested source-side; `cmp` it
+against a fixture plane's if in doubt.) This never replaces the dogfooding
+battery — `commands.test` keeps running the source's suites via `roots.code` —
+but for a generic `<project>-guv` it is the only harness verification that
+exists, and on any plane it is what catches a bad or partial sync.
 
 ## The plugin, and why `--sync` survives it
 

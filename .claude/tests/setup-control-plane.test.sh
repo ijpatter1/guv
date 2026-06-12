@@ -507,7 +507,7 @@ P_OUT=$(cd "$D77" && bash .claude/tests/resolve-ready.test.sh 2>&1); P_RC=$?
   || no "[7.7] plane-local suite must pass on a healthy plane (rc=$P_RC: $(echo "$P_OUT" | tail -2))"
 printf '#!/bin/bash\necho CORRUPTED; exit 99\n' > "$D77/.claude/resolve-ready.sh"
 P_OUT=$(cd "$D77" && bash .claude/tests/resolve-ready.test.sh 2>&1); P_RC=$?
-S_OUT=$(bash "$H77/.claude/tests/resolve-ready.test.sh" 2>&1); S_RC=$?
+bash "$H77/.claude/tests/resolve-ready.test.sh" >/dev/null 2>&1; S_RC=$?
 [ "$P_RC" -ne 0 ] && [ "$S_RC" -eq 0 ] \
   && ok "[7.7] divergence: corrupted installed copy turns the PLANE suite red, source suite stays green" \
   || no "[7.7] the plane copy must test the installation, not the source (plane rc=$P_RC, source rc=$S_RC)"

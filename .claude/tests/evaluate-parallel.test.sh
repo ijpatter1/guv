@@ -19,6 +19,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WF="$ROOT/.claude/workflows/evaluate-parallel.js"
 SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — for seamed self-checks
 RMD="${EP_TEST_README:-$ROOT/README.md}"      # self-check seam for the README gate
+DOCROOT="${EP_TEST_DOCROOT:-$ROOT}"           # seam for the plane-shape doc skips (T8c)
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -88,18 +89,23 @@ fi
 # /evaluate skill + /handoff command cross-reference the workflow variant.
 for doc in README.md CLAUDE.template.md \
            .claude/skills/evaluate/SKILL.md .claude/commands/handoff.md; do
-  target="$ROOT/$doc"
+  target="$DOCROOT/$doc"
   # /init-project replaces README.md with a rendered project README, and a
   # fork may delete it — both are consumer shapes that skip this one guard
   # rather than failing (matching setup-control-plane.test.sh T10's gates).
   # Detector = the explicit guv-template-readme marker, reword-proof; the
   # README path rides the EP_TEST_README seam so T8b can prove both branches.
   # A control plane carries the suites ([7.7]) but not the source repo's doc
-  # surfaces — an absent non-README doc skips visibly (plane / stripped-fork
-  # shape), same posture as the README gate below. In the source repo the
-  # files exist, so the checks run there in full.
+  # surfaces — an absent non-README doc skips visibly ONLY in plane/fork
+  # shape (no maintainers/); in source shape (maintainers/ present) an
+  # absent doc is drift and fails loud, mirroring sandbox-example's
+  # both-absent-vs-one-absent discrimination. Rides EP_TEST_DOCROOT (T8c).
   if [ "$doc" != "README.md" ] && [ ! -f "$target" ]; then
-    echo "  - $doc absent (control plane / stripped fork) — cross-reference check skips"
+    if [ -d "$DOCROOT/maintainers" ]; then
+      no "$doc absent in source shape — drift, not topology"
+    else
+      echo "  - $doc absent (control plane / stripped fork) — cross-reference check skips"
+    fi
     continue
   fi
   if [ "$doc" = "README.md" ]; then
@@ -166,12 +172,38 @@ if [ -z "${EP_TEST_INNER:-}" ]; then
   fi
   rm -rf "$EPWORK"
 fi
-if [ -f "$ROOT/CLAUDE.template.md" ]; then
-  tr '\n' ' ' < "$ROOT/CLAUDE.template.md" | tr -s ' ' | grep -q "planning layer" \
+if [ -f "$DOCROOT/CLAUDE.template.md" ]; then
+  tr '\n' ' ' < "$DOCROOT/CLAUDE.template.md" | tr -s ' ' | grep -q "planning layer" \
     && ok "CLAUDE.template.md states the planning/execution layering" \
     || no "CLAUDE.template.md must state planning layer vs execution layer"
+elif [ -d "$DOCROOT/maintainers" ]; then
+  no "CLAUDE.template.md absent in source shape — drift, not topology"
 else
   echo "  - CLAUDE.template.md absent (control plane / stripped fork) — layering check skips"
+fi
+
+# T8c — seamed self-checks for the plane-shape doc skips, both directions
+# (the T8b convention applied to [7.7]'s skip branches: a skip is trusted
+# only when a re-invocation proves it fires, and the drift direction is
+# trusted only when a re-invocation proves the guard fails loud in source
+# shape).
+if [ -z "${EP_TEST_INNER:-}" ]; then
+  EPC=$(mktemp -d)
+  mkdir -p "$EPC/plane"                       # no docs, no maintainers/ = plane shape
+  INNER=$(EP_TEST_INNER=1 EP_TEST_DOCROOT="$EPC/plane" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "absent (control plane" ; then
+    ok "plane-shape doc skips fire visibly and the suite stays green (seamed self-check)"
+  else
+    no "absent docs in plane shape must skip visibly with exit 0"
+  fi
+  mkdir -p "$EPC/source/maintainers"          # maintainers/ present = source shape
+  INNER=$(EP_TEST_INNER=1 EP_TEST_DOCROOT="$EPC/source" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER" | grep -q "drift, not topology"; then
+    ok "absent docs in source shape fail loud (drift direction, seamed self-check)"
+  else
+    no "an absent doc with maintainers/ present must fail loud, not skip"
+  fi
+  rm -rf "$EPC"
 fi
 
 # T9 — the phase-label guard BEHAVES correctly (node-gated like T7): the

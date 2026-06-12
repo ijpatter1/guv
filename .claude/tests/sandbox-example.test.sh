@@ -13,8 +13,9 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-FRAGMENT="$ROOT/.claude/settings.sandbox-example.json"
-FIREWALL="$ROOT/sandbox/init-firewall.sh"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — for seamed self-checks
+FRAGMENT="${SBX_TEST_FRAGMENT:-$ROOT/.claude/settings.sandbox-example.json}"
+FIREWALL="${SBX_TEST_FIREWALL:-$ROOT/sandbox/init-firewall.sh}"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -111,6 +112,26 @@ done
 [ "$(jq -r 'has("permissions") or has("hooks")' "$FRAGMENT")" = "false" ] \
   && ok "fragment carries no permissions/hooks (sandbox-only)" \
   || no "fragment must not carry permissions or hooks blocks"
+
+# Seamed self-checks for the plane-shape skip, both directions ([7.7], the
+# T8b convention): both assets absent = shape, skips with exit 0; exactly
+# one absent = drift, fails loud.
+if [ -z "${SBX_TEST_INNER:-}" ]; then
+  SBXW=$(mktemp -d)
+  INNER=$(SBX_TEST_INNER=1 SBX_TEST_FRAGMENT="$SBXW/nope.json" SBX_TEST_FIREWALL="$SBXW/nope.sh" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "skipping (control plane"; then
+    ok "both-assets-absent shape skips visibly with exit 0 (seamed self-check)"
+  else
+    no "the plane-shape skip must fire only when BOTH assets are absent"
+  fi
+  INNER=$(SBX_TEST_INNER=1 SBX_TEST_FRAGMENT="$SBXW/nope.json" SBX_TEST_FIREWALL="$FIREWALL" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER" | grep -q "missing or invalid"; then
+    ok "one-asset-absent fails loud (drift direction, seamed self-check)"
+  else
+    no "a missing fragment with the firewall present is drift and must fail loud"
+  fi
+  rm -rf "$SBXW"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
