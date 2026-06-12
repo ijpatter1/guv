@@ -38,15 +38,23 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# The helper scripts the path rewrite targets and scripts/ ships.
-HELPERS="archive-initiative resolve-ready render-status replan resolve-stack check-citations update-readme-status"
-HOOKS="bash-guard auto-format stop-check"
+# The helper scripts the path rewrite targets and scripts/ ships — DERIVED by
+# glob from the source tree ([7.1]: a hand-maintained copy of this list is
+# exactly the drift this build exists to prevent; plugin.test.sh derives its
+# T9 parity set and T12 stale-detector the same way).
+HELPERS=""
+for f in "$SRC"/*.sh; do HELPERS="$HELPERS $(basename "$f" .sh)"; done
+HOOKS=""
+for f in "$SRC/hooks"/*.sh; do HOOKS="$HOOKS $(basename "$f" .sh)"; done
+SCRIPT_ALT=$(for n in $HELPERS $HOOKS; do echo "$n"; done | paste -sd'|' -)
 
 # Project-relative script references -> plugin-root references. Covers both
 # "bash .claude/x.sh" invocations and bare ".claude/x.sh" prose mentions in one
 # pass (the "bash " prefix, where present, survives in place).
 rewrite_paths() {
-  sed -E 's|\.claude/(hooks/)?(archive-initiative\|resolve-ready\|render-status\|replan\|resolve-stack\|check-citations\|update-readme-status\|bash-guard\|auto-format\|stop-check)\.sh|"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh|g'
+  # '#' delimiter: the derived alternation carries raw '|' (regex), and the
+  # pattern itself needs '/'
+  sed -E 's#\.claude/(hooks/)?('"$SCRIPT_ALT"')\.sh#"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh#g'
 }
 
 # Cross-references in derived content -> the namespaced forms a plugin consumer

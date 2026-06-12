@@ -29,6 +29,8 @@ Thumbs.db
 # Docker sandbox (opt-in tier)
 sandbox/*.log
 sandbox/tmp/
+# guv lane worktrees (guv-lane.sh — fan-out dispatch)
+.worktrees/
 # guv-core-end
 
 # ─────────────────────────────────────────────

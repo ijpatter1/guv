@@ -51,20 +51,20 @@ Present the product reviewer's full report to the user without modification or s
 
 ## Step 3 — Final Test Run
 
-Run the full test suite to confirm the codebase is in a clean state. Read the test command from the manifest:
+Run the full test suite to confirm the codebase is in a clean state, via the manifest-command helper:
 
 ```
-jq -r '.commands.test' .claude/project.json
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh test
 ```
 
-Run that command. If `commands.test` is `null`, the project has no test step — note that and skip this step cleanly. If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
+A `[guv-cmd] commands.test is null — skipping` line means the project has no test step — note that and skip this step cleanly. If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
 
 ## Step 4 — Commit Any Uncommitted Work
 
 Check for uncommitted changes in both repos (the same path for single-repo, where `roots.code` is `"."`):
 
 ```
-git -C "$(jq -r '.roots.code' .claude/project.json)" status      # product changes
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh status                                   # product changes
 git -C "$(jq -r '.roots.control' .claude/project.json)" status   # doc/session changes
 ```
 
@@ -75,7 +75,7 @@ If there are uncommitted changes, commit them with an appropriate conventional c
 Review what was accomplished this session. Use a reasonable number of recent commits from the code repo:
 
 ```
-git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -15
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh log --oneline -15
 ```
 
 Scan the output and identify which commits belong to this session (based on timestamps and commit messages). If the session spans more than 15 commits, increase the count.

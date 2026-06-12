@@ -83,9 +83,11 @@ CODE_REL="$(rel_code)"
 # Note what is NOT copied: project.json (we write a dogfooding one), docs/, feedback/,
 # agent-memory/, CLAUDE.md — those are control-plane-owned session state.
 copy_core() {
-  for item in commands skills agents hooks tests project.schema.json \
-              resolve-stack.sh resolve-ready.sh render-status.sh replan.sh check-citations.sh \
-              update-readme-status.sh archive-initiative.sh settings.json; do
+  # The helper-script set is DERIVED by glob ([7.1]: this was the fourth
+  # hand-enumerated registry, found during 6.2 — a new .claude/*.sh helper now
+  # reaches every plane on create and --sync by existing).
+  for item in commands skills agents hooks tests project.schema.json settings.json \
+              $(cd "$HARNESS_DIR/.claude" && ls *.sh 2>/dev/null); do
     if [ -e "$HARNESS_DIR/.claude/$item" ]; then
       rm -rf "$DEST/.claude/$item"
       cp -R "$HARNESS_DIR/.claude/$item" "$DEST/.claude/$item"

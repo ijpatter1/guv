@@ -207,23 +207,17 @@ fi
 
 # T9 — hook + helper scripts ship byte-identical (cmp) to their .claude/ sources.
 # They are invoked with cwd = the project, so project-relative reads like
-# .claude/project.json stay correct without rewriting.
+# .claude/project.json stay correct without rewriting. The set is DERIVED by
+# glob ([7.1]) — a new helper joins this parity check by existing, exactly as
+# it joins the build's registry.
 T9_OK=1
-for pair in \
-  "hooks/bash-guard.sh:scripts/bash-guard.sh" \
-  "hooks/auto-format.sh:scripts/auto-format.sh" \
-  "hooks/stop-check.sh:scripts/stop-check.sh" \
-  "resolve-stack.sh:scripts/resolve-stack.sh" \
-  "resolve-ready.sh:scripts/resolve-ready.sh" \
-  "render-status.sh:scripts/render-status.sh" \
-  "replan.sh:scripts/replan.sh" \
-  "check-citations.sh:scripts/check-citations.sh" \
-  "update-readme-status.sh:scripts/update-readme-status.sh" \
-  "archive-initiative.sh:scripts/archive-initiative.sh"; do
-  src="$SRC/${pair%%:*}"; dst="$PLUGIN/${pair##*:}"
-  cmp -s "$src" "$dst" || { no "${pair##*:} not byte-identical to ${pair%%:*}"; T9_OK=0; }
+T9_N=0
+for src in "$SRC"/hooks/*.sh "$SRC"/*.sh; do
+  T9_N=$((T9_N + 1))
+  dst="$PLUGIN/scripts/$(basename "$src")"
+  cmp -s "$src" "$dst" || { no "scripts/$(basename "$src") not byte-identical to its .claude/ source"; T9_OK=0; }
 done
-[ "$T9_OK" -eq 1 ] && ok "all 10 hook/helper scripts byte-identical to .claude/ sources"
+[ "$T9_OK" -eq 1 ] && ok "all $T9_N hook/helper scripts byte-identical to .claude/ sources (set derived by glob)"
 
 # T10 — the guv-* rules (count derived by glob) ship byte-identical as scaffold assets (plugins
 # cannot load rules natively; the D2 scaffold deploys these into projects).
@@ -263,7 +257,15 @@ fi
 # T12 — no stale project-relative script invocations survive inside plugin
 # skills: every helper-script reference must have been rewritten to the plugin
 # root (references to project files like .claude/project.json are legitimate).
-STALE=$(grep -rE '\.claude/(hooks/)?(archive-initiative|resolve-stack|check-citations|update-readme-status|bash-guard|auto-format|stop-check)\.sh' "$PLUGIN/skills" | grep -cv 'CLAUDE_PLUGIN_ROOT')
+# The detector's name set is DERIVED by glob ([7.1]) — the hand list it
+# replaces had silently fallen three helpers behind the build's.
+SCRIPTS_ALT=$(
+  {
+    for f in "$SRC"/*.sh; do basename "$f" .sh; done
+    for f in "$SRC"/hooks/*.sh; do basename "$f" .sh; done
+  } | paste -sd'|' -
+)
+STALE=$(grep -rE "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" "$PLUGIN/skills" | grep -cv 'CLAUDE_PLUGIN_ROOT')
 [ "$STALE" -eq 0 ] \
   && ok "no stale .claude/ script paths in plugin skills (all rewritten to plugin root)" \
   || no "$STALE stale .claude/ script reference(s) remain in plugin/skills"

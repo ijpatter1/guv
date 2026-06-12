@@ -3,9 +3,9 @@ Give a quick status overview of the project without the full session initializat
 ## Gather State
 
 1. Read `.claude/project.json`. Run its `scaffoldCheck`. If it fails, note the project isn't scaffolded yet. If it passes, also run `readyCheck` (when present): if `readyCheck` **fails** the project is **NOT_INSTALLED** — report "scaffolded, deps not installed (run `commands.install`)" and **do not** run the tests (they'd fail spuriously). Only when scaffolded and ready (or no `readyCheck`) run `commands.test` and capture pass/fail counts (skip cleanly if `commands.test` is `null`).
-2. Run `git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -5` for recent code activity (if git is initialized; otherwise note "no git history"). `roots.code` is `"."` for single-repo, so this is a no-op there.
+2. Run `bash .claude/guv-git.sh log --oneline -5` for recent code activity (if git is initialized; otherwise note "no git history"). The helper targets the code repo (`roots.code`, `"."` for single-repo, so this is a no-op there).
 3. Read `docs/PHASE_STATUS.md` for phase completion state (only in `phased` projects; if it's absent — `task`/`onboard` mode — report the current phase as "N/A (`<ceremony>` mode)" and skip phase progress). In phased projects, also read the **lineage header** at the top of `docs/REQUIREMENTS.md` (if present) for the current initiative's name/spec and phase range.
-4. Check `git -C "$(jq -r '.roots.code' .claude/project.json)" status` for any uncommitted code changes
+4. Check `bash .claude/guv-git.sh status` for any uncommitted code changes
 5. List the most recent file in `docs/sessions/` and read its **Next Steps** section (if no session files exist, note "no prior sessions")
 6. Run `bash .claude/check-citations.sh` — an advisory check that flags session-handoff citations whose commit hashes no longer resolve in the code repo. It self-limits to a control-plane split (`roots.code != roots.control`) and is silent otherwise. Capture its output.
 7. Count open harness-feedback entries: `f=.claude/feedback/feedback.ndjson; [ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0`.

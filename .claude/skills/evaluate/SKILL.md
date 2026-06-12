@@ -29,7 +29,7 @@ Run git against the **code** repo (`roots.code` from `.claude/project.json`; a n
 
 ```bash
 # Recent commits
-git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -10
+bash .claude/guv-git.sh log --oneline -10
 
 # Determine scope — commits since last handoff or last evaluation
 # Look for the most recent session artifact for a reference point
@@ -38,7 +38,7 @@ ls -t docs/sessions/session-*.md 2>/dev/null | head -1
 
 ```bash
 # Full diff for the evaluation scope
-git -C "$(jq -r '.roots.code' .claude/project.json)" diff HEAD~N  # where N = number of commits in scope
+bash .claude/guv-git.sh diff HEAD~N  # where N = number of commits in scope
 ```
 
 ```bash

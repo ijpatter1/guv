@@ -21,12 +21,12 @@ Read `.claude/project.json`. Check whether the project has been scaffolded by ru
 sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" && echo SCAFFOLDED || echo NOT_SCAFFOLDED
 ```
 
-- **If `SCAFFOLDED`:** Before running tools, check readiness if the manifest declares it. `readyCheck` answers "are the tools installed/runnable" — distinct from `scaffoldCheck`'s "does a project exist." If `readyCheck` is present and **fails**, the state is **NOT_INSTALLED**: the project is scaffolded but its dependencies aren't (common on a fresh clone where tools live in `node_modules`/`.venv`). In that case run the declared install command — `commands.install` from the manifest — rather than running tests into spurious failures; note it. (If `commands.install` is `null`, surface that deps appear missing but no install command is declared.) Then run the project's test command — `jq -r '.commands.test' .claude/project.json` — and record the results: total tests, passing, failing, skipped. If `commands.test` is `null`, the project has no test step; skip cleanly and note it. If any tests are failing, note them — you must not introduce additional failures during this session.
+- **If `SCAFFOLDED`:** Before running tools, check readiness if the manifest declares it. `readyCheck` answers "are the tools installed/runnable" — distinct from `scaffoldCheck`'s "does a project exist." If `readyCheck` is present and **fails**, the state is **NOT_INSTALLED**: the project is scaffolded but its dependencies aren't (common on a fresh clone where tools live in `node_modules`/`.venv`). In that case run the declared install command — `bash .claude/guv-cmd.sh install` — rather than running tests into spurious failures; note it. (`guv-cmd.sh` skips loudly when `commands.install` is `null`; in that case surface that deps appear missing but no install command is declared.) Then run the project's test command — `bash .claude/guv-cmd.sh test` — and record the results: total tests, passing, failing, skipped. A `[guv-cmd] … skipping` line means the project has no test step; note it and move on. If any tests are failing, note them — you must not introduce additional failures during this session.
 
   ```
   READY=$(jq -r '.readyCheck // empty' .claude/project.json)
   [ -n "$READY" ] && { sh -c "$READY" >/dev/null 2>&1 && echo READY || echo NOT_INSTALLED; } || echo READY
-  # NOT_INSTALLED → run:  sh -c "$(jq -r '.commands.install // empty' .claude/project.json)"
+  # NOT_INSTALLED → run:  bash .claude/guv-cmd.sh install
   ```
 
 - **If `NOT_SCAFFOLDED`:** The project hasn't been scaffolded yet. This is expected for the very first session of a `phased` project. Skip to Step 2 and note that scaffolding is the first deliverable. See the "Bootstrapping" section in CLAUDE.md for scaffolding requirements.
@@ -56,10 +56,10 @@ If manual tasks exist, read each one and check the **Status** field (in the head
 
 ## Step 4 — Review Recent Git History
 
-Inspect the **code** repo's history. Read `roots.code` from the manifest and target it with `git -C` (this is a no-op for single-repo, where `roots.code` is `"."`):
+Inspect the **code** repo's history via the git helper — it targets `roots.code` from the manifest (a no-op for single-repo, where `roots.code` is `"."`):
 
 ```
-git -C "$(jq -r '.roots.code' .claude/project.json)" log --oneline -15
+bash .claude/guv-git.sh log --oneline -15
 ```
 
 Use this to understand what was worked on recently and what state the codebase is in.
