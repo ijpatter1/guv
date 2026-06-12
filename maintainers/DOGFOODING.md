@@ -108,9 +108,13 @@ done
 Suites whose subjects a plane doesn't carry skip cleanly and say so — the
 maintainers tooling, the plugin tree, the sandbox tier, and the template doc
 surface all live source-side, so expect roughly a dozen suites asserting and
-the rest visibly skipping. (The installed post-commit render hook is likewise
-outside this loop's reach — it is generator-tested source-side; `cmp` it
-against a fixture plane's if in doubt.) This never replaces the dogfooding
+the rest visibly skipping. (Two boundary notes: the installed post-commit
+render hook is outside this loop's reach — it is generator-tested source-side;
+to `cmp` it, run the installer against a scratch directory and compare that
+fixture plane's hook. And the shape detector keys on `maintainers/`: a clone
+that keeps `maintainers/` reads as source-shaped to the suites, so prune
+`maintainers/` before pruning doc surfaces — keeping one without the other is
+an unsupported shape that fails loud by design.) This never replaces the dogfooding
 battery — `commands.test` keeps running the source's suites via `roots.code` —
 but for a generic `<project>-guv` it is the only harness verification that
 exists, and on any plane it is what catches a bad or partial sync.

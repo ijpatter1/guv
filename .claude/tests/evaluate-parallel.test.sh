@@ -191,17 +191,20 @@ if [ -z "${EP_TEST_INNER:-}" ]; then
   EPC=$(mktemp -d)
   mkdir -p "$EPC/plane"                       # no docs, no maintainers/ = plane shape
   INNER=$(EP_TEST_INNER=1 EP_TEST_DOCROOT="$EPC/plane" bash "$SELF" 2>&1)
-  if [ $? -eq 0 ] && echo "$INNER" | grep -q "absent (control plane" ; then
-    ok "plane-shape doc skips fire visibly and the suite stays green (seamed self-check)"
+  # Per-branch precision: all four skip sites (three loop docs + the
+  # layering check) must print — one silent regression cannot hide behind
+  # a printing sibling.
+  if [ $? -eq 0 ] && [ "$(echo "$INNER" | grep -c "absent (control plane")" -eq 4 ]; then
+    ok "all four plane-shape doc skips fire visibly, suite stays green (seamed self-check)"
   else
-    no "absent docs in plane shape must skip visibly with exit 0"
+    no "absent docs in plane shape must skip visibly at every site with exit 0 (got $(echo "$INNER" | grep -c 'absent (control plane')/4)"
   fi
   mkdir -p "$EPC/source/maintainers"          # maintainers/ present = source shape
   INNER=$(EP_TEST_INNER=1 EP_TEST_DOCROOT="$EPC/source" bash "$SELF" 2>&1)
-  if [ $? -ne 0 ] && echo "$INNER" | grep -q "drift, not topology"; then
-    ok "absent docs in source shape fail loud (drift direction, seamed self-check)"
+  if [ $? -ne 0 ] && [ "$(echo "$INNER" | grep -c "drift, not topology")" -eq 4 ]; then
+    ok "all four sites fail loud in source shape (drift direction, seamed self-check)"
   else
-    no "an absent doc with maintainers/ present must fail loud, not skip"
+    no "an absent doc with maintainers/ present must fail loud at every site (got $(echo "$INNER" | grep -c 'drift, not topology')/4)"
   fi
   rm -rf "$EPC"
 fi

@@ -290,6 +290,13 @@ if [ -f "$DOG" ]; then
   printf 'x pinned to the template repo x\n' | grep -q 'pinned to the template repo' \
     && ok "DOGFOODING: stale-phrase decoder matches a planted violation" \
     || no "DOGFOODING: stale-phrase decoder broken (planted violation not matched)"
+  # [7.7] — the taught self-check loop must keep its aggregation + stderr
+  # gate + single verdict line (the bare-loop class has bitten twice; a doc
+  # edit reverting the snippet must fail here, not silently teach it again).
+  grep -q 'self-check: PASS' "$DOG" && grep -q 'self-check: FAIL' "$DOG" \
+    && grep -q '\[ -s "\$err" \]' "$DOG" \
+    && ok "DOGFOODING: self-check teaching keeps the aggregated, stderr-gated, verdict-line shape" \
+    || no "the taught plane self-check must aggregate failures, gate stderr, and end in one verdict line"
 else
   echo "  - maintainers/DOGFOODING.md absent (fork) — re-derivation guards skip"
 fi
