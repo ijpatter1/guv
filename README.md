@@ -67,11 +67,19 @@ plugin support. Updates arrive via `maintainers/setup-control-plane.sh --sync` �
 supported indefinitely, though new surface ships plugin-first.
 
 **Already on a template clone?** The decided disposition: **migrate to the plugin**
-if you haven't customized harness-owned files — install it, then delete the copied
-harness-owned core (commands, skills, agents, hooks, `guv-*` rules, harness-shipped
-workflows) so the two copies don't double-load; your manifest, docs, feedback log,
-and unprefixed rules are consumer-owned and stay. If you **have** customized
-harness-owned surfaces, keep syncing — that path remains supported.
+if you haven't customized harness-owned files. Install it, then in your project
+delete only the copied surfaces the plugin now supplies at runtime — commands,
+skills, agents, hooks, the loose helper scripts (`resolve-stack.sh` and friends),
+and harness-shipped workflows — so the two copies don't double-load, **and remove
+the `hooks` block from `.claude/settings.json`**: it registers the hook scripts by
+path, so after the deletion every tool call would invoke a missing file (the
+plugin's own `hooks.json` takes over; this is a hand edit — `/guv:scaffold` never
+touches an existing settings file). **Keep `.claude/rules/guv-*.md`**: rules load
+from the project, not from the plugin — the plugin only re-deploys them via
+`/guv:scaffold` — so deleting them strips the engineering-rules layer with nothing
+taking over. Your manifest (and its schema file), docs, feedback log, unprefixed
+rules, and consumer-saved workflows are consumer-owned and stay. If you **have**
+customized harness-owned surfaces, keep syncing — that path remains supported.
 
 Click **"Use this template"** on GitHub, or:
 

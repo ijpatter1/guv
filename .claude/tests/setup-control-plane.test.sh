@@ -216,6 +216,11 @@ fi
 H=$(make_harness)
 D="$WORK/control5"
 run_setup "$H" "$D"
+# Fresh create is where chmod is load-bearing: cp from mktemp yields a
+# non-executable mode, so this fails if the chmod line is dropped.
+[ -x "$D/.claude/run-harness-tests.sh" ] \
+  && ok "create: freshly generated runner is executable" \
+  || no "create: freshly generated runner must be executable (cp from mktemp is not)"
 echo "# stale-runner" > "$D/.claude/run-harness-tests.sh"
 OUT=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
 if grep -q '\[stderr\]' "$D/.claude/run-harness-tests.sh" 2>/dev/null \
@@ -234,6 +239,17 @@ OUT2=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
 echo "$OUT2" | grep -q "refreshed .claude/run-harness-tests.sh" \
   && no "sync: refresh notice should not repeat when the runner is already current" \
   || ok "sync: refresh notice fires only on change, silent when current"
+
+# T8b — refresh-only on --sync: the runner is dogfooding tooling, but --sync is
+# ALSO the template-clone consumer update path, and a consumer project never had
+# the runner. Syncing into a dest without one must not plant it.
+H=$(make_harness)
+D="$WORK/consumer-clone"
+mkdir -p "$D/.claude"
+run_setup "$H" "$D" --sync
+[ ! -e "$D/.claude/run-harness-tests.sh" ] \
+  && ok "sync: no runner planted where none existed (consumer-project shape)" \
+  || no "sync must not inject the dogfooding runner into a consumer project"
 
 # T9 — DOGFOODING.md re-derived against current reality (Phase 5 D4). The doc
 # documents this script's loop, so its accuracy guards live with this suite.
@@ -279,6 +295,16 @@ if [ -f "$RM" ]; then
   grep -qiE 'double.load|dual.load' "$RM" \
     && ok "README: migration guidance names the double-load hazard" \
     || no "README migration guidance must warn about double-loading the copied core"
+  # The two corrections that make the recipe safe to follow verbatim: deleting
+  # hooks/ without de-registering them leaves settings.json invoking missing
+  # scripts on every tool call, and guv-* rules are project-resident (the plugin
+  # cannot supply rules at runtime) so "delete the copied core" must not cover them.
+  grep -qF 'hooks` block from `.claude/settings.json' "$RM" \
+    && ok "README: migration de-registers the hooks block from settings.json" \
+    || no "README migration must say to remove the hooks block from .claude/settings.json"
+  grep -qF 'Keep `.claude/rules/guv-*.md' "$RM" \
+    && ok "README: migration keeps guv-* rules (plugin cannot supply rules at runtime)" \
+    || no "README migration must tell clones to KEEP .claude/rules/guv-*.md"
 else
   echo "  - README.md absent (fork) — disposition guards skip"
 fi

@@ -98,8 +98,14 @@ copy_core
 # refreshed in BOTH modes whenever it drifts from the generator (entry
 # 2026-06-11T23:17:51Z-15612590 — create-only meant the D3 stderr-gate fix never
 # reached existing control planes). Announced on change, silent when current.
+# Refresh-only on --sync: the runner is dogfooding tooling, and --sync is also the
+# template-clone consumer update path — a project that never had the runner must
+# not be handed one. Creation stays a create-mode act.
 write_runner() {
   local target="$DEST/.claude/run-harness-tests.sh" tmp
+  if [ ! -f "$target" ] && [ "$MODE" = "sync" ]; then
+    return 0
+  fi
   tmp=$(mktemp)
   cat > "$tmp" <<'SH'
 #!/bin/bash

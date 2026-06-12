@@ -117,9 +117,11 @@ The setup script seeds the control plane's manifest with `ceremony: task` — th
 harness's resting state is scoped maintenance, where every improvement is a `/task`.
 When a phased initiative runs against the harness, `/plan-initiative` flips the control
 plane to `ceremony: phased` and generates the phase docs in the control plane's `docs/`
-(the native-alignment initiative did exactly this on 2026-06-10); archiving the
-initiative returns it to rest. Phase machinery is therefore present when an initiative
-is active and silent otherwise — nothing about the split changes either way.
+(the native-alignment initiative did exactly this on 2026-06-10). There is no revert
+machinery, by design: phased with a fully-✅ tracker is itself a clean resting state —
+`/task` works inside phased projects, and the next `/plan-initiative` picks up from
+there; reverting to `task` is a manual, optional act. Nothing about the split changes
+either way.
 
 **This repo's own `.claude/project.json`** stays `ceremony: task`: it matches how the
 template's defaults are maintained and ships no phase docs. The full greenfield
