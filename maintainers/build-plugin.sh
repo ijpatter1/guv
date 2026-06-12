@@ -39,14 +39,14 @@ while [ $# -gt 0 ]; do
 done
 
 # The helper scripts the path rewrite targets and scripts/ ships.
-HELPERS="archive-initiative resolve-stack check-citations update-readme-status"
+HELPERS="archive-initiative resolve-ready resolve-stack check-citations update-readme-status"
 HOOKS="bash-guard auto-format stop-check"
 
 # Project-relative script references -> plugin-root references. Covers both
 # "bash .claude/x.sh" invocations and bare ".claude/x.sh" prose mentions in one
 # pass (the "bash " prefix, where present, survives in place).
 rewrite_paths() {
-  sed -E 's|\.claude/(hooks/)?(archive-initiative\|resolve-stack\|check-citations\|update-readme-status\|bash-guard\|auto-format\|stop-check)\.sh|"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh|g'
+  sed -E 's|\.claude/(hooks/)?(archive-initiative\|resolve-ready\|resolve-stack\|check-citations\|update-readme-status\|bash-guard\|auto-format\|stop-check)\.sh|"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh|g'
 }
 
 # Cross-references in derived content -> the namespaced forms a plugin consumer

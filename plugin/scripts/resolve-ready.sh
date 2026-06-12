@@ -1,0 +1,171 @@
+#!/bin/bash
+# .claude/resolve-ready.sh
+# Deterministic ready-frontier resolver ([6.2] of the plan-as-data spec).
+# Implements the resolver contract in the phase-docs skill ("Resolver
+# contract"); the grammar itself is defined once there ("Tracker grammar")
+# and validated for well-formedness by archive-initiative.sh — this script
+# repeats the well-formedness gate (a resolver must not compute on a
+# malformed tracker) and owns the dep SEMANTICS the archive script does not:
+# unknown IDs, cycles, forward cross-phase deps.
+#
+# Usage:
+#   bash .claude/resolve-ready.sh [tracker-path]    # default docs/PHASE_STATUS.md
+#
+# Output (name=value, one per line):
+#   mode=GRAMMAR|LEGACY
+#   phase=N            current phase (first phase with a ⬜ or 🔄), GRAMMAR only
+#   in_progress=…      🔄 IDs, document order (finish before starting new work)
+#   ready=…            every current-phase ⬜ whose deps are all ✅, document order
+#   blocked=…          current-phase ⬜ entries as ID:ROOT — ROOT is the
+#                      transitive blocking ID (the deepest unsatisfied dep that
+#                      is itself ready, in progress, or ❌)
+#   serial=…           serial resume: first 🔄, else first ready. In LEGACY
+#                      mode this is the first ⬜ line's text (no IDs exist)
+#                      and ready= is explicitly empty — document order encodes
+#                      dependency order, exactly as before.
+# Exit: 0 resolved · 4 no tracker · 5 MALFORMED (offenders named on stderr)
+set -u
+
+TRACKER="${1:-docs/PHASE_STATUS.md}"
+[ -f "$TRACKER" ] || { echo "status=NONE — no tracker at $TRACKER" >&2; exit 4; }
+
+ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
+DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
+LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*$ID_RE"
+
+LINES=$(grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$TRACKER")
+
+die5() { echo "status=MALFORMED — $1" >&2; exit 5; }
+
+# ── LEGACY: token-free trackers keep today's semantics exactly (same gate as
+# archive-initiative.sh: lead-position IDs / deps-shaped constructs only).
+if ! echo "$LINES" | grep -qE "$LEAD_RE" \
+   && ! echo "$LINES" | grep -qE '`?\[deps:[^]]*\]`?'; then
+  echo "mode=LEGACY"
+  echo "in_progress="
+  echo "ready="
+  serial=$(echo "$LINES" | grep -E '^\s*-\s*🔄' | head -1 | sed -E 's/^[[:space:]]*-[[:space:]]*🔄[[:space:]]*//')
+  [ -z "$serial" ] && serial=$(echo "$LINES" | grep -E '^\s*-\s*⬜' | head -1 | sed -E 's/^[[:space:]]*-[[:space:]]*⬜[[:space:]]*//')
+  echo "serial=$serial"
+  exit 0
+fi
+
+# ── Well-formedness (the grammar's MALFORMED list; offenders named) ──
+bad=$(echo "$LINES" | grep -vE "$LEAD_RE")
+[ -n "$bad" ] && die5 "missing or misplaced **[N.M]** ID:
+$bad"
+bad=$(echo "$LINES" | while IFS= read -r l; do
+  tok=$(printf '%s\n' "$l" | grep -oE '`?\[deps:[^]]*\]`?' | tail -1)
+  printf '%s\n' "$tok" | grep -qE "^$DEPS_RE\$" || printf '%s\n' "$l"
+done)
+[ -n "$bad" ] && die5 "missing or malformed \`[deps: …]\` token:
+$bad"
+dups=$(echo "$LINES" | grep -oE "$LEAD_RE" | grep -oE '[0-9]+\.[0-9]+' | sort | uniq -d)
+[ -n "$dups" ] && die5 "duplicate deliverable IDs:
+$dups"
+
+# ── Parse into ordered parallel state. IDs are validated digits-only, so
+# eval-backed maps (marker_6_2 etc.) are safe; bash 3.2 has no associative
+# arrays and this must run on a stock macOS bash.
+ids=""
+while IFS= read -r l; do
+  id=$(printf '%s\n' "$l" | grep -oE "$LEAD_RE" | grep -oE '[0-9]+\.[0-9]+')
+  marker=$(printf '%s\n' "$l" | grep -oE '✅|🔄|⬜|❌' | head -1)
+  deps=$(printf '%s\n' "$l" | grep -oE '`?\[deps:[^]]*\]`?' | tail -1 \
+         | sed -E 's/^`?\[deps: //; s/\]`?$//; s/,/ /g')
+  [ "$deps" = "none" ] && deps=""
+  v=${id//./_}
+  eval "marker_$v=\$marker"
+  eval "deps_$v=\$deps"
+  ids="$ids $id"
+done <<EOF
+$LINES
+EOF
+ids=${ids# }
+
+marker_of() { eval "printf '%s' \"\$marker_${1//./_}\""; }
+deps_of()   { eval "printf '%s' \"\$deps_${1//./_}\""; }
+has_id()    { case " $ids " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# ── Dep semantics: unknown IDs, forward cross-phase deps, cycles ──
+for id in $ids; do
+  for d in $(deps_of "$id"); do
+    has_id "$d" || die5 "unknown dep ID: $id depends on $d, which does not exist"
+    [ "${d%%.*}" -gt "${id%%.*}" ] \
+      && die5 "forward cross-phase dep: $id (phase ${id%%.*}) depends on $d (phase ${d%%.*}) — the phasing is wrong"
+  done
+done
+
+# Iterative cycle check: repeatedly remove nodes with no remaining in-graph
+# deps; anything left participates in (or depends on) a cycle.
+remaining=" $ids "
+while :; do
+  removed=0
+  for id in $ids; do
+    case "$remaining" in *" $id "*) ;; *) continue ;; esac
+    pending=0
+    for d in $(deps_of "$id"); do
+      case "$remaining" in *" $d "*) pending=1; break ;; esac
+    done
+    if [ "$pending" -eq 0 ]; then
+      remaining=${remaining/ $id / }
+      removed=1
+    fi
+  done
+  [ "$removed" -eq 0 ] && break
+done
+remaining=$(echo "$remaining" | sed -E 's/^ +//; s/ +$//')
+[ -n "$remaining" ] && die5 "dependency cycle among: $remaining"
+
+# ── Frontier: current phase = first phase with a ⬜ or 🔄 ──
+phase=""
+for id in $ids; do
+  m=$(marker_of "$id")
+  if [ "$m" = "⬜" ] || [ "$m" = "🔄" ]; then phase=${id%%.*}; break; fi
+done
+
+satisfied() { [ "$(marker_of "$1")" = "✅" ]; }
+
+# Transitive root blocker: first unsatisfied dep, followed down until it is
+# itself dispatchable (ready), in progress, or ❌ (descoped/blocked — the
+# spec's "a ❌ prior-phase item propagates blockage").
+root_blocker() {
+  local id="$1" d
+  for d in $(deps_of "$id"); do
+    satisfied "$d" && continue
+    case "$(marker_of "$d")" in
+      🔄|❌) printf '%s' "$d"; return ;;
+    esac
+    local inner
+    inner=$(root_blocker "$d")
+    if [ -n "$inner" ]; then printf '%s' "$inner"; else printf '%s' "$d"; fi
+    return
+  done
+}
+
+in_progress=""; ready=""; blocked=""
+for id in $ids; do
+  m=$(marker_of "$id")
+  [ "$m" = "🔄" ] && in_progress="$in_progress $id"
+  [ "${id%%.*}" = "$phase" ] || continue
+  [ "$m" = "⬜" ] || continue
+  open=0
+  for d in $(deps_of "$id"); do satisfied "$d" || { open=1; break; }; done
+  if [ "$open" -eq 0 ]; then
+    ready="$ready $id"
+  else
+    blocked="$blocked $id:$(root_blocker "$id")"
+  fi
+done
+in_progress=${in_progress# }; ready=${ready# }; blocked=${blocked# }
+
+serial=${in_progress%% *}
+[ -z "$serial" ] && serial=${ready%% *}
+
+echo "mode=GRAMMAR"
+echo "phase=$phase"
+echo "in_progress=$in_progress"
+echo "ready=$ready"
+echo "blocked=$blocked"
+echo "serial=$serial"
+exit 0
