@@ -86,6 +86,9 @@ grep -q 'setup-control-plane.sh' "$HOOK" 2>/dev/null \
   || no "hook must say improve-the-generator, naming setup-control-plane.sh"
 echo "$(cat "$WORK/setup.log")" | grep -qi 'post-commit' \
   && ok "create: installation announced" || no "create must announce the hook install"
+# Pristine copy for assertions that must survive the later drift/foreign-hook
+# fixtures (T8/T9 mutate $HOOK).
+cp "$HOOK" "$WORK/generated-hook" 2>/dev/null
 
 # ── T2 — the acceptance: a commit touching the tracker yields a fresh,
 # COMMITTED render, and the follow-up commit breaks recursion by touching
@@ -167,6 +170,51 @@ OUT=$(cd "$CP" && PATH="$BIN" bash .git/hooks/post-commit 2>&1); RC=$?
 [ "$(git -C "$CP" rev-list --count HEAD)" -eq "$NBEFORE" ] \
   && ok "degrade: jq absent — no commit created" || no "no commit may be created without jq"
 
+# ── T6b — recording failure: the render succeeds but git add refuses (the
+# target is gitignored AND untracked — ignore rules don't apply to tracked
+# files, so untrack it first) — the success banner must NOT print; the
+# failure is loud and no commit lands. The unconditional-success-banner class.
+( cd "$CP" && git rm -q --cached status.html ) 2>/dev/null
+echo "status.html" > "$CP/.gitignore"
+tracker "✅"
+( cd "$CP" && git add -A && git commit -m "docs: ignored target" ) > "$WORK/c6b.log" 2>&1
+grep -qi 'recording FAILED' "$WORK/c6b.log" \
+  && ok "degrade: recording failure is loud (no false success banner)" \
+  || no "a failed git add/commit must say recording FAILED (got: $(tail -3 "$WORK/c6b.log"))"
+grep -qi 'push to publish' "$WORK/c6b.log" \
+  && no "the success banner printed on a failed recording" \
+  || ok "degrade: success banner withheld on recording failure"
+[ "$(git -C "$CP" log -1 --pretty=%s)" = "docs: ignored target" ] \
+  && ok "degrade: no render commit on recording failure" \
+  || no "no render commit may land when recording fails"
+rm -f "$CP/.gitignore"
+
+# ── T6c — render chain absent: loud notice naming the chain, no commit.
+mv "$CP/.claude/render-status.sh" "$WORK/render-status.sh.bak"
+tracker "⬜"
+( cd "$CP" && git add -A && git commit -m "docs: chainless" ) > "$WORK/c6c.log" 2>&1
+grep -qi 'render chain absent' "$WORK/c6c.log" \
+  && ok "degrade: chain absent — loud notice naming the chain" \
+  || no "a missing renderer must be named loudly (got: $(tail -2 "$WORK/c6c.log"))"
+[ "$(git -C "$CP" log -1 --pretty=%s)" = "docs: chainless" ] \
+  && ok "degrade: chain absent — no render commit" \
+  || no "no render commit may land without the chain"
+mv "$WORK/render-status.sh.bak" "$CP/.claude/render-status.sh"
+
+# ── T6d — detached HEAD: never auto-commit there — silent clean skip even on
+# a tracker-touching HEAD (the trigger check passes first by construction:
+# T6c's HEAD touched the tracker).
+( cd "$CP" && git checkout -q --detach ) 2>/dev/null
+DOUT=$(cd "$CP" && bash .git/hooks/post-commit 2>&1); DRC=$?
+DN=$(git -C "$CP" rev-list --count HEAD)
+( cd "$CP" && git checkout -q - ) 2>/dev/null
+[ "$DRC" -eq 0 ] && [ -z "$DOUT" ] \
+  && ok "degrade: detached HEAD — silent clean skip" \
+  || no "detached HEAD must skip silently with exit 0 (rc=$DRC: $DOUT)"
+[ "$(git -C "$CP" rev-list --count HEAD)" -eq "$DN" ] \
+  && ok "degrade: detached HEAD — no commit created" \
+  || no "no commit may be created on a detached HEAD"
+
 # ── T7 — the acceptance: manual render works with the hook absent.
 rm -f "$HOOK"
 tracker "✅"
@@ -227,12 +275,16 @@ echo "$(jq -r '.properties.views.description // ""' "$SCHEMA")" | grep -qi 'neve
 # The generated dogfooding manifest declares the surface and still validates
 # against the schema's own constraint set (required ⊆ keys, keys ⊆ properties)
 # — computed FROM the schema, both with and without the entry.
-validate() {  # $1 = manifest path → 0 valid / 1 invalid (top level + views subkeys)
+validate() {  # $1 = manifest path → 0 valid / 1 invalid (top level + views shape)
   jq -e --slurpfile s "$SCHEMA" '
     ($s[0]) as $sch
     | ($sch.required - (keys)) == []
     and ((keys) - ($sch.properties | keys)) == []
-    and (if has("views") then ((.views | keys) - ($sch.properties.views.properties | keys)) == [] else true end)
+    and (if has("views") then
+          (.views | type) == "object"
+          and ((.views | keys) - ($sch.properties.views.properties | keys)) == []
+          and ([.views[] | type == "string"] | all)
+        else true end)
   ' "$1" >/dev/null 2>&1
 }
 jq -e '.views.status == "status.html"' "$CP/.claude/project.json" >/dev/null 2>&1 \
@@ -253,6 +305,14 @@ jq '.views = {bogus: "x.html"}' "$WORK/no-views.json" > "$WORK/subkey.json"
 validate "$WORK/subkey.json" \
   && no "an unknown views subkey must fail validation" \
   || ok "views: unknown views subkey refused (closed object)"
+jq '.views = {status: 123}' "$WORK/no-views.json" > "$WORK/badtype.json"
+validate "$WORK/badtype.json" \
+  && no "a non-string views.status must fail validation" \
+  || ok "views: non-string status refused (type-checked, not just key-checked)"
+jq '.views = []' "$WORK/no-views.json" > "$WORK/badviews.json"
+validate "$WORK/badviews.json" \
+  && no "an array views must fail validation" \
+  || ok "views: non-object views refused"
 
 # ── T11 — describes, never routes: no execution path reads the views entry.
 ROUTES=$(grep -rn '\.views' \
@@ -279,12 +339,18 @@ grep -qi 'repo access' "$DOG" && grep -qi 'push is the deploy' "$DOG" \
 grep -qi 'convenience' "$DOG" \
   && ok "docs: hook taught as convenience, never a dependency" \
   || no "the docs must teach the manual-render degradation"
+# The visibility caveat is load-bearing: private-repo Pages sites are PUBLIC
+# on non-Enterprise plans. The framing alone, unhedged, is a privacy footgun
+# — this pin keeps the correction from being reverted by spec-faithful edits.
+grep -qi 'publicly' "$DOG" && grep -q 'Enterprise' "$DOG" \
+  && ok "docs: Pages visibility caveat pinned (public on non-Enterprise plans)" \
+  || no "the docs must state that private-repo Pages sites are public off Enterprise Cloud"
 
 # ── T13 — the hook never parses tracker CONTENT: naming the tracker PATH for
 # its trigger and for the resolver call is the designed shape; marker glyphs
 # or deps tokens anywhere in the generator (which embeds the hook) would be
 # a second grammar implementation.
-grep -qE '⬜|✅|🔄|❌|deps:' "$REAL_SCRIPT" "$HOOK" 2>/dev/null \
+grep -qE '⬜|✅|🔄|❌|deps:' "$REAL_SCRIPT" "$WORK/generated-hook" 2>/dev/null \
   && no "the hook/generator must not carry tracker grammar (one parser)" \
   || ok "one-parser: hook touches the tracker only as a path, never as content"
 

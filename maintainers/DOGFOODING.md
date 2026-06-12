@@ -167,18 +167,32 @@ bash .claude/render-status.sh status.json > status.html
 
 The setup script installs a `.git/hooks/post-commit` hook into the control plane
 (create mode; refreshed on `--sync` while present) that runs this chain whenever a
-commit touches the tracker and commits the fresh `status.html` as a derived
-artifact — rebuilt, never line-merged, never a source. The hook is a
-**convenience, never a dependency**: with it absent (or jq missing, or the
-resolver refusing a malformed tracker) nothing breaks — the previous render stays
-in place, the refusal is loud, and the manual two-liner above always works. A
-pre-existing post-commit hook the harness doesn't own is never touched.
+`git commit` touches the tracker and commits the fresh `status.html` as a derived
+artifact — rebuilt, never line-merged, never a source. (Post-commit hooks fire
+only on `git commit`: a merge, pull, rebase, or cherry-pick that lands tracker
+changes does not regenerate — the next direct tracker commit or a manual render
+catches up.) The hook is a **convenience, never a dependency**: with it absent
+(or jq missing, or the resolver refusing a malformed tracker) nothing breaks —
+the previous render stays in place, the refusal is loud, and the manual
+two-liner above always works (`status.json` is the intermediate file; the
+generated `.gitignore` keeps it out of the repo). A pre-existing post-commit
+hook the harness doesn't own is never touched.
 
 To publish: enable GitHub Pages on the control-plane repo (Settings → Pages →
 deploy from branch, `main`, `/(root)`), and the committed `status.html` is served
-at the Pages URL. **Repo access is the access control, push is the deploy** — a
-private control plane gives a Pages view only collaborators can reach, and there
-is no server, no build step, and no pipeline to maintain.
+at the Pages URL. **Push is the deploy** — no server, no build step, no pipeline.
+
+**Pages visibility is NOT repo visibility — check your plan before enabling.**
+On GitHub Free, private repos cannot enable Pages at all. On Pro/Team, a Pages
+site built from a private repo is served **publicly** to anyone with the URL.
+Only GitHub Enterprise Cloud offers access-controlled Pages (visible to
+enterprise members). So "repo access is the access control" holds in exactly
+three shapes: a public control plane (everything was public already), Enterprise
+Cloud with Pages access control enabled, or skipping Pages and reading the
+committed `status.html` from the repo itself — where repo access genuinely
+gates it. If your control plane is private and you are not on Enterprise Cloud,
+enabling Pages publishes your tracker to the open internet — decide that
+deliberately.
 
 The published surface is declared in the manifest: the optional `views` entry in
 `.claude/project.json` (e.g. `"views": { "status": "status.html" }`,

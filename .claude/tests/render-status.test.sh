@@ -292,7 +292,7 @@ CLOSES=$(echo "$EHTML" | grep -c '</script>')
 # is caught. Legal mentions outside those files are the non-read forms the
 # [6.7] regeneration hook uses — write-redirects, mv-to, git add/commit
 # (recording, not reading), chmod (mode, not content), and echo
-# announcements — each guarded against a same-line `<` read; plus comment
+# announcements — each guarded against a same-line `<` or `$(` read; plus comment
 # lines, human doc prose under maintainers/*.md (neither executes), and the
 # manifest `views` declaration literal (declares the surface, reads nothing).
 # Anything else is a consumer.
@@ -304,7 +304,7 @@ CONSUMERS=$(grep -rn 'status\.html' \
   | grep -Ev '^[^:]*/(render-status(\.test)?\.sh|render-hook\.test\.sh):' \
   | grep -Ev '^[^:]*/maintainers/[^:]*\.md:' \
   | grep -Ev '>[[:space:]]*[^[:space:]]*status\.html' \
-  | grep -Ev '(mv |git add |git commit |chmod [0-9]+ |echo )[^<]*status\.html' \
+  | grep -Ev '(mv |git add |git commit |chmod [0-9]+ |echo )([^<$]|\$[^(])*status\.html' \
   | grep -Ev '^[^:]*:[0-9]+:[[:space:]]*#' \
   | grep -Ev 'views: \{ status: "status\.html" \}' \
   || true)

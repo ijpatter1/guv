@@ -192,7 +192,12 @@ write_runner
 # is NOT harness-owned is never touched: announce and step aside.
 write_render_hook() {
   local target="$DEST/.git/hooks/post-commit" tmp
-  [ -d "$DEST/.git" ] || return 0
+  if [ ! -d "$DEST/.git" ]; then
+    # A linked worktree has a .git FILE; hooks live with the main repo, and
+    # writing here would be wrong. Announce the skip instead of vanishing.
+    [ -e "$DEST/.git" ] && echo "[setup] $DEST/.git is not a directory (worktree?) — render hook not installed"
+    return 0
+  fi
   if [ ! -f "$target" ] && [ "$MODE" = "sync" ]; then
     return 0
   fi
@@ -236,11 +241,17 @@ fi
 TMP_JSON=$(mktemp) && TMP_HTML=$(mktemp) && ERR=$(mktemp) || exit 0
 if bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > "$TMP_JSON" 2>"$ERR" \
    && bash .claude/render-status.sh "$TMP_JSON" > "$TMP_HTML" 2>>"$ERR"; then
-  mv "$TMP_HTML" status.html
-  chmod 644 status.html
-  git add status.html
-  git commit -q -m "chore(render): regenerate status.html (post-commit hook)" -- status.html
-  echo "[render-hook] status.html regenerated and committed — push to publish"
+  # The recording rung is guarded too: an ignored target, an index lock, or
+  # a failed commit must never hide behind a success banner.
+  if mv "$TMP_HTML" status.html 2>>"$ERR" \
+     && chmod 644 status.html 2>>"$ERR" \
+     && git add status.html 2>>"$ERR" \
+     && git commit -q -m "chore(render): regenerate status.html (post-commit hook)" -- status.html 2>>"$ERR"; then
+    echo "[render-hook] status.html regenerated and committed — push to publish"
+  else
+    echo "[render-hook] render succeeded but recording FAILED — status.html NOT committed:"
+    cat "$ERR"
+  fi
 else
   # Stale beats broken: the previous committed render stays in place.
   echo "[render-hook] render chain refused — status.html NOT updated:"
@@ -326,7 +337,9 @@ mkdir -p "$DEST/docs/sessions"
 # Gitignore agent-memory in the control plane (feedback IS committed here — it's the
 # dogfooding record).
 if [ ! -f "$DEST/.gitignore" ]; then
-  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\n' > "$DEST/.gitignore"
+  # status.json is the manual render chain's intermediate file; status.html is
+  # the committed derived artifact, the JSON is not.
+  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\nstatus.json\n' > "$DEST/.gitignore"
 fi
 
 # Init the control plane's own git (its own commit stream), if not already a repo.
