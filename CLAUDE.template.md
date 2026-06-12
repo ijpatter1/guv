@@ -61,7 +61,7 @@ Read `ceremony` from the manifest:
 
 - **`task`** — scoped work. No phase docs. Understand → TDD the change → evaluate → done.
 - **`onboard`** — an existing repo whose conventions you _infer and follow_, never scaffold over.
-- **`phased`** — greenfield with the full plan. The plan and live state are in `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_STATUS.md`, and the latest `docs/sessions/` handoff. Work the current phase only.
+- **`phased`** — greenfield with the full plan. The plan and live state are in `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_STATUS.md`, and the latest `docs/sessions/` handoff. Work the resolver's frontier (`bash .claude/resolve-ready.sh`) — dispatch is deps-only, and a later-phase item in `ready=` is legitimate; phases remain the unit of narrative, review, and UAT.
 
 A missing project-shape artifact is a _mode signal_, not an error: no phase docs means task/onboard mode, not a broken setup.
 

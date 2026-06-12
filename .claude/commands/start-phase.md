@@ -144,5 +144,5 @@ Identify the next feature or deliverable to work on within Phase $ARGUMENTS. Sta
 - Use red/green TDD for every feature. Write the test first, watch it fail, then implement.
 - Work on one feature at a time. Complete it (including tests) before moving to the next.
 - Commit after each completed feature with a descriptive conventional commit message.
-- Do not implement features from future phases. Fixes and improvements to prior phase deliverables are encouraged when the current phase's work reveals gaps.
+- Do not implement deliverables outside the resolver's frontier. Dispatch is deps-only ([7.6]): a later-phase item in `ready=` is legitimate work; an item not in the frontier — whatever its phase — is not. Fixes and improvements to prior phase deliverables are encouraged when the current phase's work reveals gaps.
 - If you encounter a decision point with multiple valid approaches, pause and explain the tradeoffs.

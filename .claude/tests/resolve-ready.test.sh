@@ -139,29 +139,57 @@ JF=$(bash "$SCRIPT" "$(fx fwd)" --json 2>/dev/null); RCJ=$?
   && ok "forward dep: --json agrees (ready, blocked root, reporting phase)" \
   || no "forward-dep fixture must resolve identically under --json (rc=$RCJ: $JF)"
 
-# T5b — forward ❌/🔄 propagation: the ordinary-edge claim holds for every
+# T5b — forward-marker matrix: the ordinary-edge claim holds for every
 # marker, not just ⬜ — a dep on a later-phase ❌ blocks with the ❌ named
 # (descope propagates wherever it sits), a dep on a later-phase 🔄 names
-# the 🔄, and the 🔄 still wins serial= over the ready item.
+# the 🔄 (and the 🔄 still wins serial= over any ready item), and a dep on
+# a later-phase ✅ is satisfied like any other (the dependent is ready).
 cat > "$(fx fwdmark)" <<'MD'
 ## Phase 6 — Build
 
 - ⬜ **[6.1]** Needs a dead future thing `[deps: 7.2]`
 - ⬜ **[6.2]** Needs an in-flight future thing `[deps: 7.3]`
+- ⬜ **[6.3]** Needs a done future thing `[deps: 7.4]`
 
 ## Phase 7 — Later
 
 - ⬜ **[7.1]** Open `[deps: none]`
 - ❌ **[7.2]** Dead (descoped 2026-06-12: gone) `[deps: none]`
 - 🔄 **[7.3]** Going `[deps: none]`
+- ✅ **[7.4]** Done already `[deps: none]`
 MD
 OUT=$(bash "$SCRIPT" "$(fx fwdmark)" 2>&1); RC=$?
 [ "$RC" -eq 0 ] && [ "$(val blocked "$OUT")" = "6.1:7.2 6.2:7.3" ] \
   && ok "forward markers: ❌ and 🔄 in a later phase propagate as named roots" \
   || no "expected blocked=6.1:7.2 6.2:7.3 (rc=$RC: $OUT)"
-[ "$(val ready "$OUT")" = "7.1" ] && [ "$(val serial "$OUT")" = "7.3" ] \
-  && ok "forward markers: later-phase 🔄 still wins serial over the ready item" \
-  || no "expected ready=7.1 serial=7.3 (got: $OUT)"
+[ "$(val ready "$OUT")" = "6.3 7.1" ] \
+  && ok "forward markers: a satisfied (✅) forward dep makes its dependent ready" \
+  || no "expected ready=6.3 7.1 (got: $OUT)"
+[ "$(val serial "$OUT")" = "7.3" ] \
+  && ok "forward markers: later-phase 🔄 still wins serial over the ready items" \
+  || no "expected serial=7.3 (got: $OUT)"
+
+# T5c — a cross-phase cycle (forward + backward pair): pre-[7.6] this died
+# at the forward-dep lint; post-repeal the cycle detector is the only guard
+# on the composite, so the newly-reachable state is pinned: exit 5, both
+# participants named, identically under both output modes.
+cat > "$(fx xcycle)" <<'MD'
+## Phase 6 — Build
+
+- ⬜ **[6.1]** A `[deps: 7.1]`
+
+## Phase 7 — Later
+
+- ⬜ **[7.1]** B `[deps: 6.1]`
+MD
+OUT=$(bash "$SCRIPT" "$(fx xcycle)" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -qi "cycle" && echo "$OUT" | grep -q "6.1" && echo "$OUT" | grep -q "7.1" \
+  && ok "cross-phase cycle: exit 5, both participants named" \
+  || no "a forward+backward dep pair must exit 5 as a cycle naming 6.1 and 7.1 (rc=$RC: $OUT)"
+E2=$(bash "$SCRIPT" "$(fx xcycle)" --json 2>&1 >/dev/null); R2=$?
+[ "$R2" -eq 5 ] && [ "$E2" = "$OUT" ] \
+  && ok "cross-phase cycle: identical exit-5 under --json (one resolver, one gate)" \
+  || no "cross-phase cycle must fail identically under --json (rc=$R2)"
 
 # T6 — cycle: exit 5, the cycle's IDs named.
 cat > "$(fx cycle)" <<'MD'
