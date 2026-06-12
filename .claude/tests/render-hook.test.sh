@@ -263,6 +263,28 @@ grep -q 'my own hook' "$CP2/.git/hooks/post-commit" \
   && ok "ownership: foreign hook survives re-create, refusal announced" \
   || no "create must not clobber a foreign hook, and must say so"
 
+# ── T9b — the two skip-announce rungs: a --sync against a plane with no
+# .git at all, and against a worktree-shape .git FILE, both announce the
+# hook skip instead of vanishing (announce-every-skip; sync still exits 0 —
+# the hook is convenience, never a dependency).
+NR="$WORK/nonrepo"; mkdir -p "$NR/.claude"
+OUT=$(bash "$H/maintainers/setup-control-plane.sh" "$NR" --sync 2>&1); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'not a git repo' \
+  && ok "skip-announce: --sync against a non-repo says so, exits 0" \
+  || no "a non-repo --sync must announce the hook skip and complete (rc=$RC: $OUT)"
+[ ! -e "$NR/.git" ] \
+  && ok "skip-announce: non-repo left a non-repo (nothing created)" \
+  || no "--sync must never create .git"
+WT="$WORK/wtshape"; mkdir -p "$WT/.claude"
+echo "gitdir: /nowhere" > "$WT/.git"
+OUT=$(bash "$H/maintainers/setup-control-plane.sh" "$WT" --sync 2>&1); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'worktree' \
+  && ok "skip-announce: worktree-shape .git file announced, exits 0" \
+  || no "a .git FILE must announce the worktree skip and complete (rc=$RC: $OUT)"
+[ "$(cat "$WT/.git")" = "gitdir: /nowhere" ] \
+  && ok "skip-announce: the .git file is untouched" \
+  || no "--sync must never modify a worktree's .git file"
+
 # ── T10 — the views manifest entry: schema-declared, optional, closed.
 SCHEMA="$CLAUDE_DIR/project.schema.json"
 jq -e '.properties.views | .type == "object" and .additionalProperties == false
