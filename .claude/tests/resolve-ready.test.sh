@@ -410,6 +410,49 @@ OUT=$(bash "$SCRIPT" "$(fx own)" --jsno 2>&1); RC=$?
 [ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "unknown argument" \
   && ok "json: typo'd flag refuses loud (exit 2, named)" \
   || no "an unrecognized second argument must exit 2 naming itself (rc=$RC: $OUT)"
+# Flag-first with a path refuses with an order-correcting message (the
+# likeliest real-world misuse — most tools accept flag-anywhere).
+OUT=$(bash "$SCRIPT" --json "$(fx own)" 2>&1); RC=$?
+[ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "tracker path comes first" \
+  && ok "json: flag-first refuses with the order named, not 'unknown argument <path>'" \
+  || no "--json <path> must exit 2 saying the path comes first (rc=$RC: $OUT)"
+OUT=$(bash "$SCRIPT" --json --json 2>&1); RC=$?
+[ "$RC" -eq 2 ] \
+  && ok "json: duplicate --json refuses loud" \
+  || no "--json --json must exit 2 (rc=$RC: $OUT)"
+
+# T12h — jq absent: --json refuses LOUD before resolving (a silently-empty
+# status.json under exit 0 is the stale-view failure class this surface
+# exists to prevent); the name=value path stays jq-free and is untouched.
+OUT=$(PATH=/nonexistent /bin/bash "$SCRIPT" "$(fx own)" --json 2>&1); RC=$?
+[ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "requires jq" \
+  && ok "json: missing jq refuses loud (exit 2, dependency named) — never empty exit-0 output" \
+  || no "--json without jq must exit 2 naming the dependency (rc=$RC: $OUT)"
+
+# T12i — the post-A-001 shape of this initiative's own tracker (7 Phase-6
+# deliverables, 6.5 re-pointed at 6.6, 6.7 chained behind 6.5), hand-computed:
+# ready = 6.6 alone; 6.5 and 6.7 both blocked with root 6.6; serial = 6.6.
+cat > "$(fx own2)" <<'MD'
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Grammar amendment `[deps: none]`
+- ✅ **[6.2]** Resolver `[deps: 6.1]`
+- ✅ **[6.3]** Mutation primitive `[deps: 6.1]`
+- ✅ **[6.4]** Docs sweep `[deps: 6.1, 6.3]`
+- ⬜ **[6.5]** Status render `[deps: 6.6]`
+- ⬜ **[6.6]** status.json emission `[deps: 6.2]`
+- ⬜ **[6.7]** Self-aware regeneration `[deps: 6.5]`
+
+## Phase 7 — Execution Surfaces
+
+- ⬜ **[7.1]** Plumbing extraction `[deps: none]`
+MD
+J2=$(bash "$SCRIPT" "$(fx own2)" --json 2>/dev/null)
+echo "$J2" | jq -e '.frontier.ready==["6.6"] and .frontier.serial=="6.6"
+  and (.frontier.blocked|map(.id+":"+.blocked_by))==["6.5:6.6","6.7:6.6"]
+  and .phases==[6,7] and (.deliverables|length==8)' >/dev/null \
+  && ok "json: post-amendment own-tracker shape matches the hand-computed frontier" \
+  || no "post-A-001 fixture frontier wrong (got: $(echo "$J2" | jq -c .frontier))"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

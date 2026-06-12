@@ -270,8 +270,10 @@ surface** alongside the tracker grammar and the manifest schema (the A-001
 one-parser decision): the resolver is the grammar's only implementation, and
 every other reader of plan state — the status renderer first, external tools
 later — consumes this JSON and never parses the tracker. Changing the shape
-pays contract cost; the versioning question is parked in feedback entry
-`2026-06-12T14:53:17Z-218718043` (grammar-version) and drains on evidence.
+pays contract cost; the versioning question is deliberately parked as harness
+feedback (the `grammar-version` entry in the harness project's own feedback
+ledger — not shipped with the template) and drains on evidence: act when an
+external consumer or a breaking shape change actually appears, not before.
 
 ```json
 {
@@ -280,7 +282,7 @@ pays contract cost; the versioning question is parked in feedback entry
   "phase": 6,                               // current phase; null when none open
   "phases": [6, 7, 8],                      // phase boundaries, document order
   "deliverables": [                         // document order
-    { "id": "6.1",                          // null in LEGACY (no IDs exist)
+    { "id": "6.4",                          // null in LEGACY (no IDs exist)
       "phase": 6,                           // null in LEGACY
       "status": "done",                     // done | in_progress | todo | descoped
       "deps": ["6.1", "6.3"],               // always [] in LEGACY — empty edges,

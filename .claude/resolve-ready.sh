@@ -52,10 +52,21 @@ esac
 if [ -n "${2:-}" ]; then
   if [ "$2" = "--json" ] && [ "$JSON" -eq 0 ]; then
     JSON=1
+  elif [ "$JSON" -eq 1 ]; then
+    echo "error: tracker path comes first — $USAGE" >&2
+    exit 2
   else
     echo "error: unknown argument '$2' — $USAGE" >&2
     exit 2
   fi
+fi
+
+# --json's one extra dependency is guarded loud: without this, a missing jq
+# emits EMPTY stdout under exit 0 — a silently-empty status.json is the
+# stale-view-worse-than-none failure class this surface exists to prevent.
+if [ "$JSON" -eq 1 ] && ! command -v jq >/dev/null 2>&1; then
+  echo "error: --json requires jq, which is not on PATH — install jq or use the name=value output" >&2
+  exit 2
 fi
 
 # Marker → status word for the JSON surface (it never carries emoji).
