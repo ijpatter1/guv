@@ -101,7 +101,8 @@ for doc in README.md CLAUDE.template.md \
       continue
     fi
     if ! grep -q 'guv-template-readme' "$target"; then
-      # Detector-drift probe (mirrors setup-control-plane T10): template-only
+      # Detector-drift probe (mirrors setup-control-plane T10; the probe
+      # literal lives in both suites — keep them in step): template-only
       # content without the marker means drift, not a rendered README.
       if tr '\n' ' ' < "$target" | tr -s ' ' | grep -qi 'replaces harness-owned surfaces'; then
         no "README carries template content but no guv-template-readme marker — marker/detector drift"
@@ -141,6 +142,13 @@ if [ -z "${EP_TEST_INNER:-}" ]; then
     ok "marker-bearing README runs the cross-reference guard (template-shape positive control)"
   else
     no "with the marker present the cross-reference guard must RUN (and fail on empty content)"
+  fi
+  printf '# readme\n--sync replaces harness-owned surfaces wholesale.\n' > "$EPWORK/drifted.md"
+  INNER=$(EP_TEST_INNER=1 EP_TEST_README="$EPWORK/drifted.md" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER" | grep -q "marker/detector drift"; then
+    ok "marker-less template content fails loud (drift-probe self-check)"
+  else
+    no "a marker-less README with template content must fail loud, not skip"
   fi
   rm -rf "$EPWORK"
 fi

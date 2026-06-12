@@ -308,7 +308,8 @@ if [ -f "$RM" ] && ! grep -q 'guv-template-readme' "$RM"; then
   # Detector-drift probe: a marker-less README that still carries template-only
   # content is not a rendered project README — it means the marker (or this
   # detector's literal) drifted, and skipping would silently disable the guards
-  # in the canonical repo. Fail loud instead.
+  # in the canonical repo. Fail loud instead. (The probe literal also lives in
+  # evaluate-parallel.test.sh's README gate — keep the two in step.)
   if flat "$RM" | grep -qi 'replaces harness-owned surfaces'; then
     no "README carries template content but no guv-template-readme marker — marker/detector drift"
   else
@@ -373,6 +374,17 @@ if [ -z "${SCP_TEST_INNER:-}" ]; then
     ok "absent-README shape visibly skips the disposition guards (seamed self-check)"
   else
     no "an absent README must skip the disposition guards visibly"
+  fi
+  # Drift branch: marker-less but phrase-bearing must fail LOUD — proves the
+  # probe literal matches the live README phrase (a typo'd probe would silently
+  # degrade drift back to a plain skip).
+  FAKE4="$WORK/drifted-readme.md"
+  printf '# readme\n--sync replaces harness-owned surfaces wholesale.\n' > "$FAKE4"
+  INNER4=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE4" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER4" | grep -q "marker/detector drift"; then
+    ok "marker-less template content fails loud (drift-probe self-check)"
+  else
+    no "a marker-less README with template content must fail loud, not skip"
   fi
 fi
 

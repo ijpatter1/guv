@@ -44,7 +44,10 @@ grep -q '`product-reviewer`' "$RULE" \
 
 # T3 — ad-hoc reviewers are prohibited, stated as a prohibition (the anchor
 # requires the prohibition verb in the same sentence, not just the term;
-# newlines are flattened first since prose wraps mid-sentence).
+# newlines are flattened first since prose wraps mid-sentence). Deliberately
+# unsqueezed — the lone exception to the D4 squeeze sweep: the [^.]* gaps
+# absorb doubled spaces, so no fixed phrase here can break on a wrap. If the
+# gaps are ever replaced with literal phrases, add | tr -s ' '.
 tr '\n' ' ' < "$RULE" | grep -qiE 'ad-hoc [^.]*prohibit|prohibit[^.]* ad-hoc' \
   && ok "prohibits ad-hoc reviewer agents" \
   || no "rule must prohibit ad-hoc reviewer agents (as a prohibition)"
