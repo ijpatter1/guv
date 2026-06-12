@@ -65,13 +65,20 @@ fi
 
 # Shape gate: the fields the renderer depends on, each named when absent.
 # (Shape, not provenance — the contract is documented beside the tracker
-# grammar in the phase-docs skill.)
+# grammar in the phase-docs skill.) The top-level type is checked FIRST so
+# the field accesses can never error out of jq — and the gate fails CLOSED:
+# if jq exits non-zero for any reason, that is a shape violation, never a
+# silent pass (a broken page under exit 0 is the silent-success class
+# [6.7]'s regeneration hook would propagate into a published view).
 SHAPE_ERR=$(jq -r '
-  [ (if (.mode == "GRAMMAR" or .mode == "LEGACY") then empty else "mode" end),
-    (if (.deliverables | type) == "array" then empty else "deliverables" end),
-    (if (.frontier | type) == "object" then empty else "frontier" end),
-    (if (.generated | type) == "string" then empty else "generated" end)
-  ] | join(", ")' "$INPUT" 2>/dev/null)
+  if type != "object" then "top-level value is not an object"
+  else
+    [ (if (.mode == "GRAMMAR" or .mode == "LEGACY") then empty else "mode" end),
+      (if (.deliverables | type) == "array" then empty else "deliverables" end),
+      (if (.frontier | type) == "object" then empty else "frontier" end),
+      (if (.generated | type) == "string" then empty else "generated" end)
+    ] | join(", ")
+  end' "$INPUT" 2>/dev/null) || SHAPE_ERR="jq could not evaluate the shape"
 if [ -n "$SHAPE_ERR" ]; then
   echo "error: '$INPUT' does not carry the status.json shape (missing or invalid: $SHAPE_ERR) — produce it with resolve-ready.sh --json" >&2
   exit 5
@@ -108,6 +115,7 @@ cat <<'HTML_HEAD'
   .status-todo        { background: #f5f5f5; border-color: #9e9e9e; color: #424242; }
   .status-descoped    { background: #ffebee; border-color: #c62828; color: #b71c1c; text-decoration: line-through; }
   .is-ready           { box-shadow: 0 0 0 3px #1565c0; }
+  .is-blocked         { border-style: dashed; }
   /* SVG node/edge styling mirrors the chip vocabulary */
   svg .node rect.status-done        { fill: #e8f5e9; stroke: #2e7d32; }
   svg .node rect.status-in_progress { fill: #fff8e1; stroke: #f9a825; }
@@ -116,6 +124,7 @@ cat <<'HTML_HEAD'
   svg .node.is-descoped text { text-decoration: line-through; fill: #b71c1c; }
   svg .node rect { stroke-width: 2; }
   svg .node rect.is-ready { stroke: #1565c0; stroke-width: 4; }
+  svg .node rect.is-blocked { stroke-dasharray: 6 3; }
   svg .node text { font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1d2129; }
   svg .edge { fill: none; stroke: #b0bec5; stroke-width: 1.5; }
   svg .node.hl rect { stroke-width: 4; }
@@ -168,7 +177,10 @@ cat <<'HTML_TAIL'
     (data.phase !== null && data.phase !== undefined ? ' · phase ' + data.phase : '') +
     ' · generated ' + data.generated;
 
-  // Frontier strip — field for field what the resolver reported.
+  // Frontier strip — field for field what the resolver reported. In LEGACY
+  // mode the ID-list fields are empty by definition (no IDs exist), so the
+  // strip shows only the one real signal — the next line of work — instead
+  // of three dashes.
   (function () {
     var f = data.frontier || {};
     var strip = document.getElementById('frontier');
@@ -178,6 +190,10 @@ cat <<'HTML_TAIL'
       g.appendChild(el('span', '', value));
       strip.appendChild(g);
     }
+    if (data.mode === 'LEGACY') {
+      grp('next:', f.serial === null || f.serial === undefined ? '—' : String(f.serial));
+      return;
+    }
     grp('in progress:', (f.in_progress || []).join(', ') || '—');
     grp('ready:', (f.ready || []).join(', ') || '—');
     grp('blocked:', (f.blocked || []).map(function (b) {
@@ -185,6 +201,23 @@ cat <<'HTML_TAIL'
     }).join(', ') || '—');
     grp('serial:', f.serial === null || f.serial === undefined ? '—' : String(f.serial));
   })();
+
+  // Legend — the status vocabulary applies in both modes; the frontier
+  // distinctions exist only where there is a graph to mark.
+  function buildLegend(withFrontier) {
+    var legend = el('div', '', '');
+    legend.id = 'legend';
+    var chips = [['status-done', 'done'], ['status-in_progress', 'in progress'],
+                 ['status-todo', 'todo'], ['status-descoped', 'descoped']];
+    if (withFrontier) {
+      chips.push(['status-todo is-ready', 'ready frontier']);
+      chips.push(['status-todo is-blocked', 'blocked']);
+    }
+    chips.forEach(function (pair) {
+      legend.appendChild(el('span', 'chip ' + pair[0], pair[1]));
+    });
+    root.appendChild(legend);
+  }
 
   try {
     if (data.mode === 'LEGACY') renderLegacy(data); else renderDag(data);
@@ -195,6 +228,7 @@ cat <<'HTML_TAIL'
   // LEGACY: no IDs, empty deps — a plain ordered list in document order.
   // There are no edges to draw, and none are invented.
   function renderLegacy(data) {
+    buildLegend(false);
     var list = document.createElement('ol');
     list.className = 'legacy';
     data.deliverables.forEach(function (d) {
@@ -208,10 +242,18 @@ cat <<'HTML_TAIL'
   function renderDag(data) {
     var SVG_NS = 'http://www.w3.org/2000/svg';
     var items = data.deliverables;
+    if (!items.length) {
+      // Unreachable via the producer (the resolver refuses bullet-free
+      // trackers), so hand-fed input gets a loud banner, not broken geometry.
+      fail('The status JSON carries no deliverables — nothing to draw.');
+      return;
+    }
     var byId = {};
     items.forEach(function (d) { byId[d.id] = d; });
     var ready = {};
     (data.frontier.ready || []).forEach(function (id) { ready[id] = true; });
+    var blocked = {};
+    (data.frontier.blocked || []).forEach(function (b) { blocked[b.id] = true; });
 
     // Topological layer = longest dependency chain beneath the node. The
     // resolver guarantees acyclicity (it exits 5 on cycles); the visiting
@@ -282,7 +324,8 @@ cat <<'HTML_TAIL'
       rect.setAttribute('x', p.x); rect.setAttribute('y', p.y);
       rect.setAttribute('width', NW); rect.setAttribute('height', NH);
       rect.setAttribute('rx', 6);
-      rect.setAttribute('class', 'status-' + d.status + (ready[d.id] ? ' is-ready' : ''));
+      rect.setAttribute('class', 'status-' + d.status + (ready[d.id] ? ' is-ready' : '') +
+        (blocked[d.id] ? ' is-blocked' : ''));
       var label = document.createElementNS(SVG_NS, 'text');
       label.setAttribute('x', p.x + NW / 2); label.setAttribute('y', p.y + NH / 2 + 5);
       label.setAttribute('text-anchor', 'middle');
@@ -293,8 +336,21 @@ cat <<'HTML_TAIL'
       svg.appendChild(g);
       nodeEls[d.id] = g;
       g.addEventListener('mouseenter', function () { highlight(d.id, true); });
-      g.addEventListener('mouseleave', function () { highlight(d.id, false); });
+      g.addEventListener('mouseleave', function () {
+        highlight(d.id, false);
+        if (pinnedId) highlight(pinnedId, true);
+      });
+      // Click pins the chain (the touch/keyboard-adjacent path); clicking
+      // the pinned node again releases it.
+      g.addEventListener('click', function () { setPin(d.id); });
     });
+
+    var pinnedId = null;
+    function setPin(id) {
+      if (pinnedId) highlight(pinnedId, false);
+      pinnedId = (pinnedId === id) ? null : id;
+      if (pinnedId) highlight(pinnedId, true);
+    }
 
     // Blocked chains traceable: hovering a node lights its transitive
     // dependency closure — every ancestor node and every edge between them.
@@ -314,14 +370,7 @@ cat <<'HTML_TAIL'
       });
     }
 
-    var legend = el('div', '', '');
-    legend.id = 'legend';
-    [['status-done', 'done'], ['status-in_progress', 'in progress'],
-     ['status-todo', 'todo'], ['status-descoped', 'descoped'],
-     ['status-todo is-ready', 'ready frontier']].forEach(function (pair) {
-      legend.appendChild(el('span', 'chip ' + pair[0], pair[1]));
-    });
-    root.appendChild(legend);
+    buildLegend(true);
     root.appendChild(svg);
 
     // Per-phase detail: the full deliverable text beside the graph, grouped

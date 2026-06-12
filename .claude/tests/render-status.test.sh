@@ -32,6 +32,15 @@ no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 WORK=$(mktemp -d)
 trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' EXIT
 
+# The suite (like the script it tests, which refuses by name) needs jq — say
+# so instead of dying mid-SETUP with a resolver error that hides the cause.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "  ✗ SETUP: jq is required (by this suite's fixtures and by render-status.sh itself) — install jq"
+  echo ""
+  echo "Results: 0 passed, 1 failed"
+  exit 1
+fi
+
 val() { echo "$2" | grep -E "^$1=" | head -1 | sed "s/^$1=//"; }
 
 # Extract the data island's JSON line and undo the `</` -> `<\/` embedding
@@ -140,6 +149,24 @@ echo "$HTML" | grep -q 'createElementNS' \
 echo "$HTML" | grep -Eq "createElement\(['\"]ol['\"]\)" \
   && ok "vocabulary: LEGACY ordered-list path present in the renderer JS" \
   || no "LEGACY branch must render an ordered list (createElement('ol'))"
+echo "$HTML" | grep -q 'is-blocked' \
+  && ok "vocabulary: blocked nodes carry a standing visual mark (is-blocked)" \
+  || no "blocked deliverables must be marked without requiring hover (expected token is-blocked)"
+
+# ── T5b — the renderer JS parses as JavaScript. The page renders client-side
+# by design, so the bash suite cannot execute it — but a syntax error that
+# blanks every render is catchable here. node is NOT a harness runtime dep:
+# skip cleanly (loudly) if absent, same idiom as evaluate-parallel.test.sh.
+# Deeper DOM-level verification lives in maintainers/render-smoke.js (dev
+# tool, run manually).
+if command -v node >/dev/null 2>&1; then
+  echo "$HTML" | awk '/^<script>$/{f=1;next} /^<\/script>$/{f=0} f' > "$WORK/inline.js"
+  [ -s "$WORK/inline.js" ] && node --check "$WORK/inline.js" >/dev/null 2>&1 \
+    && ok "renderer JS parses as JavaScript (node --check)" \
+    || no "node --check failed — the in-page renderer has a syntax error"
+else
+  echo "  - node not installed — skipping renderer-JS syntax check"
+fi
 
 # ── T6 — LEGACY input: exit 0, island mode LEGACY, deps honestly empty
 # (degrade gracefully — edges are never invented from document order).
@@ -188,6 +215,16 @@ E=$(bash "$SCRIPT" "$WORK/shape.json" 2>&1 >/dev/null); RC=$?
 [ "$RC" -eq 5 ] && echo "$E" | grep -q "mode" \
   && ok "malformed: wrong shape exits 5 naming the missing field" \
   || no "shape violation must exit 5 naming what's missing (rc=$RC: $E)"
+# Valid JSON that is not an object must fail CLOSED — jq field access errors
+# on arrays and scalars, and a swallowed jq error must read as a shape
+# violation, never as a pass (the broken-page-under-exit-0 class).
+for nonobj in '[1,2,3]' '42'; do
+  printf '%s\n' "$nonobj" > "$WORK/nonobj.json"
+  E=$(bash "$SCRIPT" "$WORK/nonobj.json" 2>&1 >/dev/null); RC=$?
+  [ "$RC" -eq 5 ] && echo "$E" | grep -qi "object" \
+    && ok "malformed: non-object JSON ($nonobj) exits 5 — the shape gate fails closed" \
+    || no "non-object JSON $nonobj must exit 5 naming the problem (rc=$RC: $E)"
+done
 
 # ── T10 — argument grammar closed at every position (allow-list = the
 # documented grammar: one optional positional, nothing else).
@@ -236,12 +273,15 @@ CLOSES=$(echo "$EHTML" | grep -c '</script>')
 # distinction that must survive [6.7]: a hook that INVOKES render-status.sh
 # (and redirects INTO status.html) is the designed regeneration path; a line
 # that reads status.html as input is a machine consumer of a view and a
-# violation. A mention is legal iff it invokes the renderer on the same line,
-# is a pure write-redirect target, or is prose in a doc.
+# violation. Exemption is by file path (the renderer's own copies and this
+# suite), not by line content — an invoking line elsewhere that also reads
+# status.html back is caught. Legal mentions outside those files are pure
+# write-redirect targets; doc prose lives outside the scanned tree.
 CONSUMERS=$(grep -rn 'status\.html' \
     "$CLAUDE_DIR/commands" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/skills" \
-    "$CLAUDE_DIR/tests" "$ROOT/maintainers" 2>/dev/null \
-  | grep -v 'render-status' \
+    "$CLAUDE_DIR/workflows" "$CLAUDE_DIR/tests" "$CLAUDE_DIR"/*.sh \
+    "$ROOT/maintainers" "$ROOT/Makefile" "$ROOT/plugin" 2>/dev/null \
+  | grep -Ev '^[^:]*render-status[^:]*:' \
   | grep -Ev '>[[:space:]]*[^[:space:]]*status\.html' \
   || true)
 [ -z "$CONSUMERS" ] \
