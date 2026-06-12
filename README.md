@@ -67,19 +67,30 @@ plugin support. Updates arrive via `maintainers/setup-control-plane.sh --sync` �
 supported indefinitely, though new surface ships plugin-first.
 
 **Already on a template clone?** The decided disposition: **migrate to the plugin**
-if you haven't customized harness-owned files. Install it, then in your project
-delete only the copied surfaces the plugin now supplies at runtime — commands,
-skills, agents, hooks, the loose helper scripts (`resolve-stack.sh` and friends),
-and harness-shipped workflows — so the two copies don't double-load, **and remove
-the `hooks` block from `.claude/settings.json`**: it registers the hook scripts by
-path, so after the deletion every tool call would invoke a missing file (the
-plugin's own `hooks.json` takes over; this is a hand edit — `/guv:scaffold` never
-touches an existing settings file). **Keep `.claude/rules/guv-*.md`**: rules load
-from the project, not from the plugin — the plugin only re-deploys them via
-`/guv:scaffold` — so deleting them strips the engineering-rules layer with nothing
-taking over. Your manifest (and its schema file), docs, feedback log, unprefixed
-rules, and consumer-saved workflows are consumer-owned and stay. If you **have**
-customized harness-owned surfaces, keep syncing — that path remains supported.
+if you haven't customized harness-owned files. In order:
+
+1. Install the plugin (marketplace add + install, as above).
+2. Delete the copied surfaces the plugin now supplies at runtime, so the two
+   copies don't double-load: `.claude/commands/`, `.claude/skills/`,
+   `.claude/agents/`, `.claude/hooks/`, the loose helper scripts
+   (`resolve-stack.sh` and friends), and harness-shipped workflows.
+3. **Remove the `hooks` block from `.claude/settings.json`** — it registers the
+   just-deleted hook scripts by path, so every tool call would invoke a missing
+   file. The plugin's own `hooks.json` takes over. This is a hand edit:
+   `/guv:scaffold` never touches an existing settings file.
+4. Keep everything else. **Keep `.claude/rules/guv-*.md`** in particular: rules
+   load from the project, not from the plugin — the plugin only re-deploys them
+   via `/guv:scaffold` — so deleting them strips the engineering-rules layer with
+   nothing taking over. Your manifest (and its schema file), docs, feedback log,
+   unprefixed rules, and consumer-saved workflows are consumer-owned and stay.
+
+If you **have** customized harness-owned surfaces, keep the clone — but update
+deliberately: `--sync` replaces harness-owned surfaces **wholesale** (commands,
+skills, agents, hooks, settings, helper scripts — only unprefixed rules files and
+consumer-saved workflows are ownership-protected), so a blind sync reverts exactly
+the customizations this path exists for. Re-apply your edits after a sync, pull
+upstream changes selectively, or move the customizations into consumer-owned
+surfaces (unprefixed rules, your own workflows) and then migrate.
 
 Click **"Use this template"** on GitHub, or:
 

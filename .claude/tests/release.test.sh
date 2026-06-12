@@ -132,7 +132,8 @@ grep -q 'on the release that ships the fix' "$REL" 2>/dev/null \
 # ships (maintainer tooling, repo-only docs) reach their audience on the merge
 # to the default branch, so graduation names the merge commit, not a version
 # (Phase 5 D4 — the runner-sync entry is the first of this class).
-grep -qi 'never ships' "$REL" 2>/dev/null && grep -qi 'merge commit' "$REL" 2>/dev/null \
+REL_FLAT=$(tr '\n' ' ' < "$REL" 2>/dev/null)
+echo "$REL_FLAT" | grep -qi 'never ships' && echo "$REL_FLAT" | grep -qi 'merge commit' \
   && ok "drain: no-release-vehicle graduation path documented (merge commit)" \
   || no "RELEASING.md must say how non-plugin-shipped fixes graduate (merge, not version)"
 WID=$(awk '/^## Worked example/,0' "$REL" 2>/dev/null | grep -m1 -oE '[0-9TZ:-]+Z-[0-9]+')

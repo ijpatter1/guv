@@ -91,9 +91,12 @@ decided by audience:
   script.
 - **Consumers, template-clone fallback:** kept and supported — for forks that customize
   harness-owned files (the plugin's surfaces aren't editable; a clone's are) or
-  environments that can't install plugins. `--sync` remains their update path. The
-  README's Quick Start states the decided migrate-or-keep-syncing answer for existing
-  clones.
+  environments that can't install plugins. `--sync` remains their update path, with
+  the documented caveat that it replaces harness-owned surfaces **wholesale** (see
+  the ownership-scoped list above — only unprefixed rules and consumer-saved
+  workflows are protected): a fork that has edited those surfaces re-applies its
+  edits after a sync or updates selectively, and the README says so. The README's
+  Quick Start states the decided migrate-or-keep-syncing answer for existing clones.
 - **Maintainers (this doc):** the script is **kept, scoped to maintainers**, because
   the dogfooding loop tests **unreleased** core changes. By RELEASING.md's own framing,
   a change that hasn't shipped in a version bump reaches no plugin consumer — so plugin

@@ -254,6 +254,9 @@ run_setup "$H" "$D" --sync
 # T9 — DOGFOODING.md re-derived against current reality (Phase 5 D4). The doc
 # documents this script's loop, so its accuracy guards live with this suite.
 # Conditional like T7: a fork may strip individual maintainer docs.
+# Prose guards grep a whitespace-flattened copy — an innocent reflow must not
+# break a phrase guard (it did once, in this deliverable's own wave).
+flat() { tr '\n' ' ' < "$1"; }
 DOG="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)/DOGFOODING.md"
 if [ -f "$DOG" ]; then
   grep -v '\.github' "$DOG" | grep -q 'workflows' \
@@ -271,7 +274,7 @@ if [ -f "$DOG" ]; then
   grep -q 'plan-initiative' "$DOG" \
     && ok "DOGFOODING: ceremony flip acknowledged (seeded task, initiative flips it)" \
     || no "DOGFOODING must reflect that /plan-initiative can flip the control plane to phased"
-  if grep -q 'pinned to the template repo' "$DOG"; then
+  if flat "$DOG" | grep -q 'pinned to the template repo'; then
     no "DOGFOODING: stale single-pin CI phrasing survives ('pinned to the template repo')"
   else
     ok "DOGFOODING: stale single-pin CI phrasing gone"
@@ -289,8 +292,8 @@ fi
 # plugin updates or keep syncing — an answer, not an inherited parenthetical.
 RM="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/README.md"
 if [ -f "$RM" ]; then
-  grep -qi 'keep syncing' "$RM" && grep -qi 'migrat' "$RM" \
-    && ok "README: existing clones told migrate-or-keep-syncing (decided disposition)" \
+  flat "$RM" | grep -qiE 'keep the clone|keep syncing' && grep -qi 'migrat' "$RM" \
+    && ok "README: existing clones told migrate-or-keep (decided disposition)" \
     || no "README fallback must state the disposition for existing template clones"
   grep -qiE 'double.load|dual.load' "$RM" \
     && ok "README: migration guidance names the double-load hazard" \
@@ -299,12 +302,18 @@ if [ -f "$RM" ]; then
   # hooks/ without de-registering them leaves settings.json invoking missing
   # scripts on every tool call, and guv-* rules are project-resident (the plugin
   # cannot supply rules at runtime) so "delete the copied core" must not cover them.
-  grep -qF 'hooks` block from `.claude/settings.json' "$RM" \
+  flat "$RM" | grep -qF 'hooks` block from `.claude/settings.json' \
     && ok "README: migration de-registers the hooks block from settings.json" \
     || no "README migration must say to remove the hooks block from .claude/settings.json"
-  grep -qF 'Keep `.claude/rules/guv-*.md' "$RM" \
+  flat "$RM" | grep -qF 'Keep `.claude/rules/guv-*.md' \
     && ok "README: migration keeps guv-* rules (plugin cannot supply rules at runtime)" \
     || no "README migration must tell clones to KEEP .claude/rules/guv-*.md"
+  # The customized-fork branch must be honest about what --sync does: copy_core
+  # replaces harness-owned surfaces wholesale, which reverts exactly the edits
+  # the fallback audience is invited to make.
+  flat "$RM" | grep -qi 'replaces harness-owned surfaces.*wholesale' \
+    && ok "README: customized forks warned that --sync replaces harness-owned surfaces wholesale" \
+    || no "README must warn customized forks that --sync reverts harness-owned edits"
 else
   echo "  - README.md absent (fork) — disposition guards skip"
 fi
