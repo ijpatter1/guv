@@ -155,6 +155,37 @@ claude
 Re-run with `--sync` after editing the harness to pull your changes into the control
 plane before testing them.
 
+## Publishing the status view (GitHub Pages)
+
+A phased control plane has a rendered view of its own tracker: `status.html`, a
+single self-contained file produced by the sanctioned chain —
+
+```bash
+bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > status.json
+bash .claude/render-status.sh status.json > status.html
+```
+
+The setup script installs a `.git/hooks/post-commit` hook into the control plane
+(create mode; refreshed on `--sync` while present) that runs this chain whenever a
+commit touches the tracker and commits the fresh `status.html` as a derived
+artifact — rebuilt, never line-merged, never a source. The hook is a
+**convenience, never a dependency**: with it absent (or jq missing, or the
+resolver refusing a malformed tracker) nothing breaks — the previous render stays
+in place, the refusal is loud, and the manual two-liner above always works. A
+pre-existing post-commit hook the harness doesn't own is never touched.
+
+To publish: enable GitHub Pages on the control-plane repo (Settings → Pages →
+deploy from branch, `main`, `/(root)`), and the committed `status.html` is served
+at the Pages URL. **Repo access is the access control, push is the deploy** — a
+private control plane gives a Pages view only collaborators can reach, and there
+is no server, no build step, and no pipeline to maintain.
+
+The published surface is declared in the manifest: the optional `views` entry in
+`.claude/project.json` (e.g. `"views": { "status": "status.html" }`,
+schema-validated). It is **descriptive only** — no execution path reads it; the
+declaration exists so the published surface is explicit manifest rather than
+implicit convention.
+
 ## What still lives in the harness repo
 
 Durable maintainer tooling is the _bootstrap_ for the split, so it lives here — you

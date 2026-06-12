@@ -286,17 +286,27 @@ CLOSES=$(echo "$EHTML" | grep -c '</script>')
 # distinction that must survive [6.7]: a hook that INVOKES render-status.sh
 # (and redirects INTO status.html) is the designed regeneration path; a line
 # that reads status.html as input is a machine consumer of a view and a
-# violation. Exemption is by file path (the renderer's own copies and this
-# suite), not by line content — an invoking line elsewhere that also reads
-# status.html back is caught. Legal mentions outside those files are pure
-# write-redirect targets; doc prose lives outside the scanned tree.
+# violation. Exemption is by file path (the renderer's own copies, this
+# suite, and the [6.7] hook suite that exercises fixture renders), not by
+# line content — an invoking line elsewhere that also reads status.html back
+# is caught. Legal mentions outside those files are the non-read forms the
+# [6.7] regeneration hook uses — write-redirects, mv-to, git add/commit
+# (recording, not reading), chmod (mode, not content), and echo
+# announcements — each guarded against a same-line `<` read; plus comment
+# lines, human doc prose under maintainers/*.md (neither executes), and the
+# manifest `views` declaration literal (declares the surface, reads nothing).
+# Anything else is a consumer.
 CONSUMERS=$(grep -rn 'status\.html' \
     "$CLAUDE_DIR/commands" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/skills" \
     "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/workflows" \
     "$CLAUDE_DIR/tests" "$CLAUDE_DIR"/*.sh \
     "$ROOT/maintainers" "$ROOT/Makefile" "$ROOT/plugin" 2>/dev/null \
-  | grep -Ev '^[^:]*/render-status(\.test)?\.sh:' \
+  | grep -Ev '^[^:]*/(render-status(\.test)?\.sh|render-hook\.test\.sh):' \
+  | grep -Ev '^[^:]*/maintainers/[^:]*\.md:' \
   | grep -Ev '>[[:space:]]*[^[:space:]]*status\.html' \
+  | grep -Ev '(mv |git add |git commit |chmod [0-9]+ |echo )[^<]*status\.html' \
+  | grep -Ev '^[^:]*:[0-9]+:[[:space:]]*#' \
+  | grep -Ev 'views: \{ status: "status\.html" \}' \
   || true)
 [ -z "$CONSUMERS" ] \
   && ok "view: zero machine consumers of status.html (invoke/write-only mentions tolerated)" \

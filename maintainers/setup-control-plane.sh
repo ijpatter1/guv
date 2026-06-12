@@ -183,7 +183,85 @@ SH
 }
 write_runner
 
+# Status-render post-commit hook ([6.7]): a tracker-touching commit regenerates
+# status.html through the sanctioned chain and commits it as a derived artifact.
+# Same ownership semantics as the runner — created in create mode, refreshed in
+# both modes while present and harness-owned, never created fresh on --sync
+# (--sync doubles as the template-clone consumer update path, and a project
+# that never had a git hook must not be handed one). A post-commit hook that
+# is NOT harness-owned is never touched: announce and step aside.
+write_render_hook() {
+  local target="$DEST/.git/hooks/post-commit" tmp
+  [ -d "$DEST/.git" ] || return 0
+  if [ ! -f "$target" ] && [ "$MODE" = "sync" ]; then
+    return 0
+  fi
+  if [ -f "$target" ] && ! grep -q 'Harness-owned' "$target"; then
+    echo "[setup] .git/hooks/post-commit exists and is not harness-owned — left untouched (the render hook was not installed)"
+    return 0
+  fi
+  mkdir -p "$DEST/.git/hooks"
+  tmp=$(mktemp)
+  cat > "$tmp" <<'SH'
+#!/bin/bash
+# .git/hooks/post-commit — status-view regeneration ([6.7] of the plan-as-data
+# spec). When a commit touches docs/PHASE_STATUS.md — the render is a pure
+# function of the tracker, so other docs cannot change it — regenerate
+# status.html through the sanctioned chain (resolve-ready.sh --json ->
+# render-status.sh) and commit it as a derived artifact. The follow-up render
+# commit touches only status.html, so the trigger check below is also the
+# recursion break. Convenience, NEVER a dependency: every failure rung
+# degrades to a loud notice and a clean exit, and the manual render always
+# works without this hook:
+#   bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > status.json
+#   bash .claude/render-status.sh status.json > status.html
+# Harness-owned: written by setup-control-plane.sh (create; refreshed on
+# --sync while present) — local edits will be overwritten; improve the
+# generator instead.
+set -u
+# --root: a repo's very first commit must trigger too (diff-tree is empty
+# on a root commit without it).
+git diff-tree --root --no-commit-id --name-only -r HEAD 2>/dev/null \
+  | grep -qx 'docs/PHASE_STATUS.md' || exit 0
+# Detached HEAD (rebase, bisect): never auto-commit there.
+git symbolic-ref -q HEAD >/dev/null || exit 0
+if ! command -v jq >/dev/null 2>&1; then
+  echo "[render-hook] jq not found — status.html NOT regenerated (render manually once jq is available)"
+  exit 0
+fi
+if [ ! -f .claude/resolve-ready.sh ] || [ ! -f .claude/render-status.sh ]; then
+  echo "[render-hook] render chain absent (.claude/resolve-ready.sh + render-status.sh) — status.html NOT regenerated"
+  exit 0
+fi
+TMP_JSON=$(mktemp) && TMP_HTML=$(mktemp) && ERR=$(mktemp) || exit 0
+if bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > "$TMP_JSON" 2>"$ERR" \
+   && bash .claude/render-status.sh "$TMP_JSON" > "$TMP_HTML" 2>>"$ERR"; then
+  mv "$TMP_HTML" status.html
+  chmod 644 status.html
+  git add status.html
+  git commit -q -m "chore(render): regenerate status.html (post-commit hook)" -- status.html
+  echo "[render-hook] status.html regenerated and committed — push to publish"
+else
+  # Stale beats broken: the previous committed render stays in place.
+  echo "[render-hook] render chain refused — status.html NOT updated:"
+  cat "$ERR"
+fi
+rm -f "$TMP_JSON" "$TMP_HTML" "$ERR"
+exit 0
+SH
+  if [ ! -f "$target" ]; then
+    cp "$tmp" "$target"
+    echo "[setup] installed status-render post-commit hook (.git/hooks/post-commit)"
+  elif ! cmp -s "$tmp" "$target"; then
+    cp "$tmp" "$target"
+    echo "[setup] refreshed status-render post-commit hook (harness-owned — drifted from the generator)"
+  fi
+  chmod +x "$target"
+  rm -f "$tmp"
+}
+
 if [ "$MODE" = "sync" ]; then
+  write_render_hook
   echo "[setup] --sync complete. Manifest, CLAUDE.md, docs, and feedback left untouched."
   exit 0
 fi
@@ -206,7 +284,8 @@ if [ ! -f "$DEST/.claude/project.json" ]; then
     readyCheck: null,
     formatExtensions: ["md","json","sh","yml","yaml"],
     guards: [],
-    ceremony: "task"
+    ceremony: "task",
+    views: { status: "status.html" }
   }' > "$DEST/.claude/project.json"
   echo "[setup] wrote dogfooding manifest (roots.code=$CODE_REL, ceremony=task)"
 fi
@@ -254,6 +333,7 @@ fi
 if [ ! -d "$DEST/.git" ]; then
   git -C "$DEST" init -q && echo "[setup] git init'd the control plane"
 fi
+write_render_hook
 
 echo ""
 echo "[setup] Control plane ready at: $DEST_ABS"

@@ -122,6 +122,17 @@
       "type": "string",
       "description": "How much project-shape machinery the commands invoke. 'phased' = full greenfield with phase docs; 'onboard' = existing repo, conventions inferred not scaffolded, no phase structure; 'task' = scoped change, no phase docs.",
       "enum": ["phased", "onboard", "task"]
+    },
+    "views": {
+      "type": "object",
+      "description": "Declared render surfaces — derived artifacts committed to this repo for publishing (GitHub Pages serves them; repo access is the access control, push is the deploy). DESCRIPTIVE ONLY: no execution path reads this entry — the post-commit render hook and the manual render chain write the conventional target regardless. Declaring it makes the published surface explicit manifest rather than implicit convention.",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Path of the rendered status view (render-status.sh output), committed as a derived artifact — rebuilt, never line-merged, never a source."
+        }
+      }
     }
   }
 }
