@@ -142,11 +142,17 @@ run destroy 1.1 >/dev/null 2>&1
 
 # T9 — .worktrees/ is gitignored via the guv-core block (single source: the
 # repo-root .gitignore between the guv-core-start/end markers, which the build
-# extracts for the scaffold shell).
+# extracts for the scaffold shell). Only the harness repo carries the block —
+# a control plane's generated .gitignore has no markers, so the plane shape
+# skips visibly ([7.7] convention), never as a failure.
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
-awk '/^# guv-core-start/,/^# guv-core-end/' "$ROOT/.gitignore" | grep -q '^\.worktrees/$' \
-  && ok ".worktrees/ line present in the guv-core gitignore block" \
-  || no ".worktrees/ must be in the guv-core gitignore block"
+if grep -q '^# guv-core-start' "$ROOT/.gitignore" 2>/dev/null; then
+  awk '/^# guv-core-start/,/^# guv-core-end/' "$ROOT/.gitignore" | grep -q '^\.worktrees/$' \
+    && ok ".worktrees/ line present in the guv-core gitignore block" \
+    || no ".worktrees/ must be in the guv-core gitignore block"
+else
+  echo "  - no guv-core gitignore block at repo root (plane/consumer shape) — gitignore check skips"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
