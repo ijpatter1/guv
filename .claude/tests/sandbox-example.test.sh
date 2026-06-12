@@ -19,6 +19,16 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
+# Plane / stripped-fork shape: the fragment and its firewall drift-partner
+# are source-repo assets a control plane never carries ([7.7] syncs the
+# suites, not the sandbox tier) — skip cleanly, like the maintainers guard.
+if [ ! -f "$FRAGMENT" ] && [ ! -f "$FIREWALL" ]; then
+  echo "  - sandbox assets not present — skipping (control plane / stripped fork)"
+  echo ""
+  echo "Results: 0 passed, 0 failed"
+  exit 0
+fi
+
 # T1 — fragment exists and validates as JSON. Everything else depends on this,
 # so bail out (loudly) if it fails.
 if [ -f "$FRAGMENT" ] && jq empty "$FRAGMENT" 2>/dev/null; then

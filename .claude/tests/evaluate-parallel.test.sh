@@ -94,6 +94,14 @@ for doc in README.md CLAUDE.template.md \
   # rather than failing (matching setup-control-plane.test.sh T10's gates).
   # Detector = the explicit guv-template-readme marker, reword-proof; the
   # README path rides the EP_TEST_README seam so T8b can prove both branches.
+  # A control plane carries the suites ([7.7]) but not the source repo's doc
+  # surfaces — an absent non-README doc skips visibly (plane / stripped-fork
+  # shape), same posture as the README gate below. In the source repo the
+  # files exist, so the checks run there in full.
+  if [ "$doc" != "README.md" ] && [ ! -f "$target" ]; then
+    echo "  - $doc absent (control plane / stripped fork) — cross-reference check skips"
+    continue
+  fi
   if [ "$doc" = "README.md" ]; then
     target="$RMD"
     if [ ! -f "$target" ]; then
