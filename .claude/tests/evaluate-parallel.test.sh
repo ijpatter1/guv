@@ -101,7 +101,13 @@ for doc in README.md CLAUDE.template.md \
       continue
     fi
     if ! grep -q 'guv-template-readme' "$target"; then
-      echo "  - README.md is a rendered project README, not the template's — cross-reference guard skips"
+      # Detector-drift probe (mirrors setup-control-plane T10): template-only
+      # content without the marker means drift, not a rendered README.
+      if tr '\n' ' ' < "$target" | tr -s ' ' | grep -qi 'replaces harness-owned surfaces'; then
+        no "README carries template content but no guv-template-readme marker — marker/detector drift"
+      else
+        echo "  - README.md is a rendered project README, not the template's — cross-reference guard skips"
+      fi
       continue
     fi
   fi

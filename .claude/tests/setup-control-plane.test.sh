@@ -305,7 +305,15 @@ fi
 # is the self-check seam (T10b re-invokes with a planted rendered README).
 RM="${SCP_TEST_README:-$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/README.md}"
 if [ -f "$RM" ] && ! grep -q 'guv-template-readme' "$RM"; then
-  echo "  - README.md is a rendered project README, not the template's — disposition guards skip"
+  # Detector-drift probe: a marker-less README that still carries template-only
+  # content is not a rendered project README — it means the marker (or this
+  # detector's literal) drifted, and skipping would silently disable the guards
+  # in the canonical repo. Fail loud instead.
+  if flat "$RM" | grep -qi 'replaces harness-owned surfaces'; then
+    no "README carries template content but no guv-template-readme marker — marker/detector drift"
+  else
+    echo "  - README.md is a rendered project README, not the template's — disposition guards skip"
+  fi
 elif [ -f "$RM" ]; then
   flat "$RM" | grep -qiE 'keep the clone|keep syncing' && grep -qi 'migrat' "$RM" \
     && ok "README: existing clones told migrate-or-keep (decided disposition)" \
@@ -358,6 +366,13 @@ if [ -z "${SCP_TEST_INNER:-}" ]; then
     ok "marker-bearing README runs the disposition guards (template-shape positive control)"
   else
     no "with the marker present the disposition guards must RUN (and fail on empty content)"
+  fi
+  # Absent branch, same treatment as the sibling suite's three-branch checks.
+  INNER3=$(SCP_TEST_INNER=1 SCP_TEST_README="$WORK/no-such-readme.md" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER3" | grep -q "README.md absent"; then
+    ok "absent-README shape visibly skips the disposition guards (seamed self-check)"
+  else
+    no "an absent README must skip the disposition guards visibly"
   fi
 fi
 
