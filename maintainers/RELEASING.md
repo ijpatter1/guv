@@ -85,11 +85,10 @@ that carried the fix to consumers. `routing: local` entries never enter this
 flow — they are project-side adaptations, handled in the consumer's control
 plane (see the `log-feedback` skill).
 
-One class of upstream fix has **no release vehicle**: files the plugin
-never ships (maintainer tooling under `maintainers/`, repo-only docs). A
-version bump
-would carry nothing to plugin consumers; the audience for these files tracks
-the repo itself. Delivery is therefore the **merge to the default branch** —
+One class of upstream fix has **no release vehicle**: files the plugin never
+ships (maintainer tooling under `maintainers/`, repo-only docs). A version
+bump would carry nothing to plugin consumers; the audience for these files
+tracks the repo itself. Delivery is therefore the **merge to the default branch** —
 the entry graduates on that merge, and the issue closes naming the
 merge commit instead of a version. (First of this class: the runner-sync fix for
 entry `2026-06-11T23:17:51Z-15612590`.)
@@ -100,8 +99,9 @@ Entry `2026-06-10T23:11:39Z-199208882` — "citation checker flags all-decimal
 feedback-entry id suffixes as unresolvable commit hashes" (minor, upstream,
 logged session-2026-06-10-002):
 
-1. **Issue:** [#7](https://github.com/ijpatter1/claude-code-sandbox/issues/7),
-   filed 2026-06-11 from the entry's summary/detail, citing the entry id.
+1. **Issue:** [#7](https://github.com/ijpatter1/guv/issues/7), filed
+   2026-06-11 from the entry's summary/detail, citing the entry id (under the
+   pre-rename slug; the rename redirects).
 2. **Fix:** `4c7032e` — all-decimal tokens excluded from hash candidates in
    `check-citations.sh`, commit message referencing #7; red test first
    (`check-citations.test.sh` T7, with a same-file positive control).

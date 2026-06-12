@@ -274,6 +274,9 @@ if [ -f "$DOG" ]; then
   grep -q 'plan-initiative' "$DOG" \
     && ok "DOGFOODING: ceremony flip acknowledged (seeded task, initiative flips it)" \
     || no "DOGFOODING must reflect that /plan-initiative can flip the control plane to phased"
+  flat "$DOG" | grep -qi 'wholesale' \
+    && ok "DOGFOODING: fallback bullet carries the wholesale-replacement caveat" \
+    || no "DOGFOODING must warn that --sync replaces harness-owned surfaces wholesale"
   if flat "$DOG" | grep -q 'pinned to the template repo'; then
     no "DOGFOODING: stale single-pin CI phrasing survives ('pinned to the template repo')"
   else
@@ -290,8 +293,14 @@ fi
 # T10 — the README's template-clone fallback states the DECIDED consumer
 # disposition (Phase 5 D4): an existing clone is told whether to migrate to
 # plugin updates or keep syncing — an answer, not an inherited parenthetical.
+# Gated on the README being the TEMPLATE's: /init-project replaces README.md
+# with a rendered project README, and deleting maintainers/ is optional — a
+# post-init consumer shape must skip here, not fail (the consumer-suite
+# contract: correct consumer usage never reads as a violation).
 RM="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/README.md"
-if [ -f "$RM" ]; then
+if [ -f "$RM" ] && ! grep -q '^# Governor (guv)' "$RM"; then
+  echo "  - README.md is a rendered project README, not the template's — disposition guards skip"
+elif [ -f "$RM" ]; then
   flat "$RM" | grep -qiE 'keep the clone|keep syncing' && grep -qi 'migrat' "$RM" \
     && ok "README: existing clones told migrate-or-keep (decided disposition)" \
     || no "README fallback must state the disposition for existing template clones"

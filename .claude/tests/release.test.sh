@@ -106,7 +106,10 @@ grep -q 'isolation tier' "$CL" 2>/dev/null \
   && ok "CHANGELOG carries the Phase 3 migration note (tier-neutral Enforcement)" \
   || no "CHANGELOG must carry the Phase 3 note: tier-neutral Enforcement rewrite"
 
-# T8 — RELEASING.md records the bump policy and the two go-public criteria
+# T8 — RELEASING.md records the bump policy and the two go-public criteria.
+# Multi-word phrase guards grep a whitespace-flattened copy — an innocent
+# reflow must not break them (it did once, in this deliverable's own wave).
+REL_FLAT=$(tr '\n' ' ' < "$REL" 2>/dev/null)
 if [ -f "$REL" ]; then
   ok "RELEASING.md exists"
 else
@@ -117,22 +120,21 @@ for word in patch minor major; do
     && ok "bump policy mentions $word" \
     || no "bump policy must define when $word bumps"
 done
-grep -q 'survived a Claude Code minor version' "$REL" 2>/dev/null \
+echo "$REL_FLAT" | grep -q 'survived a Claude Code minor version' \
   && ok "go-public criterion (a): format survival recorded" \
   || no "go-public criterion (a) missing: plugin format survived a CC minor version"
-grep -q 'external project' "$REL" 2>/dev/null \
+echo "$REL_FLAT" | grep -q 'external project' \
   && ok "go-public criterion (b): external install recorded" \
   || no "go-public criterion (b) missing: at least one external project installed it"
 
 # T9 — RELEASING.md documents the drain's release half and the worked example
-grep -q 'on the release that ships the fix' "$REL" 2>/dev/null \
+echo "$REL_FLAT" | grep -q 'on the release that ships the fix' \
   && ok "graduation step: entries flip on the release that ships the fix" \
   || no "RELEASING.md must document the graduation step of the feedback drain"
 # T9b — the drain covers fixes with no release vehicle: files the plugin never
 # ships (maintainer tooling, repo-only docs) reach their audience on the merge
 # to the default branch, so graduation names the merge commit, not a version
 # (Phase 5 D4 — the runner-sync entry is the first of this class).
-REL_FLAT=$(tr '\n' ' ' < "$REL" 2>/dev/null)
 echo "$REL_FLAT" | grep -qi 'never ships' && echo "$REL_FLAT" | grep -qi 'merge commit' \
   && ok "drain: no-release-vehicle graduation path documented (merge commit)" \
   || no "RELEASING.md must say how non-plugin-shipped fixes graduate (merge, not version)"

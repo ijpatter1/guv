@@ -73,7 +73,10 @@ if you haven't customized harness-owned files. In order:
 2. Delete the copied surfaces the plugin now supplies at runtime, so the two
    copies don't double-load: `.claude/commands/`, `.claude/skills/`,
    `.claude/agents/`, `.claude/hooks/`, the loose helper scripts
-   (`resolve-stack.sh` and friends), and harness-shipped workflows.
+   (`resolve-stack.sh` and friends), and harness-shipped workflows. If you've
+   added files of your own inside those directories (a custom skill or agent),
+   move them aside first — the directories have no ownership convention, so
+   the deletion takes everything.
 3. **Remove the `hooks` block from `.claude/settings.json`** — it registers the
    just-deleted hook scripts by path, so every tool call would invoke a missing
    file. The plugin's own `hooks.json` takes over. This is a hand edit:

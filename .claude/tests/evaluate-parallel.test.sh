@@ -86,6 +86,13 @@ fi
 # /evaluate skill + /handoff command cross-reference the workflow variant.
 for doc in README.md CLAUDE.template.md \
            .claude/skills/evaluate/SKILL.md .claude/commands/handoff.md; do
+  # /init-project replaces README.md with a rendered project README — a
+  # post-init consumer shape skips that one guard rather than failing.
+  if [ "$doc" = "README.md" ] && [ -f "$ROOT/$doc" ] \
+    && ! grep -q '^# Governor (guv)' "$ROOT/$doc"; then
+    echo "  - README.md is a rendered project README, not the template's — cross-reference guard skips"
+    continue
+  fi
   grep -q "evaluate-parallel" "$ROOT/$doc" 2>/dev/null \
     && ok "$doc cross-references /evaluate-parallel" \
     || no "$doc must cross-reference /evaluate-parallel"
