@@ -34,8 +34,8 @@ previous; do not generate them in parallel. All three are written to
 
 **Deliverables:**
 
-1. [Specific, measurable deliverable]
-2. [Another deliverable]
+1. **[N.1]** [Specific, measurable deliverable] `[deps: none]`
+2. **[N.2]** [Another deliverable] `[deps: N.1]`
 
 **Why this is Phase N:** [Dependencies and sequencing rationale]
 
@@ -53,6 +53,9 @@ Rules:
 - Deliverables must be specific and testable — "Scout agent with toolkit" not "build the scout functionality"
 - Each deliverable should be completable in roughly 1-3 work sessions
 - If a spec deliverable is too large, break it into sub-deliverables
+- Every deliverable carries a leading bold ID and a trailing deps token per
+  "Tracker grammar" below — the ID and token are part of the deliverable's
+  wording and sync verbatim into the tracker
 - Include a validation/acceptance section per phase if the spec has one
 - Preserve the spec's own phase structure if it has one — do not re-sequence unless the ordering has clear dependency violations
 
@@ -119,8 +122,8 @@ Rules:
 
 _Goal: [Copy from REQUIREMENTS.md]_
 
-- ⬜ [Deliverable 1 — exact wording from REQUIREMENTS.md]
-- ⬜ [Deliverable 2 — exact wording from REQUIREMENTS.md]
+- ⬜ **[N.1]** [Deliverable 1 — exact wording from REQUIREMENTS.md] `[deps: none]`
+- ⬜ **[N.2]** [Deliverable 2 — exact wording from REQUIREMENTS.md] `[deps: N.1]`
 
 ---
 
@@ -133,6 +136,81 @@ Rules (the verbatim-sync contract):
 - All items start as ⬜ (markers: ✅ complete · 🔄 in progress · ⬜ not started · ❌ blocked)
 - Do not add, remove, or reword any deliverables — the tracker and REQUIREMENTS must
   match exactly, forever; wording changes happen in REQUIREMENTS first and sync here
+- The ID and deps token are part of the wording and sync verbatim with it.
+  Completion annotations (date, session reference, blocked-on notes) are
+  tracker-local and go **after** the deps token — they never sync back
+
+## Tracker grammar — IDs & deps tokens
+
+The dependency grammar for phase docs is defined here and only here; every
+consumer (the templates above, the sync rules, `archive-initiative.sh`'s
+validation, the resolver contract below) follows this section.
+
+**ID:** every deliverable leads with a bold bracketed ID — `**[N.M]**`, where
+`N` is the phase number and `M` the ordinal within the phase. Continuous phase
+numbering (below) makes IDs globally unique across the project's history.
+
+**Deps token:** every deliverable's *wording* ends with a backticked deps
+token — `` `[deps: 6.1]` ``, comma-separated for multiples
+(`` `[deps: 6.1, 6.3]` ``), and **mandatory `` `[deps: none]` `` where
+empty**. In the tracker, tracker-local completion annotations may follow it.
+Backticks because inline code survives the auto-format hook untouched;
+mandatory `none` because absence-means-no-deps would let a forgotten
+annotation silently parallelize sequential work — omission must fail loud as
+MALFORMED. Because annotations follow the token, tooling validates the **last**
+deps-shaped construct on each line as the deliverable's own — a deps-token
+example quoted in the wording must precede the real token, where it is
+tolerated and ignored.
+
+**Semantics:**
+
+- Deps tokens encode "must follow"; document order is presentation only.
+  A deliverable is *ready* when every ID in its deps token is ✅.
+- Phases coarse-gate; deps refine within a phase. Backward cross-phase deps are
+  legal (a ❌ prior-phase item propagates blockage). Forward cross-phase deps
+  are MALFORMED — they mean the phasing is wrong, and tooling must not paper
+  over that.
+- Deps live in the deliverable's wording, never in the annotation zone — they
+  sync verbatim, and dep changes happen in REQUIREMENTS first like any other
+  wording change.
+
+**LEGACY:** a tracker with no IDs and no deps tokens is LEGACY — document
+order encodes dependency order (the original semantics, exactly), the first ⬜
+in document order is next, and there is no parallel set. Old initiatives are
+never misread; the grammar is opt-in by annotation. Mixing is MALFORMED: once
+any line carries a token, every line must.
+
+**MALFORMED (fail loud, exit 5 in tooling):** duplicate IDs; an ID'd line
+missing its deps token; a malformed token (empty list, unknown format, missing
+backticks); a deps token on a line with no ID; a forward cross-phase dep;
+a dep on an unknown ID; a dependency cycle. `archive-initiative.sh --check`
+validates well-formedness (the first four); the resolver owns dep semantics
+(the rest).
+
+**Append-only mutation rules:**
+
+- Completed phases are immutable; ordinals are never reused or reshuffled.
+- Insert appends the next ordinal at the end of its phase (max+1 discipline) —
+  deps express its logical position, not list placement.
+- Descope marks the line ❌ with a dated note; the line survives. Deletion
+  does not exist.
+
+### Resolver contract (stub)
+
+`resolve-ready.sh` computes the ready frontier from a tracker. This section
+fixes its interface against the grammar above; the script itself is a later
+deliverable — until it ships, this contract is the specification, not a
+description.
+
+- **Output:** `in_progress=` (🔄 lines — finish before starting new work),
+  `ready=` (every ⬜ whose deps are all ✅, scoped to the current phase),
+  `blocked=` (with the transitive blocking ID named).
+- **Serial resume rule:** first 🔄, else first ready item.
+- **Exit 5** on any MALFORMED condition above (unknown ID, duplicate ID,
+  cycle, missing token, forward cross-phase dep), naming the offending IDs.
+- **LEGACY mode:** returns the first ⬜ in document order and an explicitly
+  empty parallel set.
+- Pure bash + jq + grep, like the rest of the harness tooling.
 
 ## Spec provenance
 

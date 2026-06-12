@@ -46,15 +46,67 @@ malformed() {
   return 1
 }
 
+# ── Grammar-token validation ──
+# The grammar is defined ONCE in the phase-docs skill ("Tracker grammar"):
+# leading bold ID **[N.M]**, trailing `[deps: …]` token, `none` mandatory where
+# empty. This validates well-formedness only — dep SEMANTICS (cycles, forward
+# cross-phase deps) belong to the resolver. A token-free tracker is LEGACY and
+# skips validation entirely, so old initiatives parse exactly as before.
+ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
+DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, ?[0-9]+\.[0-9]+)*)\]`'
+marker_lines() { grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$TRACKER"; }
+
+# Emits one line per violation; emits nothing for LEGACY or a clean tracker.
+grammar_errors() {
+  local lines bad dups
+  lines=$(marker_lines)
+  # LEGACY: no ID and no deps token anywhere → nothing to validate
+  if ! echo "$lines" | grep -qE "$ID_RE" && ! echo "$lines" | grep -q '\[deps:'; then
+    return 0
+  fi
+  # every deliverable line leads with an ID (right after the status marker)
+  bad=$(echo "$lines" | grep -vE "^\s*-\s*(✅|🔄|⬜|❌)\s*$ID_RE")
+  [ -n "$bad" ] && printf 'missing or misplaced **[N.M]** ID:\n%s\n' "$bad"
+  # ...and carries a well-formed deps token (`none` mandatory — a forgotten
+  # annotation must fail loud, not silently read as no-deps). The deliverable's
+  # own token is the LAST deps-shaped construct on the line (annotations follow
+  # it but quoted examples precede it), so validate that one — a well-formed
+  # example earlier in the wording must not mask a malformed real token.
+  bad=$(echo "$lines" | while IFS= read -r l; do
+    tok=$(printf '%s\n' "$l" | grep -oE '`?\[deps:[^]]*\]`?' | tail -1)
+    printf '%s\n' "$tok" | grep -qE "^$DEPS_RE\$" || printf '%s\n' "$l"
+  done)
+  [ -n "$bad" ] && printf 'missing or malformed `[deps: …]` token:\n%s\n' "$bad"
+  # IDs are unique across the whole tracker — count only the leading ID, so a
+  # cross-reference like **[6.1]** mid-wording is not a spurious duplicate
+  dups=$(echo "$lines" | grep -oE "^\s*-\s*(✅|🔄|⬜|❌)\s*$ID_RE" | grep -oE "$ID_RE" | sort | uniq -d)
+  [ -n "$dups" ] && printf 'duplicate deliverable IDs:\n%s\n' "$dups"
+  return 0
+}
+
+# Shared MALFORMED gate for --check and --archive: structural shape first,
+# then grammar tokens. Prints the reason to stderr and returns 5 on failure.
+validate() {
+  if malformed; then
+    echo "status=MALFORMED — $TRACKER has no recognizable deliverable bullets / phase headers" >&2
+    return 5
+  fi
+  local gerr
+  gerr=$(grammar_errors)
+  if [ -n "$gerr" ]; then
+    echo "status=MALFORMED — grammar-token validation failed (grammar: phase-docs skill, 'Tracker grammar'):" >&2
+    echo "$gerr" >&2
+    return 5
+  fi
+  return 0
+}
+
 check() {
   if [ ! -f "$TRACKER" ]; then
     echo "status=NONE"
     return 4
   fi
-  if malformed; then
-    echo "status=MALFORMED — $TRACKER has no recognizable deliverable bullets / phase headers" >&2
-    return 5
-  fi
+  validate || return 5
   local inc
   inc=$(incomplete_lines)
   if [ -n "$inc" ]; then
@@ -73,10 +125,7 @@ archive() {
     echo "status=NONE — nothing to archive (no $TRACKER / $REQS)" >&2
     return 4
   fi
-  if malformed; then
-    echo "status=MALFORMED — $TRACKER has no recognizable deliverable bullets / phase headers; fix it before archiving" >&2
-    return 5
-  fi
+  validate || return 5
   local inc
   inc=$(incomplete_lines)
   if [ -n "$inc" ] && [ "$force" != "--force" ]; then
