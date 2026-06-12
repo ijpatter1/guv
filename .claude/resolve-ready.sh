@@ -48,10 +48,18 @@ case "${1:-}" in
   *) TRACKER="$1" ;;
 esac
 # Only the literal --json is recognized past the path — anything else refuses
-# loud rather than being silently ignored (the allow-list IS the grammar).
+# loud rather than being silently ignored (the allow-list IS the grammar),
+# and the grammar has exactly two positions: extras refuse too.
+if [ "$#" -gt 2 ]; then
+  echo "error: unexpected argument '$3' — $USAGE" >&2
+  exit 2
+fi
 if [ -n "${2:-}" ]; then
   if [ "$2" = "--json" ] && [ "$JSON" -eq 0 ]; then
     JSON=1
+  elif [ "$2" = "--json" ]; then
+    echo "error: duplicate --json — $USAGE" >&2
+    exit 2
   elif [ "$JSON" -eq 1 ]; then
     echo "error: tracker path comes first — $USAGE" >&2
     exit 2

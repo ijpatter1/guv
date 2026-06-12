@@ -300,8 +300,13 @@ external consumer or a breaking shape change actually appears, not before.
 ```
 
 Exit codes and stderr are identical in both output modes — MALFORMED is
-MALFORMED regardless of how the answer would have been formatted. Status words
-never carry emoji; the markers stay a tracker-surface concern.
+MALFORMED regardless of how the answer would have been formatted — with one
+mode-specific exception: a missing jq refuses exit 2 under `--json` before any
+resolving (the name=value path stays jq-free). Status words never carry emoji;
+the markers stay a tracker-surface concern. `phases` is derived from
+deliverable IDs, so a phase section that currently has no deliverable lines
+does not appear, and phase *goal* lines are not carried — the JSON serializes
+the dependency graph, not the tracker's prose.
 
 ## Spec provenance
 

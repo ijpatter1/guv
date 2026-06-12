@@ -417,9 +417,15 @@ OUT=$(bash "$SCRIPT" --json "$(fx own)" 2>&1); RC=$?
   && ok "json: flag-first refuses with the order named, not 'unknown argument <path>'" \
   || no "--json <path> must exit 2 saying the path comes first (rc=$RC: $OUT)"
 OUT=$(bash "$SCRIPT" --json --json 2>&1); RC=$?
-[ "$RC" -eq 2 ] \
-  && ok "json: duplicate --json refuses loud" \
-  || no "--json --json must exit 2 (rc=$RC: $OUT)"
+[ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "duplicate" \
+  && ok "json: duplicate --json refuses with the right diagnosis" \
+  || no "--json --json must exit 2 naming the duplication (rc=$RC: $OUT)"
+# Position 3+ refuses too — the grammar has exactly two positions; an extra
+# argument is never silently discarded.
+OUT=$(bash "$SCRIPT" "$(fx own)" --json extra 2>&1); RC=$?
+[ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "unexpected argument" \
+  && ok "json: a third argument refuses loud (never silently discarded)" \
+  || no "<path> --json <extra> must exit 2 naming the extra (rc=$RC: $OUT)"
 
 # T12h — jq absent: --json refuses LOUD before resolving (a silently-empty
 # status.json under exit 0 is the stale-view failure class this surface
