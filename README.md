@@ -234,6 +234,7 @@ code .
 │   ├── rules/                         # Behavioral core (guv-*.md harness-owned; unprefixed = yours)
 │   ├── resolve-stack.sh               # Detect-to-propose stack manifest (onboard/init)
 │   ├── resolve-ready.sh               # Deterministic ready-frontier resolver (DAG tracker)
+│   ├── render-status.sh               # Renders status.json as one self-contained status.html (a view, never a source)
 │   ├── replan.sh                      # /replan's deterministic engine (guards, ordinals, atomic writes)
 │   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
