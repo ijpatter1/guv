@@ -313,6 +313,104 @@ OUT=$(bash "$SCRIPT" "$(fx done)" 2>&1); RC=$?
 bash "$SCRIPT" "$WORK/nope.md" >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 4 ] && ok "missing path: exit 4" || no "missing explicit path should exit 4 (rc=$RC)"
 
+# ── [6.6] status.json emission: --json is the SAME resolver — same parse,
+# same exit codes — emitting the one canonical JSON shape every other reader
+# of plan state consumes (shape documented in the phase-docs skill alongside
+# the grammar; contract surface per the A-001 one-parser decision, versioning
+# question parked in feedback entry 2026-06-12T14:53:17Z-218718043).
+
+# T12 — field-for-field frontier parity on the own fixture: every shell
+# variable agrees with its JSON counterpart.
+OUT=$(bash "$SCRIPT" "$(fx own)" 2>/dev/null)
+J=$(bash "$SCRIPT" "$(fx own)" --json 2>/dev/null); RCJ=$?
+if [ "$RCJ" -eq 0 ] && echo "$J" | jq -e . >/dev/null 2>&1; then
+  ok "json: exit 0 and valid JSON on the own fixture"
+else
+  no "--json must emit valid JSON with exit 0 (rc=$RCJ: $J)"
+fi
+[ "$(echo "$J" | jq -r '.mode')" = "$(val mode "$OUT")" ] \
+  && ok "json: mode agrees with shell output" || no "json .mode must equal shell mode="
+[ "$(echo "$J" | jq -r '.phase')" = "$(val phase "$OUT")" ] \
+  && ok "json: phase agrees" || no "json .phase must equal shell phase="
+[ "$(echo "$J" | jq -r '.frontier.in_progress | join(" ")')" = "$(val in_progress "$OUT")" ] \
+  && ok "json: in_progress agrees" || no "json frontier.in_progress must equal shell in_progress="
+[ "$(echo "$J" | jq -r '.frontier.ready | join(" ")')" = "$(val ready "$OUT")" ] \
+  && ok "json: ready agrees field for field" || no "json frontier.ready must equal shell ready="
+[ "$(echo "$J" | jq -r '.frontier.blocked | map(.id + ":" + .blocked_by) | join(" ")')" = "$(val blocked "$OUT")" ] \
+  && ok "json: blocked agrees (id + transitive root blocker)" || no "json frontier.blocked must equal shell blocked="
+[ "$(echo "$J" | jq -r '.frontier.serial // ""')" = "$(val serial "$OUT")" ] \
+  && ok "json: serial agrees" || no "json frontier.serial must equal shell serial="
+
+# T12b — deliverable objects carry (id, phase, status, deps, text); phases
+# list the boundaries in document order; generated is ISO-8601 UTC.
+echo "$J" | jq -e '.deliverables | length == 7' >/dev/null \
+  && ok "json: all seven own-fixture deliverables emitted" || no "expected 7 deliverables in own fixture JSON"
+echo "$J" | jq -e '.deliverables[0] | .id=="6.1" and .phase==6 and .status=="done" and .deps==[] and (.text|length>0)' >/dev/null \
+  && ok "json: deliverable carries id/phase/status/deps/text" || no "deliverables[0] must be 6.1 done with empty deps and text"
+echo "$J" | jq -e '.deliverables[3] | .id=="6.4" and .status=="todo" and .deps==["6.1","6.3"]' >/dev/null \
+  && ok "json: multi-dep deliverable splits deps into an array" || no "deliverables[3] must be 6.4 todo deps [6.1,6.3]"
+echo "$J" | jq -e '.phases == [6,7]' >/dev/null \
+  && ok "json: phase boundaries in document order" || no "expected .phases == [6,7]"
+echo "$J" | jq -r '.generated' | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
+  && ok "json: generation timestamp is ISO-8601 UTC" || no ".generated must be an ISO-8601 UTC stamp"
+
+# T12c — every marker maps to its status word (the JSON never carries emoji).
+cat > "$(fx statuses)" <<'MD'
+## Phase 3 — Build
+
+- ✅ **[3.1]** A `[deps: none]`
+- 🔄 **[3.2]** B `[deps: none]`
+- ⬜ **[3.3]** C `[deps: none]`
+- ❌ **[3.4]** D `[deps: none]`
+MD
+JS=$(bash "$SCRIPT" "$(fx statuses)" --json 2>/dev/null)
+echo "$JS" | jq -e '[.deliverables[].status] == ["done","in_progress","todo","descoped"]' >/dev/null \
+  && ok "json: markers map to done/in_progress/todo/descoped" \
+  || no "status vocabulary must be done/in_progress/todo/descoped (got: $(echo "$JS" | jq -c '[.deliverables[].status]'))"
+
+# T12d — exit-5 parity: cycle and forward-dep fixtures fail identically
+# under both output modes (same rc, same stderr — one resolver, one gate).
+for bad in cycle fwd; do
+  E1=$(bash "$SCRIPT" "$(fx $bad)" 2>&1 >/dev/null); R1=$?
+  E2=$(bash "$SCRIPT" "$(fx $bad)" --json 2>&1 >/dev/null); R2=$?
+  if [ "$R1" -eq 5 ] && [ "$R2" -eq 5 ] && [ "$E1" = "$E2" ]; then
+    ok "json: $bad fixture exits 5 identically under both output modes"
+  else
+    no "$bad must exit 5 with identical stderr under --json (rc $R1/$R2)"
+  fi
+done
+
+# T12e — LEGACY: valid JSON, document order, EMPTY edges (never invented),
+# null ids/phase, text carried (the renderer's list needs it), LEGACY
+# frontier semantics intact.
+JL=$(bash "$SCRIPT" "$(fx legacy)" --json 2>/dev/null); RCL=$?
+[ "$RCL" -eq 0 ] && echo "$JL" | jq -e . >/dev/null 2>&1 \
+  && ok "json: LEGACY fixture emits valid JSON" || no "LEGACY --json must be valid JSON (rc=$RCL)"
+echo "$JL" | jq -e '.mode=="LEGACY" and .phase==null and .phases==[]
+  and (.deliverables|length==3)
+  and ([.deliverables[].deps]|flatten==[])
+  and ([.deliverables[].id]|unique==[null])
+  and (.deliverables[1].text=="Deliverable B not started")' >/dev/null \
+  && ok "json: LEGACY deliverables in document order, empty deps, null ids, text carried" \
+  || no "LEGACY JSON shape wrong (got: $(echo "$JL" | jq -c .))"
+echo "$JL" | jq -e '.frontier.in_progress==[] and .frontier.ready==[] and .frontier.blocked==[]
+  and .frontier.serial=="Deliverable B not started"' >/dev/null \
+  && ok "json: LEGACY frontier semantics intact (empty sets, text serial)" \
+  || no "LEGACY frontier must be empty sets with the first-⬜ text as serial"
+
+# T12f — completed tracker: serial is null (not empty string), frontier empty.
+JD=$(bash "$SCRIPT" "$(fx done)" --json 2>/dev/null)
+echo "$JD" | jq -e '.frontier.serial==null and .frontier.ready==[] and .phase==null' >/dev/null \
+  && ok "json: completed tracker emits null serial and empty frontier" \
+  || no "completed tracker JSON must carry null serial/phase, empty ready"
+
+# T12g — the argument grammar is designed, not improvised: only --json is
+# recognized in second position; anything else refuses loud (exit 2).
+OUT=$(bash "$SCRIPT" "$(fx own)" --jsno 2>&1); RC=$?
+[ "$RC" -eq 2 ] && echo "$OUT" | grep -qi "unknown argument" \
+  && ok "json: typo'd flag refuses loud (exit 2, named)" \
+  || no "an unrecognized second argument must exit 2 naming itself (rc=$RC: $OUT)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
