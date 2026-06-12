@@ -87,15 +87,28 @@ this order:
 
 "Compare the Phase [N] deliverables in docs/REQUIREMENTS.md against the original spec at [path]. For each incomplete deliverable (⬜ or 🔄 in PHASE_STATUS.md) that the agent is about to work on this session, flag anything that was thinned out, oversimplified, or lost in translation from the spec. Don't review the whole project or completed deliverables — just what's in scope for this session. Be specific: quote the spec and quote the requirement side by side where there's a gap."
 
-Review the product reviewer's findings. If it identifies gaps, update the project docs immediately to close them:
+Review the product reviewer's findings. **This step detects and routes; it does not
+mutate.** If it identifies gaps, close them by routing each finding through
+`/replan` (read `.claude/commands/replan.md` and follow its procedure — classify,
+confirm, apply REQUIREMENTS first through the engine, verify):
 
-- **Thin deliverables:** where the requirement is a pale summary of a richer spec description, update the deliverable's wording in `docs/REQUIREMENTS.md` to capture the spec's full intent. Update `docs/PHASE_STATUS.md` to match the revised wording. If the spec describes architectural detail that's missing, add it to `docs/ARCHITECTURE.md`.
-- **Drifted deliverables:** where the requirement says something different from the spec, correct `docs/REQUIREMENTS.md` to realign with the spec. Update `docs/PHASE_STATUS.md` and `docs/ARCHITECTURE.md` accordingly.
-- **Missing deliverables:** where the spec describes functionality that has no corresponding requirement, add the deliverable to the appropriate phase in `docs/REQUIREMENTS.md`. Add it to `docs/PHASE_STATUS.md` with ⬜ status. Update `docs/ARCHITECTURE.md` if it introduces new components or data flows.
+- **Thin deliverables** (the requirement is a pale summary of a richer spec
+  description) and **drifted deliverables** (the requirement says something
+  different from the spec) route as rewords — restore the spec's intent in the
+  wording, deps token included if the gap is sequencing.
+- **Missing deliverables** (spec functionality with no corresponding requirement)
+  route as inserts into the appropriate open phase.
+- Architectural detail the spec describes that `docs/ARCHITECTURE.md` lacks is
+  covered by `/replan`'s apply step where it rides a deliverable mutation; a pure
+  ARCHITECTURE gap with no deliverable change is a direct doc edit, not a plan
+  mutation — fix it in place.
 
-Commit the doc updates: `docs: fortify Phase N requirements from spec alignment review`
+One `/replan` operation per finding, each with its own confirmation. Commit the
+result: `docs: fortify Phase N requirements from spec alignment review`
 
-These updates ensure the identified gaps are captured in the project's permanent record, not just in the agent's session plan. The session plan in Step 7 then works from the fortified docs.
+These updates ensure the identified gaps are captured in the project's permanent
+record — with amendment records naming what changed — not just in the agent's
+session plan. The session plan in Step 7 then works from the fortified docs.
 
 **If no spec exists:** Skip this step. The requirements and architecture docs are the source of truth.
 

@@ -190,11 +190,31 @@ validates well-formedness (the first four); the resolver owns dep semantics
 
 **Append-only mutation rules:**
 
+- Every mutation of a live tracker goes through `/guv:replan`, the single
+  sanctioned door (classify → confirm → REQUIREMENTS first, tracker synced
+  verbatim → amendment record); its deterministic half is
+  `"${CLAUDE_PLUGIN_ROOT}"/scripts/replan.sh`. No hand edit of a live tracker is legitimate.
 - Completed phases are immutable; ordinals are never reused or reshuffled.
 - Insert appends the next ordinal at the end of its phase (max+1 discipline) —
   deps express its logical position, not list placement.
 - Descope marks the line ❌ with a dated note; the line survives. Deletion
   does not exist.
+
+**Amendment records:** every mutation appends one record line to the tracker
+header — into a `> **Amendments:**` block at the end of the header
+blockquote, created on first use:
+
+```markdown
+> **Amendments:**
+> - YYYY-MM-DD — OP [N.M] (session-YYYY-MM-DD-NNN) — detail
+```
+
+`OP` is the `/guv:replan` verb (reorder, split, merge, insert, descope, abandon,
+deps-amend); composed verbs leave one record per primitive engine call, each
+under the verb. The detail is op-specific (the descope note; the old → new
+deps diff). Records use plain bracketed IDs — no bold, no deps shape — so
+they are inert to the parse rules above; they are header-local and never
+sync to REQUIREMENTS.
 
 ### Resolver contract
 

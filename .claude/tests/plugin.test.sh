@@ -215,13 +215,14 @@ for pair in \
   "hooks/stop-check.sh:scripts/stop-check.sh" \
   "resolve-stack.sh:scripts/resolve-stack.sh" \
   "resolve-ready.sh:scripts/resolve-ready.sh" \
+  "replan.sh:scripts/replan.sh" \
   "check-citations.sh:scripts/check-citations.sh" \
   "update-readme-status.sh:scripts/update-readme-status.sh" \
   "archive-initiative.sh:scripts/archive-initiative.sh"; do
   src="$SRC/${pair%%:*}"; dst="$PLUGIN/${pair##*:}"
   cmp -s "$src" "$dst" || { no "${pair##*:} not byte-identical to ${pair%%:*}"; T9_OK=0; }
 done
-[ "$T9_OK" -eq 1 ] && ok "all 8 hook/helper scripts byte-identical to .claude/ sources"
+[ "$T9_OK" -eq 1 ] && ok "all 9 hook/helper scripts byte-identical to .claude/ sources"
 
 # T10 — the five guv-* rules ship byte-identical as scaffold assets (plugins
 # cannot load rules natively; the D2 scaffold deploys these into projects).
