@@ -175,6 +175,7 @@ OUT=$(cd "$CP" && PATH="$BIN" bash .git/hooks/post-commit 2>&1); RC=$?
 # files, so untrack it first) — the success banner must NOT print; the
 # failure is loud and no commit lands. The unconditional-success-banner class.
 ( cd "$CP" && git rm -q --cached status.html ) 2>/dev/null
+cp "$CP/.gitignore" "$WORK/gitignore.orig" 2>/dev/null
 echo "status.html" > "$CP/.gitignore"
 tracker "✅"
 ( cd "$CP" && git add -A && git commit -m "docs: ignored target" ) > "$WORK/c6b.log" 2>&1
@@ -187,7 +188,9 @@ grep -qi 'push to publish' "$WORK/c6b.log" \
 [ "$(git -C "$CP" log -1 --pretty=%s)" = "docs: ignored target" ] \
   && ok "degrade: no render commit on recording failure" \
   || no "no render commit may land when recording fails"
-rm -f "$CP/.gitignore"
+# Restore the generated .gitignore — later tests should run against the
+# plane shape a real control plane has.
+cp "$WORK/gitignore.orig" "$CP/.gitignore" 2>/dev/null || rm -f "$CP/.gitignore"
 
 # ── T6c — render chain absent: loud notice naming the chain, no commit.
 mv "$CP/.claude/render-status.sh" "$WORK/render-status.sh.bak"
@@ -342,9 +345,18 @@ grep -qi 'convenience' "$DOG" \
 # The visibility caveat is load-bearing: private-repo Pages sites are PUBLIC
 # on non-Enterprise plans. The framing alone, unhedged, is a privacy footgun
 # — this pin keeps the correction from being reverted by spec-faithful edits.
-grep -qi 'publicly' "$DOG" && grep -q 'Enterprise' "$DOG" \
-  && ok "docs: Pages visibility caveat pinned (public on non-Enterprise plans)" \
-  || no "the docs must state that private-repo Pages sites are public off Enterprise Cloud"
+# Pinned by the FACT phrase (its consequence stated in full), not word
+# presence — a rewrite that negates the fact cannot keep this sentence.
+grep -qi 'publishes your tracker to the open internet' "$DOG" \
+  && grep -q 'Enterprise Cloud' "$DOG" \
+  && ok "docs: Pages visibility caveat pinned by fact (public off Enterprise Cloud)" \
+  || no "the docs must state the consequence: enabling Pages on a private non-Enterprise plane publishes the tracker"
+# The same claim must not survive on the consumer-shipped surface: the schema
+# description carries no access-control or publishing advice (the wrong home
+# for a hosting claim — that lives in the topology doc with the caveat).
+grep -qi 'access control' "$SCHEMA" \
+  && no "the consumer-shipped schema must not carry the access-control claim" \
+  || ok "docs: schema description carries no access-control claim (class swept)"
 
 # ── T13 — the hook never parses tracker CONTENT: naming the tracker PATH for
 # its trigger and for the resolver call is the designed shape; marker glyphs

@@ -238,7 +238,8 @@ if [ ! -f .claude/resolve-ready.sh ] || [ ! -f .claude/render-status.sh ]; then
   echo "[render-hook] render chain absent (.claude/resolve-ready.sh + render-status.sh) — status.html NOT regenerated"
   exit 0
 fi
-TMP_JSON=$(mktemp) && TMP_HTML=$(mktemp) && ERR=$(mktemp) || exit 0
+TMP_JSON=$(mktemp) && TMP_HTML=$(mktemp) && ERR=$(mktemp) \
+  || { echo "[render-hook] mktemp failed — status.html NOT regenerated"; exit 0; }
 if bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > "$TMP_JSON" 2>"$ERR" \
    && bash .claude/render-status.sh "$TMP_JSON" > "$TMP_HTML" 2>>"$ERR"; then
   # The recording rung is guarded too: an ignored target, an index lock, or

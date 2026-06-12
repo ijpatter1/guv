@@ -175,8 +175,9 @@ catches up.) The hook is a **convenience, never a dependency**: with it absent
 (or jq missing, or the resolver refusing a malformed tracker) nothing breaks —
 the previous render stays in place, the refusal is loud, and the manual
 two-liner above always works (`status.json` is the intermediate file; the
-generated `.gitignore` keeps it out of the repo). A pre-existing post-commit
-hook the harness doesn't own is never touched.
+generated `.gitignore` keeps it out of the repo — planes created before this
+entry existed should add the `status.json` line once by hand). A pre-existing
+post-commit hook the harness doesn't own is never touched.
 
 To publish: enable GitHub Pages on the control-plane repo (Settings → Pages →
 deploy from branch, `main`, `/(root)`), and the committed `status.html` is served

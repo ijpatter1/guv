@@ -153,6 +153,19 @@ This reads your spec and generates the project-specific artifacts:
 - `docs/ARCHITECTURE.md` — Phase 1 detailed architecture, later phases stubbed
 - `docs/PHASE_STATUS.md` — deliverable tracker matching REQUIREMENTS.md
 
+The tracker has a rendered view: a single self-contained `status.html` (DAG of
+deliverables, ready frontier ringed, blocked chains traceable) produced by
+
+```bash
+bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > status.json
+bash .claude/render-status.sh status.json > status.html
+```
+
+— it opens from disk, and committing it as a derived artifact is permitted (the
+optional `views` manifest entry declares it; rebuilt, never line-merged). Before
+serving it with GitHub Pages, mind that Pages sites from private repos are
+public on non-Enterprise plans.
+
 For an existing codebase, run `/onboard` instead — it detects the stack, infers the repo's conventions, writes the manifest, and renders `CLAUDE.md` **without** imposing phase structure.
 
 > **Don't run Claude Code's native `/init` in a harness-governed repo.** `/init` inlines commands into `CLAUDE.md`, violating the manifest contract (`.claude/project.json` owns commands; `CLAUDE.md` never restates them). `/onboard` is the harness's equivalent and supersedes it.
