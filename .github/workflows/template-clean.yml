@@ -6,12 +6,12 @@
 # (skipped, not red) in forks and "Use this template" copies. Consumers can also
 # simply delete this file — nothing else references it.
 #
-# Maintainers: if this repo is ever renamed or transferred, update the slug in
-# both `if:` lines — otherwise the guard silently stops running (jobs show
-# "skipped" in the canonical repo too). Rename in flight (Phase 5 D3,
-# claude-code-sandbox → guv): both slugs are accepted so the rename is atomic
-# with no skipped-CI window; collapse to 'ijpatter1/guv' alone once the rename
-# has landed and CI has run green under the new name.
+# Maintainers: if this repo is ever renamed or transferred, dual-pin both `if:`
+# lines (old slug || new slug) BEFORE the rename, then collapse to the new slug
+# once CI has run green under the new name — otherwise the guard silently stops
+# running (jobs show "skipped" in the canonical repo too). Done once already:
+# the Phase 5 D3 rename (claude-code-sandbox → guv) dual-pinned, PR #9's runs
+# proved the new slug live, and the pin collapsed to 'ijpatter1/guv' alone.
 name: maintainer-ci
 
 on:
@@ -21,7 +21,7 @@ on:
 
 jobs:
   template-clean:
-    if: github.repository == 'ijpatter1/guv' || github.repository == 'ijpatter1/claude-code-sandbox'
+    if: github.repository == 'ijpatter1/guv'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
         run: bash maintainers/check-template-clean.sh
 
   harness-tests:
-    if: github.repository == 'ijpatter1/guv' || github.repository == 'ijpatter1/claude-code-sandbox'
+    if: github.repository == 'ijpatter1/guv'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
