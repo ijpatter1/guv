@@ -66,7 +66,7 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
   || no "create: .DS_Store leaked into the control plane: $FOUND"
 grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
   || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
-tr '\n' ' ' < "$D/CLAUDE.md" 2>/dev/null | grep -q "auto memory as hints" \
+tr '\n' ' ' < "$D/CLAUDE.md" 2>/dev/null | tr -s ' ' | grep -q "auto memory as hints" \
   && ok "create: generated CLAUDE.md carries the memory-authority line" \
   || no "generated CLAUDE.md should declare manifest+handoff authority over auto memory"
 # The heredoc is unquoted (it interpolates $CODE_REL) — an unescaped backtick
@@ -256,8 +256,10 @@ run_setup "$H" "$D" --sync
 # documents this script's loop, so its accuracy guards live with this suite.
 # Conditional like T7: a fork may strip individual maintainer docs.
 # Prose guards grep a whitespace-flattened copy — an innocent reflow must not
-# break a phrase guard (it did once, in this deliverable's own wave).
-flat() { tr '\n' ' ' < "$1"; }
+# break a phrase guard (it did once, in this deliverable's own wave). The
+# squeeze matters too: a wrapped line ending in a trailing space would
+# otherwise leave a double space in the flat copy and break fixed phrases.
+flat() { tr '\n' ' ' < "$1" | tr -s ' '; }
 DOG="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)/DOGFOODING.md"
 if [ -f "$DOG" ]; then
   grep -v '\.github' "$DOG" | grep -q 'workflows' \
@@ -275,9 +277,9 @@ if [ -f "$DOG" ]; then
   grep -q 'plan-initiative' "$DOG" \
     && ok "DOGFOODING: ceremony flip acknowledged (seeded task, initiative flips it)" \
     || no "DOGFOODING must reflect that /plan-initiative can flip the control plane to phased"
-  flat "$DOG" | grep -qi 'replaces harness-owned surfaces.*wholesale' \
+  flat "$DOG" | grep -qi 'replaces harness-owned surfaces[^.]*wholesale' \
     && ok "DOGFOODING: fallback bullet carries the wholesale-replacement caveat" \
-    || no "DOGFOODING must warn that --sync replaces harness-owned surfaces wholesale (the fact, not the word)"
+    || no "DOGFOODING must warn that --sync replaces harness-owned surfaces wholesale (the fact, not the word, same-sentence)"
   if flat "$DOG" | grep -q 'pinned to the template repo'; then
     no "DOGFOODING: stale single-pin CI phrasing survives ('pinned to the template repo')"
   else
@@ -324,16 +326,18 @@ elif [ -f "$RM" ]; then
   # The customized-fork branch must be honest about what --sync does: copy_core
   # replaces harness-owned surfaces wholesale, which reverts exactly the edits
   # the fallback audience is invited to make.
-  flat "$RM" | grep -qi 'replaces harness-owned surfaces.*wholesale' \
+  flat "$RM" | grep -qi 'replaces harness-owned surfaces[^.]*wholesale' \
     && ok "README: customized forks warned that --sync replaces harness-owned surfaces wholesale" \
     || no "README must warn customized forks that --sync reverts harness-owned edits"
 else
   echo "  - README.md absent (fork) — disposition guards skip"
 fi
 
-# T10b — seamed self-check for the rendered-README skip branch (the b0310b2
+# T10b — seamed self-checks for the README gate, BOTH directions (the b0310b2
 # convention: a skip path is only trusted when a re-invocation proves it fires
-# and is visible — exit 0 alone would also pass if the gate were deleted).
+# and is visible — and a detector is only trusted when a re-invocation proves
+# the guards RUN where it matches; one-directional self-checks are how a
+# typo'd detector silently disables guards with every suite green).
 if [ -z "${SCP_TEST_INNER:-}" ]; then
   FAKE="$WORK/rendered-readme.md"
   echo "# my-rendered-project" > "$FAKE"
@@ -343,6 +347,17 @@ if [ -z "${SCP_TEST_INNER:-}" ]; then
     ok "rendered-README shape visibly skips the disposition guards (seamed self-check)"
   else
     no "a rendered README must skip the disposition guards visibly (and not run them)"
+  fi
+  # Template-shape positive control: a README CARRYING the marker but missing
+  # the disposition content must make the guards run and fail — proves the
+  # detector matches the real marker and the guards execute behind it.
+  FAKE2="$WORK/marker-no-content.md"
+  printf '# some readme\n<!-- guv-template-readme -->\n' > "$FAKE2"
+  INNER2=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE2" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER2" | grep -q "must state the disposition"; then
+    ok "marker-bearing README runs the disposition guards (template-shape positive control)"
+  else
+    no "with the marker present the disposition guards must RUN (and fail on empty content)"
   fi
 fi
 

@@ -102,14 +102,14 @@ rm -f "$FIX"
 grep -q '@\.claude/RULES\.md' "$CL" 2>/dev/null \
   && ok "CHANGELOG carries the Phase 2 migration note (dead RULES.md import)" \
   || no "CHANGELOG must carry the Phase 2 note: delete the dead @.claude/RULES.md import"
-tr '\n' ' ' < "$CL" 2>/dev/null | grep -q 'isolation tier' \
+tr '\n' ' ' < "$CL" 2>/dev/null | tr -s ' ' | grep -q 'isolation tier' \
   && ok "CHANGELOG carries the Phase 3 migration note (tier-neutral Enforcement)" \
   || no "CHANGELOG must carry the Phase 3 note: tier-neutral Enforcement rewrite"
 
 # T8 — RELEASING.md records the bump policy and the two go-public criteria.
 # Multi-word phrase guards grep a whitespace-flattened copy — an innocent
 # reflow must not break them (it did once, in this deliverable's own wave).
-REL_FLAT=$(tr '\n' ' ' < "$REL" 2>/dev/null)
+REL_FLAT=$(tr '\n' ' ' < "$REL" 2>/dev/null | tr -s ' ')
 if [ -f "$REL" ]; then
   ok "RELEASING.md exists"
 else

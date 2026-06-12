@@ -53,7 +53,7 @@ tr '\n' ' ' < "$RULE" | grep -qiE 'ad-hoc [^.]*prohibit|prohibit[^.]* ad-hoc' \
 # the plan of record stays in the phase docs. Multi-word phrase guards grep a
 # whitespace-flattened copy — an innocent reflow must not break them (the
 # class swept in Phase 5 D4; T3 above already flattened).
-RULE_FLAT=$(tr '\n' ' ' < "$RULE" 2>/dev/null)
+RULE_FLAT=$(tr '\n' ' ' < "$RULE" 2>/dev/null | tr -s ' ')
 echo "$RULE_FLAT" | grep -qi 'plan of record' \
   && ok "states the plan-of-record boundary" \
   || no "rule must state that the plan of record stays in the phase docs"

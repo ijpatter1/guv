@@ -17,6 +17,8 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WF="$ROOT/.claude/workflows/evaluate-parallel.js"
+SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — for seamed self-checks
+RMD="${EP_TEST_README:-$ROOT/README.md}"      # self-check seam for the README gate
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -86,25 +88,57 @@ fi
 # /evaluate skill + /handoff command cross-reference the workflow variant.
 for doc in README.md CLAUDE.template.md \
            .claude/skills/evaluate/SKILL.md .claude/commands/handoff.md; do
+  target="$ROOT/$doc"
   # /init-project replaces README.md with a rendered project README, and a
   # fork may delete it — both are consumer shapes that skip this one guard
   # rather than failing (matching setup-control-plane.test.sh T10's gates).
-  # Detector = the explicit guv-template-readme marker, reword-proof.
+  # Detector = the explicit guv-template-readme marker, reword-proof; the
+  # README path rides the EP_TEST_README seam so T8b can prove both branches.
   if [ "$doc" = "README.md" ]; then
-    if [ ! -f "$ROOT/$doc" ]; then
+    target="$RMD"
+    if [ ! -f "$target" ]; then
       echo "  - README.md absent (fork) — cross-reference guard skips"
       continue
     fi
-    if ! grep -q 'guv-template-readme' "$ROOT/$doc"; then
+    if ! grep -q 'guv-template-readme' "$target"; then
       echo "  - README.md is a rendered project README, not the template's — cross-reference guard skips"
       continue
     fi
   fi
-  grep -q "evaluate-parallel" "$ROOT/$doc" 2>/dev/null \
+  grep -q "evaluate-parallel" "$target" 2>/dev/null \
     && ok "$doc cross-references /evaluate-parallel" \
     || no "$doc must cross-reference /evaluate-parallel"
 done
-tr '\n' ' ' < "$ROOT/CLAUDE.template.md" 2>/dev/null | grep -q "planning layer" \
+
+# T8b — seamed self-checks for the README gate, both directions (the b0310b2
+# convention; the rendered/absent skips must fire visibly, and a marker-bearing
+# README must make the guard RUN — a typo'd detector otherwise disables the
+# guard silently while the suite stays green).
+if [ -z "${EP_TEST_INNER:-}" ]; then
+  EPWORK=$(mktemp -d)
+  echo "# my-rendered-project" > "$EPWORK/rendered.md"
+  INNER=$(EP_TEST_INNER=1 EP_TEST_README="$EPWORK/rendered.md" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "rendered project README"; then
+    ok "rendered-README shape visibly skips the cross-reference guard (seamed self-check)"
+  else
+    no "a rendered README must skip the cross-reference guard visibly"
+  fi
+  INNER=$(EP_TEST_INNER=1 EP_TEST_README="$EPWORK/absent.md" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "README.md absent"; then
+    ok "absent-README shape visibly skips the cross-reference guard (seamed self-check)"
+  else
+    no "an absent README must skip the cross-reference guard visibly"
+  fi
+  printf '# some readme\n<!-- guv-template-readme -->\n' > "$EPWORK/marker-only.md"
+  INNER=$(EP_TEST_INNER=1 EP_TEST_README="$EPWORK/marker-only.md" bash "$SELF" 2>&1)
+  if [ $? -ne 0 ] && echo "$INNER" | grep -q "README.md must cross-reference"; then
+    ok "marker-bearing README runs the cross-reference guard (template-shape positive control)"
+  else
+    no "with the marker present the cross-reference guard must RUN (and fail on empty content)"
+  fi
+  rm -rf "$EPWORK"
+fi
+tr '\n' ' ' < "$ROOT/CLAUDE.template.md" 2>/dev/null | tr -s ' ' | grep -q "planning layer" \
   && ok "CLAUDE.template.md states the planning/execution layering" \
   || no "CLAUDE.template.md must state planning layer vs execution layer"
 

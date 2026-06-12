@@ -88,7 +88,9 @@ rm -f "$F"
 # the detector fires (standing rule: detector-style guards ship a positive control).
 # Flattened first: 'not built yet' wrapping across lines must not hide a
 # deferral from this ABSENCE detector (the wrap class, swept in Phase 5 D4).
-has_deferral() { tr '\n' ' ' < "$1" | grep -qiE 'half[ -]b|DISTRIBUTION_OPTIONS|not built yet'; }
+# 'half[ -]b\b' is boundary-anchored so flattening doesn't make innocent
+# cross-line prose ("...the second half\nbecause...") read as a deferral.
+has_deferral() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qiE 'half[ -]b\b|DISTRIBUTION_OPTIONS|not built yet'; }
 
 # The plugin copy exists only where plugin/ does — a template-clone fork may
 # delete the generated tree (README's note), and that must skip, not fail.
@@ -121,7 +123,7 @@ for copy in "${COPIES[@]}"; do
   label="${copy#"$ROOT"/}"
   # Multi-word phrase guards grep a whitespace-flattened copy — an innocent
   # reflow must not break them (the class swept in Phase 5 D4).
-  COPY_FLAT=$(tr '\n' ' ' < "$copy" 2>/dev/null)
+  COPY_FLAT=$(tr '\n' ' ' < "$copy" 2>/dev/null | tr -s ' ')
   echo "$COPY_FLAT" | grep -q 'issue or PR against the harness repo' \
     && ok "drain step 1 (issues/PRs) in $label" \
     || no "$label must document: upstream entries become an issue or PR against the harness repo"
