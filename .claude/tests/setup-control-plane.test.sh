@@ -56,7 +56,7 @@ run_setup "$H" "$D"
 [ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/rules/guv-core.md" ] \
   && [ -f "$D/.claude/archive-initiative.sh" ] && [ -f "$D/.claude/resolve-ready.sh" ] \
   && ok "create: core copied (skills, guv rules, archive + resolver scripts present)" \
-  || no "create: core (incl. helper scripts — a new helper missing from copy_core's list is unreachable by sync) should be copied"
+  || no "create: core should be copied (archive + resolver helpers asserted here; copy_core's hand-enumerated list means an unlisted helper is unreachable by sync — the class is retired by [7.1]'s glob-derived registry)"
 [ -f "$D/.claude/workflows/evaluate-parallel.js" ] \
   && ok "create: workflows dir copied (saved workflows are core)" \
   || no "create: .claude/workflows/ should be copied to the control plane"

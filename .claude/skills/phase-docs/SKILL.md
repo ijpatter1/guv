@@ -223,8 +223,8 @@ split, lane dispatch, status render) program against.
   `in_progress=`, and `blocked=` are all emitted explicitly empty (nothing
   to list IDs for; an in-flight line surfaces via `serial=`). Only `phase=`
   is absent (GRAMMAR-only, as above).
-- Pure bash + standard coreutils (grep, sed, sort, uniq) — no jq needed;
-  runs on stock macOS bash 3.2. The parse (lead-position IDs,
+- Pure bash plus standard Unix text tools (grep, sed, sort, uniq, head,
+  tail) — no jq needed; runs on stock macOS bash 3.2. The parse (lead-position IDs,
   last-construct deps token, comma-space separator) is the same grammar
   `archive-initiative.sh` enforces — one dialect, with the shared ID/token
   regexes guarded identical by the resolver's suite.

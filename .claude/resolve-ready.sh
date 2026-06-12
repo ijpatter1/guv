@@ -22,10 +22,10 @@
 #   serial=…           serial resume: first 🔄, else first ready. In LEGACY
 #                      mode this is line *text* (no IDs exist) — the first
 #                      🔄's, else the first ⬜'s (finish before start) —
-#                      ready= is explicitly empty, and in_progress= stays
-#                      empty (nothing to list IDs for; an in-flight line
-#                      surfaces via serial=). Document order encodes
-#                      dependency order, exactly as before.
+#                      and ready=, in_progress=, and blocked= are all
+#                      emitted explicitly empty (nothing to list IDs for;
+#                      an in-flight line surfaces via serial=). Document
+#                      order encodes dependency order, exactly as before.
 #   in_progress is collected UNSCOPED: a 🔄 in a later phase than the first
 #   open ⬜ still wins serial= — in-flight work is finished first, wherever
 #   it sits; phase= still reports the first open phase.
