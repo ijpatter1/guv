@@ -148,7 +148,7 @@ fi
 #       maintainers/setup-control-plane.sh (the sanctioned creation default).
 # Test fixtures (.claude/tests/) are excluded — they build -guv-named dirs to
 # test the default itself.
-SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" 2>/dev/null; ls "$ROOT/Makefile" 2>/dev/null)
+SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" 2>/dev/null; ls "$ROOT/Makefile" "$ROOT/plugin/shell/Makefile" 2>/dev/null)
 GLOB_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\*-guv' 2>/dev/null || true)
 if [ -z "$GLOB_HITS" ]; then
   ok "no shipped script globs for *-guv (no name-based discovery)"

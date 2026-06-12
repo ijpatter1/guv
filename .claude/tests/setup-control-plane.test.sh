@@ -446,6 +446,24 @@ if [ "$RC_UNK" -ne 0 ] && echo "$OUT_UNK" | grep -q "unknown argument" && [ ! -d
 else
   no "an unrecognized mode argument must refuse loud, not fall back to create"
 fi
+# A typo'd SOLE-ARG flag must refuse too — never become the destination,
+# cascade errors, and exit 0 under a false success banner.
+OUT_SOLO=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" --synk 2>&1 )
+RC_SOLO=$?
+if [ "$RC_SOLO" -ne 0 ] && echo "$OUT_SOLO" | grep -q "unknown argument" && ! echo "$OUT_SOLO" | grep -q "Control plane ready"; then
+  ok "typo'd sole-arg flag refuses loud (no cascade, no false success banner)"
+else
+  no "a flag-shaped first argument must refuse loud, not become the destination"
+fi
+# The allow-list is the documented grammar: bare 'sync' (no dashes) is refused,
+# not accepted as an undocumented alias.
+OUT_BARE=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" "$WORK/widget-guv" sync 2>&1 )
+RC_BARE=$?
+if [ "$RC_BARE" -ne 0 ] && echo "$OUT_BARE" | grep -q "unknown argument"; then
+  ok "bare 'sync' second argument refuses (allow-list = documented grammar)"
+else
+  no "undocumented mode aliases must refuse, not silently run sync"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

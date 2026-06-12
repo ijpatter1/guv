@@ -26,32 +26,39 @@ set -u
 
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"      # the harness repo (= roots.code)
 DEST="${1:-}"
-MODE="${2:-create}"
+MODE_ARG="${2:-}"
 
 # --sync may stand alone; the destination then defaults like the no-arg form.
 # Flag-first WITH a directory is refused loud: silently discarding an explicit
 # argument and defaulting elsewhere is the improvised path rule 15 prohibits.
 if [ "$DEST" = "--sync" ]; then
-  if [ -n "${2:-}" ]; then
+  if [ -n "$MODE_ARG" ]; then
     echo "error: directory must come first — usage: bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]" >&2
     exit 2
   fi
-  MODE="--sync"
+  MODE_ARG="--sync"
   DEST=""
+fi
+# Any other flag-shaped first argument is a typo, not a directory — refuse
+# loud in EITHER position rather than cascading toward a false success banner.
+# The only recognized second argument is the literal --sync (bare sync/create
+# aliases are refused too: the guard's allow-list IS the documented grammar).
+case "$DEST" in
+  -?*)
+    echo "error: unknown argument '$DEST' — usage: bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]" >&2
+    exit 2
+    ;;
+esac
+if [ -n "$MODE_ARG" ] && [ "$MODE_ARG" != "--sync" ]; then
+  echo "error: unknown argument '$MODE_ARG' — usage: bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]" >&2
+  exit 2
 fi
 if [ -z "$DEST" ]; then
   DEST="$HARNESS_DIR/../$(basename "$HARNESS_DIR")-guv"
   echo "No control-plane dir given — defaulting to $DEST (the <project>-guv convention)"
 fi
-[ "$MODE" = "--sync" ] && MODE="sync"
-
-# Anything other than the two designed modes is refused loud — a typo'd flag
-# silently running CREATE (planting create-only artifacts) is the same
-# improvised-path class as the inversion above.
-if [ "$MODE" != "create" ] && [ "$MODE" != "sync" ]; then
-  echo "error: unknown argument '$MODE' — usage: bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]" >&2
-  exit 2
-fi
+MODE="create"
+[ "$MODE_ARG" = "--sync" ] && MODE="sync"
 # Sync refreshes an EXISTING plane; against an absent one it would silently
 # manufacture an empty half-plane (no manifest, no CLAUDE.md) and report
 # success while the real plane stays stale. Refuse loud instead.
