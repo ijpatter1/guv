@@ -169,14 +169,16 @@ The setup script installs a `.git/hooks/post-commit` hook into the control plane
 (create mode; refreshed on `--sync` while present) that runs this chain whenever a
 `git commit` touches the tracker and commits the fresh `status.html` as a derived
 artifact — rebuilt, never line-merged, never a source. (Hook firing follows
-git's actual behavior, verified empirically on git 2.50.1 and pinned by
-`render-hook.test.sh`: `git commit` fires it, and since git 2.25 the sequencer
-does too — a `revert` or `cherry-pick` that lands tracker changes regenerates
-like a direct commit, with cherry-pick's nested render commit sometimes refused
-while the sequencer holds the index, which the loud recording-FAILED rung
-covers. A merge or pull does NOT fire post-commit, and during a rebase the
-hook's detached-HEAD guard skips deliberately — in those cases the next direct
-tracker commit or a manual render catches up.) The hook is a **convenience, never a dependency**: with it absent
+git's actual behavior, verified empirically on git 2.50.1: `git commit` fires
+it, and since git 2.25 the sequencer does too — a `revert` or `cherry-pick`
+that lands tracker changes regenerates like a direct commit, with cherry-pick's
+nested render commit sometimes refused while the sequencer holds the index,
+which the loud recording-FAILED rung covers. A merge does NOT fire post-commit
+(a `pull` is fetch+merge, so it follows), and during a rebase the hook's
+detached-HEAD guard skips deliberately — in those cases the next direct tracker
+commit or a manual render catches up. The revert-fires, cherry-pick-fires, and
+merge-no-fire claims are each pinned behaviorally by `render-hook.test.sh`.)
+The hook is a **convenience, never a dependency**: with it absent
 (or jq missing, or the resolver refusing a malformed tracker) nothing breaks —
 the previous render stays in place, the refusal is loud, and the manual
 two-liner above always works (`status.json` is the intermediate file; the

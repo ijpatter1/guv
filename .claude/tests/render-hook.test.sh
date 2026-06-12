@@ -148,6 +148,17 @@ tracker "🔄"
 [ "$(git -C "$CP" log -1 --pretty=%s)" = "t4b: merge" ] \
   && ok "sequencer: merge landing tracker changes does NOT fire post-commit" \
   || no "no render commit may follow a merge (got: $(git -C "$CP" log -1 --pretty=%s))"
+# Cherry-pick rides the same sequencer: the hook FIRES; its nested render
+# commit may land or be refused while the sequencer holds the index — both
+# legal, but firing must be loud either way (never silent).
+( cd "$CP" && git checkout -qb t4b-cp HEAD~2 ) 2>/dev/null
+PICK=$(git -C "$CP" log t4b-feat -1 --pretty=%H)
+CPOUT=$(cd "$CP" && git cherry-pick "$PICK" 2>&1); CPRC=$?
+[ "$CPRC" -eq 0 ] && echo "$CPOUT" | grep -q 'render-hook' \
+  && echo "$CPOUT" | grep -Eq 'regenerated and committed|recording FAILED' \
+  && ok "sequencer: cherry-pick fires the hook, loudly in either recording outcome" \
+  || no "a cherry-pick landing tracker changes must fire the hook loudly (rc=$CPRC: $CPOUT)"
+( cd "$CP" && git checkout -q - ) 2>/dev/null
 
 # ── T5 — resolver refusal: a malformed tracker must NOT replace the render,
 # and the refusal is loud in the commit output.
