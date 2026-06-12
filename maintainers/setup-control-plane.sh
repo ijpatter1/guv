@@ -45,6 +45,22 @@ if [ -z "$DEST" ]; then
 fi
 [ "$MODE" = "--sync" ] && MODE="sync"
 
+# Anything other than the two designed modes is refused loud — a typo'd flag
+# silently running CREATE (planting create-only artifacts) is the same
+# improvised-path class as the inversion above.
+if [ "$MODE" != "create" ] && [ "$MODE" != "sync" ]; then
+  echo "error: unknown argument '$MODE' — usage: bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]" >&2
+  exit 2
+fi
+# Sync refreshes an EXISTING plane; against an absent one it would silently
+# manufacture an empty half-plane (no manifest, no CLAUDE.md) and report
+# success while the real plane stays stale. Refuse loud instead.
+if [ "$MODE" = "sync" ] && [ ! -d "$DEST/.claude" ]; then
+  echo "error: --sync target $DEST has no .claude/ — not an existing control plane." >&2
+  echo "       Create it first (run without --sync), or pass the right directory." >&2
+  exit 2
+fi
+
 mkdir -p "$DEST/.claude"
 DEST_ABS="$(cd "$DEST" && pwd)"
 

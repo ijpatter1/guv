@@ -404,10 +404,10 @@ if [ -d "$WORK/widget-guv/.claude/commands" ]; then
 else
   no "no-arg create must default to sibling <project>-guv"
 fi
-if echo "$OUT_DEF" | grep -q "No control-plane dir given" && echo "$OUT_DEF" | grep -q "widget-guv"; then
+if echo "$OUT_DEF" | grep -q "No control-plane dir given.*widget-guv"; then
   ok "the defaulted destination is announced, not silent"
 else
-  no "defaulting must announce itself (the announcement line, naming the path)"
+  no "defaulting must announce itself (one line: the announcement naming the path)"
 fi
 # Flag-first WITH a directory must stop loud — never silently discard the
 # explicit argument and default elsewhere (rule 15: no improvised path).
@@ -425,6 +425,26 @@ if grep -q "cmd v2" "$WORK/widget-guv/.claude/commands/status.md" 2>/dev/null; t
   ok "sole-arg --sync syncs the defaulted <project>-guv plane"
 else
   no "--sync without a dir must sync the default <project>-guv plane"
+fi
+# Sync against an ABSENT destination refuses — it must never manufacture an
+# empty half-plane and report success while the real plane stays stale.
+H=$(make_harness)
+DH2="$WORK/phantom"; rm -rf "$DH2" "$WORK/phantom-guv"; mv "$H" "$DH2"
+OUT_ABS=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" --sync 2>&1 )
+RC_ABS=$?
+if [ "$RC_ABS" -ne 0 ] && echo "$OUT_ABS" | grep -q "not an existing control plane" && [ ! -d "$WORK/phantom-guv" ]; then
+  ok "--sync against an absent plane refuses loud (no phantom half-plane)"
+else
+  no "--sync against an absent destination must refuse, not mkdir + report success"
+fi
+# An unrecognized second argument refuses — a typo'd --sync must not silently
+# run create mode.
+OUT_UNK=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" "$WORK/nowhere" --synk 2>&1 )
+RC_UNK=$?
+if [ "$RC_UNK" -ne 0 ] && echo "$OUT_UNK" | grep -q "unknown argument" && [ ! -d "$WORK/nowhere" ]; then
+  ok "unknown second argument refuses loud (typo'd --sync never runs create)"
+else
+  no "an unrecognized mode argument must refuse loud, not fall back to create"
 fi
 
 echo ""

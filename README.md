@@ -54,7 +54,7 @@ Choosing the speed was never its job.
 
 **Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/rules/` (`guv-*.md`, loaded natively).
 
-**Repo topology** — single repo by default (`roots` both `"."`). For a control-plane / code split, Claude launches in the control plane and the product is a sibling repo. Convention: the code repo keeps the plain product name, the control plane is `<product>-guv` (a possessive suffix — the product's guv; human-facing only, never used for discovery: the manifest is the sole machine pointer), and the manifest's `name` stays the _product_ name (it feeds image/container labels):
+**Repo topology** — single repo by default (`roots` both `"."`). For a control-plane / code split, Claude launches in the control plane and the product is a sibling repo. Convention: the code repo keeps the plain product name, the control plane is its sibling named per the `<project>-guv` convention (here `<product>-guv` — a possessive suffix, the product's guv; human-facing only, never used for discovery: the manifest is the sole machine pointer), and the manifest's `name` stays the _product_ name (it feeds image/container labels):
 
 ```
 ~/dev/

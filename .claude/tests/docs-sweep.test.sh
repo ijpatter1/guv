@@ -134,7 +134,8 @@ while IFS=: read -r f ln _; do
   sed -n "${start},${ln}p" "$f" | grep -qi 'LEGACY\|token-free' || POS_VIOL="$POS_VIOL $f:$ln"
 done < <(grep -rn 'encodes dependency order\|reflects dependency order\|position encodes' \
   "$ROOT/README.md" "$ROOT/README.template.md" "$ROOT/CLAUDE.template.md" \
-  "$ROOT/.claude/commands" "$ROOT/.claude/skills" "$ROOT/maintainers" 2>/dev/null)
+  "$ROOT/.claude/commands" "$ROOT/.claude/skills" "$ROOT/.claude/rules" \
+  "$ROOT/docs" "$ROOT/maintainers" 2>/dev/null)
 if [ -z "$POS_VIOL" ]; then
   ok "position-encodes-sequence stated only under LEGACY qualification"
 else
@@ -147,7 +148,7 @@ fi
 #       maintainers/setup-control-plane.sh (the sanctioned creation default).
 # Test fixtures (.claude/tests/) are excluded — they build -guv-named dirs to
 # test the default itself.
-SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" -name '*.sh' -not -path "$ROOT/.claude/tests/*" 2>/dev/null)
+SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" 2>/dev/null; ls "$ROOT/Makefile" 2>/dev/null)
 GLOB_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\*-guv' 2>/dev/null || true)
 if [ -z "$GLOB_HITS" ]; then
   ok "no shipped script globs for *-guv (no name-based discovery)"
