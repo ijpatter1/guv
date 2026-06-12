@@ -166,9 +166,13 @@ if [ -z "${EP_TEST_INNER:-}" ]; then
   fi
   rm -rf "$EPWORK"
 fi
-tr '\n' ' ' < "$ROOT/CLAUDE.template.md" 2>/dev/null | tr -s ' ' | grep -q "planning layer" \
-  && ok "CLAUDE.template.md states the planning/execution layering" \
-  || no "CLAUDE.template.md must state planning layer vs execution layer"
+if [ -f "$ROOT/CLAUDE.template.md" ]; then
+  tr '\n' ' ' < "$ROOT/CLAUDE.template.md" | tr -s ' ' | grep -q "planning layer" \
+    && ok "CLAUDE.template.md states the planning/execution layering" \
+    || no "CLAUDE.template.md must state planning layer vs execution layer"
+else
+  echo "  - CLAUDE.template.md absent (control plane / stripped fork) — layering check skips"
+fi
 
 # T9 — the phase-label guard BEHAVES correctly (node-gated like T7): the
 # extracted const lines are executed against the deviations the guard exists
