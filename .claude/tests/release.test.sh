@@ -102,7 +102,7 @@ rm -f "$FIX"
 grep -q '@\.claude/RULES\.md' "$CL" 2>/dev/null \
   && ok "CHANGELOG carries the Phase 2 migration note (dead RULES.md import)" \
   || no "CHANGELOG must carry the Phase 2 note: delete the dead @.claude/RULES.md import"
-grep -q 'isolation tier' "$CL" 2>/dev/null \
+tr '\n' ' ' < "$CL" 2>/dev/null | grep -q 'isolation tier' \
   && ok "CHANGELOG carries the Phase 3 migration note (tier-neutral Enforcement)" \
   || no "CHANGELOG must carry the Phase 3 note: tier-neutral Enforcement rewrite"
 

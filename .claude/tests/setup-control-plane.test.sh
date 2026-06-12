@@ -6,6 +6,7 @@
 set -u
 
 REAL_SCRIPT="$(cd "$(dirname "$0")/../.." && pwd)/maintainers/setup-control-plane.sh"
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 
 # Maintainer tooling — a consumer repo that deleted maintainers/ still ships
 # this suite, so skip cleanly instead of failing.
@@ -65,7 +66,7 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
   || no "create: .DS_Store leaked into the control plane: $FOUND"
 grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
   || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
-grep -q "auto memory as hints" "$D/CLAUDE.md" \
+tr '\n' ' ' < "$D/CLAUDE.md" 2>/dev/null | grep -q "auto memory as hints" \
   && ok "create: generated CLAUDE.md carries the memory-authority line" \
   || no "generated CLAUDE.md should declare manifest+handoff authority over auto memory"
 # The heredoc is unquoted (it interpolates $CODE_REL) — an unescaped backtick
@@ -274,9 +275,9 @@ if [ -f "$DOG" ]; then
   grep -q 'plan-initiative' "$DOG" \
     && ok "DOGFOODING: ceremony flip acknowledged (seeded task, initiative flips it)" \
     || no "DOGFOODING must reflect that /plan-initiative can flip the control plane to phased"
-  flat "$DOG" | grep -qi 'wholesale' \
+  flat "$DOG" | grep -qi 'replaces harness-owned surfaces.*wholesale' \
     && ok "DOGFOODING: fallback bullet carries the wholesale-replacement caveat" \
-    || no "DOGFOODING must warn that --sync replaces harness-owned surfaces wholesale"
+    || no "DOGFOODING must warn that --sync replaces harness-owned surfaces wholesale (the fact, not the word)"
   if flat "$DOG" | grep -q 'pinned to the template repo'; then
     no "DOGFOODING: stale single-pin CI phrasing survives ('pinned to the template repo')"
   else
@@ -296,9 +297,12 @@ fi
 # Gated on the README being the TEMPLATE's: /init-project replaces README.md
 # with a rendered project README, and deleting maintainers/ is optional — a
 # post-init consumer shape must skip here, not fail (the consumer-suite
-# contract: correct consumer usage never reads as a violation).
-RM="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/README.md"
-if [ -f "$RM" ] && ! grep -q '^# Governor (guv)' "$RM"; then
+# contract: correct consumer usage never reads as a violation). The detector
+# is the explicit guv-template-readme marker comment, not the H1 — a headline
+# reword must not silently flip these guards into the skip branch. SCP_TEST_README
+# is the self-check seam (T10b re-invokes with a planted rendered README).
+RM="${SCP_TEST_README:-$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/README.md}"
+if [ -f "$RM" ] && ! grep -q 'guv-template-readme' "$RM"; then
   echo "  - README.md is a rendered project README, not the template's — disposition guards skip"
 elif [ -f "$RM" ]; then
   flat "$RM" | grep -qiE 'keep the clone|keep syncing' && grep -qi 'migrat' "$RM" \
@@ -325,6 +329,21 @@ elif [ -f "$RM" ]; then
     || no "README must warn customized forks that --sync reverts harness-owned edits"
 else
   echo "  - README.md absent (fork) — disposition guards skip"
+fi
+
+# T10b — seamed self-check for the rendered-README skip branch (the b0310b2
+# convention: a skip path is only trusted when a re-invocation proves it fires
+# and is visible — exit 0 alone would also pass if the gate were deleted).
+if [ -z "${SCP_TEST_INNER:-}" ]; then
+  FAKE="$WORK/rendered-readme.md"
+  echo "# my-rendered-project" > "$FAKE"
+  INNER=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "rendered project README" \
+    && ! echo "$INNER" | grep -q "decided disposition"; then
+    ok "rendered-README shape visibly skips the disposition guards (seamed self-check)"
+  else
+    no "a rendered README must skip the disposition guards visibly (and not run them)"
+  fi
 fi
 
 echo ""

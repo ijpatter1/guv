@@ -70,7 +70,7 @@ So the loop is: edit in the harness repo → run its tests there → `--sync` in
 control plane → exercise the changed harness from a control-plane session → commit the
 harness change in the harness repo, and any session artifacts in the control plane.
 
-What `--sync` refreshes is ownership-scoped, not wholesale: harness-owned surfaces
+What `--sync` refreshes is ownership-scoped, not tree-wide: harness-owned surfaces
 (commands, skills, agents, hooks, `guv-*` rules, harness-shipped workflows, scripts,
 schema, settings — and the generated `run-harness-tests.sh`, which carries no consumer
 state) are replaced; consumer-owned state (the manifest, `CLAUDE.md`, unprefixed rules,

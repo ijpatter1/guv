@@ -1,5 +1,10 @@
 # Governor (guv) — a control plane for Claude Code
 
+<!-- guv-template-readme: this is the TEMPLATE repo's README — /init-project
+     replaces this file in rendered projects. Test suites key consumer-shape
+     skips on this marker (it survives headline rewording; remove it only if
+     you mean to disable those guards). -->
+
 A governor is a device that sits on a powerful engine and keeps it from running away — restraint built into the mechanism. That is what this harness adds to autonomous Claude Code sessions: a machine-readable project manifest, ceremony tiers, calibrated QA reviewers, deterministic safety hooks, a committed team-visible session record, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
 
 Installs as the versioned **guv plugin** from this repo's marketplace; cloning the repo as a template remains the fallback path.

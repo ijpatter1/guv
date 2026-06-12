@@ -86,18 +86,25 @@ fi
 # /evaluate skill + /handoff command cross-reference the workflow variant.
 for doc in README.md CLAUDE.template.md \
            .claude/skills/evaluate/SKILL.md .claude/commands/handoff.md; do
-  # /init-project replaces README.md with a rendered project README — a
-  # post-init consumer shape skips that one guard rather than failing.
-  if [ "$doc" = "README.md" ] && [ -f "$ROOT/$doc" ] \
-    && ! grep -q '^# Governor (guv)' "$ROOT/$doc"; then
-    echo "  - README.md is a rendered project README, not the template's — cross-reference guard skips"
-    continue
+  # /init-project replaces README.md with a rendered project README, and a
+  # fork may delete it — both are consumer shapes that skip this one guard
+  # rather than failing (matching setup-control-plane.test.sh T10's gates).
+  # Detector = the explicit guv-template-readme marker, reword-proof.
+  if [ "$doc" = "README.md" ]; then
+    if [ ! -f "$ROOT/$doc" ]; then
+      echo "  - README.md absent (fork) — cross-reference guard skips"
+      continue
+    fi
+    if ! grep -q 'guv-template-readme' "$ROOT/$doc"; then
+      echo "  - README.md is a rendered project README, not the template's — cross-reference guard skips"
+      continue
+    fi
   fi
   grep -q "evaluate-parallel" "$ROOT/$doc" 2>/dev/null \
     && ok "$doc cross-references /evaluate-parallel" \
     || no "$doc must cross-reference /evaluate-parallel"
 done
-grep -q "planning layer" "$ROOT/CLAUDE.template.md" \
+tr '\n' ' ' < "$ROOT/CLAUDE.template.md" 2>/dev/null | grep -q "planning layer" \
   && ok "CLAUDE.template.md states the planning/execution layering" \
   || no "CLAUDE.template.md must state planning layer vs execution layer"
 
