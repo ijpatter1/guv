@@ -129,6 +129,26 @@ ISLAND=$(sed -n 2>/dev/null '/id="status-data"/{n;p;}' "$CP/status.html" | sed '
   && ok "regen: tracker update is reflected in the committed render" \
   || no "render must track the tracker (expected 1.2 done, empty ready)"
 
+# ── T4b — hook firing follows git, empirically: since git 2.25 the
+# SEQUENCER runs post-commit, so a revert landing a tracker change
+# regenerates like a direct commit; a merge does NOT fire. Pinned because a
+# stale-man-page "no-fire" claim shipped to the docs once and only the Phase
+# 6 UAT's second run caught it — fire/no-fire claims must be executable.
+( cd "$CP" && git revert --no-edit HEAD~1 ) > "$WORK/t4b.log" 2>&1
+[ "$(git -C "$CP" log -1 --pretty=%s)" = "chore(render): regenerate status.html (post-commit hook)" ] \
+  && git -C "$CP" log -2 --pretty=%s | grep -q '^Revert' \
+  && ok "sequencer: revert of a tracker commit fires the hook (render atop the Revert)" \
+  || no "a revert landing tracker changes must regenerate (got: $(git -C "$CP" log -2 --pretty=%s | tr '\n' ' '))"
+mkdir -p "$WORK/nohooks"
+( cd "$CP" && git checkout -qb t4b-feat ) 2>/dev/null
+tracker "🔄"
+( cd "$CP" && git add docs/PHASE_STATUS.md && \
+  git -c core.hooksPath="$WORK/nohooks" commit -qm "t4b: feat tracker" && \
+  git checkout -q - && git merge --no-ff -q t4b-feat -m "t4b: merge" ) > "$WORK/t4b2.log" 2>&1
+[ "$(git -C "$CP" log -1 --pretty=%s)" = "t4b: merge" ] \
+  && ok "sequencer: merge landing tracker changes does NOT fire post-commit" \
+  || no "no render commit may follow a merge (got: $(git -C "$CP" log -1 --pretty=%s))"
+
 # ── T5 — resolver refusal: a malformed tracker must NOT replace the render,
 # and the refusal is loud in the commit output.
 cp "$CP/status.html" "$WORK/before.html" 2>/dev/null
