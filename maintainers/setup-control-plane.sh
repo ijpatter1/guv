@@ -194,8 +194,14 @@ write_render_hook() {
   local target="$DEST/.git/hooks/post-commit" tmp
   if [ ! -d "$DEST/.git" ]; then
     # A linked worktree has a .git FILE; hooks live with the main repo, and
-    # writing here would be wrong. Announce the skip instead of vanishing.
-    [ -e "$DEST/.git" ] && echo "[setup] $DEST/.git is not a directory (worktree?) — render hook not installed"
+    # writing here would be wrong. Either way, announce the skip instead of
+    # vanishing (create mode git-inits before this runs, so no-.git-at-all is
+    # a --sync-against-non-repo shape).
+    if [ -e "$DEST/.git" ]; then
+      echo "[setup] $DEST/.git is not a directory (worktree?) — render hook not installed"
+    else
+      echo "[setup] $DEST is not a git repo — render hook not installed"
+    fi
     return 0
   fi
   if [ ! -f "$target" ] && [ "$MODE" = "sync" ]; then
