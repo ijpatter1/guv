@@ -1,22 +1,5 @@
 # Dogfooding the harness — the control-plane split
 
-## Vocabulary
-
-Four terms, four layers — defined once here ([7.7]); the wholesale naming
-sweep is [8.2]/[8.3]'s:
-
-- **Claude Code** — the platform.
-- **guv (Governor)** — the product: *a control plane for Claude Code*, built
-  from its native primitives (manifest, rules, hooks, resolver, /replan, the
-  calibrated reviewers). "The harness" is this product's informal name, used
-  throughout these docs for the **source repo**.
-- **`<project>-guv`** — a project's *instance* of that control plane: the
-  installed behavioral core plus the governed state (plan docs, sessions,
-  feedback ledger) for that one project. When these docs say "the control
-  plane" about a repo, they mean such an instance.
-- **guv-guv** — the instance whose governed project is guv itself: guv
-  governed by guv, its installed core one sync behind the source it governs.
-
 > **Maintainer-only.** This directory is about _developing_ Governor (guv), not using
 > it. A consumer who forks the template can delete `maintainers/` — it never affects a
 > rendered project. (The repo is `ijpatter1/guv`; the local clones in the examples
