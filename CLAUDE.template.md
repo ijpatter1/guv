@@ -45,12 +45,12 @@ Read `roots` from `.claude/project.json`:
 - **Code**: `roots.code` — may be a _sibling repo_. All git operations against the product (`git -C roots.code log/diff/status`) target the code root; doc and session commits target the control root.
 - **Single-repo projects** set both roots to `"."`, so the two collapse into one tree and nothing special happens.
 
-**Naming convention (split topology):** the code repo keeps the plain product name; the control plane is its sibling with a `-control` suffix. The manifest's `name` stays the _product_ name (it feeds image/container labels), not the directory name.
+**Naming convention (split topology):** the code repo keeps the plain product name; the control plane is its sibling named `<product>-guv` — a possessive suffix (the product's guv), human-facing only: no script ever discovers a control plane by name; the manifest's `roots` is the sole machine pointer. The manifest's `name` stays the _product_ name (it feeds image/container labels), not the directory name.
 
 ```
 ~/dev/
-├── <product>/           # code repo (roots.code: "../<product>")
-└── <product>-control/   # control plane — Claude launches here (cwd, roots.control: ".")
+├── <product>/        # code repo (roots.code: "../<product>")
+└── <product>-guv/    # control plane — Claude launches here (cwd, roots.control: ".")
 ```
 
 Single-repo projects don't name a control plane at all — the product repo is the only repo.

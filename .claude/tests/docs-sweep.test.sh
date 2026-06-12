@@ -22,13 +22,16 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 # Consumer-shape skip: a rendered project replaces README.md and may delete
 # maintainers/ — this suite asserts the TEMPLATE repo's doc surface only.
-if ! grep -q 'guv-template-readme' "$ROOT/README.md" 2>/dev/null || [ ! -d "$ROOT/maintainers" ]; then
+# DS_TEST_README seams the marker probe for the self-check below.
+README_PROBE="${DS_TEST_README:-$ROOT/README.md}"
+if ! grep -q 'guv-template-readme' "$README_PROBE" 2>/dev/null || [ ! -d "$ROOT/maintainers" ]; then
   echo "  - template-repo doc surface not present — skipping (consumer repo)"
   echo ""
   echo "Results: 0 passed, 0 failed"
@@ -112,6 +115,31 @@ if grep -q '<product>-guv' "$ROOT/README.md" && ! grep -q '<product>-control' "$
 else
   no "README topology block must teach <product>-guv and drop <product>-control"
 fi
+# The retirement holds across the topology-doc CLASS, not just where the fix
+# first landed: no doc that teaches control-plane topology may still carry the
+# old -control convention (as a templated name or the historical literal).
+RETIRE_HITS=$(grep -l '<product>-control\|sandbox-control' "$ROOT/README.md" "$ROOT/CLAUDE.template.md" "$TOPO" 2>/dev/null || true)
+if [ -z "$RETIRE_HITS" ]; then
+  ok "old -control convention retired across all topology docs"
+else
+  no "old -control convention survives in: $(echo "$RETIRE_HITS" | tr '\n' ' ')"
+fi
+
+# T5b — the LEGACY position-encodes-sequence statements stay qualified: any doc
+# line stating that document order/position carries dependency order must sit
+# under a LEGACY / token-free qualification (same line or the two lines above).
+POS_VIOL=""
+while IFS=: read -r f ln _; do
+  start=$(( ln > 2 ? ln - 2 : 1 ))
+  sed -n "${start},${ln}p" "$f" | grep -qi 'LEGACY\|token-free' || POS_VIOL="$POS_VIOL $f:$ln"
+done < <(grep -rn 'encodes dependency order\|reflects dependency order\|position encodes' \
+  "$ROOT/README.md" "$ROOT/README.template.md" "$ROOT/CLAUDE.template.md" \
+  "$ROOT/.claude/commands" "$ROOT/.claude/skills" "$ROOT/maintainers" 2>/dev/null)
+if [ -z "$POS_VIOL" ]; then
+  ok "position-encodes-sequence stated only under LEGACY qualification"
+else
+  no "unqualified position-encodes-sequence statement at:$POS_VIOL"
+fi
 
 # T6 — no script resolves a control plane by name. Two layers:
 #   (a) no '*-guv' glob in any shipped script, anywhere;
@@ -139,6 +167,23 @@ if ! grep -q '^## Philosophy' "$ROOT/README.template.md"; then
   ok "README.template.md carries no Philosophy section"
 else
   no "README.template.md must not carry the Philosophy section"
+fi
+
+# T8 — seamed self-check: the consumer-shape skip must actually fire (visible
+# message, exit 0) when the README lacks the template marker — this file ships
+# to every consumer fork, and a maintainer assertion redding out consumer repos
+# is this project's one prior Critical class.
+if [ -z "${DS_TEST_INNER:-}" ]; then
+  FAKE_README=$(mktemp)
+  echo "# a rendered consumer project readme" > "$FAKE_README"
+  INNER=$(DS_TEST_INNER=1 DS_TEST_README="$FAKE_README" bash "$SELF" 2>&1)
+  RC=$?
+  rm -f "$FAKE_README"
+  if [ "$RC" -eq 0 ] && echo "$INNER" | grep -q "skipping (consumer repo)"; then
+    ok "consumer-shape skip fires visibly with exit 0 (seamed self-check)"
+  else
+    no "a marker-less README must skip visibly with exit 0, got rc=$RC"
+  fi
 fi
 
 echo ""

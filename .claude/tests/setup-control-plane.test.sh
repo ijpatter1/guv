@@ -404,10 +404,19 @@ if [ -d "$WORK/widget-guv/.claude/commands" ]; then
 else
   no "no-arg create must default to sibling <project>-guv"
 fi
-if echo "$OUT_DEF" | grep -q "widget-guv"; then
+if echo "$OUT_DEF" | grep -q "No control-plane dir given" && echo "$OUT_DEF" | grep -q "widget-guv"; then
   ok "the defaulted destination is announced, not silent"
 else
-  no "defaulting must announce the chosen path"
+  no "defaulting must announce itself (the announcement line, naming the path)"
+fi
+# Flag-first WITH a directory must stop loud — never silently discard the
+# explicit argument and default elsewhere (rule 15: no improvised path).
+OUT_INV=$( cd "$WORK" && bash "$DH/maintainers/setup-control-plane.sh" --sync "$WORK/elsewhere" 2>&1 )
+RC_INV=$?
+if [ "$RC_INV" -ne 0 ] && echo "$OUT_INV" | grep -q "directory must come first" && [ ! -d "$WORK/elsewhere" ]; then
+  ok "flag-first --sync <dir> refuses loud (argument never silently discarded)"
+else
+  no "--sync <dir> (flag first) must refuse loud, not default with a false announcement"
 fi
 # Sole-arg --sync targets the same constructed default.
 echo "# cmd v2" > "$DH/.claude/commands/status.md"

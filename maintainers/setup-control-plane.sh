@@ -29,7 +29,13 @@ DEST="${1:-}"
 MODE="${2:-create}"
 
 # --sync may stand alone; the destination then defaults like the no-arg form.
+# Flag-first WITH a directory is refused loud: silently discarding an explicit
+# argument and defaulting elsewhere is the improvised path rule 15 prohibits.
 if [ "$DEST" = "--sync" ]; then
+  if [ -n "${2:-}" ]; then
+    echo "error: directory must come first — usage: bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]" >&2
+    exit 2
+  fi
   MODE="--sync"
   DEST=""
 fi

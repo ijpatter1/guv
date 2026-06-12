@@ -224,7 +224,7 @@ for pair in \
 done
 [ "$T9_OK" -eq 1 ] && ok "all 9 hook/helper scripts byte-identical to .claude/ sources"
 
-# T10 — the five guv-* rules ship byte-identical as scaffold assets (plugins
+# T10 — the guv-* rules (count derived by glob) ship byte-identical as scaffold assets (plugins
 # cannot load rules natively; the D2 scaffold deploys these into projects).
 T10_OK=1
 RULE_COUNT=0

@@ -74,7 +74,7 @@ With a copy, edits land in the harness repo (the source of truth, where commits 
 **don't affect the running session until you deliberately sync them in**:
 
 ```bash
-bash maintainers/setup-control-plane.sh ../claude-code-sandbox-control --sync
+bash maintainers/setup-control-plane.sh --sync    # destination defaults to ../guv-guv
 ```
 
 So the loop is: edit in the harness repo → run its tests there → `--sync` into the
