@@ -5,7 +5,12 @@
 # handoffs, feedback log), so the harness repo stays clean. See maintainers/DOGFOODING.md.
 #
 # Usage:
-#   bash maintainers/setup-control-plane.sh <control-plane-dir> [--sync]
+#   bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]
+#
+#   <control-plane-dir> defaults to a sibling of this repo named <repo>-guv —
+#   the <project>-guv naming convention (announced when defaulted). The default
+#   is a constructed path offered at creation/sync time only: no script ever
+#   discovers a control plane by name; the manifest is the sole machine pointer.
 #
 #   (no flag)  create the control plane if absent; copy the harness core into it; write
 #              the dogfooding manifest + CLAUDE.md ONLY if they don't exist yet
@@ -23,9 +28,14 @@ HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"      # the harness repo (= roots
 DEST="${1:-}"
 MODE="${2:-create}"
 
+# --sync may stand alone; the destination then defaults like the no-arg form.
+if [ "$DEST" = "--sync" ]; then
+  MODE="--sync"
+  DEST=""
+fi
 if [ -z "$DEST" ]; then
-  echo "usage: bash maintainers/setup-control-plane.sh <control-plane-dir> [--sync]" >&2
-  exit 2
+  DEST="$HARNESS_DIR/../$(basename "$HARNESS_DIR")-guv"
+  echo "No control-plane dir given — defaulting to $DEST (the <project>-guv convention)"
 fi
 [ "$MODE" = "--sync" ] && MODE="sync"
 

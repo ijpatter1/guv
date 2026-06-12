@@ -102,10 +102,15 @@ if grep -q '<project>-guv' "$TOPO"; then
 else
   no "DOGFOODING.md must teach the <project>-guv convention"
 fi
-if grep -qi 'never discovers a control plane by name\|no name-based discovery' "$TOPO"; then
+if grep -qi 'ever discovers a control plane by name\|no name-based discovery' "$TOPO"; then
   ok "topology docs state the no-name-based-discovery boundary"
 else
   no "topology docs must state that no script discovers a control plane by name"
+fi
+if grep -q '<product>-guv' "$ROOT/README.md" && ! grep -q '<product>-control' "$ROOT/README.md"; then
+  ok "README topology block teaches <product>-guv (old -control convention retired)"
+else
+  no "README topology block must teach <product>-guv and drop <product>-control"
 fi
 
 # T6 — no script resolves a control plane by name. Two layers:

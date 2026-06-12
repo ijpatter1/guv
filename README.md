@@ -11,6 +11,28 @@ Installs as the versioned **guv plugin** from this repo's marketplace; cloning t
 
 Based on patterns from [Anthropic's harness design research](https://www.anthropic.com/engineering/harness-design-long-running-apps) and [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/).
 
+## Philosophy
+
+guv treats software engineering as a data engineering problem.
+
+When a model writes the code, the code stops being the source. It is one of many
+codebases the model could have written from the spec: regenerate it and you get a
+different one, with different bugs. Git keeps the version that passed its checks
+because that is where verification is banked, not where truth lives. The truth is
+everything upstream of the code: what you asked for, what depends on what, what has
+been done, and what counts as good. Keeping that reliable is a pipeline problem, and
+data engineering already knows how to run pipelines on unreliable compute.
+
+A model is not reliable the way a compiler is reliable, so guv divides the work
+accordingly: machines check, people decide. Anything that can be checked against the
+same standard every time gets built into the machinery. Everything that can't is a
+decision, and decisions stay with a person. The line between the two moves in one
+direction: once a decision becomes precise enough to check, it crosses over and does
+not come back.
+
+The name says the rest. Watt's governor held an engine at the speed a person chose.
+Choosing the speed was never its job.
+
 ## What's Included
 
 **Entry points** — four ways in, scaled to the work:
@@ -23,6 +45,7 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 **Session workflow** — commands that encode a Planner → Generator → Evaluator loop (phased projects):
 
 - `/start-phase N` — Load context, run tests, present a plan for approval
+- `/replan` — Mutate the live plan through the one sanctioned door: classify, confirm, apply atomically with an amendment record
 - `/evaluate` — Trigger independent dual QA review mid-session
 - `/handoff` — End session with full QA + handoff artifact for continuity
 - `/status` — Quick 10-line project orientation
@@ -31,12 +54,12 @@ Based on patterns from [Anthropic's harness design research](https://www.anthrop
 
 **Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/rules/` (`guv-*.md`, loaded natively).
 
-**Repo topology** — single repo by default (`roots` both `"."`). For a control-plane / code split, Claude launches in the control plane and the product is a sibling repo. Convention: the code repo keeps the plain product name, the control plane is `<product>-control`, and the manifest's `name` stays the _product_ name (it feeds image/container labels):
+**Repo topology** — single repo by default (`roots` both `"."`). For a control-plane / code split, Claude launches in the control plane and the product is a sibling repo. Convention: the code repo keeps the plain product name, the control plane is `<product>-guv` (a possessive suffix — the product's guv; human-facing only, never used for discovery: the manifest is the sole machine pointer), and the manifest's `name` stays the _product_ name (it feeds image/container labels):
 
 ```
 ~/dev/
-├── <product>/           # code repo            → roots.code: "../<product>"
-└── <product>-control/   # control plane (cwd)  → roots.control: "."
+├── <product>/        # code repo            → roots.code: "../<product>"
+└── <product>-guv/    # control plane (cwd)  → roots.control: "."
 ```
 
 **QA evaluator subagent** — An independent, skeptical reviewer that grades work on five criteria (Functionality, Test Quality, Code Quality, Completeness, Integration). Runs in its own context window with read-only enforcement. Auto-invoked before every session handoff.
@@ -210,6 +233,8 @@ code .
 │   ├── project.schema.json            # Manifest schema (validation + self-docs)
 │   ├── rules/                         # Behavioral core (guv-*.md harness-owned; unprefixed = yours)
 │   ├── resolve-stack.sh               # Detect-to-propose stack manifest (onboard/init)
+│   ├── resolve-ready.sh               # Deterministic ready-frontier resolver (DAG tracker)
+│   ├── replan.sh                      # /replan's deterministic engine (guards, ordinals, atomic writes)
 │   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
 │   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan-initiative)
@@ -224,6 +249,7 @@ code .
 │   │   ├── onboard.md                 # Adopt an existing repo (no phase ceremony)
 │   │   ├── plan-initiative.md         # Phased initiative on an existing project
 │   │   ├── start-phase.md             # Phased session initialization
+│   │   ├── replan.md                  # Plan mutation: the one sanctioned door (engine: replan.sh)
 │   │   ├── handoff.md                 # Session end + dual QA + handoff
 │   │   ├── status.md                  # Quick status check
 │   │   └── manual.md                  # Out-of-sandbox task artifacts

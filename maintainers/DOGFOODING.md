@@ -21,14 +21,25 @@ Eat our own control-plane split. The harness repo becomes the **code repo**
 split keeps the template clean _by construction_ — the shell physically lives in a
 different repo — and it dogfoods the least-tested path in the harness.
 
+Control planes are named **`<project>-guv`** by convention — a suffix, not a prefix
+(`guv-` as a prefix already means harness-owned-and-sync-replaced, and the control
+plane is precisely the artifact guv must never overwrite). The suffix reads as a
+possessive — the project's guv — and sorts adjacent to its project. The convention
+is human-facing only: the setup script offers it as the default directory name and
+the docs teach it, but no script ever discovers a control plane by name — the
+manifest (`roots`) is the sole machine pointer. The harness's own control plane is
+therefore `guv-guv`, deliberately. Renaming a pre-convention control plane to match
+is a manual human act, not a deliverable: by the convention's own terms, nothing
+machine-readable knows or cares what the directory is called.
+
 ```
 ~/dev/
-├── claude-code-sandbox/            # THE HARNESS = roots.code (repo: ijpatter1/guv).
+├── guv/                            # THE HARNESS = roots.code (repo: ijpatter1/guv).
 │                                   #   We edit this; product commits (real template
 │                                   #   improvements) land here. Stays clean: no rendered
 │                                   #   CLAUDE.md, no feedback data, docs/ stay placeholders.
-└── claude-code-sandbox-control/    # CONTROL PLANE = cwd. Claude launches here. Its own
-    ├── .claude/                    #   git repo, its own commit stream.
+└── guv-guv/                        # CONTROL PLANE = cwd (<project>-guv). Claude launches
+    ├── .claude/                    #   here. Its own git repo, its own commit stream.
     │   ├── (core copied from the harness — commands, skills, agents, hooks, guv-* rules,
     │   │   workflows, scripts, schema, settings)  ← refreshed by setup-control-plane.sh --sync
     │   ├── project.json             #   dogfooding manifest: roots.code → the harness
@@ -135,8 +146,8 @@ scaffolds from a spec.
 
 ```bash
 # from the harness repo:
-bash maintainers/setup-control-plane.sh ../claude-code-sandbox-control
-cd ../claude-code-sandbox-control
+bash maintainers/setup-control-plane.sh    # destination defaults to ../guv-guv (the <project>-guv convention)
+cd ../guv-guv
 claude
 /status           # confirm roots.code points back at the harness (ceremony starts as task)
 ```
