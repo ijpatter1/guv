@@ -171,6 +171,200 @@ run "$P" >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage: no subcommand → exit 2" |
 run "$P" --archive >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage: --archive without name → exit 2" || no "missing name should exit 2"
 run "$P" --archive '!!!' >/dev/null 2>&1; [ $? -eq 2 ] && ok "usage: name slugging to empty → exit 2" || no "empty slug should exit 2"
 
+# ── Tracker grammar validation (the phase-docs skill defines the grammar:
+# leading **[N.M]** ID, trailing `[deps: …]` token, mandatory `none`).
+# The script validates well-formedness only — dep SEMANTICS (cycles, forward
+# cross-phase deps) belong to the resolver, not here.
+
+# Writes a grammar-mode tracker into an existing project. $1 = variant.
+write_grammar_tracker() {
+  local p="$1" variant="$2"
+  case "$variant" in
+    complete) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 6 — Plan as Data**
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]` (2026-06-12, session-2026-06-12-001)
+- ✅ **[6.2]** Ready-frontier resolver `[deps: 6.1]`
+- ✅ **[6.3]** Plan-mutation primitive `[deps: 6.1, 6.2]`
+MD
+    ;;
+    incomplete) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 6 — Plan as Data**
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- 🔄 **[6.2]** Ready-frontier resolver `[deps: 6.1]`
+- ⬜ **[6.3]** Plan-mutation primitive `[deps: 6.1, 6.2]`
+MD
+    ;;
+    dup-id) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- ⬜ **[6.1]** Ready-frontier resolver `[deps: 6.1]`
+MD
+    ;;
+    missing-token) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- ⬜ **[6.2]** Ready-frontier resolver
+MD
+    ;;
+    malformed-token) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: ]`
+- ⬜ **[6.2]** Ready-frontier resolver `[deps: 6.1]`
+MD
+    ;;
+    unbackticked-token) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment [deps: none]
+- ⬜ **[6.2]** Ready-frontier resolver `[deps: 6.1]`
+MD
+    ;;
+    token-no-id) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- ⬜ Ready-frontier resolver `[deps: 6.1]`
+MD
+    ;;
+    misplaced-id) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- ⬜ Ready-frontier resolver **[6.2]** mid-wording `[deps: 6.1]`
+MD
+    ;;
+    masked-token) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- ⬜ **[6.2]** Resolver quoting a `[deps: 6.1]` example then malformed `[deps: ]`
+MD
+    ;;
+    cross-ref) cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]`
+- ⬜ **[6.2]** Resolver building on **[6.1]** and its `[deps: 6.1]` example, for real `[deps: 6.1]`
+MD
+    ;;
+  esac
+}
+
+# T12 — a fixture tracker in the new grammar passes --check: the marker greps
+# tolerate IDs and deps tokens, complete reads COMPLETE, incomplete names items.
+P=$(make_project complete); write_grammar_tracker "$P" complete
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && ok "grammar check complete: exit 0" || no "grammar tracker should pass --check (rc=$RC: $OUT)"
+echo "$OUT" | grep -q "status=COMPLETE" && echo "$OUT" | grep -q "max_phase=6" \
+  && ok "grammar check complete: COMPLETE, max_phase=6" || no "expected COMPLETE max_phase=6 (got: $OUT)"
+P=$(make_project complete); write_grammar_tracker "$P" incomplete
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] && echo "$OUT" | grep -q '\[6.2\]' && echo "$OUT" | grep -q '\[6.3\]' \
+  && ok "grammar check incomplete: exit 3, names ID'd items" \
+  || no "incomplete grammar tracker should exit 3 naming items (rc=$RC: $OUT)"
+
+# T13 — duplicate deliverable IDs are MALFORMED (exit 5), the duplicate named,
+# from both --check and --archive; refusal moves nothing.
+P=$(make_project complete); write_grammar_tracker "$P" dup-id
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "MALFORMED" && echo "$OUT" | grep -q '\[6.1\]' \
+  && ok "grammar dup-id: --check exit 5, duplicate named" \
+  || no "duplicate ID should be MALFORMED with the ID named (rc=$RC: $OUT)"
+OUT=$(run "$P" --archive x); RC=$?
+[ "$RC" -eq 5 ] && [ -f "$P/docs/PHASE_STATUS.md" ] \
+  && ok "grammar dup-id: --archive refuses, files in place" \
+  || no "--archive should refuse a duplicate-ID tracker (rc=$RC)"
+
+# T14 — an ID'd tracker with a token-free line is MALFORMED (exit 5): mandatory
+# `[deps: none]` — a forgotten annotation must fail loud, not read as no-deps.
+P=$(make_project complete); write_grammar_tracker "$P" missing-token
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "MALFORMED" \
+  && ok "grammar missing-token: exit 5" \
+  || no "missing deps token should be MALFORMED (rc=$RC: $OUT)"
+
+# T15 — malformed tokens are MALFORMED (exit 5): empty deps list, and a token
+# without the backticks the grammar mandates.
+P=$(make_project complete); write_grammar_tracker "$P" malformed-token
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && ok "grammar malformed-token (empty deps): exit 5" \
+  || no "empty deps list should be MALFORMED (rc=$RC: $OUT)"
+P=$(make_project complete); write_grammar_tracker "$P" unbackticked-token
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && ok "grammar unbackticked token: exit 5" \
+  || no "unbackticked deps token should be MALFORMED (rc=$RC: $OUT)"
+
+# T15b — mixing is MALFORMED in both directions: a deps token on a line with
+# no ID (exit 5), and an ID not in lead position (exit 5).
+P=$(make_project complete); write_grammar_tracker "$P" token-no-id
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && ok "grammar token-without-ID line: exit 5" \
+  || no "a token'd line with no leading ID should be MALFORMED (rc=$RC: $OUT)"
+P=$(make_project complete); write_grammar_tracker "$P" misplaced-id
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "misplaced" \
+  && ok "grammar misplaced ID: exit 5, named as misplaced" \
+  || no "an ID not in lead position should be MALFORMED (rc=$RC: $OUT)"
+
+# T15c — position discipline: the deliverable's own token is the LAST
+# deps-shaped construct on the line, so a well-formed example quoted in the
+# wording neither masks a malformed real token (exit 5) nor false-fails a
+# valid line; a bold cross-reference mid-wording is not a duplicate ID.
+P=$(make_project complete); write_grammar_tracker "$P" masked-token
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 5 ] && ok "grammar masked malformed token: exit 5 despite valid example earlier" \
+  || no "a valid example must not mask a malformed trailing token (rc=$RC: $OUT)"
+P=$(make_project complete); write_grammar_tracker "$P" cross-ref
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] && ok "grammar cross-ref + example: valid line passes (exit 3, incomplete)" \
+  || no "**[6.1]** cross-ref and quoted example must not false-fail (rc=$RC: $OUT)"
+
+# T16 — LEGACY: a token-free tracker parses exactly as today — grammar
+# validation must not fire at all (T1/T2 are the behavioral baseline; this
+# pins the exact --check output).
+P=$(make_project complete)
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && [ "$OUT" = "status=COMPLETE
+max_phase=5" ] && ok "LEGACY tracker: byte-exact --check output unchanged" \
+  || no "token-free tracker must parse exactly as today (rc=$RC: $OUT)"
+
+# T17 — a complete grammar tracker archives normally: tokens flow through
+# verbatim into the frozen copy.
+P=$(make_project complete); write_grammar_tracker "$P" complete
+OUT=$(run "$P" --archive plan-as-data); RC=$?
+[ "$RC" -eq 0 ] && grep -q '`\[deps: 6.1, 6.2\]`' "$P/docs/initiatives/001-plan-as-data/PHASE_STATUS.md" \
+  && ok "grammar archive: exit 0, tokens frozen verbatim" \
+  || no "grammar tracker should archive with tokens intact (rc=$RC: $OUT)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
