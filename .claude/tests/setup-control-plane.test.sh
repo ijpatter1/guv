@@ -392,6 +392,32 @@ if [ -z "${SCP_TEST_INNER:-}" ]; then
   fi
 fi
 
+# ── the <project>-guv default destination ([6.4]) ──────────────────────────
+# No-arg create defaults to a SIBLING of the harness named <repo>-guv. This is
+# a constructed default, announced loudly — never discovery (no glob; the
+# docs-sweep suite pins that boundary repo-wide).
+H=$(make_harness)
+DH="$WORK/widget"; rm -rf "$DH" "$WORK/widget-guv"; mv "$H" "$DH"
+OUT_DEF=$( cd "$WORK" && bash "$DH/maintainers/setup-control-plane.sh" 2>&1 )
+if [ -d "$WORK/widget-guv/.claude/commands" ]; then
+  ok "no-arg create defaults to sibling <project>-guv (widget → widget-guv)"
+else
+  no "no-arg create must default to sibling <project>-guv"
+fi
+if echo "$OUT_DEF" | grep -q "widget-guv"; then
+  ok "the defaulted destination is announced, not silent"
+else
+  no "defaulting must announce the chosen path"
+fi
+# Sole-arg --sync targets the same constructed default.
+echo "# cmd v2" > "$DH/.claude/commands/status.md"
+( cd "$WORK" && bash "$DH/maintainers/setup-control-plane.sh" --sync ) >> "$WORK/setup.log" 2>&1
+if grep -q "cmd v2" "$WORK/widget-guv/.claude/commands/status.md" 2>/dev/null; then
+  ok "sole-arg --sync syncs the defaulted <project>-guv plane"
+else
+  no "--sync without a dir must sync the default <project>-guv plane"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

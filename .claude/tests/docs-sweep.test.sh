@@ -1,0 +1,141 @@
+#!/bin/bash
+# Tests for the [6.4] docs sweep — the new-grammar doc surface, asserted.
+# What this suite pins:
+#   - /replan is taught where commands are taught (README tree + What's Included,
+#     CLAUDE.template.md process-commands bullet)
+#   - both generators route doc generation through the phase-docs skill, whose
+#     templates emit ID'd, token'd deliverables (the "generators emit the new
+#     format" chain — the skill is the single grammar definition, per [6.1])
+#   - rule 15 exists in the rules family with its load-bearing qualifiers
+#     (numbering uniqueness and plugin byte-parity are the standing guards in
+#     workflows-rule.test.sh and plugin.test.sh — not restated here)
+#   - the <project>-guv convention is taught in the topology docs, and no script
+#     discovers a control plane by name (the setup script's creation DEFAULT is
+#     the one sanctioned -guv construction; globbing for *-guv is banned outright)
+#   - README.template.md carries no Philosophy section (the harness README only)
+# Deliberately ABSENT: a standing byte-diff of the README Philosophy section
+# against spec Appendix A — considered and rejected per the spec's Pre-Resolved
+# Decisions (one-time placement check; a later hand edit is a person revising
+# their philosophy, which machinery must not block). Do not add it back.
+# Pure bash, no test runner required.
+# Run: bash .claude/tests/docs-sweep.test.sh
+set -u
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PASS=0; FAIL=0
+ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
+no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
+
+# Consumer-shape skip: a rendered project replaces README.md and may delete
+# maintainers/ — this suite asserts the TEMPLATE repo's doc surface only.
+if ! grep -q 'guv-template-readme' "$ROOT/README.md" 2>/dev/null || [ ! -d "$ROOT/maintainers" ]; then
+  echo "  - template-repo doc surface not present — skipping (consumer repo)"
+  echo ""
+  echo "Results: 0 passed, 0 failed"
+  exit 0
+fi
+
+# T1 — README teaches /replan: a What's Included workflow bullet and the
+# File Structure tree (replan.md among the commands).
+if grep -q '^- `/replan' "$ROOT/README.md"; then
+  ok "README What's Included carries a /replan bullet"
+else
+  no "README What's Included must carry a /replan bullet"
+fi
+if grep -q 'replan\.md' "$ROOT/README.md"; then
+  ok "README File Structure tree lists replan.md"
+else
+  no "README File Structure tree must list replan.md"
+fi
+
+# T2 — CLAUDE.template.md process-commands bullet names /replan (the bullet
+# is the one starting '- **Process commands:**').
+if grep '^\- \*\*Process commands:\*\*' "$ROOT/CLAUDE.template.md" | grep -q '/replan'; then
+  ok "CLAUDE.template.md process-commands bullet names /replan"
+else
+  no "CLAUDE.template.md process-commands bullet must name /replan"
+fi
+
+# T3 — the generator chain: both generators defer to the phase-docs skill,
+# and the skill's templates emit ID'd, token'd deliverables. Together these
+# are "both generators emit the new format" without a second grammar copy.
+for cmd in plan-initiative init-project; do
+  if grep -q 'phase-docs' "$ROOT/.claude/commands/$cmd.md"; then
+    ok "$cmd.md routes doc generation through the phase-docs skill"
+  else
+    no "$cmd.md must route doc generation through the phase-docs skill"
+  fi
+done
+SKILL="$ROOT/.claude/skills/phase-docs/SKILL.md"
+if grep -q '\*\*\[N\.1\]\*\*' "$SKILL" && grep -q '\[deps: none\]' "$SKILL"; then
+  ok "phase-docs templates emit ID'd, token'd deliverables"
+else
+  no "phase-docs templates must emit ID'd, token'd deliverables"
+fi
+
+# T4 — rule 15 in the rules family: the heading, the slogan, and the two
+# qualifiers that give it teeth (written-down-and-predates; loud stop default).
+R15=$(grep -l '^## 15 —' "$ROOT/.claude/rules"/guv-*.md 2>/dev/null | head -1)
+if [ -n "$R15" ]; then
+  ok "a guv-* rules file carries rule 15"
+  grep -qi 'selects a path' "$R15" \
+    && ok "rule 15 states the slogan (failure selects a path)" \
+    || no "rule 15 must state the slogan"
+  grep -q 'predates the failure' "$R15" \
+    && ok "rule 15 carries the written-down-and-predates qualifier" \
+    || no "rule 15 must require the path to be written down before the failure"
+  grep -qi 'loud stop' "$R15" \
+    && ok "rule 15 names the loud stop as the default rung" \
+    || no "rule 15 must name the loud stop as the default"
+else
+  no "a .claude/rules/guv-*.md file must carry '## 15 —'"
+  no "rule 15 must state the slogan"
+  no "rule 15 must require the path to be written down before the failure"
+  no "rule 15 must name the loud stop as the default"
+fi
+
+# T5 — the topology docs teach the <project>-guv convention, including the
+# no-discovery boundary.
+TOPO="$ROOT/maintainers/DOGFOODING.md"
+if grep -q '<project>-guv' "$TOPO"; then
+  ok "DOGFOODING.md teaches the <project>-guv convention"
+else
+  no "DOGFOODING.md must teach the <project>-guv convention"
+fi
+if grep -qi 'never discovers a control plane by name\|no name-based discovery' "$TOPO"; then
+  ok "topology docs state the no-name-based-discovery boundary"
+else
+  no "topology docs must state that no script discovers a control plane by name"
+fi
+
+# T6 — no script resolves a control plane by name. Two layers:
+#   (a) no '*-guv' glob in any shipped script, anywhere;
+#   (b) '-guv' as a constructed name appears in scripts ONLY in
+#       maintainers/setup-control-plane.sh (the sanctioned creation default).
+# Test fixtures (.claude/tests/) are excluded — they build -guv-named dirs to
+# test the default itself.
+SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" -name '*.sh' -not -path "$ROOT/.claude/tests/*" 2>/dev/null)
+GLOB_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\*-guv' 2>/dev/null || true)
+if [ -z "$GLOB_HITS" ]; then
+  ok "no shipped script globs for *-guv (no name-based discovery)"
+else
+  no "scripts must never glob for *-guv — offenders: $(echo "$GLOB_HITS" | tr '\n' ' ')"
+fi
+NAME_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\-guv' 2>/dev/null | grep -v 'maintainers/setup-control-plane\.sh' || true)
+if [ -z "$NAME_HITS" ]; then
+  ok "-guv name construction confined to the setup script's creation default"
+else
+  no "-guv in scripts outside the sanctioned default — offenders: $(echo "$NAME_HITS" | tr '\n' ' ')"
+fi
+
+# T7 — README.template.md (the consumer project's README source) never carries
+# the Philosophy section; it describes the consumer's project, not guv.
+if ! grep -q '^## Philosophy' "$ROOT/README.template.md"; then
+  ok "README.template.md carries no Philosophy section"
+else
+  no "README.template.md must not carry the Philosophy section"
+fi
+
+echo ""
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
