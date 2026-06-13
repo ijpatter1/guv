@@ -91,6 +91,14 @@ OUT=$(bash "$SCRIPT" set 9.6 0 "$S" 2>&1); RC=$?
 # A non-integer is refused too.
 OUT=$(bash "$SCRIPT" set 9.6 two "$S" 2>&1); RC=$?
 [ "$RC" -ne 0 ] && ok "set: a non-integer estimate is refused" || no "set 9.6 two should be refused (rc=$RC)"
+# A leading-zero estimate is refused — the shape is canonical integers, not jq's
+# coercion of "01" → 1. (Defends the `0*` arm of is_estimate; the prior value stands.)
+OUT=$(bash "$SCRIPT" set 9.6 01 "$S" 2>&1); RC=$?
+[ "$RC" -ne 0 ] && ok "set: a leading-zero estimate (01) is refused, not coerced to 1" \
+  || no "set 9.6 01 should be refused — leading zeros are non-canonical (rc=$RC: $OUT)"
+[ "$(bash "$SCRIPT" get 9.6 "$S" 2>/dev/null)" = "1" ] \
+  && ok "set: the refused leading-zero write left the prior value (1) intact" \
+  || no "a refused leading-zero set must not change the stored value"
 
 # validate rejects malformed sidecars: non-object, bad value type, value < 1.
 echo '[1,2,3]' > "$WORK/bad-array.json"
@@ -147,9 +155,27 @@ cmp -s "$TR" "$BEFORE" \
 # line. The sidecar is the data's only home. We assert against TOKEN SHAPES
 # (the deliverable [9.6] may legitimately be *named* "estimate" in prose; what
 # is forbidden is estimate DATA carried as a tracker token).
-grep -qiE '`\[(est|estimate|sessions?|sized?|cost)\b' "$TR" \
+EST_TOKEN_RE='`\[(est|estimate|sessions?|sized?|cost)\b'
+grep -qiE "$EST_TOKEN_RE" "$TR" \
   && no "the tracker grammar carries an estimate token — [9.6]'s whole point is violated" \
   || ok "NO-TRACKER-TOKEN: no estimate-shaped token rides the tracker grammar (grep-asserted)"
+# Positive control — a one-sided clean-fixture grep passes whether the regex
+# works or is broken (a typo'd or de-escaped pattern matches nothing on a clean
+# file too). So plant a tracker line carrying a REAL estimate token and assert
+# the SAME pattern CATCHES it (non-zero match). Two-sided, like T5's set/revise:
+# the negative proves the clean fixture stays clean, the positive proves the
+# guard would actually fire if an estimate token ever rode the grammar.
+POISON="$WORK/tracker.poisoned.md"; cp "$TR" "$POISON"
+{ printf -- '- 🔄 **[9.8]** Poisoned deliverable `[deps: 9.6]` `[est: 3]`\n'
+  printf -- '- ⬜ **[9.9]** Poisoned sibling `[deps: 9.8]` `[sessions: 2]`\n'; } >> "$POISON"
+grep -qiE "$EST_TOKEN_RE" "$POISON" \
+  && ok "NO-TRACKER-TOKEN (positive control): the same grep CATCHES a planted estimate token — the guard fires" \
+  || no "the grep pattern is broken: it missed a planted [est: N]/[sessions: N] token (T6 would pass on a clean file even with a dead regex)"
+# Both token spellings the heart invariant forbids are caught, not just one.
+printf -- '- x `[est: 3]`\n'      | grep -qiE "$EST_TOKEN_RE" \
+  && ok "NO-TRACKER-TOKEN (positive control): an [est: N] token is caught"      || no "the grep missed an [est: N] token"
+printf -- '- x `[sessions: 2]`\n' | grep -qiE "$EST_TOKEN_RE" \
+  && ok "NO-TRACKER-TOKEN (positive control): a [sessions: N] token is caught"  || no "the grep missed a [sessions: N] token"
 # The only backticked token kind in the fixture is the deps token — confirm no
 # second token-kind exists on any line.
 EXTRA_TOK=$(grep -oE '`\[[a-z]+:' "$TR" | grep -viE '`\[deps:' || true)

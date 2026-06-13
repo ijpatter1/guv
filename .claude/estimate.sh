@@ -46,8 +46,10 @@ usage() {
 }
 die5() { echo "estimate: MALFORMED — $1" >&2; exit 5; }
 
-# An integer ≥ 1, with no leading-zero / sign / float slop.
-is_estimate() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] 2>/dev/null; }
+# An integer ≥ 1, with no leading-zero / sign / float slop. The `0*` arm
+# rejects leading zeros (01, 007) and a bare 0 so the stored shape is canonical
+# — jq would otherwise coerce `01` to 1, accepting non-canonical input silently.
+is_estimate() { case "$1" in '' | *[!0-9]* | 0*) return 1 ;; esac; [ "$1" -ge 1 ] 2>/dev/null; }
 
 # Validate a sidecar against the shape: a JSON object whose every value is an
 # integer ≥ 1. An absent file is valid (no ratifications yet). Names the first
