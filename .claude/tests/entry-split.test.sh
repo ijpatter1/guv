@@ -115,7 +115,8 @@ fi
 # a control plane carries the commands but not the harness's README/template.
 # ES_TEST_README seams the marker probe for the self-check below.
 README_PROBE="${ES_TEST_README:-$ROOT/README.md}"
-if grep -q 'guv-template-readme' "$README_PROBE" 2>/dev/null && [ -d "$ROOT/maintainers" ]; then
+MAINT_PROBE="${ES_TEST_MAINTAINERS:-$ROOT/maintainers}"
+if grep -q 'guv-template-readme' "$README_PROBE" 2>/dev/null && [ -d "$MAINT_PROBE" ]; then
   README="$ROOT/README.md"; CT="$ROOT/CLAUDE.template.md"
 
   grep -qE '^- `/resume' "$README" \
@@ -134,20 +135,32 @@ else
   echo "  - template-repo doc surface not present — skipping (consumer/plane shape)"
 fi
 
-# ── Seamed self-check: the Part B skip must fire visibly (exit 0) when the
-# README lacks the template marker — this file ships to every consumer fork and
-# control plane, and a maintainer assertion redding out those repos is this
-# project's one prior Critical class ([7.7]/docs-sweep precedent).
+# ── Seamed self-check: the Part B skip must fire visibly (exit 0) for BOTH
+# shapes that lack the template-doc surface — a rendered consumer fork (no README
+# marker) and a control plane (no maintainers/). This file ships to every such
+# repo, and a maintainer assertion redding them out is this project's one prior
+# Critical class ([7.7]/docs-sweep precedent), so each operand of the Part B
+# guard is seamed independently (the bidirectional-skip-proof convention).
 if [ -z "${ES_TEST_INNER:-}" ]; then
+  # Seam A — marker-absent README (consumer-fork shape) skips Part B.
   FAKE_README=$(mktemp)
   echo "# a rendered consumer project readme" > "$FAKE_README"
-  INNER=$(ES_TEST_INNER=1 ES_TEST_README="$FAKE_README" bash "$SELF" 2>&1)
-  RC=$?
+  A_OUT=$(ES_TEST_INNER=1 ES_TEST_README="$FAKE_README" bash "$SELF" 2>&1)
+  A_RC=$?
   rm -f "$FAKE_README"
-  if [ "$RC" -eq 0 ] && echo "$INNER" | grep -q "skipping (consumer/plane shape)"; then
-    ok "Part B doc-surface skip fires visibly with exit 0 (seamed self-check)"
+  if [ "$A_RC" -eq 0 ] && echo "$A_OUT" | grep -q "skipping (consumer/plane shape)"; then
+    ok "Part B skips visibly on a marker-absent README (seam A — consumer fork)"
   else
-    no "a marker-less README must skip Part B visibly with exit 0, got rc=$RC"
+    no "a marker-less README must skip Part B visibly with exit 0, got rc=$A_RC"
+  fi
+  # Seam B — maintainers-absent (control-plane shape) skips Part B. The README
+  # marker is present here, so the maintainers operand is the one under test.
+  B_OUT=$(ES_TEST_INNER=1 ES_TEST_MAINTAINERS="$ROOT/.es-no-maintainers-$$" bash "$SELF" 2>&1)
+  B_RC=$?
+  if [ "$B_RC" -eq 0 ] && echo "$B_OUT" | grep -q "skipping (consumer/plane shape)"; then
+    ok "Part B skips visibly on absent maintainers/ (seam B — control plane)"
+  else
+    no "an absent maintainers/ must skip Part B visibly with exit 0, got rc=$B_RC"
   fi
 fi
 
