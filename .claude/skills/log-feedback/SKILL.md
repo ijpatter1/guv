@@ -141,8 +141,8 @@ tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" --arg note "$NOTE" \
 ## Closing the loop
 
 The drain is live: the distribution channel is the versioned guv plugin, and entries
-close through its release flow (maintainer mechanics in the harness repo's
-`maintainers/RELEASING.md`).
+close through its release flow (maintainer-side mechanics — see the maintainer note at
+the end of this section; a consumer fork that deleted `maintainers/` needs none of it).
 
 - **`upstream`** entries → an issue or PR against the harness repo, citing the entry
   id. The entry stays `open` while the fix is in flight and flips to `graduated`

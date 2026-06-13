@@ -172,6 +172,15 @@ for copy in "${COPIES[@]}"; do
   echo "$CL" | grep -q 'dogfooding control plane' && echo "$CL" | grep -q -- '--sync' \
     && ok "Closing the loop documents the --sync/dogfooding graduation path in $label" \
     || no "Closing the loop in $label must document the --sync/dogfooding close path (fix lands in source -> graduates)"
+
+  # T8d — parity guard: the DOCUMENTED triage command must carry the provenance-
+  # APPENDING form (status flip + note -> detail), not a status-only jq. T4b runs
+  # its own copy of this jq, so it stays green if the skill reverts to status-only;
+  # only this grep on the skill text catches that doc->tool regression (the
+  # hand-duplicated-literal-with-no-parity-guard class).
+  grep -qF '.detail=(.detail + " | " + $note)' "$copy" \
+    && ok "triage command documents the provenance-appending (detail) form in $label" \
+    || no "$label triage command must append the note to detail (the form /handoff's drain needs), not flip status alone"
 done
 
 # T8c — /handoff Step 10 DRAINS, not just counts: it must propose graduating the
