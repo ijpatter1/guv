@@ -170,6 +170,8 @@ if [ -f "$HOOKS_JSON" ] && jq -e . "$HOOKS_JSON" >/dev/null 2>&1; then
     && ok "PreToolUse wires bash-guard" || no "PreToolUse must wire bash-guard.sh"
   jq -r '.hooks.PreToolUse[]?.hooks[]?.command' "$HOOKS_JSON" | grep -q 'reviewer-readonly.sh' \
     && ok "PreToolUse wires the reviewer read-only guard" || no "PreToolUse must wire reviewer-readonly.sh"
+  jq -r '.hooks.PreToolUse[]?.hooks[]?.command' "$HOOKS_JSON" | grep -q 'single-writer.sh' \
+    && ok "PreToolUse wires the single-writer tracker guard ([7.3])" || no "PreToolUse must wire single-writer.sh"
   jq -r '.hooks.PostToolUse[]?.hooks[]?.command' "$HOOKS_JSON" | grep -q 'auto-format.sh' \
     && ok "PostToolUse wires auto-format" || no "PostToolUse must wire auto-format.sh"
   jq -r '.hooks.Stop[]?.hooks[]?.command' "$HOOKS_JSON" | grep -q 'stop-check.sh' \
