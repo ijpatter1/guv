@@ -166,6 +166,19 @@ grep -q "7.A" "$CODE/CHANGELOG.md" && grep -q "7.B" "$CODE/CHANGELOG.md" \
 grep -qE '^(<<<<<<<|=======|>>>>>>>)' "$CODE/CHANGELOG.md" \
   && no "assemble must not leave conflict markers (it appends serially)" \
   || ok "assemble: no conflict markers — fragments applied serially"
+# both fragments say "landed"; they must land on SEPARATE lines (a substring grep
+# wouldn't catch a run-on, so count the lines — the newline-preservation guard).
+[ "$(grep -c 'landed' "$CODE/CHANGELOG.md")" -eq 2 ] \
+  && ok "assemble: the two fragments are on separate lines (no run-on)" \
+  || no "assemble must keep fragments on separate lines, got $(grep -c 'landed' "$CODE/CHANGELOG.md") line(s)"
+
+# ── T7b — assemble refuses an escaping docFragment target, writing nothing ──
+setup
+jq -n '{id:"x",status:"ok",docFragments:[{file:"../escape.md",content:"x\n"}],notes:"n"}' > "$WORK/bad.json"
+OUT=$( ( cd "$P" && bash "$SCRIPT" assemble "$WORK/bad.json" ) 2>&1 ); RC=$?
+[ $RC -ne 0 ] && ! [ -f "$WORK/escape.md" ] \
+  && ok "assemble: a path-escaping docFragment target (../) is refused, nothing written" \
+  || no "assemble must refuse an escaping docFragment target (rc=$RC)"
 
 # ── T8 — dispatch: a two-lane join lands both through the queue + assembles ──
 setup
@@ -217,6 +230,59 @@ OUT=$( ( cd "$PC" && bash "$SCRIPT" confine 7.A ) 2>&1 ); RC=$?
   || no "corrupt manifest must fail loud (rc=$RC): $OUT"
 OUT=$(run 2>&1); RC=$?
 [ $RC -eq 2 ] && ok "no args -> usage (exit 2)" || no "no args must be exit 2 (rc=$RC)"
+
+# ── T11 — harvest validates the docFragment channel AT THE GATE (untrusted) ──
+setup
+mklane create 7.A badtgt
+( cd "$CODE/.worktrees/lane-7.A" && echo x > base.txt && git add -A \
+  && git -c user.email=t@t -c user.name=t commit -qm "lane 7.A work" ) >/dev/null 2>&1
+jq -n '{id:"7.A",status:"ok",docFragments:[{file:"docs/REQUIREMENTS.md",content:"x\n"}],notes:"n"}' \
+  > "$CODE/.worktrees/lane-7.A/.lane-output.json"
+OUT=$(run harvest 7.A); RC=$?
+[ $RC -ne 0 ] && echo "$OUT" | grep -qi "docfragment" \
+  && ok "harvest: a docFragment target naming a tracker is refused at the gate (single-writer)" \
+  || no "harvest must refuse a tracker-targeting docFragment (rc=$RC): $OUT"
+jq -n '{id:"7.A",status:"ok",docFragments:[{file:"../../escape.md",content:"x\n"}],notes:"n"}' \
+  > "$CODE/.worktrees/lane-7.A/.lane-output.json"
+OUT=$(run harvest 7.A); RC=$?
+[ $RC -ne 0 ] \
+  && ok "harvest: a docFragment target that escapes the repo is refused at the gate" \
+  || no "harvest must refuse an escaping docFragment target (rc=$RC): $OUT"
+
+# ── T12 — dispatch with a SINGLE ok lane that conflicts at land: no crash ──
+# (the Critical's reachable path — OK>0 but LANDED=0 must not abort under set -u.)
+setup
+mklane create 7.A confl; laneexec 7.A conflictfile.txt "lane-version" ok
+( cd "$CODE" && echo "main-version" > conflictfile.txt && git add -A \
+  && git -c user.email=t@t -c user.name=t commit -qm "main adds conflictfile" ) >/dev/null 2>&1
+OUT=$(run dispatch 7.A); RC=$?
+[ $RC -eq 0 ] \
+  && ok "dispatch: an OK lane that conflicts at land does not crash (empty-LANDED guarded)" \
+  || no "dispatch must not crash when no lane lands (rc=$RC): $OUT"
+echo "$OUT" | grep -qiE "conflict" && echo "$OUT" | grep -q "landed=\[\]" \
+  && ok "dispatch: reports the conflict and an empty landed set" \
+  || no "dispatch must report the conflict + empty landed set: $OUT"
+
+# ── T13 — dispatch skips an unknown lane id, the valid sibling still lands ──
+setup
+mklane create 7.A solo; laneexec 7.A base.txt "ok" ok
+OUT=$(run dispatch 7.A 9.9); RC=$?
+echo "$OUT" | grep -qiE "9.9.*skip|skip.*9.9|unknown-skipped=1" \
+  && ok "dispatch: an unknown lane id is skipped, not fatal to the batch" \
+  || no "dispatch must skip an unknown lane id, not abort: $OUT"
+git -C "$CODE" log --oneline main | grep -q "lane 7.A work" \
+  && ok "dispatch: the valid lane still lands despite an unknown sibling id" \
+  || no "the valid lane must land despite an unknown sibling"
+
+# ── T14 — .lane-reports/ is gitignored in the guv-core block (no scratch leak) ──
+ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
+if grep -q '^# guv-core-start' "$ROOT/.gitignore" 2>/dev/null; then
+  awk '/^# guv-core-start/,/^# guv-core-end/' "$ROOT/.gitignore" | grep -q '^\.lane-reports/$' \
+    && ok ".lane-reports/ present in the guv-core gitignore block" \
+    || no ".lane-reports/ must be in the guv-core gitignore block"
+else
+  echo "  - no guv-core gitignore block (plane/consumer shape) — gitignore check skips"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -156,6 +156,13 @@ do_harvest() {  # $1=id
     report=$(capture_report "$id" "confinement drift (touched the shared surface)")
     echo "harvest=refused lane=$id reason=drift report=$report"; return 6
   fi
+  # The docFragment targets are an UNTRUSTED channel — validate them at the gate
+  # (here), not at assembly: a target that escapes the repo or names a tracker is
+  # a refusal, not something assemble should discover after the lane has landed.
+  if ! docfrag_targets_ok "$wt/$SIDECAR"; then
+    report=$(capture_report "$id" "docFragment target escapes the repo or names a single-writer tracker")
+    echo "harvest=refused lane=$id reason=bad-docfragment-target report=$report"; return 6
+  fi
   # ok: collect the structured output to staging, then clear the sidecar so the
   # worktree lands clean through the queue.
   mkdir -p "$REPORTS/staging"
@@ -165,18 +172,28 @@ do_harvest() {  # $1=id
   return 0
 }
 
+# A docFragment target is safe only if it stays inside the repo (no absolute
+# path, no .. escape) and is not a single-writer tracker (the channel writes
+# shared PROSE; plan mutation is /replan only). Returns 1 if ANY target is bad.
+docfrag_targets_ok() {  # $1 = lane-output json file
+  ! jq -r '.docFragments[].file' "$1" 2>/dev/null \
+    | grep -qE '^/|\.\.|(^|/)docs/(PHASE_STATUS|REQUIREMENTS)\.md$'
+}
+
 # assemble: append each lane-output's docFragments to the shared prose, serially.
 do_assemble() {  # $@ = lane-output json files
-  local out file content n i
+  local out file n i
   for out in "$@"; do
     [ -f "$out" ] || die 5 "no lane-output file at $out"
     jq -e . "$out" >/dev/null 2>&1 || die 5 "invalid lane-output JSON at $out"
+    docfrag_targets_ok "$out" || die 5 "a docFragment target in $out escapes the repo or names a tracker — refused"
     n=$(jq '.docFragments | length' "$out")
     i=0
     while [ "$i" -lt "$n" ]; do
       file=$(jq -r ".docFragments[$i].file" "$out")
-      content=$(jq -r ".docFragments[$i].content" "$out")
-      printf '%s' "$content" >> "$CODE/$file"
+      # Normalize each fragment to end in exactly one newline so two fragments
+      # targeting the same file land on separate lines (never run together).
+      printf '%s\n' "$(jq -r ".docFragments[$i].content" "$out")" >> "$CODE/$file"
       echo "assembled: $file <- $(jq -r '.id' "$out")"
       i=$((i + 1))
     done
@@ -205,8 +222,14 @@ case "$VERB" in
   dispatch)
     [ $# -ge 1 ] || die 2 "usage: dispatch <id>…"
     TOTAL=$#
-    declare -a OK=()
+    declare -a OK=(); SKIPPED=0
     for id in "$@"; do
+      # A dispatched id with no lane is a malformed list entry — skip it (and say
+      # so) rather than abort the batch and waste already-collected siblings.
+      if ! bash "$LANE" harvest "$id" >/dev/null 2>&1; then
+        echo "dispatch: lane $id does not exist — skipped (siblings unaffected)"
+        SKIPPED=$((SKIPPED + 1)); continue
+      fi
       if do_harvest "$id"; then OK+=("$id"); fi
     done
     declare -a LANDED=()
@@ -220,23 +243,31 @@ case "$VERB" in
         if bash "$QUEUE" land "$id" >/dev/null 2>&1; then
           LANDED+=("$id")
         else
-          echo "dispatch: lane $id hit a queue conflict — routed to serial re-dispatch (see merge-queue land $id)"
+          echo "dispatch: lane $id hit a queue conflict — routed to serial re-dispatch (merge-queue land $id)"
         fi
       done
-      # Assemble the landed lanes' docFragments into the shared prose, then commit
-      # the join. Lanes never touched this prose — the orchestrator owns it here.
-      declare -a LANDED_OUTS=()
-      for id in "${LANDED[@]}"; do LANDED_OUTS+=("$REPORTS/staging/$id.json"); done
-      if [ "${#LANDED_OUTS[@]}" -gt 0 ]; then
-        do_assemble "${LANDED_OUTS[@]}" >/dev/null
-        if [ -n "$(git -C "$CODE" status --porcelain 2>/dev/null)" ]; then
-          git -C "$CODE" add -A
+    fi
+    # Assemble ONLY the landed lanes' docFragments, then commit the join with a
+    # SCOPED add of exactly the touched prose — never `add -A`, which in
+    # single-repo mode would sweep the orchestrator's own .lane-reports/ scratch
+    # into the deliverable commit. (Guarded by the count so an empty LANDED never
+    # expands "${LANDED[@]}" under set -u on bash 3.2 — the conflict-everything path.)
+    if [ "${#LANDED[@]}" -gt 0 ]; then
+      declare -a OUTS=()
+      for id in "${LANDED[@]}"; do OUTS+=("$REPORTS/staging/$id.json"); done
+      do_assemble "${OUTS[@]}" >/dev/null
+      TARGETS=$(jq -r '.docFragments[].file' "${OUTS[@]}" 2>/dev/null | sort -u)
+      if [ -n "$TARGETS" ]; then
+        while IFS= read -r f; do
+          [ -n "$f" ] && git -C "$CODE" add -- "$f"
+        done <<< "$TARGETS"
+        if ! git -C "$CODE" diff --cached --quiet; then
           git -C "$CODE" -c user.email=guv@local -c user.name=guv \
             commit -qm "docs: assemble lane docFragments at the join (${LANDED[*]})"
         fi
       fi
     fi
-    echo "dispatch: landed=[${LANDED[*]:-}] refused=$(( TOTAL - ${#OK[@]} )) of $TOTAL lane(s)"
+    echo "dispatch: landed=[${LANDED[*]:-}] of $TOTAL lane(s) — harvest-refused=$(( TOTAL - SKIPPED - ${#OK[@]} )), queue-not-landed=$(( ${#OK[@]} - ${#LANDED[@]} )), unknown-skipped=$SKIPPED"
     ;;
 
   *) die 2 "unknown verb '$VERB' (confine | harvest | assemble | dispatch)" ;;

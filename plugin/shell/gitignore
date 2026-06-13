@@ -31,6 +31,8 @@ sandbox/*.log
 sandbox/tmp/
 # guv lane worktrees (guv-lane.sh — fan-out dispatch)
 .worktrees/
+# guv lane failure reports + collected lane outputs (lane-dispatch.sh — scratch)
+.lane-reports/
 # guv-core-end
 
 # ─────────────────────────────────────────────
