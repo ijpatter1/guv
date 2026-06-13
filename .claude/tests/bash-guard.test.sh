@@ -119,6 +119,14 @@ denies_as "cp a.txt b.txt && cat docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
 denies_as "cp seed docs/REQUIREMENTS.md backup" "$PLAIN" "evaluator" \
   && no "tracker as a non-final cp SOURCE must stay allowed (it's a read)" \
   || ok "subagent cp with the tracker as a middle source allowed (read)"
+# Pin the destination anchor's branches ($|;|>) so a future edit can't quietly
+# drop a separator and reopen the chained-onto seam from the other side.
+denies_as "cp staged docs/PHASE_STATUS.md ; echo hi" "$PLAIN" "evaluator" \
+  && ok "subagent cp ONTO the tracker then ';' denied (anchor branch)" \
+  || no "cp onto tracker followed by ';' must be denied"
+denies_as "cp staged docs/PHASE_STATUS.md > /dev/null" "$PLAIN" "evaluator" \
+  && ok "subagent cp ONTO the tracker then '>' denied (anchor branch)" \
+  || no "cp onto tracker followed by '>' must be denied"
 
 # T8 — the MAIN session (no agent_type) writing a tracker via Bash is ALLOWED —
 # it IS the single writer; the guard must never touch it.
