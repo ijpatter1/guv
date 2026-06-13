@@ -69,11 +69,11 @@ Just run `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh log --oneline -10` and
 
 ### Overnight / Next Day
 
-Use `/guv:start-phase N` for the full context loading sequence. Read the latest session artifact carefully, especially Session Notes and Issues.
+Use `/guv:resume` — the light daily-resume door: it resolves the ready-frontier and presents the next pick with a plan, no boundary ritual. Read the latest session artifact carefully, especially Session Notes and Issues. (Reach for `/guv:start-phase N` only when you're *crossing into a new phase*, not for a same-context resume.)
 
 ### After Multiple Days Away
 
-Use `/guv:start-phase N` and also read the 2-3 most recent session artifacts, not just the latest. Check `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh test` / `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh build` — each skips loudly when null) to confirm the codebase is healthy.
+Use `/guv:start-phase N` (the boundary door — a long gap warrants its full deep-read) and also read the 2-3 most recent session artifacts, not just the latest. Check `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh test` / `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh build` — each skips loudly when null) to confirm the codebase is healthy.
 
 ### After a Phase Transition
 

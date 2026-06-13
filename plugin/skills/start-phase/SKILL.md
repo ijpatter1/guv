@@ -1,7 +1,16 @@
 ---
-description: "Read the project context and prepare for a focused work session on Phase $ARGUMENTS."
+description: "Phase-boundary entry for Phase $ARGUMENTS: branch into the phase, deep-read it, run the full context-loading and spec-alignment sequence, and present a plan — the ritual for *crossing into* a phase."
 ---
 
+
+This is the **boundary** door. Reach for it when you're entering a phase (or
+returning after a long gap away): it performs the full sequence below, including
+the spec-alignment check. For everyday **mid-phase resume**, where you already
+have the context, use the light `/guv:resume` door instead — it reads the resolver's
+ready-frontier and hands you a plan without the boundary ritual (no spec
+alignment, no deep architecture re-read, no UAT check). The two doors collapse
+into one deterministically-routed entry at **[8.1]**; until then they coexist,
+and this is the heavyweight one.
 
 ## Step 0 — Confirm Phased Mode
 

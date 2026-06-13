@@ -44,7 +44,8 @@ Choosing the speed was never its job.
 
 **Session workflow** — commands that encode a Planner → Generator → Evaluator loop (phased projects):
 
-- `/start-phase N` — Load context, run tests, present a plan for approval
+- `/start-phase N` — Phase-boundary entry: branch, deep-read, full context + spec-alignment, present a plan (crossing into a phase)
+- `/resume` — Light daily/mid-phase resume: read the resolver's ready-frontier and present the next pick with a plan, no boundary ritual _(name provisional pending [8.2])_
 - `/replan` — Mutate the live plan through the one sanctioned door: classify, confirm, apply atomically with an amendment record
 - `/evaluate` — Trigger independent dual QA review mid-session
 - `/handoff` — End session with full QA + handoff artifact for continuity
@@ -221,7 +222,7 @@ Then inside Claude Code:
 ```bash
 # Terminal 1: Claude Code (or `make sandbox` for the Docker tier)
 claude
-# /start-phase 1
+# /resume   (or /start-phase N when crossing into a new phase)
 
 # Terminal 2: Dev server on the host
 make dev
@@ -265,7 +266,8 @@ code .
 │   │   ├── init-project.md            # Greenfield: scaffold + render CLAUDE.md
 │   │   ├── onboard.md                 # Adopt an existing repo (no phase ceremony)
 │   │   ├── plan-initiative.md         # Phased initiative on an existing project
-│   │   ├── start-phase.md             # Phased session initialization
+│   │   ├── start-phase.md             # Phase-boundary entry (full ritual + spec alignment)
+│   │   ├── resume.md                  # Light daily/mid-phase resume (resolver frontier; name provisional → [8.2])
 │   │   ├── replan.md                  # Plan mutation: the one sanctioned door (engine: replan.sh)
 │   │   ├── handoff.md                 # Session end + dual QA + handoff
 │   │   ├── status.md                  # Quick status check
