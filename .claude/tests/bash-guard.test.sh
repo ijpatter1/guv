@@ -32,6 +32,13 @@ run_guard() {  # $1 = command string, $2 = workdir
 denies() {  # parse, don't grep — robust to output formatting changes in the hook
   run_guard "$1" "$2" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1
 }
+# As above, but with agent_type set — the subagent surface the tracker guard gates on.
+run_guard_as() {  # $1 = command, $2 = workdir, $3 = agent_type
+  ( cd "$2" && jq -n --arg c "$1" --arg a "$3" '{agent_type: $a, tool_input: {command: $c}}' | bash "$HOOK" )
+}
+denies_as() {
+  run_guard_as "$1" "$2" "$3" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1
+}
 
 # T1 — benign command allowed (no deny output).
 denies "ls -la" "$PLAIN" \
@@ -70,6 +77,60 @@ OUT=$(cd "$PLAIN" && jq -n '{tool_input: {}}' | bash "$HOOK")
 # would surface as a hook error instead of a clean block).
 ( cd "$PLAIN" && jq -n '{tool_input: {command: "rm -rf /"}}' | bash "$HOOK" >/dev/null )
 [ $? -eq 0 ] && ok "exits 0 even when blocking" || no "must exit 0 when blocking"
+
+# ── SINGLE-WRITER TRACKER GUARD ([7.4], agent_type-gated) ──
+# Closes the Bash surface single-writer.sh leaves open: a SUBAGENT can't write a
+# plan-of-record tracker via shell; the MAIN session (no agent_type) still can.
+
+# T7 — a subagent's Bash write to a tracker is denied, across the write shapes.
+denies_as "echo '✅ done' >> docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+  && ok "subagent append (>>) to PHASE_STATUS denied" \
+  || no "subagent >> to a tracker must be denied"
+denies_as "sed -i 's/⬜/✅/' docs/REQUIREMENTS.md" "$PLAIN" "lane-7.5" \
+  && ok "subagent sed -i on REQUIREMENTS denied" \
+  || no "subagent sed -i on a tracker must be denied"
+denies_as "printf done | tee docs/PHASE_STATUS.md" "$PLAIN" "guv:product-reviewer" \
+  && ok "subagent tee onto PHASE_STATUS denied (guv:-prefixed agent form)" \
+  || no "subagent tee onto a tracker must be denied"
+denies_as "cat staged.md > ./docs/REQUIREMENTS.md" "$PLAIN" "Explore" \
+  && ok "subagent overwrite (>) of ./docs/REQUIREMENTS.md denied" \
+  || no "subagent > overwrite of a tracker must be denied"
+denies_as "cp /tmp/staged docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+  && ok "subagent cp ONTO the tracker (target) denied" \
+  || no "subagent cp onto a tracker must be denied"
+
+# T8 — the MAIN session (no agent_type) writing a tracker via Bash is ALLOWED —
+# it IS the single writer; the guard must never touch it.
+denies "echo '✅ done' >> docs/PHASE_STATUS.md" "$PLAIN" \
+  && no "main-session tracker write must stay allowed (it is the writer)" \
+  || ok "main session (no agent_type) writes a tracker freely"
+
+# T9 — a subagent READING a tracker is allowed — only writes are denied.
+denies_as "grep '⬜' docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+  && no "subagent read (grep) of a tracker must stay allowed" \
+  || ok "subagent grep of a tracker allowed (read, not write)"
+denies_as "cat docs/REQUIREMENTS.md" "$PLAIN" "evaluator" \
+  && no "subagent cat of a tracker must stay allowed" \
+  || ok "subagent cat of a tracker allowed (read)"
+denies_as "cp docs/PHASE_STATUS.md /tmp/backup" "$PLAIN" "evaluator" \
+  && no "subagent cp FROM the tracker (source) must stay allowed" \
+  || ok "subagent cp from the tracker allowed (read, tracker not the target)"
+
+# T10 — a subagent writing a NON-tracker file via Bash is allowed (only the two
+# plan-of-record trackers are guarded; ARCHITECTURE and siblings are not).
+denies_as "echo x >> docs/ARCHITECTURE.md" "$PLAIN" "evaluator" \
+  && no "subagent write to docs/ARCHITECTURE.md must stay allowed" \
+  || ok "subagent write to a non-tracker doc allowed"
+denies_as "echo x >> notes.md" "$PLAIN" "lane-7.4" \
+  && no "subagent write to an unrelated file must stay allowed" \
+  || ok "subagent write to an unrelated file allowed"
+
+# T11 — the deny reason names the offending agent_type and routes to /replan.
+REASON=$(run_guard_as "echo x >> docs/PHASE_STATUS.md" "$PLAIN" "lane-7.5" \
+  | jq -r '.hookSpecificOutput.permissionDecisionReason')
+echo "$REASON" | grep -q "lane-7.5" && echo "$REASON" | grep -q "/replan" \
+  && ok "tracker deny reason names the agent_type and routes to /replan" \
+  || no "tracker deny reason must name the offender and route to /replan: $REASON"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
