@@ -7,23 +7,32 @@ manifest from a spec. Before scaffolding, ask the deterministic router whether
 this is the right door (the routing collapse, [8.1] — manifest + repo state
 select the entry; no user disambiguation):
 
+The router's exit code is the contract, identical across all five entry doors:
+
 ```bash
 bash .claude/route.sh --for init-project
 ```
 
-- **`match=yes`** (exit 0) — greenfield confirmed (a `phased` manifest with no
-  phase docs yet, or no manifest in a fresh workspace where exit 2 also lands
-  here); continue.
+- **`match=yes`** (exit 0) — this is the right door; continue. (Either
+  greenfield is confirmed — a `phased` manifest with no phase docs yet — or this
+  is a **pre-scaffold** repo where init-project is the manifest-writing door,
+  see exit 4.)
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
   names the correct door in `door=` — e.g. `door=resume`/`door=start-phase` if a
   plan already exists (don't re-scaffold over it), `door=onboard` for an
   existing repo, `door=task` for scoped work. Tell the user the routed door and
   the `reason=`, and defer to it.
-- **Exit 2/3** — no manifest yet (the common greenfield case) or an ambiguous
-  state. If there is genuinely no project here, proceed with scaffolding; if the
-  router named a reason that contradicts greenfield (a malformed existing plan),
-  surface it and **stop** rather than scaffold over an undetermined state
-  (rule 15).
+- **Exit 2** — the router is unavailable/misinvoked (absent, a wrong flag, or
+  `jq` missing). The router is the fast path, not the only one: proceed with
+  scaffolding.
+- **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
+  ceremony, or a malformed existing plan). The router emits no `door=`; surface
+  the `reason=` and **stop** rather than scaffold over an undetermined state
+  (rule 15). An existing-but-broken project is NOT pre-scaffold.
+- **Exit 4 (pre-scaffold)** — no manifest here yet (the common greenfield case).
+  This is the state init-project exists for: under `--for init-project` the
+  router returns `match=yes`, so the exit-0 branch above already covers it — you
+  are about to write the manifest this guard would have read. **Proceed.**
 
 ## Input
 

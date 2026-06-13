@@ -20,7 +20,8 @@ disambiguation; **never** decide the door by reading the tracker yourself):
 bash .claude/route.sh --for start-phase
 ```
 
-Read its `name=value` output and its exit code:
+Read its `name=value` output and its exit code (the contract is identical
+across all five entry doors):
 
 - **`match=yes`** (exit 0) — this *is* the right door for the current state.
   Continue to Step 1.
@@ -30,12 +31,16 @@ Read its `name=value` output and its exit code:
   routed door and the `reason=`, and defer to it — run that door instead of
   this sequence. This is the misroute-impossible guarantee: you land on the
   right door without the user disambiguating.
-- **Exit 3 (loud stop)** — the state is ambiguous (no manifest, unrecognized
+- **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
   ceremony, or a MALFORMED tracker). The router emits no `door=`; surface its
   `reason=` and **stop** (rule 15) — do not proceed off an undetermined state.
-- **Exit 2** — the router itself is unavailable/misinvoked (it is absent, or
-  a flag is wrong). Fall back to the mode check below and proceed; the router
-  is the fast path, not the only one.
+- **Exit 4 (pre-scaffold)** — no manifest here yet: there is no phase to enter.
+  The router returns `match=no` (start-phase does not apply to a fresh repo);
+  tell the user to scaffold first — `/init-project` for a spec, `/onboard` for an
+  existing repo — and **stop** rather than enter a phase off no project.
+- **Exit 2** — the router itself is unavailable/misinvoked (it is absent, a flag
+  is wrong, or `jq` is missing). Fall back to the mode check below and proceed;
+  the router is the fast path, not the only one.
 
 If the router confirmed this door (`match=yes`) you may skip the redundant mode
 check below; it is kept as the exit-2 fallback.

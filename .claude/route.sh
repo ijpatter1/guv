@@ -31,11 +31,21 @@
 #   match=yes|no    --for only: does the invoked door apply here
 #
 # Exit: 0 routed (a door selected, or a confirm/redirect under --for)
-#       2 usage (unknown flag, or --for an unknown door)
-#       3 AMBIGUOUS — loud stop (no manifest, unknown ceremony, or a phased
-#         project whose tracker is MALFORMED): the state cannot select a door,
-#         so the router refuses and names why rather than guess (rule 15). No
-#         door= is emitted; the reason= preserves the state for a person.
+#       2 usage (unknown flag, --for an unknown door, or jq missing)
+#       3 AMBIGUOUS — loud stop (unknown ceremony, or a phased project whose
+#         tracker is MALFORMED): an EXISTING project whose state cannot select a
+#         door, so the router refuses and names why rather than guess (rule 15).
+#         No door= is emitted; the reason= preserves the state for a person.
+#       4 PRE-SCAFFOLD — no manifest here yet: there is no project to route, but
+#         this is NOT ambiguity. The scaffolding doors (init-project, onboard)
+#         are about to WRITE the manifest this router would have read, so under
+#         --for they CONFIRM and PROCEED (match=yes, exit 0); the live-plan doors
+#         (resume, start-phase, task) have nothing to resume and see exit 4 so
+#         their Step 0 defers to a scaffolding door. Plain (no --for) emits no
+#         door — which of the two scaffolding doors applies is a content decision
+#         (is there a spec? existing code?), not a state one — but names the
+#         scaffolding route in reason=. This is the fix for the canonical
+#         onboard/init entry being misrouted into an exit-3 stop.
 set -u
 
 USAGE="usage: bash .claude/route.sh [--for <door>]"
@@ -47,6 +57,21 @@ TRACKER="docs/PHASE_STATUS.md"
 # left five; the routing collapse is the function over them). A --for outside
 # this set is a caller typo, not a redirect target.
 KNOWN_DOORS="init-project onboard resume start-phase task"
+
+# The SCAFFOLDING doors — the two that write the manifest into a fresh repo. On
+# the PRE-SCAFFOLD state (no manifest) these PROCEED rather than stop, because
+# they are about to create the very manifest the router would have read. Which
+# of the two applies is a content decision (spec → init-project; existing code →
+# onboard), not a state one — so the router confirms either under --for but
+# names neither as the single door in plain mode.
+SCAFFOLD_DOORS="init-project onboard"
+
+# jq is on the critical path in every mode below (manifest parse, resolver-free
+# state). Guard it loud and early — without this, a missing jq surfaces as the
+# misleading "manifest is not valid JSON" loud stop instead of an accurate
+# environment error. Mirrors resolve-ready.sh's jq guard: exit 2 (a genuine
+# IO/usage error, the stderr+exit-2 channel — not an ambiguous project state).
+command -v jq >/dev/null 2>&1 || { echo "route: requires jq, which is not on PATH — install jq" >&2; exit 2; }
 
 FOR=""
 case "${1:-}" in
@@ -81,16 +106,48 @@ emit() {
 
 # stop REASON — the loud stop (rule 15): no door, exit 3, state named on
 # stdout (the reason is for a person; stderr stays clean for the empty-stderr
-# gate, reserved for genuine IO/usage errors).
+# gate, reserved for genuine IO/usage errors). This is for AMBIGUITY in an
+# EXISTING project — unknown ceremony, malformed plan — never for a fresh repo.
 stop() {
   echo "reason=$1"
   exit 3
 }
 
-# ── (a) manifest: its absence is the first ambiguity — without ceremony there
-# is no door to compute. Loud stop, not a guessed default.
+# prescaffold REASON — the PRE-SCAFFOLD state (no manifest here yet): NOT
+# ambiguity, so NOT exit 3. Under --for, a SCAFFOLDING door (init-project,
+# onboard) CONFIRMS and proceeds (match=yes, exit 0) — it is about to write the
+# manifest; a live-plan door (resume, start-phase, task) gets match=no + exit 4
+# and defers to a scaffolding door. Plain (no --for) emits no door — the
+# scaffold-door choice is content-driven — and names the scaffolding route in
+# reason= so a person (or the door's Step 0) routes correctly rather than seeing
+# a halt. stdout stays the name=value contract; exit 4 is the machine signal.
+prescaffold() {
+  if [ -n "$FOR" ]; then
+    case " $SCAFFOLD_DOORS " in
+      *" $FOR "*)
+        # A scaffolding door owns the pre-scaffold state — confirm and proceed.
+        echo "match=yes"
+        echo "door=$FOR"
+        echo "reason=$1"
+        exit 0
+        ;;
+    esac
+    # A live-plan door has nothing to resume here — match=no, exit 4 (defer).
+    echo "match=no"
+  fi
+  echo "reason=$1"
+  exit 4
+}
+
+# ── (a) manifest: its absence is the PRE-SCAFFOLD state, not ambiguity. There
+# is no ceremony to read yet — but a fresh repo is exactly what the scaffolding
+# doors (init-project, onboard) exist to handle: they are about to WRITE this
+# manifest. So this is exit 4 (pre-scaffold), distinct from the exit-3 stop a
+# malformed EXISTING project gets — the scaffolding doors proceed, the live-plan
+# doors defer (see prescaffold()). This is the fix for the canonical onboard/init
+# entry being told to STOP on a manifest-less repo.
 if [ ! -f "$MANIFEST" ]; then
-  stop "no manifest at $MANIFEST — cannot determine ceremony; run from the project root or scaffold first"
+  prescaffold "no manifest at $MANIFEST yet — this is a pre-scaffold repo; init-project (from a spec) or onboard (existing code) is the door that writes it"
 fi
 if ! jq -e . "$MANIFEST" >/dev/null 2>&1; then
   stop "$MANIFEST exists but is not valid JSON — fix the manifest before routing"

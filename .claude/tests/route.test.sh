@@ -17,9 +17,15 @@
 #   - phased complete (all ✅, empty frontier)  → start-phase (boundary/next)
 #   - LEGACY tracker (token-free)               → resume
 #   - task ceremony                             → task
-#   - no manifest / unknown ceremony / malformed tracker → loud stop (exit 3)
+#   - unknown ceremony / malformed tracker      → AMBIGUOUS loud stop (exit 3)
+#   - no manifest (no project here yet)         → PRE-SCAFFOLD (exit 4): the
+#     scaffolding doors PROCEED (they write the manifest); the live-plan doors
+#     defer to them. A distinct exit code, NOT the exit-3 stop, so the canonical
+#     onboard/init entry is no longer misrouted into a halt.
 #   - wrong-door --for <door> redirects (match=no, names the correct door)
 #     and confirms (match=yes) when the door is right
+#   - --for over an AMBIGUOUS state loud-stops (exit 3, no door, no match) —
+#     a redirect is not a route past genuine ambiguity
 #
 # Each fixture is a standalone project dir; route.sh runs with that dir as cwd
 # (the manifest, docs/, and resolver all resolve relative to it, exactly as a
@@ -162,29 +168,68 @@ run "$TASK"
   && ok "task ceremony → task" \
   || no "task ceremony must route to task (got door=$(val door "$OUT"))"
 
-# ── 7. LOUD STOP (rule 15): ambiguous/unknown states never pick a door ───────
-# 7a — no manifest at all.
+# ── 7. AMBIGUOUS (exit 3) vs PRE-SCAFFOLD (exit 4): two different states ──────
+# Two distinct refusals, two distinct exit codes (rule 15 / the misroute fix):
+#   exit 3 = AMBIGUOUS existing state (malformed plan, unknown ceremony) — a
+#            genuine loud stop, no door, every door's Step 0 halts.
+#   exit 4 = PRE-SCAFFOLD (no manifest here yet) — NOT a stop. The scaffolding
+#            doors (init-project/onboard) are about to WRITE the manifest this
+#            guard would have read, so they PROCEED; the live-plan doors
+#            (resume/start-phase/task) have nothing to resume and defer to a
+#            scaffolding door. The doors key off the EXIT CODE uniformly, not
+#            prose — so the canonical onboard/init entry is no longer misrouted
+#            into a stop.
+# 7a — no manifest at all → PRE-SCAFFOLD (exit 4), distinct from ambiguous.
 NOMAN=$(mkproj no-manifest)  # mkproj leaves no project.json
 run "$NOMAN"
-[ "$RC" -eq 3 ] \
-  && ok "no manifest → loud stop (exit 3), not a silent default door" \
-  || no "a missing manifest must be a loud stop exit 3 (got rc=$RC, door=$(val door "$OUT"))"
+[ "$RC" -eq 4 ] \
+  && ok "no manifest → PRE-SCAFFOLD (exit 4), distinct from ambiguous exit 3" \
+  || no "a missing manifest must be pre-scaffold exit 4, not exit 3 (got rc=$RC, door=$(val door "$OUT"))"
 [ -z "$(val door "$OUT")" ] \
-  && ok "no manifest: no door is emitted (ambiguity is never papered over with a guess)" \
-  || no "loud stop must not emit a door (got door=$(val door "$OUT"))"
+  && ok "pre-scaffold: no door is emitted (the scaffold-door choice is content-driven, not state-driven)" \
+  || no "pre-scaffold must not emit a single door (got door=$(val door "$OUT"))"
 echo "$OUT" | grep -qi 'manifest' \
-  && ok "no manifest: the loud-stop reason names the missing manifest (state preserved for a person)" \
-  || no "loud stop should name why it stopped (missing manifest)"
+  && ok "pre-scaffold: the reason names the missing manifest (state preserved for a person)" \
+  || no "pre-scaffold should name why (missing manifest)"
+echo "$OUT" | grep -qiE 'init-project|onboard|scaffold' \
+  && ok "pre-scaffold: the reason points at the scaffolding doors (init-project/onboard), not 'stop'" \
+  || no "pre-scaffold reason should name the scaffolding route"
 
-# 7b — unknown ceremony (not in the schema enum).
+# 7a' — under --for, the SCAFFOLDING doors PROCEED on a pre-scaffold repo: asking
+# --for init-project / --for onboard confirms (match=yes, exit 0) — they own the
+# pre-scaffold state because they are about to write the manifest.
+run "$NOMAN" --for onboard
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "pre-scaffold + --for onboard → PROCEED (match=yes, exit 0) — the canonical fresh-onboard case is no longer a stop" \
+  || no "onboard must proceed on a manifest-less repo (got rc=$RC match=$(val match "$OUT"))"
+run "$NOMAN" --for init-project
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "pre-scaffold + --for init-project → PROCEED (match=yes, exit 0)" \
+  || no "init-project must proceed on a manifest-less repo (got rc=$RC match=$(val match "$OUT"))"
+
+# 7a'' — under --for, the LIVE-PLAN doors do NOT proceed on a pre-scaffold repo:
+# resume/start-phase/task have nothing to resume; the router surfaces exit 4 so
+# their Step 0 defers to a scaffolding door rather than running off no project.
+run "$NOMAN" --for resume
+[ "$RC" -eq 4 ] && [ "$(val match "$OUT")" = "no" ] \
+  && ok "pre-scaffold + --for resume → NOT this door (exit 4, match=no) — defer to a scaffolding door" \
+  || no "resume must not proceed on a pre-scaffold repo (got rc=$RC match=$(val match "$OUT"))"
+
+# 7b — unknown ceremony (not in the schema enum) → AMBIGUOUS loud stop (exit 3).
 BADCER=$(mkproj bad-ceremony); manifest "$BADCER" zooglemorph
 run "$BADCER"
 [ "$RC" -eq 3 ] \
-  && ok "unknown ceremony → loud stop (exit 3)" \
+  && ok "unknown ceremony → AMBIGUOUS loud stop (exit 3), distinct from pre-scaffold" \
   || no "an unrecognized ceremony must loud-stop exit 3 (got rc=$RC, door=$(val door "$OUT"))"
 [ -z "$(val door "$OUT")" ] \
   && ok "unknown ceremony: no door guessed" \
   || no "unknown ceremony must not emit a door (got door=$(val door "$OUT"))"
+# An ambiguous existing state stays a stop even for a scaffolding door — a
+# malformed/unknown manifest is NOT pre-scaffold; you must not scaffold over it.
+run "$BADCER" --for onboard
+[ "$RC" -eq 3 ] \
+  && ok "unknown ceremony + --for onboard → still exit 3 (genuine ambiguity is not pre-scaffold; don't onboard over it)" \
+  || no "onboard over an ambiguous existing manifest must stay exit 3 (got rc=$RC)"
 
 # 7c — phased project whose tracker is MALFORMED (resolver exit 5): the router
 # cannot determine mid/complete/legacy, so it loud-stops rather than guess.
@@ -242,9 +287,42 @@ run "$MID" --for not-a-real-door
   && ok "--for <unknown-door> is a usage error (exit 2), not a silent redirect" \
   || no "an unknown --for door must be a usage error exit 2 (got rc=$RC)"
 
+# ── 8b. LOUD STOP under --for: a redirect is not a route past an AMBIGUOUS
+# state. When a door asks "is this me?" against a project the router cannot
+# resolve (a phased project with a MALFORMED tracker — $MAL from 7c), the answer
+# is neither confirm nor redirect: it is the same exit-3 loud stop, with NO door
+# and NO match, and a reason that names the state. The redirect path (exit 0)
+# must not swallow genuine ambiguity into a guessed door.
+run "$MAL" --for resume
+[ "$RC" -eq 3 ] \
+  && ok "--for resume against a MALFORMED-tracker project → loud stop (exit 3), not a redirect" \
+  || no "--for over an ambiguous state must loud-stop exit 3, not redirect (got rc=$RC, door=$(val door "$OUT"))"
+[ -z "$(val door "$OUT")" ] \
+  && ok "loud-stop-under-{-}-for: no door= is emitted (ambiguity is never papered over with a redirect)" \
+  || no "loud stop under --for must not emit a door (got door=$(val door "$OUT"))"
+[ -z "$(val match "$OUT")" ] \
+  && ok "loud-stop-under-{-}-for: no match= is emitted (there is no door to confirm or deny)" \
+  || no "loud stop under --for must not emit a match verdict (got match=$(val match "$OUT"))"
+echo "$OUT" | grep -qiE 'malformed|tracker' \
+  && ok "loud-stop-under-{-}-for: the reason names the broken-tracker state for a person" \
+  || no "loud stop under --for should name the state (malformed tracker)"
+
 # ── 9. usage ─────────────────────────────────────────────────────────────────
 run "$MID" --bogus
 [ "$RC" -eq 2 ] && ok "unknown flag → usage exit 2" || no "unknown flag must exit 2 (got rc=$RC)"
+
+# Bare --for with no door name is a usage error (the flag needs an argument).
+run "$MID" --for
+[ "$RC" -eq 2 ] \
+  && ok "bare --for (no door) → usage exit 2 (the flag requires a door argument)" \
+  || no "bare --for must be a usage error exit 2 (got rc=$RC)"
+
+# A trailing extra argument after --for <door> is a usage error (the grammar has
+# exactly two positions; an extra is a caller bug, not silently ignored).
+run "$MID" --for resume extra-arg
+[ "$RC" -eq 2 ] \
+  && ok "--for resume <extra-arg> → usage exit 2 (no trailing positionals)" \
+  || no "an extra argument after --for <door> must be a usage error exit 2 (got rc=$RC)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

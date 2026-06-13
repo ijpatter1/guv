@@ -20,6 +20,8 @@ Ask the deterministic router whether this is the right door (the routing
 collapse — manifest + repo state select the entry, no disambiguation; **never**
 hand-read the tracker to decide):
 
+The router's exit code is the contract, identical across all five entry doors:
+
 ```bash
 bash .claude/route.sh --for resume
 ```
@@ -29,12 +31,16 @@ bash .claude/route.sh --for resume
   names the correct door in `door=` (e.g. `door=start-phase` at a phase
   boundary, `door=task` in a scoped project, `door=init-project` greenfield).
   Tell the user the routed door and the `reason=`, and defer to it.
-- **Exit 3 (loud stop)** — ambiguous state (no manifest, unrecognized ceremony,
-  or a MALFORMED tracker; the resolver's exit-5 condition surfaces here too).
-  The router emits no `door=`; surface its `reason=` and **stop** (rule 15) —
-  do not present a plan off an undetermined state.
-- **Exit 2** — the router is unavailable/misinvoked; fall back to the mode
-  check below and proceed.
+- **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
+  ceremony, or a MALFORMED tracker; the resolver's exit-5 condition surfaces
+  here too). The router emits no `door=`; surface its `reason=` and **stop**
+  (rule 15) — do not present a plan off an undetermined state.
+- **Exit 4 (pre-scaffold)** — no manifest here yet: there is no plan to resume.
+  The router returns `match=no` (resume does not apply to a fresh repo); tell the
+  user to scaffold first — `/onboard` for an existing repo, `/init-project` for a
+  spec — and **stop** rather than resume off no project.
+- **Exit 2** — the router is unavailable/misinvoked (absent, a wrong flag, or
+  `jq` missing); fall back to the mode check below and proceed.
 
 ## Step 0b — Confirm Phased Mode (router-unavailable fallback)
 
