@@ -499,4 +499,65 @@ else
   echo "  - maintainers/build-plugin.sh absent (consumer fork) — skipping drift guard"
 fi
 
+# T17 — settings↔plugin hook parity ([9.2] fix wave). The plugin's Stop/
+# PreToolUse/PostToolUse registrations live in the HAND-AUTHORED source
+# maintainers/plugin-src/hooks/hooks.json, derived from nothing — so a hook
+# wired into project-mode settings.json can silently miss the plugin surface
+# (exactly how the occupancy meter shipped dead to plugin consumers). This
+# guard closes that drift class: every event-hook script registered in
+# .claude/settings.json MUST have a matching command registration in the
+# plugin hooks.json for the SAME event, matched by script basename (the two
+# surfaces use different path prefixes: .claude/hooks/X.sh vs
+# ${CLAUDE_PLUGIN_ROOT}/scripts/X.sh). The check is DIRECTIONAL by design:
+# settings ⊆ plugin, not the reverse — hooks.json legitimately carries
+# plugin-only entries with no project-mode counterpart (reviewer-readonly.sh,
+# whose project-mode equivalent rides the reviewer agents' frontmatter hooks:
+# block, asserted by T7). A consumer fork that dropped maintainers/ has no
+# plugin source to compare against — skip cleanly, never as a failure.
+PSRC_HOOKS="$ROOT/maintainers/plugin-src/hooks/hooks.json"
+if [ ! -f "$SRC/settings.json" ] || [ ! -f "$PSRC_HOOKS" ]; then
+  echo "  - settings.json or plugin-src hooks.json absent — skipping settings↔plugin parity guard"
+elif ! jq -e . "$PSRC_HOOKS" >/dev/null 2>&1; then
+  no "plugin-src hooks.json is not valid JSON: $PSRC_HOOKS"
+else
+  # basenames of the hook scripts registered for an event on a given surface
+  event_scripts() { jq -r --arg e "$1" '.hooks[$e][]?.hooks[]?.command' "$2" 2>/dev/null | grep -oE '[A-Za-z0-9_-]+\.sh' | sort -u; }
+  PARITY_MISSING=""
+  for ev in PreToolUse PostToolUse Stop; do
+    plugin_set=$(event_scripts "$ev" "$PSRC_HOOKS")
+    while IFS= read -r script; do
+      [ -z "$script" ] && continue
+      printf '%s\n' "$plugin_set" | grep -qx "$script" \
+        || PARITY_MISSING="$PARITY_MISSING [$ev:$script]"
+    done <<EOF
+$(event_scripts "$ev" "$SRC/settings.json")
+EOF
+  done
+  [ -z "$PARITY_MISSING" ] \
+    && ok "every settings.json hook is registered in the plugin hooks.json for the same event (settings↔plugin parity)" \
+    || no "settings.json hooks missing from plugin hooks.json (plugin consumers get dead hooks):$PARITY_MISSING"
+
+  # positive control — a guard that can only report success is not a guard
+  # (the pass-5 lesson, T12d). Plant a settings.json that wires a hook absent
+  # from the plugin source and confirm the parity check FLAGS it.
+  PC_SETTINGS=$(mktemp)
+  jq '.hooks.Stop[0].hooks += [{"type":"command","command":"bash .claude/hooks/zz-parity-fixture.sh"}]' "$SRC/settings.json" > "$PC_SETTINGS"
+  PC_MISSING=""
+  for ev in PreToolUse PostToolUse Stop; do
+    plugin_set=$(event_scripts "$ev" "$PSRC_HOOKS")
+    while IFS= read -r script; do
+      [ -z "$script" ] && continue
+      printf '%s\n' "$plugin_set" | grep -qx "$script" \
+        || PC_MISSING="$PC_MISSING [$ev:$script]"
+    done <<EOF
+$(event_scripts "$ev" "$PC_SETTINGS")
+EOF
+  done
+  case "$PC_MISSING" in
+    *zz-parity-fixture.sh*) ok "positive control: the parity check flags a planted settings-only hook" ;;
+    *) no "parity positive control failed — a planted settings-only hook was not flagged" ;;
+  esac
+  rm -f "$PC_SETTINGS"
+fi
+
 finish

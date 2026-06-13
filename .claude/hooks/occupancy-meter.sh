@@ -17,7 +17,8 @@
 # No live numeric occupancy field is exposed to a Claude Code hook, and there is no
 # PreCompact event (verified against the hooks reference, 2026-06-13). The mechanical
 # source that IS available is the transcript JSONL at .transcript_path: each
-# assistant entry carries message.usage, and the LATEST assistant turn's
+# assistant entry carries message.usage, and the latest assistant turn that
+# reports usage —
 #   input_tokens + cache_read_input_tokens + cache_creation_input_tokens
 # is the size of the prompt the model was last sent — i.e. context occupancy in
 # tokens. That is the input to a deterministic decision (occupancy ≥ threshold),
