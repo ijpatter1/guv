@@ -177,8 +177,10 @@ do_harvest() {  # $1=id
 # shared PROSE; plan mutation is /replan (/guv:replan under the plugin) only).
 # Returns 1 if ANY target is bad.
 docfrag_targets_ok() {  # $1 = lane-output json file
+  # .. is anchored to a path SEGMENT so a real parent-escape is caught while a
+  # literal filename like foo..bar.md is not spuriously refused.
   ! jq -r '.docFragments[].file' "$1" 2>/dev/null \
-    | grep -qE '^/|\.\.|(^|/)docs/(PHASE_STATUS|REQUIREMENTS)\.md$'
+    | grep -qE '^/|(^|/)\.\.(/|$)|(^|/)docs/(PHASE_STATUS|REQUIREMENTS)\.md$'
 }
 
 # assemble: append each lane-output's docFragments to the shared prose, serially.
