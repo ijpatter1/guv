@@ -45,6 +45,15 @@
             "command": "bash .claude/hooks/bash-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/single-writer.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [

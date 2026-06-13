@@ -13,6 +13,15 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/reviewer-readonly.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/single-writer.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
