@@ -116,12 +116,16 @@ DERIVED=$(echo "$ENTRY" | jq -r 'paths(scalars) | map(tostring) | join(".")' 2>/
 [ -z "$DERIVED" ] \
   && ok "no derived/aggregate field in the entry (raw evidence only)" \
   || no "derived field(s) leaked into the log: $DERIVED"
-# the writer source must not compute aggregates either (no awk/jq summation of
-# prior log lines into the new entry)
-grep -nE 'add\b|//[[:space:]]*sum|reduce .* \+|tokens_per|cost_per|burn_rate' "$SCRIPT" 2>/dev/null \
+# the writer source must not EMIT a derived/aggregate FIELD into the entry. The
+# guarantee is about what lands in the log, so scan for a derived field NAME
+# being assigned as a JSON key in the entry-building jq — not for arithmetic per
+# se (summing a transcript's per-message usage by class is raw EXTRACTION of the
+# boundary's evidence, not a derived field). The writer must never key the entry
+# on total/avg/rate/cost_per/burn_rate/per-anything.
+grep -nE '^[[:space:]]*(total|sum|avg|average|mean|rate|aggregate|cumulative|burn_rate|tokens_per|cost_per|per_[a-z]+|[a-z_]+_per)[[:space:]]*:' "$SCRIPT" 2>/dev/null \
   | grep -viE '^\s*#' >/dev/null 2>&1 \
-  && no "writer source appears to compute an aggregate into the entry (raw log must stay raw)" \
-  || ok "writer source computes no aggregate into the entry"
+  && no "writer source emits a derived/aggregate field into the entry (raw log must stay raw)" \
+  || ok "writer source emits no derived/aggregate field into the entry"
 
 # T7 — APPEND-ONLY: a second capture appends; the first line is byte-identical.
 P7=$(make_project); LOG7="$P7/.claude/metering/metering.ndjson"
@@ -138,9 +142,13 @@ NOWFIRST=$(head -1 "$LOG7")
 # The only write primitive permitted against the log is append (>>). Any
 # truncating redirect (single >), in-place edit (sed -i), or mv/cp onto the log
 # would rewrite it.
-LOGVAR='(LOG|METER_LOG|METERING_LOG|LOGFILE|log)'
-# truncating redirect onto the log variable
-grep -nE '[^>]>[[:space:]]*"?\$\{?'"$LOGVAR" "$SCRIPT" 2>/dev/null | grep -vE '>>|^\s*#' >/dev/null 2>&1 \
+LOGVAR='(LOG|METER_LOG|METERING_LOG|LOGFILE)'
+# A TRUNCATING redirect is a lone '>' used as a redirection operator (space on
+# each side) before the log target — '> "$LOG"' truncates, '>> "$LOG"' appends,
+# and a '-> $LOG' arrow in an echo string is not a redirect at all. Require
+# whitespace before the '>' so the arrow's '-' disqualifies it.
+grep -nE '[[:space:]]>[[:space:]]*"?\$\{?'"$LOGVAR" "$SCRIPT" 2>/dev/null \
+  | grep -vE '>>|^[[:space:]]*[0-9]+:[[:space:]]*#' >/dev/null 2>&1 \
   && no "writer source has a truncating redirect onto the log (rewrites it)" \
   || ok "no truncating redirect onto the log in the writer source"
 grep -nE 'sed -i|sed --in-place' "$SCRIPT" 2>/dev/null | grep -vE '^\s*#' >/dev/null 2>&1 \

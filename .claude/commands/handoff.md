@@ -181,6 +181,28 @@ Any context that would be useful for the next session that doesn't fit above:
 - Gotchas discovered
 ```
 
+## Step 6b — Append the Metering Entry
+
+The session-close path appends one raw-evidence line to the append-only metering
+log ([9.1]). Run this **after** Step 6 so the session id is derivable from the
+artifact you just wrote, and after Step 3 so the suite runtime exists:
+
+```bash
+bash .claude/meter.sh capture --deliverables "<id>[,<id>...]"
+```
+
+Pass the deliverable ID(s) this session served — comma-separated for several.
+For a session with no single applicable ID (docs sweep, planning, multi-area
+work), omit `--deliverables` entirely and the writer records `session-scalar`.
+**Report no numbers to the writer:** token counts, dollars, and the operation
+wall-clock are harvested or measured by the writer itself, never agent-supplied
+(the "measure exhaust, never steam — no agent I/O" contract). The writer derives
+the session id, harvests tokens from the runtime transcript where Spike C's rung
+permits (degrading to `tokens: null` if the transcript is unreachable — the log
+never blocks on harvestability), measures its own deterministic-op wall-clock,
+and appends the line. The log is append-only; nothing here rewrites it. The
+emitted shape is documented in `.claude/metering-log.md`.
+
 ## Step 7 — Update Phase Status
 
 **Phased projects only.** Read `ceremony` from `.claude/project.json`. If it is not
