@@ -110,6 +110,15 @@ denies_as "make build &> docs/REQUIREMENTS.md" "$PLAIN" "lane-7.4" \
 denies_as "cp /tmp/staged docs/PHASE_STATUS.md && echo done" "$PLAIN" "evaluator" \
   && ok "subagent cp ONTO the tracker chained past line-end denied" \
   || no "subagent cp onto a tracker must be denied even when chained"
+# Negative guards for the cp/mv arm — the destination semantic must not overblock
+# a benign copy that merely SHARES a command line with a tracker READ, nor a
+# tracker used as a non-final source. (Both regressed an earlier greedy pattern.)
+denies_as "cp a.txt b.txt && cat docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+  && no "benign copy chained with a tracker READ must stay allowed (overblock)" \
+  || ok "subagent cp of unrelated files + a tracker read on one line allowed"
+denies_as "cp seed docs/REQUIREMENTS.md backup" "$PLAIN" "evaluator" \
+  && no "tracker as a non-final cp SOURCE must stay allowed (it's a read)" \
+  || ok "subagent cp with the tracker as a middle source allowed (read)"
 
 # T8 — the MAIN session (no agent_type) writing a tracker via Bash is ALLOWED —
 # it IS the single writer; the guard must never touch it.

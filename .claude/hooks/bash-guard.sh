@@ -58,7 +58,7 @@ if [ -n "$AGENT_TYPE" ]; then
     '\bsed\b[^|]*-i[^|]*'"$TRK"                                # sed -i in place
     '\b(perl|ruby)\b[^|]*-i[^|]*'"$TRK"                        # perl/ruby -i in place
     '\bdd\b[^|]*of='"$TRK"                                     # dd of=tracker
-    '\b(cp|mv|install)\b[[:space:]]+[^[:space:]]+[[:space:]].*docs/(PHASE_STATUS|REQUIREMENTS)\.md'  # copy/move ONTO it (>=1 arg before -> not a source-first read; no end-anchor -> catches chained)
+    '\b(cp|mv|install)\b[[:space:]]+[^[:space:]]+[[:space:]][^;&|]*docs/(PHASE_STATUS|REQUIREMENTS)\.md[[:space:]]*($|[;&|>])'  # copy/move ONTO it: >=1 arg before (not source-first), within ONE command ([^;&|] can't cross a separator), and the tracker is the destination (last token before end/;/&/|/>)
     '\btruncate\b[^|]*'"$TRK"                                  # truncate the tracker
   )
   for pattern in "${TRACKER_WRITES[@]}"; do
