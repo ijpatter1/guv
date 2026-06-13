@@ -292,6 +292,14 @@ demoted to reporting (first phase with open work). Recorded here — and as a
 data point on the parked `grammar-version` entry — rather than as a version
 bump: same fields, same types, different meaning.
 
+The Phase-9 governor shapes join this published-contract family and are each
+documented beside their own helper, cross-referenced here so the surfaces are
+discoverable from one place: the cost-and-performance **metering log**
+(`.claude/metering-log.md`, written by `meter.sh` — [9.1]) and the **estimate
+sidecar** (`.claude/estimate.shape.md`, keyed by deliverable ID via
+`estimate.sh` — [9.6]). Same one-parser discipline: consumers read the
+documented shape, never re-derive it.
+
 ```json
 {
   "generated": "2026-06-12T14:57:21Z",      // ISO-8601 UTC stamp

@@ -8,11 +8,47 @@ returning after a long gap away): it performs the full sequence below, including
 the spec-alignment check. For everyday **mid-phase resume**, where you already
 have the context, use the light `/guv:resume` door instead — it reads the resolver's
 ready-frontier and hands you a plan without the boundary ritual (no spec
-alignment, no deep architecture re-read, no UAT check). The two doors collapse
-into one deterministically-routed entry at **[8.1]**; until then they coexist,
-and this is the heavyweight one.
+alignment, no deep architecture re-read, no UAT check). Which door applies is no
+longer a judgment call: the deterministic router (`"${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh`, **[8.1]**)
+selects the entry door from manifest + repo state, and Step 0 defers to it — a
+wrong-door invocation is redirected, never errored.
 
-## Step 0 — Confirm Phased Mode
+## Step 0 — Routing Guard
+
+Before anything else, ask the deterministic router whether this is the right
+door (the routing collapse — manifest + repo state select the entry, no
+disambiguation; **never** decide the door by reading the tracker yourself):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for start-phase
+```
+
+Read its `name=value` output and its exit code (the contract is identical
+across all five entry doors):
+
+- **`match=yes`** (exit 0) — this *is* the right door for the current state.
+  Continue to Step 1.
+- **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
+  names the correct door in `door=` (e.g. `door=resume` mid-phase, `door=task`
+  in a scoped project, `door=init-project` greenfield). Tell the user the
+  routed door and the `reason=`, and defer to it — run that door instead of
+  this sequence. This is the misroute-impossible guarantee: you land on the
+  right door without the user disambiguating.
+- **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
+  ceremony, or a MALFORMED tracker). The router emits no `door=`; surface its
+  `reason=` and **stop** (rule 15) — do not proceed off an undetermined state.
+- **Exit 4 (pre-scaffold)** — no manifest here yet: there is no phase to enter.
+  The router returns `match=no` (start-phase does not apply to a fresh repo);
+  tell the user to scaffold first — `/guv:init-project` for a spec, `/guv:onboard` for an
+  existing repo — and **stop** rather than enter a phase off no project.
+- **Exit 2** — the router itself is unavailable/misinvoked (it is absent, a flag
+  is wrong, or `jq` is missing). Fall back to the mode check below and proceed;
+  the router is the fast path, not the only one.
+
+If the router confirmed this door (`match=yes`) you may skip the redundant mode
+check below; it is kept as the exit-2 fallback.
+
+## Step 0b — Confirm Phased Mode (router-unavailable fallback)
 
 This command is the **phased** entry point. Read `ceremony` from `.claude/project.json`:
 

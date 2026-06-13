@@ -8,6 +8,37 @@ phased plan), `/guv:onboard` reads what's there and records it. It does not scaf
 conventions, and it does not create phase docs. Most real work is on existing code —
 this is the path that unlocks it.
 
+## Step 0 — Routing Guard
+
+Ask the deterministic router whether this is the right door (the routing
+collapse, [8.1] — manifest + repo state select the entry; no user
+disambiguation). The router's exit code is the contract, identical across all
+five entry doors:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for onboard
+```
+
+- **`match=yes`** (exit 0) — this is the right door; continue. (Either
+  `ceremony=onboard` is confirmed, or this is a **pre-scaffold** repo where
+  onboard is the manifest-writing door — see exit 4.)
+- **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
+  names the correct door in `door=` — e.g. `door=task` if the repo is already
+  onboarded as a scoped project, or `door=resume`/`door=start-phase` if it
+  carries a phased plan. Tell the user the routed door and the `reason=`, and
+  defer to it.
+- **Exit 2** — the router is unavailable/misinvoked (it is absent, a flag is
+  wrong, or `jq` is missing). The router is the fast path, not the only one:
+  proceed with onboarding.
+- **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
+  ceremony, or a malformed existing plan). The router emits no `door=`; surface
+  the `reason=` and **stop** rather than onboard over an undetermined state
+  (rule 15). A genuinely existing-but-broken project is NOT pre-scaffold.
+- **Exit 4 (pre-scaffold)** — no manifest here yet (the common first-onboard
+  case). This is the state onboard exists for: under `--for onboard` the router
+  returns `match=yes`, so the exit-0 branch above already covers it — you are
+  about to write the manifest this guard would have read. **Proceed.**
+
 > **`/guv:onboard` supersedes Claude Code's native `/init` in harness projects.** `/init`
 > inlines commands and stack facts into `CLAUDE.md`, which violates the manifest
 > contract (commands live in `.claude/project.json` and are never restated). Run this

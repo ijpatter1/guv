@@ -133,6 +133,19 @@
           "description": "Path of the rendered status view (render-status.sh output), committed as a derived artifact — rebuilt, never line-merged, never a source."
         }
       }
+    },
+    "occupancy": {
+      "type": "object",
+      "description": "Occupancy-meter setpoints ([9.2]). The meter (a Stop hook) watches context-window occupancy via the transcript and, on crossing the threshold, writes a complete handoff before the context wall — the designed degradation. Absent means 'use the shipped default', never 'off'. Person-adjustable; budget-style provenance is the manifest's own commit history.",
+      "additionalProperties": false,
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 120000,
+          "description": "Context occupancy, in tokens, at which the meter takes the designed degradation (write the handoff, signal finalize). Measured as the latest assistant turn's input + cache-read + cache-creation tokens. An absolute token count, not a percentage: the context-window size drifts per model, so the person tunes this to their model's calm-handoff point. Absent → the shipped default (120000), which the occupancy-meter.sh hook mirrors."
+        }
+      }
     }
   }
 }

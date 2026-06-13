@@ -3,6 +3,40 @@ description: "Scaffold the project documentation from a PRD or spec document."
 ---
 
 
+## Step 0 — Routing Guard
+
+This is the **greenfield** door — it lays down phase docs and a `phased`
+manifest from a spec. Before scaffolding, ask the deterministic router whether
+this is the right door (the routing collapse, [8.1] — manifest + repo state
+select the entry; no user disambiguation):
+
+The router's exit code is the contract, identical across all five entry doors:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for init-project
+```
+
+- **`match=yes`** (exit 0) — this is the right door; continue. (Either
+  greenfield is confirmed — a `phased` manifest with no phase docs yet — or this
+  is a **pre-scaffold** repo where init-project is the manifest-writing door,
+  see exit 4.)
+- **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
+  names the correct door in `door=` — e.g. `door=resume`/`door=start-phase` if a
+  plan already exists (don't re-scaffold over it), `door=onboard` for an
+  existing repo, `door=task` for scoped work. Tell the user the routed door and
+  the `reason=`, and defer to it.
+- **Exit 2** — the router is unavailable/misinvoked (absent, a wrong flag, or
+  `jq` missing). The router is the fast path, not the only one: proceed with
+  scaffolding.
+- **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
+  ceremony, or a malformed existing plan). The router emits no `door=`; surface
+  the `reason=` and **stop** rather than scaffold over an undetermined state
+  (rule 15). An existing-but-broken project is NOT pre-scaffold.
+- **Exit 4 (pre-scaffold)** — no manifest here yet (the common greenfield case).
+  This is the state init-project exists for: under `--for init-project` the
+  router returns `match=yes`, so the exit-0 branch above already covers it — you
+  are about to write the manifest this guard would have read. **Proceed.**
+
 ## Input
 
 $ARGUMENTS

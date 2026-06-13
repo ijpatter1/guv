@@ -13,10 +13,39 @@ phase-boundary command `/guv:start-phase`. Use it to re-enter work you already h
 context for: it computes what's ready and hands you a plan, and it deliberately
 skips the boundary ritual (deep architecture read, UAT check, and the
 spec-alignment pass). When you're *crossing into a new phase*, use `/guv:start-phase`
-instead — that door does the full sequence. (Both doors collapse into one
-deterministically-routed entry at [8.1]; until then they coexist.)
+instead — that door does the full sequence. Which door applies is decided
+deterministically by the router (`"${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh`, [8.1]): Step 0 defers to
+it, and a wrong-door invocation is redirected rather than errored.
 
-## Step 0 — Confirm Phased Mode
+## Step 0 — Routing Guard
+
+Ask the deterministic router whether this is the right door (the routing
+collapse — manifest + repo state select the entry, no disambiguation; **never**
+hand-read the tracker to decide):
+
+The router's exit code is the contract, identical across all five entry doors:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for resume
+```
+
+- **`match=yes`** (exit 0) — this is the right door; continue to Step 1.
+- **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
+  names the correct door in `door=` (e.g. `door=start-phase` at a phase
+  boundary, `door=task` in a scoped project, `door=init-project` greenfield).
+  Tell the user the routed door and the `reason=`, and defer to it.
+- **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
+  ceremony, or a MALFORMED tracker; the resolver's exit-5 condition surfaces
+  here too). The router emits no `door=`; surface its `reason=` and **stop**
+  (rule 15) — do not present a plan off an undetermined state.
+- **Exit 4 (pre-scaffold)** — no manifest here yet: there is no plan to resume.
+  The router returns `match=no` (resume does not apply to a fresh repo); tell the
+  user to scaffold first — `/guv:onboard` for an existing repo, `/guv:init-project` for a
+  spec — and **stop** rather than resume off no project.
+- **Exit 2** — the router is unavailable/misinvoked (absent, a wrong flag, or
+  `jq` missing); fall back to the mode check below and proceed.
+
+## Step 0b — Confirm Phased Mode (router-unavailable fallback)
 
 Read `ceremony` from `.claude/project.json`:
 

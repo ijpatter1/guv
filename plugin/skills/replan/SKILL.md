@@ -61,7 +61,12 @@ Read the grammar section of the phase-docs skill (plugin-shipped,
   then draft the complete deliverable wording: leading `**[N.M]**`, scope, trailing
   `` `[deps: …]` `` expressing its *logical* position (the line always lands at the
   phase's end; deps carry the sequence). Draft its `- *Acceptance:*` sub-bullet for
-  REQUIREMENTS too.
+  REQUIREMENTS too. Also draft its **session estimate** ([9.6]): you are reading the
+  scope and acceptance to draft the line anyway, so propose the estimate in the same
+  breath — **default 1** (the harness pushes deliverables session-sized), and flag it
+  as a **balloon** if the scope reads as multi-session. The estimate is *not* part of
+  the wording and never enters the tracker — it rides the **sidecar**, keyed by ID
+  (`"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md`).
 - **For a descope/abandon:** draft the note — why it's leaving, and where its scope
   went if anywhere.
 - **For a reword (deps-amend, reorder, split, merge):** draft the new wording from
@@ -72,9 +77,13 @@ Read the grammar section of the phase-docs skill (plugin-shipped,
 
 Present the drafted mutation to the user — the verb, the IDs touched, and the exact
 before/after wording (for deps changes, show old → new tokens) — and get explicit
-approval. **This is a hard gate: no document is written before the user confirms.**
-In headless mode, a prompt that itself specifies the exact mutation is the
-confirmation; anything less specific means stop and report instead of guessing.
+approval. **For an insert, the drafted session estimate is ratified in this same
+confirmation** ([9.6]): present it alongside the wording (default 1, balloons flagged),
+so the deliverable *and* its estimate clear one confirm gate, exactly as
+`/guv:plan-initiative` does at plan time. **This is a hard gate: no document is written
+before the user confirms.** In headless mode, a prompt that itself specifies the exact
+mutation is the confirmation; anything less specific means stop and report instead of
+guessing.
 
 ## Step 4 — Apply atomically, REQUIREMENTS first
 
@@ -103,6 +112,20 @@ forever; the tracker syncs from it; ARCHITECTURE follows where touched:
    edit** — the docs move together or not at all; surface the engine's message.
 3. **`docs/ARCHITECTURE.md`** — update only where the mutation touches recorded
    architecture (a new component, a changed data flow); skip cleanly otherwise.
+4. **The estimate sidecar** ([9.6], inserts only) — record the estimate the user
+   ratified in Step 3, through the helper and **never** through the tracker engine:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set <ID> <N>   # the ratified estimate; default N is 1
+   ```
+
+   Estimates are **interpretation**, not evidence: they live in the sidecar
+   (`docs/estimates.json`), keyed by ID, **never in a tracker line or token**. This
+   is by design — an estimate edit costs no grammar change, no contract change, and
+   **leaves the tracker byte-identical**, which is exactly why the estimate does *not*
+   pass through `replan.sh` (the tracker-mutation engine never sees it). A descope,
+   abandon, or reword does not touch estimates — only an insert acquires one; an
+   estimate revision is a bare `estimate.sh set`, no `/guv:replan` needed.
 
 ## Step 5 — Verify and report
 

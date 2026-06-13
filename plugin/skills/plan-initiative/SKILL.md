@@ -64,8 +64,19 @@ Extract and present a summary for the user to confirm — identity, phases, deli
   `max_phase + 1` from Step 1 (or 1 on a fresh project).
 - **Constraints/invariants** the spec declares, if any — these carry into REQUIREMENTS'
   Dependencies & Risk Notes.
+- **Session estimates** ([9.6]): you are reading every deliverable's wording and
+  acceptance here anyway, so propose a session estimate per deliverable in the same
+  breath. The harness pushes deliverables toward session-sized, so the **default is
+  1** — propose 1 unless the scope genuinely reads as multi-session, and **flag any
+  balloon** (estimate > 1) explicitly so the user sees it. Estimates are
+  interpretation, not plan state: they go in the **sidecar**, never in a deliverable
+  line (`"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md` documents the shape; the tracker stays
+  byte-identical regardless of estimates). The user **ratifies the estimates in this
+  same confirm gate** as the plan itself — present them as a column of the summary
+  (ID → estimate, balloons marked), and fold any adjustment into the confirmation.
 
-**Wait for the user to confirm or adjust before writing any files.**
+**Wait for the user to confirm or adjust before writing any files.** The confirmation
+covers the plan *and* its estimates — one gate, both ratified.
 
 ## Step 3 — Archive the completed predecessor (if Step 1 found one)
 
@@ -98,6 +109,18 @@ Follow the phase-docs skill structures, in order, into `${roots.control}/docs/`:
    with the same current/target framing.
 3. **PHASE_STATUS.md** — deliverables copied **verbatim** from the new REQUIREMENTS,
    all ⬜, Current Phase = the first new phase.
+4. **The estimate sidecar** ([9.6]) — record the estimates the user ratified in Step 2.
+   This is a **separate file** (`docs/estimates.json` by default), keyed by deliverable
+   ID, written **only** through the helper — never a tracker line, so the tracker stays
+   byte-identical to REQUIREMENTS:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set <ID> <N>   # once per deliverable; default N is 1
+   ```
+
+   A deliverable left at the default 1 may be `set` for completeness or left unset
+   (an unrecorded ID reads as 1). Validate the result: `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh
+   validate`. The shape and rationale live in `"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md`.
 
 ## Step 6 — Ceremony transition
 
