@@ -11,7 +11,7 @@
 # Usage:
 #   bash .claude/meter.sh capture [--deliverables "<id>[,<id>...]"]
 #                                 [--session <session-YYYY-MM-DD-NNN>]
-#                                 [--run-suite | --suite-runtime <seconds>]
+#                                 [--run-suite]
 #                                 [--log <path>]
 #
 #   --deliverables  the deliverable ID(s) this session served. Absent or empty
@@ -23,15 +23,23 @@
 #   --run-suite     time a real run of the manifest test suite (guv-cmd test)
 #                   and record its wall-clock as perf.suite_runtime_s. The number
 #                   is THIS SCRIPT'S measurement — never a caller-supplied value.
-#   --suite-runtime a suite wall-clock the SESSION-CLOSE PATH already measured
-#                   mechanically (handoff Step 3 runs the suite once; passing its
-#                   measured seconds avoids a double run). Still a measurement,
-#                   not an agent estimate — and it never sets the op wall-clock.
+#                   Omit it in the session-close path: the suite already ran in
+#                   handoff Step 3, which writes its measured wall-clock to the
+#                   mechanical artifact below — this avoids a double run.
 #   --log           override the log path (tests; default is root-relative).
 #
-# There is deliberately NO flag to set token counts, dollars, or the operation
-# wall-clock: those are harvested or measured by this script, never reported by
-# a caller. That is the "measure exhaust, never steam — no agent I/O" contract.
+# perf.suite_runtime_s — MECHANICAL ONLY, never an agent value. Two sources, both
+# harness-measured: (1) --run-suite, where THIS SCRIPT times the suite; or (2) the
+# artifact .claude/metering/.last-suite-runtime (resolved beside the log), a single
+# number the session-close path writes mechanically when it runs the suite in
+# Step 3. The writer READS that artifact — it is never a CLI argument or agent
+# input. Absent / unreadable / non-numeric artifact -> suite_runtime_s: null, the
+# designed degradation (Rule 15) — never an agent-supplied number.
+#
+# There is deliberately NO flag to set token counts, dollars, the operation
+# wall-clock, or the suite runtime: those are harvested or measured by this
+# script (or read from the harness artifact), never reported by a caller. That
+# is the "measure exhaust, never steam — no agent I/O" contract.
 #
 # Spike C (harvestability) — rung taken: B (session-scalar token attribution),
 # dollars at C (token-only, no guessed price table). Token counts by class are
@@ -54,7 +62,7 @@ SCHEMA="guv.meter.v1"
 err() { echo "meter: $1" >&2; }
 die() { err "$2"; exit "$1"; }
 
-[ $# -ge 1 ] || die 2 "usage: bash .claude/meter.sh capture [--deliverables ids] [--session id] [--run-suite|--suite-runtime s] [--log path]"
+[ $# -ge 1 ] || die 2 "usage: bash .claude/meter.sh capture [--deliverables ids] [--session id] [--run-suite] [--log path]"
 SUB="$1"; shift
 [ "$SUB" = "capture" ] || die 2 "unknown subcommand '$SUB' (only: capture)"
 
@@ -67,7 +75,6 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --deliverables) DELIVERABLES="${2:-}"; shift 2 ;;
     --session)      SESSION="${2:-}"; shift 2 ;;
-    --suite-runtime) SUITE_RUNTIME="${2:-null}"; shift 2 ;;
     --run-suite)    RUN_SUITE=1; shift ;;
     --log)          LOG="${2:-}"; shift 2 ;;
     *) die 2 "unknown argument '$1'" ;;
@@ -83,6 +90,10 @@ MANIFEST=".claude/project.json"
 jq -e . "$MANIFEST" >/dev/null 2>&1 \
   || die 4 "$MANIFEST exists but is not valid JSON — fix the manifest"
 [ -n "$LOG" ] || LOG=".claude/metering/metering.ndjson"
+# The mechanical suite-runtime artifact lives beside the log (same metering dir),
+# so an overridden --log in tests carries its artifact with it. This is a file
+# the harness writes (handoff Step 3); the writer only ever READS it.
+SUITE_ARTIFACT="$(dirname "$LOG")/.last-suite-runtime"
 
 # --- a hi-res monotone-ish clock in seconds (bash + coreutils only) -----------
 # GNU date expands %N (nanoseconds); stock macOS date leaves the literal "N", in
@@ -163,21 +174,27 @@ if [ -n "$TRANSCRIPT" ]; then
   [ -n "$MODEL_JSON" ] || MODEL_JSON="null"
 fi
 
-# --- suite runtime (optional, mechanical) -------------------------------------
-# Either THIS SCRIPT times a real suite run, or a measured value is passed in
-# from the session-close path that already ran it. Never an agent estimate.
+# --- suite runtime (mechanical only — measured here or read from the artifact) -
+# Two mechanical sources, NEVER an agent value:
+#   1. --run-suite : THIS SCRIPT times a real run of the manifest suite.
+#   2. the artifact .claude/metering/.last-suite-runtime : a single number the
+#      session-close path wrote mechanically when it ran the suite in Step 3.
+# There is no CLI flag and no agent input that can set this field. Absent /
+# unreadable / non-numeric -> null (the designed degradation, Rule 15).
 if [ "$RUN_SUITE" = "1" ]; then
   ST=$(now_s)
   bash .claude/guv-cmd.sh test >/dev/null 2>&1 || true   # time it even if red
   SE=$(now_s)
   SUITE_RUNTIME=$(awk -v a="$ST" -v b="$SE" 'BEGIN{ d=b-a; if (d<0) d=0; printf "%.3f", d }')
+elif [ -r "$SUITE_ARTIFACT" ]; then
+  # Read the harness-written artifact (mechanical). Take the first whitespace-
+  # trimmed token; accept it only if it is a number, else degrade to null —
+  # never trust a non-number, and never an agent string, into the log.
+  ART=$(tr -d '[:space:]' < "$SUITE_ARTIFACT" 2>/dev/null)
+  if printf '%s' "$ART" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+    SUITE_RUNTIME="$ART"
+  fi
 fi
-# validate a passed-in --suite-runtime is numeric; otherwise null (never trust
-# a non-number into the log)
-case "$SUITE_RUNTIME" in
-  null) ;;
-  *) printf '%s' "$SUITE_RUNTIME" | grep -qE '^[0-9]+(\.[0-9]+)?$' || SUITE_RUNTIME="null" ;;
-esac
 
 # --- timestamp (harness-derived UTC instant) ----------------------------------
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)

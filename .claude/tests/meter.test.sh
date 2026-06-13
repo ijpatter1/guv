@@ -6,9 +6,11 @@
 # log is RAW EVIDENCE — every field is harness- or git-derived, never agent-
 # reported; no derived/aggregate field is computed (that is [9.5] downstream);
 # attribution is the deliverable ID when one applies, session-scalar otherwise;
-# a genuinely-mechanical performance field (deterministic-op wall-clock) is
-# present and never an agent-written number; and the log is append-only — no
-# code path rewrites it.
+# the mechanical performance fields (deterministic-op wall-clock AND suite
+# runtime) are never agent-written numbers — op_wallclock_s is script-measured,
+# suite_runtime_s is script-measured (--run-suite) or read from the harness
+# artifact, with NO flag or agent input able to set either; and the log is
+# append-only — no code path rewrites it.
 set -u
 
 CLAUDE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -107,6 +109,49 @@ echo "$ENTRY" | jq -e '.perf | has("op_wallclock_s")' >/dev/null 2>&1 \
 grep -nE -- '--op[-_]?wallclock|--op[-_]?wall[-_]?clock|--op-time|--wallclock' "$SCRIPT" >/dev/null 2>&1 \
   && no "writer exposes a flag to set op_wallclock_s — the perf field must be script-measured only" \
   || ok "no CLI flag sets op_wallclock_s — the perf field is script-measured only (no agent value)"
+
+# T5c — suite_runtime_s is MECHANICAL ONLY: NO flag or agent input may set it.
+# The defining invariant of [9.1] is "every field harness/git-derived, never
+# agent-reported", and suite_runtime_s is a perf field the acceptance scrutinizes.
+# A --suite-runtime <number> path would let an agent inject the value (e.g.
+# --suite-runtime 9.999), breaking the no-agent-I/O contract. Asserted on the
+# writer source: no flag that takes a suite-runtime VALUE exists. (Scoped to a
+# value-taking flag so the mechanical --run-suite, which takes no value, stays
+# legal.) Written RED-first: this FAILED against the pre-fix --suite-runtime code.
+grep -nE -- '--suite[-_]?runtime|--suite[-_]?time|--runtime[[:space:]]' "$SCRIPT" 2>/dev/null \
+  | grep -vE '^[[:space:]]*[0-9]+:[[:space:]]*#' >/dev/null 2>&1 \
+  && no "writer exposes a flag to set suite_runtime_s — that perf field must be mechanical only (no agent value)" \
+  || ok "no CLI flag sets suite_runtime_s — mechanical only (--run-suite or the harness artifact, never agent input)"
+
+# T5d — POSITIVE: the mechanical artifact source produces a measured value. The
+# session-close path writes the suite wall-clock to .claude/metering/.last-suite-
+# runtime; the writer READS it (mechanical, harness-written, not a CLI arg) into
+# perf.suite_runtime_s. This proves the field is actually populated in production,
+# not permanently null.
+P5d=$(make_project); LOG5d="$P5d/.claude/metering/metering.ndjson"
+mkdir -p "$P5d/.claude/metering"
+printf '2.500\n' > "$P5d/.claude/metering/.last-suite-runtime"   # the harness-written artifact
+( cd "$P5d" && bash "$SCRIPT" capture --deliverables "9.1" ) >/dev/null 2>"$WORK/t5d.err"
+tail -1 "$LOG5d" | jq -e '.perf.suite_runtime_s == 2.5' >/dev/null 2>&1 \
+  && ok "suite_runtime_s read from the harness artifact (mechanical, == 2.5)" \
+  || no "expected suite_runtime_s == 2.5 from the artifact, got $(tail -1 "$LOG5d" | jq -c '.perf.suite_runtime_s') (err=$(cat "$WORK/t5d.err"))"
+# a non-numeric artifact is never trusted into the log -> null (never an agent string)
+P5dx=$(make_project); LOG5dx="$P5dx/.claude/metering/metering.ndjson"
+mkdir -p "$P5dx/.claude/metering"
+printf 'not-a-number\n' > "$P5dx/.claude/metering/.last-suite-runtime"
+( cd "$P5dx" && bash "$SCRIPT" capture --deliverables "9.1" ) >/dev/null 2>&1
+tail -1 "$LOG5dx" | jq -e '.perf.suite_runtime_s == null' >/dev/null 2>&1 \
+  && ok "non-numeric artifact -> suite_runtime_s null (never an agent string into the log)" \
+  || no "non-numeric artifact must degrade to null, got $(tail -1 "$LOG5dx" | jq -c '.perf.suite_runtime_s')"
+
+# T5e — DEGRADATION (Rule 15): no artifact present -> suite_runtime_s is null,
+# never an agent value. The default fixture writes no artifact, so the baseline
+# ENTRY already exercises this; assert it explicitly on a clean project.
+P5e=$(make_project); LOG5e="$P5e/.claude/metering/metering.ndjson"
+( cd "$P5e" && bash "$SCRIPT" capture --deliverables "9.1" ) >/dev/null 2>&1
+tail -1 "$LOG5e" | jq -e '.perf | has("suite_runtime_s") and .suite_runtime_s == null' >/dev/null 2>&1 \
+  && ok "no artifact -> suite_runtime_s present and null (designed degradation, never an agent value)" \
+  || no "absent artifact must yield suite_runtime_s: null, got $(tail -1 "$LOG5e" | jq -c '.perf.suite_runtime_s')"
 
 # T6 — NO derived/aggregate field appears in the log (raw evidence only;
 # aggregation is [9.5] downstream). Asserted both on the entry and on the writer

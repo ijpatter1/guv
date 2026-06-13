@@ -48,11 +48,25 @@ Present the product reviewer's full report to the user without modification or s
 
 ## Step 3 — Final Test Run
 
-Run the full test suite to confirm the codebase is in a clean state, via the manifest-command helper:
+Run the full test suite to confirm the codebase is in a clean state, via the
+manifest-command helper. Time the run and write the measured wall-clock to the
+metering artifact mechanically — this single number is the **only** mechanical
+source for `perf.suite_runtime_s` in Step 6b's metering entry (the writer reads
+the artifact; no agent ever types the runtime):
 
-```
+```bash
+mkdir -p .claude/metering
+S=$(date +%s.%N 2>/dev/null); case "$S" in *N|"") S=$(date +%s);; esac
 bash .claude/guv-cmd.sh test
+E=$(date +%s.%N 2>/dev/null); case "$E" in *N|"") E=$(date +%s);; esac
+awk -v a="$S" -v b="$E" 'BEGIN{ d=b-a; if (d<0) d=0; printf "%.3f\n", d }' \
+  > .claude/metering/.last-suite-runtime
 ```
+
+The `awk` writes the *measured* elapsed seconds — not a number you supply. If the
+suite step is null-skipped, the artifact still records the (near-zero) elapsed
+wrapper time; Step 6b reads whatever the harness measured, or `null` if the
+artifact is absent.
 
 A `[guv-cmd] commands.test is null — skipping` line means the project has no test step — note that and skip this step cleanly. If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
 
@@ -194,14 +208,18 @@ bash .claude/meter.sh capture --deliverables "<id>[,<id>...]"
 Pass the deliverable ID(s) this session served — comma-separated for several.
 For a session with no single applicable ID (docs sweep, planning, multi-area
 work), omit `--deliverables` entirely and the writer records `session-scalar`.
-**Report no numbers to the writer:** token counts, dollars, and the operation
-wall-clock are harvested or measured by the writer itself, never agent-supplied
-(the "measure exhaust, never steam — no agent I/O" contract). The writer derives
-the session id, harvests tokens from the runtime transcript where Spike C's rung
-permits (degrading to `tokens: null` if the transcript is unreachable — the log
-never blocks on harvestability), measures its own deterministic-op wall-clock,
-and appends the line. The log is append-only; nothing here rewrites it. The
-emitted shape is documented in `.claude/metering-log.md`.
+**Report no numbers to the writer:** token counts, dollars, the operation
+wall-clock, and the suite runtime are harvested, measured, or read from a harness
+artifact by the writer itself, never agent-supplied (the "measure exhaust, never
+steam — no agent I/O" contract). There is no `--suite-runtime` flag — the writer
+READS the suite runtime from `.claude/metering/.last-suite-runtime`, the artifact
+Step 3 wrote when it timed the suite (absent/unreadable → `suite_runtime_s: null`).
+The writer derives the session id, harvests tokens from the runtime transcript
+where Spike C's rung permits (degrading to `tokens: null` if the transcript is
+unreachable — the log never blocks on harvestability), measures its own
+deterministic-op wall-clock, reads the suite-runtime artifact, and appends the
+line. The log is append-only; nothing here rewrites it. The emitted shape is
+documented in `.claude/metering-log.md`.
 
 ## Step 7 — Update Phase Status
 
