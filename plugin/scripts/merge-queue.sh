@@ -14,6 +14,9 @@
 #                        queue is ordered cheapest-first (clean before
 #                        conflicting, then smallest footprint). A pairwise
 #                        conflict among queued lanes is flagged (exit 1).
+#                        Needs git >= 2.38 for --write-tree; preview probes for
+#                        it and stops loud on an older git (a silent mis-preview
+#                        is worse than a refusal — Rule 15).
 #   gate-input <id>      extracts the deliverable's acceptance block from the
 #                        control plane's REQUIREMENTS by ID and bundles it with
 #                        the footprint — what counts as good is ROUTED to the
@@ -136,6 +139,10 @@ case "$VERB" in
   preview)
     [ $# -ge 1 ] || die 2 "usage: preview <id>…"
     INTEG=$(integ)
+    # merge-tree --write-tree (git >= 2.38) is the conflict-preview primitive;
+    # a silent mis-preview on an older git would mis-order the queue (Rule 15).
+    git -C "$CODE" merge-tree --write-tree "$INTEG" "$INTEG" >/dev/null 2>&1 \
+      || die 4 "git merge-tree --write-tree unsupported — preview needs git >= 2.38 (have $(git --version 2>/dev/null))"
     declare -a IDS=() BRS=() FP=() CVI=()
     for id in "$@"; do
       read -r br dirty <<<"$(lane_state "$id")"

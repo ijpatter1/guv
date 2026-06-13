@@ -201,6 +201,15 @@ echo "$OUT" | grep -qiE "replan|deps[- ]amend" \
 git -C "$CODE" log --oneline main | grep -q "feat: A edits line1" \
   && ok "land: A (the clean lane) did land — only B was routed out" \
   || no "the first lane should have landed"
+# T9b — the routed-out lane is left USABLE for re-dispatch: the rebase was
+# aborted cleanly (worktree not mid-rebase, no conflict markers), and harvest
+# still resolves it (the failure-report/re-dispatch path in [7.5] depends on it).
+[ -z "$(git -C "$CODE/.worktrees/lane-7.5" status --porcelain 2>/dev/null)" ] \
+  && ok "land: a routed-out lane's worktree is clean (rebase --abort left no mess)" \
+  || no "a routed-out lane must be left clean, not mid-rebase"
+( cd "$P" && bash "$LANE" harvest 7.5 ) >/dev/null 2>&1 \
+  && ok "land: a routed-out lane still harvests (usable for re-dispatch)" \
+  || no "a routed-out lane must remain harvestable"
 
 # ── T10 — corrupt manifest is a loud error before any queue op (Rule 15) ──
 PC="$WORK/corrupt"; mkdir -p "$PC/.claude"
@@ -215,6 +224,26 @@ OUT=$(run 2>&1); RC=$?
 [ $RC -eq 2 ] && ok "no args -> usage (exit 2)" || no "no args must be exit 2 (rc=$RC)"
 OUT=$(run bogus 7.4); RC=$?
 [ $RC -eq 2 ] && ok "unknown verb -> usage (exit 2)" || no "unknown verb must be exit 2 (rc=$RC)"
+
+# ── T12 — gate-input with REQUIREMENTS absent is a loud stop (Rule 15) ──
+setup
+mklane create 7.4 noreq
+lanecommit 7.4 base.txt "x" "feat: work"
+rm -f "$P/docs/REQUIREMENTS.md"
+OUT=$(run gate-input 7.4); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -qi "REQUIREMENTS" \
+  && ok "gate-input: REQUIREMENTS absent -> loud stop (exit 4)" \
+  || no "gate-input must fail loud when REQUIREMENTS is absent (rc=$RC): $OUT"
+
+# ── T13 — a detached HEAD in the code repo is refused (no branch to land onto) ──
+setup
+mklane create 7.4 det
+lanecommit 7.4 base.txt "x" "feat: work"
+git -C "$CODE" checkout -q --detach main
+OUT=$(run preview 7.4); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -qi "detached" \
+  && ok "preview: detached code-repo HEAD refused (exit 4) — the queue lands onto a branch" \
+  || no "a detached HEAD must be refused with exit 4 (rc=$RC): $OUT"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

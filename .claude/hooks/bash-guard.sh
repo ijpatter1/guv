@@ -53,12 +53,12 @@ if [ -n "$AGENT_TYPE" ]; then
   # literal backtracks past the prefix, so quoted and ./-prefixed paths match too.
   TRK='[^[:space:]>|&;]*docs/(PHASE_STATUS|REQUIREMENTS)\.md'
   TRACKER_WRITES=(
-    '>>?[[:space:]]*'"$TRK"                                   # > / >> redirect onto the tracker
+    '([0-9]|&)?>{1,2}\|?[[:space:]]*'"$TRK"                   # redirect family: > >> >| &> 2> (incl. noclobber-override)
     '\btee\b[^|]*'"$TRK"                                       # tee writing the tracker
     '\bsed\b[^|]*-i[^|]*'"$TRK"                                # sed -i in place
     '\b(perl|ruby)\b[^|]*-i[^|]*'"$TRK"                        # perl/ruby -i in place
     '\bdd\b[^|]*of='"$TRK"                                     # dd of=tracker
-    '\b(cp|mv|install)\b.*[[:space:]]'"$TRK"'[[:space:]]*$'    # copy/move ONTO it (target position)
+    '\b(cp|mv|install)\b[[:space:]]+[^[:space:]]+[[:space:]].*docs/(PHASE_STATUS|REQUIREMENTS)\.md'  # copy/move ONTO it (>=1 arg before -> not a source-first read; no end-anchor -> catches chained)
     '\btruncate\b[^|]*'"$TRK"                                  # truncate the tracker
   )
   for pattern in "${TRACKER_WRITES[@]}"; do

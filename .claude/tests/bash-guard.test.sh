@@ -98,6 +98,18 @@ denies_as "cat staged.md > ./docs/REQUIREMENTS.md" "$PLAIN" "Explore" \
 denies_as "cp /tmp/staged docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
   && ok "subagent cp ONTO the tracker (target) denied" \
   || no "subagent cp onto a tracker must be denied"
+# Seams closed after the [7.4] evaluator pass: the noclobber-override redirect
+# (>|), the &> redirect, and a cp-onto-tracker CHAINED past the line end — all
+# honest write shapes the first patterns let slip.
+denies_as "echo x >| docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+  && ok "subagent >| (noclobber-override) onto the tracker denied" \
+  || no "subagent >| redirect to a tracker must be denied"
+denies_as "make build &> docs/REQUIREMENTS.md" "$PLAIN" "lane-7.4" \
+  && ok "subagent &> redirect onto the tracker denied" \
+  || no "subagent &> redirect to a tracker must be denied"
+denies_as "cp /tmp/staged docs/PHASE_STATUS.md && echo done" "$PLAIN" "evaluator" \
+  && ok "subagent cp ONTO the tracker chained past line-end denied" \
+  || no "subagent cp onto a tracker must be denied even when chained"
 
 # T8 — the MAIN session (no agent_type) writing a tracker via Bash is ALLOWED —
 # it IS the single writer; the guard must never touch it.
