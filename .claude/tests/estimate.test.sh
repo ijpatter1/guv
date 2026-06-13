@@ -38,7 +38,7 @@ cat > "$WORK/tracker.md" <<'MD'
 _Goal: meter cost at every boundary._
 
 - ✅ **[9.1]** Session-boundary cost capture `[deps: none]` (2026-06-13, session-x)
-- 🔄 **[9.6]** Estimate sidecar `[deps: 6.3]`
+- 🔄 **[9.6]** Sidecar machinery `[deps: 6.3]`
 - ⬜ **[9.7]** Projection `[deps: 9.5, 9.6, 6.2]`
 MD
 
@@ -140,12 +140,22 @@ cmp -s "$TR" "$BEFORE" \
   && ok "BYTE-IDENTITY: a full set/revise/validate/read cycle leaves the tracker untouched" \
   || no "the tracker changed under estimate edits — the sidecar leaked into plan state"
 
-# ════ T6 — THE HEART: NO estimate token enters the tracker grammar ════
-# Estimates never appear as a tracker token. The sidecar is the ONLY home for
-# the word — grep the tracker fixture and assert it carries no estimate data.
-grep -qiE 'estimate|`\[est' "$TR" \
-  && no "the tracker grammar carries estimate data — [9.6]'s whole point is violated" \
-  || ok "NO-TRACKER-TOKEN: the tracker grammar carries no estimate token (grep-asserted)"
+# ════ T6 — THE HEART: NO estimate TOKEN enters the tracker grammar ════
+# The grammar carries exactly one backticked token per line — the deps token.
+# An estimate must NEVER ride alongside it as a token: no `[est: N]`,
+# `[estimate: N]`, `[sessions: N]`, or a bare estimate value attached to a
+# line. The sidecar is the data's only home. We assert against TOKEN SHAPES
+# (the deliverable [9.6] may legitimately be *named* "estimate" in prose; what
+# is forbidden is estimate DATA carried as a tracker token).
+grep -qiE '`\[(est|estimate|sessions?|sized?|cost)\b' "$TR" \
+  && no "the tracker grammar carries an estimate token — [9.6]'s whole point is violated" \
+  || ok "NO-TRACKER-TOKEN: no estimate-shaped token rides the tracker grammar (grep-asserted)"
+# The only backticked token kind in the fixture is the deps token — confirm no
+# second token-kind exists on any line.
+EXTRA_TOK=$(grep -oE '`\[[a-z]+:' "$TR" | grep -viE '`\[deps:' || true)
+[ -z "$EXTRA_TOK" ] \
+  && ok "NO-TRACKER-TOKEN: deps is the only backticked token kind (no estimate sibling)" \
+  || no "a non-deps token rides the tracker grammar: $EXTRA_TOK"
 # And the sidecar genuinely holds the data instead — proving it has a home.
 grep -q '9.6' "$S" \
   && ok "the sidecar (not the tracker) is where the estimate lives" || no "the estimate must live in the sidecar"
