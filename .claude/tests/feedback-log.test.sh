@@ -79,6 +79,30 @@ while IFS= read -r line; do echo "$line" | jq -e . >/dev/null 2>&1 || no "post-t
 ok "every line still valid JSON after triage"
 [ "$(wc -l < "$F" | tr -d ' ')" = 2 ] && ok "triage preserves entry count (no deletion)" || no "triage should not delete entries"
 
+# T4b — the GRADUATION triage form (the one /handoff's drain step uses) flips
+# status AND appends a provenance note to detail. The bare status-only form can't
+# do the second half, so /handoff's "name what resolved it" instruction needs
+# this exact documented command — exercised verbatim here so the doc can't drift
+# back to a status-only command that silently drops provenance.
+append "friction" "stale once its fix shipped" "minor" "upstream" "g"
+GID=$(tail -1 "$F" | jq -r .id)
+BEFORE=$(tail -1 "$F" | jq -r .detail)
+NOTE="GRADUATED 2026-06-13 (session-x): resolved by deliverable [9.9]"
+tmp=$(mktemp) && jq -c --arg id "$GID" --arg s "graduated" --arg note "$NOTE" \
+  'if .id==$id then .status=$s | (if $note=="" then . else .detail=(.detail + " | " + $note) end) else . end' \
+  "$F" > "$tmp" && mv "$tmp" "$F"
+ENT=$(jq -c --arg id "$GID" 'select(.id==$id)' "$F")
+[ "$(echo "$ENT" | jq -r .status)" = "graduated" ] \
+  && ok "graduate triage flips status to graduated" || no "graduate triage must set status=graduated"
+echo "$ENT" | jq -r .detail | grep -qF "$NOTE" \
+  && ok "graduate triage appends the provenance note to detail (what /handoff Step 10 instructs)" \
+  || no "graduate triage must append the provenance note to detail, not just flip status"
+echo "$ENT" | jq -r .detail | grep -qF "$BEFORE" \
+  && ok "graduate triage appends (preserves original detail), does not replace" \
+  || no "graduate triage must preserve the original detail context"
+while IFS= read -r line; do echo "$line" | jq -e . >/dev/null 2>&1 || no "post-graduate line not valid JSON"; done < "$F"
+ok "every line still valid JSON after the graduate triage"
+
 # T5 — open-count is 0 (not an error) when the log doesn't exist yet
 rm -f "$F"
 [ "$(open_count)" = 0 ] && ok "missing log: open-count is 0, no error" || no "missing log should yield 0"

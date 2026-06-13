@@ -58,7 +58,7 @@ Fill these fields (\* = required):
 | `detail`     |     | Optional longer context — repro, what you expected, what you did instead                                                                                                                                                                                                                                                                                     |
 | `severity`\* | ✓   | `blocker` · `major` · `minor`                                                                                                                                                                                                                                                                                                                                |
 | `routing`\*  | ✓   | `upstream` (a core bug — fix in the template) · `local` (a this-project misfit — belongs in a local adaptation) · `unsure`                                                                                                                                                                                                                                   |
-| `status`\*   | ✓   | `open` on creation. Terminal states, set only by triage: `resolved` (fixed before any release existed), `wontfix` (deliberately not acting), `graduated` (the fix shipped in a release, or the local adaptation landed) — the lifecycle is in "Closing the loop". |
+| `status`\*   | ✓   | `open` on creation. Terminal states, set only by triage: `resolved` (fixed before any release existed), `wontfix` (deliberately not acting), `graduated` (the fix reached this consumer by its delivery mechanism — a release, a `--sync`, or a landed local adaptation; see "Closing the loop") — the full lifecycle is in "Closing the loop". |
 
 Append the entry (substitute the `--arg` values; this creates the dir/file on first use):
 
@@ -124,12 +124,18 @@ jq -s 'group_by(.routing) | map({routing: .[0].routing, open: [.[]|select(.statu
 ```
 
 Triage an entry — NDJSON is rewritten whole (it's small). Match on the unique `id` (not
-`ts`, which can collide) and set a terminal status (`resolved`, `wontfix`, or `graduated`
-once it has been fixed upstream / turned into a local adaptation):
+`ts`, which can collide), set a terminal status (`resolved`, `wontfix`, or `graduated`),
+and — when graduating — append a provenance note to `detail` naming **what** resolved it,
+so the close is auditable. `NOTE` is optional: leave it `""` for a bare status flip (e.g.
+`wontfix`); supply it when graduating (this is the form `/handoff`'s drain step uses):
 
 ```bash
-ID="2026-06-10T12:34:56Z-1234"; NEW="resolved"; f=.claude/feedback/feedback.ndjson
-tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" 'if .id==$id then .status=$s else . end' "$f" > "$tmp" && mv "$tmp" "$f" || rm -f "$tmp"
+ID="2026-06-10T12:34:56Z-1234"; NEW="graduated"
+NOTE="GRADUATED $(date -u +%Y-%m-%d) (session-…): resolved by <deliverable or commit>"   # "" to skip
+f=.claude/feedback/feedback.ndjson
+tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" --arg note "$NOTE" \
+  'if .id==$id then .status=$s | (if $note=="" then . else .detail=(.detail + " | " + $note) end) else . end' \
+  "$f" > "$tmp" && mv "$tmp" "$f" || rm -f "$tmp"
 ```
 
 ## Closing the loop
@@ -155,12 +161,13 @@ plugin releases — so an `upstream` fix reaches it the moment the fix lands in 
 harness **source** and is synced in, with no release event to graduate on. For such a
 consumer the entry **graduates when its fix lands in source and reaches the plane via
 `--sync`**, the triage note naming the resolving deliverable or commit. This is the
-developer-side close trigger, distinct from the external-consumer release drain above —
-the same shape as the `no-release-vehicle` path (graduate on the merge to the default
-branch) and the `helper-registry-hand-enumerated` precedent (graduated on its
-deliverable landing, not a release). Without it, fixes that ship the way the dogfooding
-control plane actually consumes the harness never close, and the log rots. `/handoff`
-Step 10 runs this drain every session.
+developer-side close trigger, distinct from the external-consumer release drain above:
+the general rule is **graduate on the landing event by which this consumer actually
+receives the fix** — a plugin release for a release consumer, a `--sync` (or a merge to
+the default branch) for a developer one — not a release in every case. Without it, fixes
+that ship the way the dogfooding control plane actually consumes the harness never close,
+and the log rots. `/handoff` Step 10 runs this drain every session. (Maintainers: the
+release-side mechanics and the no-release-vehicle path are in `maintainers/RELEASING.md`.)
 
 `/handoff` **drains** open entries at session end — Step 10 proposes graduating the
 ones the session resolved (the close paths above), not merely counting them — and
