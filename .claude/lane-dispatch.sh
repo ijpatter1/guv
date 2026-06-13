@@ -174,7 +174,8 @@ do_harvest() {  # $1=id
 
 # A docFragment target is safe only if it stays inside the repo (no absolute
 # path, no .. escape) and is not a single-writer tracker (the channel writes
-# shared PROSE; plan mutation is /replan only). Returns 1 if ANY target is bad.
+# shared PROSE; plan mutation is /replan (/guv:replan under the plugin) only).
+# Returns 1 if ANY target is bad.
 docfrag_targets_ok() {  # $1 = lane-output json file
   ! jq -r '.docFragments[].file' "$1" 2>/dev/null \
     | grep -qE '^/|\.\.|(^|/)docs/(PHASE_STATUS|REQUIREMENTS)\.md$'
