@@ -56,6 +56,10 @@ case "$VERB" in
   create)
     [ $# -eq 3 ] || usage
     SLUG="$3"
+    # id/slug shape the branch and worktree names — keep them to the safe
+    # charset rather than letting a slash or space produce surprising refs
+    case "$ID" in (*[!A-Za-z0-9._-]*|"") echo "guv-lane: invalid lane id '$ID' (use letters, digits, . _ -)" >&2; exit 2 ;; esac
+    case "$SLUG" in (*[!A-Za-z0-9._-]*|"") echo "guv-lane: invalid slug '$SLUG' (use letters, digits, . _ -)" >&2; exit 2 ;; esac
     BR="lane/$ID-$SLUG"
     [ -e "$CODE/$WT" ] && die6 "lane $ID already exists at $WT"
     git -C "$CODE" show-ref --verify --quiet "refs/heads/$BR" \
@@ -67,9 +71,9 @@ case "$VERB" in
     [ $# -eq 2 ] || usage
     BR=$(lane_branch) || exit $?
     [ -d "$CODE/$WT" ] || die5 "lane $ID branch exists but worktree $WT is missing"
-    HEAD=$(git -C "$CODE/$WT" rev-parse HEAD)
-    BASE=$(git -C "$CODE" merge-base HEAD "$BR")
-    AHEAD=$(git -C "$CODE" rev-list --count "$BASE..$BR")
+    HEAD=$(git -C "$CODE/$WT" rev-parse HEAD) || die5 "cannot resolve HEAD of lane $ID"
+    BASE=$(git -C "$CODE" merge-base HEAD "$BR") || die5 "cannot resolve merge-base for lane $ID"
+    AHEAD=$(git -C "$CODE" rev-list --count "$BASE..$BR") || die5 "cannot count lane $ID commits"
     DIRTY=0
     [ -n "$(git -C "$CODE/$WT" status --porcelain)" ] && DIRTY=1
     echo "lane=$ID branch=$BR head=$HEAD ahead=$AHEAD dirty=$DIRTY"

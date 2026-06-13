@@ -55,6 +55,7 @@ ${scopeHint
     ? `The user scoped the evaluation: "${scopeHint}". Resolve that to concrete commits.`
     : 'No explicit scope was given: evaluate all work since the latest session handoff (the most recent file in docs/sessions/).'}
 Run git against the code repo: git -C "$(jq -r '.roots.code' .claude/project.json)" log/diff/show (a no-op for single-repo, where roots.code is ".").
+(That inline form is deliberate here — DISCLOSED [7.1] non-routing: workflow scripts get no path rewrite in the plugin build, so a bash .claude/guv-git.sh reference would be a dead path for plugin-only consumers; the inline read works in every install mode.)
 Read the current phase from docs/PHASE_STATUS.md.
 Collect: the phase, the commits in scope (oldest first), the files changed across them, and a one-line description of what is being evaluated.`,
   { label: 'scope', phase: 'Scope', schema: SCOPE_SCHEMA }

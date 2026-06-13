@@ -153,11 +153,14 @@ for d in "$SRC/skills"/*/; do
   done
 done
 
-# ── agents, frontmatter hooks: block stripped, references namespaced ──
+# ── agents, frontmatter hooks: block stripped, references namespaced AND
+# path-rewritten ──
 # hooks: is dropped from the line "hooks:" through the last indented line of
 # its block; every other frontmatter key and the body pass through with the
 # namespace rewrite (descriptions and bodies mention /evaluate, /handoff,
-# @evaluator — dead pointers in their bare forms under plugin install).
+# @evaluator — dead pointers in their bare forms under plugin install) and
+# the script-path rewrite ([7.1] routed agent procedures through the
+# .claude/guv-*.sh helpers — dead paths in a plugin-only project without it).
 for a in "$SRC/agents"/*.md; do
   awk '
     /^---$/ { fm++; inhooks=0; print; next }
@@ -165,7 +168,7 @@ for a in "$SRC/agents"/*.md; do
     fm==1 && inhooks && /^[^ ]/ { inhooks=0 }
     inhooks { next }
     { print }
-  ' "$a" | namespace_refs > "$OUT/agents/$(basename "$a")"
+  ' "$a" | rewrite_paths | namespace_refs > "$OUT/agents/$(basename "$a")"
 done
 
 # ── hook + helper scripts, byte-identical ──

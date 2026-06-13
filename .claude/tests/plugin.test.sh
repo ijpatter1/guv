@@ -48,6 +48,21 @@ finish() {
   [ "$FAIL" -eq 0 ]
 }
 
+# The helper/hook script-name alternation, DERIVED by glob ([7.1]) — used by
+# T6's body comparison (the build path-rewrites agent bodies) and T12's
+# stale-path detector. The hand list this replaces had fallen behind the
+# build's; derivation keeps both sides of the guard in lockstep by existing.
+SCRIPTS_ALT=$(
+  {
+    for f in "$SRC"/*.sh; do basename "$f" .sh; done
+    for f in "$SRC"/hooks/*.sh; do basename "$f" .sh; done
+  } | paste -sd'|' -
+)
+# the forward rewrite exactly as the build applies it (sed -E, '#' delimiter)
+apply_path_rewrite() {
+  sed -E 's#\.claude/(hooks/)?('"$SCRIPTS_ALT"')\.sh#"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh#g'
+}
+
 # T1 — manifest exists, parses, and carries the identity fields. name must be
 # "guv" (it IS the namespace: /guv:status), version must be semver (D3's release
 # flow pins updates to version bumps).
@@ -137,11 +152,13 @@ for a in evaluator product-reviewer; do
   awk '/^---$/{n++} n==1' "$pa" | grep -q '^tools: Read, Glob, Grep, Bash$' || { no "agent $a restricted tool list not preserved"; T6_OK=0; }
   # body (after the closing ---) must be identical to the source body modulo
   # the namespace rewrite (plugin copies reference /guv:* and @guv:* because
-  # bare names don't resolve under plugin install) — un-namespace the plugin
-  # side and compare
-  diff <(awk '/^---$/{n++; next} n>=2' "$sa") \
+  # bare names don't resolve under plugin install) and the script-path rewrite
+  # ([7.1]: agent procedures route through .claude/guv-*.sh helpers, which a
+  # plugin-only project doesn't have) — forward-rewrite the source side,
+  # un-namespace the plugin side, and compare
+  diff <(awk '/^---$/{n++; next} n>=2' "$sa" | apply_path_rewrite) \
        <(awk '/^---$/{n++; next} n>=2' "$pa" | sed -E 's|/guv:|/|g; s|@guv:|@|g; s|`guv:(evaluator\|product-reviewer)` subagent|`\1` subagent|g') >/dev/null 2>&1 \
-    || { no "agent $a body differs from source beyond the namespace rewrite"; T6_OK=0; }
+    || { no "agent $a body differs from source beyond the namespace + path rewrites"; T6_OK=0; }
 done
 [ "$T6_OK" -eq 1 ] && ok "both agents ship hook-free with name/tools/body preserved"
 
@@ -255,20 +272,17 @@ else
 fi
 
 # T12 — no stale project-relative script invocations survive inside plugin
-# skills: every helper-script reference must have been rewritten to the plugin
-# root (references to project files like .claude/project.json are legitimate).
-# The detector's name set is DERIVED by glob ([7.1]) — the hand list it
-# replaces had silently fallen three helpers behind the build's.
-SCRIPTS_ALT=$(
-  {
-    for f in "$SRC"/*.sh; do basename "$f" .sh; done
-    for f in "$SRC"/hooks/*.sh; do basename "$f" .sh; done
-  } | paste -sd'|' -
-)
-STALE=$(grep -rE "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" "$PLUGIN/skills" | grep -cv 'CLAUDE_PLUGIN_ROOT')
+# skills OR agents: every helper-script reference must have been rewritten to
+# the plugin root (references to project files like .claude/project.json are
+# legitimate). The detector's name set is DERIVED by glob ([7.1]) — the hand
+# list it replaces had silently fallen three helpers behind the build's — and
+# agents/ joined the scan after [7.1]'s routing shipped dead .claude/guv-*.sh
+# paths there inside a green battery (the skills-only scan was blind to the
+# exact surface the routing touched).
+STALE=$(grep -rE "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" "$PLUGIN/skills" "$PLUGIN/agents" | grep -cv 'CLAUDE_PLUGIN_ROOT')
 [ "$STALE" -eq 0 ] \
-  && ok "no stale .claude/ script paths in plugin skills (all rewritten to plugin root)" \
-  || no "$STALE stale .claude/ script reference(s) remain in plugin/skills"
+  && ok "no stale .claude/ script paths in plugin skills or agents (all rewritten to plugin root)" \
+  || no "$STALE stale .claude/ script reference(s) remain in plugin/skills|agents"
 
 # T12b — cross-references are namespaced: bare /command mentions and bare
 # reviewer-spawn instructions are dead pointers for plugin consumers (plugin

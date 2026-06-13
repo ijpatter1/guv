@@ -59,6 +59,17 @@ git -C "$CODE" show-ref --verify --quiet refs/heads/lane/9.9-other-slug \
   && no "duplicate create must not leave a second branch" \
   || ok "duplicate create left no stray branch"
 
+# T2b — id and slug are charset-validated: a slash or space must be refused
+# (it would shape surprising branch/worktree names), exit 2, nothing created.
+OUT=$(run create "3/3" slug); RC=$?
+[ $RC -eq 2 ] && echo "$OUT" | grep -q "invalid lane id" \
+  && ok "slash-bearing lane id refused (exit 2)" \
+  || no "invalid lane id must be refused with exit 2 (rc=$RC: $OUT)"
+OUT=$(run create 3.3 "bad slug"); RC=$?
+[ $RC -eq 2 ] && echo "$OUT" | grep -q "invalid slug" \
+  && ok "space-bearing slug refused (exit 2)" \
+  || no "invalid slug must be refused with exit 2 (rc=$RC: $OUT)"
+
 # T3 — harvest: structured state (lane=, branch=, head=, ahead=, dirty=).
 ( cd "$CODE/.worktrees/lane-9.9" \
   && echo y > g && git add g && git -c user.email=t@t -c user.name=t commit -qm lane-work )

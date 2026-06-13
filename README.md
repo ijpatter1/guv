@@ -252,6 +252,9 @@ code .
 │   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
 │   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan-initiative)
+│   ├── guv-git.sh                     # Git against roots.code, once (the retired inline incantation)
+│   ├── guv-cmd.sh                     # Manifest command + loud null-skip, once
+│   ├── guv-lane.sh                    # Worktree lane lifecycle (create/harvest/destroy)
 │   ├── settings.json                  # Permissions (convenience layer) + hooks
 │   ├── settings.sandbox-example.json  # Recommended native-sandbox fragment (default tier)
 │   ├── settings.local.json            # Personal overrides (gitignored)
