@@ -149,7 +149,21 @@ close through its release flow (maintainer mechanics in the harness repo's
   friction isn't worth adapting around, `wontfix`.
 - **`unsure`** → review and reclassify at triage; routing decides which drain applies.
 
-`/handoff` surfaces open entries at session end; `/status` shows the open count, so
-the pile stays visible rather than forgotten. Triage periodically; mark entries
-`graduated`/`resolved`/`wontfix` rather than deleting them, so the history of what
-bit and what was done stays intact.
+**Dogfooding / `--sync` consumers.** A control plane that *develops* the harness
+consumes it via `setup-control-plane.sh --sync` from the code repo, not via versioned
+plugin releases — so an `upstream` fix reaches it the moment the fix lands in the
+harness **source** and is synced in, with no release event to graduate on. For such a
+consumer the entry **graduates when its fix lands in source and reaches the plane via
+`--sync`**, the triage note naming the resolving deliverable or commit. This is the
+developer-side close trigger, distinct from the external-consumer release drain above —
+the same shape as the `no-release-vehicle` path (graduate on the merge to the default
+branch) and the `helper-registry-hand-enumerated` precedent (graduated on its
+deliverable landing, not a release). Without it, fixes that ship the way the dogfooding
+control plane actually consumes the harness never close, and the log rots. `/handoff`
+Step 10 runs this drain every session.
+
+`/handoff` **drains** open entries at session end — Step 10 proposes graduating the
+ones the session resolved (the close paths above), not merely counting them — and
+`/status` shows the open count, so the pile stays visible rather than forgotten. Triage
+periodically; mark entries `graduated`/`resolved`/`wontfix` rather than deleting them,
+so the history of what bit and what was done stays intact.

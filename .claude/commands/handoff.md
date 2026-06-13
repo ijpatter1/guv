@@ -325,16 +325,36 @@ skill (it appends to `.claude/feedback/feedback.ndjson`; data only, never blocki
 Logging friction _as it is hit_ mid-session is better, but handoff is the backstop so
 nothing is lost.
 
-Then surface what's outstanding so the log doesn't rot — count open entries:
+Then surface what's outstanding so the log doesn't rot — count open entries, and
+list them so you can drain:
 
 ```
 f=.claude/feedback/feedback.ndjson
 [ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0
+[ -f "$f" ] && jq -r 'select(.status=="open") | "\(.id)\t\(.routing)\t\(.summary)"' "$f"
 ```
 
-If the count is > 0, note it in the handoff artifact under **Issues & Technical Debt**
-(e.g. "3 open harness-feedback entries — triage with the `log-feedback` skill"), so the
-next session sees it. If 0, say nothing.
+**Drain, don't just count — close the loop for what this session resolved.** The log
+only stays useful if entries close when their friction is gone; the surface step alone
+lets fixes pile up `open` forever (acute in a dogfooding control plane, which consumes
+the harness via `--sync` and so never hits the release-keyed drain). Review the open
+entries against this session's work, and for each whose fix **landed in the harness
+source this session** — or is already live in-plane via `--sync`, or whose friction is
+otherwise resolved — **propose graduating** it, naming the resolving deliverable or
+commit:
+
+- **Interactive:** present the proposed graduations and wait for the user's confirm.
+- **Headless/bypass:** apply them and note each under **Completed** in the handoff.
+
+Apply via the `log-feedback` skill's triage command — flip `status` to `graduated`
+(or `resolved`/`wontfix`) and append a provenance note to `detail` naming what
+resolved it. This is the agent-executable close trigger the sync/dogfooding model
+needs (see the skill's *Closing the loop*). Don't force it: an entry whose fix has
+**not** landed stays `open` — graduate only what's genuinely resolved.
+
+Whatever stays open after the drain: note the count in the handoff artifact under
+**Issues & Technical Debt** (e.g. "3 open harness-feedback entries — triage with the
+`log-feedback` skill"), so the next session sees it. If 0, say nothing.
 
 ## Step 11 — Summary
 
