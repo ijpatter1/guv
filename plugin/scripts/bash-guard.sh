@@ -34,6 +34,50 @@ if [ -z "$COMMAND" ]; then
 fi
 
 # ─────────────────────────────────────────────
+# SINGLE-WRITER TRACKER GUARD — agent_type-gated ([7.4]; closes the [7.3] gap)
+# Only the MAIN session writes the plan-of-record trackers (single-writer.sh
+# denies a subagent's Write/Edit/MultiEdit). This closes the Bash surface that
+# hook leaves open — a subagent redirecting or streaming over the tracker.
+# agent_type is non-empty ONLY inside a subagent, so the main writer passes
+# through untouched (it never sets agent_type), and so does every read.
+# Covered: the honest write shapes — output redirect, tee, in-place sed/perl/
+# ruby, dd of=, copy/move ONTO the tracker, truncate. An adversarial subagent
+# assembling an obscure write (a variable-built path, python open('w')) is out
+# of scope HERE by design: the real boundary is that lane work commits to its
+# own branch and lands through the gated merge queue — never to the tracker on
+# main — inside the native sandbox. Plan mutation is /replan in the main session.
+# ─────────────────────────────────────────────
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // empty')
+if [ -n "$AGENT_TYPE" ]; then
+  # A path prefix with no shell metachars, then a tracker filename. The trailing
+  # literal backtracks past the prefix, so quoted and ./-prefixed paths match too.
+  TRK='[^[:space:]>|&;]*docs/(PHASE_STATUS|REQUIREMENTS)\.md'
+  TRACKER_WRITES=(
+    '>>?[[:space:]]*'"$TRK"                                   # > / >> redirect onto the tracker
+    '\btee\b[^|]*'"$TRK"                                       # tee writing the tracker
+    '\bsed\b[^|]*-i[^|]*'"$TRK"                                # sed -i in place
+    '\b(perl|ruby)\b[^|]*-i[^|]*'"$TRK"                        # perl/ruby -i in place
+    '\bdd\b[^|]*of='"$TRK"                                     # dd of=tracker
+    '\b(cp|mv|install)\b.*[[:space:]]'"$TRK"'[[:space:]]*$'    # copy/move ONTO it (target position)
+    '\btruncate\b[^|]*'"$TRK"                                  # truncate the tracker
+  )
+  for pattern in "${TRACKER_WRITES[@]}"; do
+    if echo "$COMMAND" | grep -qE "$pattern"; then
+      jq -n \
+        --arg reason "Single-writer invariant: only the main session writes the plan-of-record tracker. Subagent (agent_type=$AGENT_TYPE) denied a Bash write to the tracker via: $COMMAND. Plan mutations go through /replan (/guv:replan under the plugin) in the main session." \
+        '{
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: $reason
+          }
+        }'
+      exit 0
+    fi
+  done
+fi
+
+# ─────────────────────────────────────────────
 # UNIVERSAL BLOCKED — always on
 # ─────────────────────────────────────────────
 UNIVERSAL_BLOCKED=(

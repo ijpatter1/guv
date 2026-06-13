@@ -1,0 +1,195 @@
+#!/bin/bash
+# .claude/merge-queue.sh — the gated merge queue ([7.4]).
+#
+# Lands lane branches (lane/<id>-<slug> in the CODE repo, made by guv-lane.sh —
+# one per deliverable ID) sequentially onto the integration branch (the code
+# repo's checked-out HEAD). The discipline, in four deterministic moves the
+# orchestrator drives:
+#
+#   precheck <id>        cheap gates BEFORE the evaluator spends a token —
+#                        a dirty lane worktree or a WIP/fixup commit message is
+#                        refused; the diff footprint is computed and surfaced.
+#   preview <id>…        git merge-tree --write-tree previews each lane's
+#                        conflicts WITHOUT touching a working tree, and the
+#                        queue is ordered cheapest-first (clean before
+#                        conflicting, then smallest footprint). A pairwise
+#                        conflict among queued lanes is flagged (exit 1).
+#   gate-input <id>      extracts the deliverable's acceptance block from the
+#                        control plane's REQUIREMENTS by ID and bundles it with
+#                        the footprint — what counts as good is ROUTED to the
+#                        checker, not reconstructed by it (Rule 12: the model
+#                        grades, code assembles the input).
+#   land <id>            rebase the lane onto the post-merge integration head
+#                        (in the lane's own worktree, never disturbing main),
+#                        then fast-forward land. A rebase that conflicts is the
+#                        conflict-as-DAG-lint heavy path: refuse (exit 7), land
+#                        nothing, and propose a /replan deps-amend so the lanes
+#                        serialize. The model improvises the repair, never the
+#                        route (Rule 15).
+#
+# Lanes resolve through guv-lane.sh (harvest), so the queue inherits the one
+# lane-id→branch lookup rather than re-deriving it. cwd must be the project root
+# (the control plane: roots.code names the lane repo, docs/REQUIREMENTS.md holds
+# the acceptance). Ships byte-identical into both install modes; siblings
+# resolve it location-relative (the [7.7] precedent).
+#
+# Exit: 0 ok · 2 usage · 4 no/corrupt manifest or no code repo ·
+#       5 unknown lane or unknown deliverable ID · 6 refused (dirty/WIP
+#       pre-check) · 7 heavy conflict (DAG-lint route).
+set -u
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+LANE="$HERE/guv-lane.sh"
+
+die() { echo "merge-queue: $2" >&2; exit "$1"; }
+
+# Resolve the CODE repo the same way every sibling does — a manifest that
+# exists but won't parse is a loud stop, never the single-repo fallback
+# (landing into the wrong repo is the worst version of this mistake; Rule 15).
+CODE="."
+if [ -f .claude/project.json ]; then
+  jq -e . .claude/project.json >/dev/null 2>&1 \
+    || die 4 ".claude/project.json exists but is not valid JSON — fix the manifest"
+  CODE=$(jq -r '.roots.code // "."' .claude/project.json)
+  { [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
+fi
+git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
+  || die 4 "no git repo at roots.code ($CODE)"
+
+# The integration branch — the queue lands onto the code repo's checked-out
+# branch. A detached HEAD has no branch to advance: loud stop.
+integ() {
+  git -C "$CODE" symbolic-ref --short HEAD 2>/dev/null \
+    || die 4 "code repo HEAD is detached — the queue lands onto a branch"
+}
+
+# Resolve a lane id → its branch via guv-lane harvest (the one lookup).
+# Echoes "branch dirty" on success; propagates guv-lane's exit on failure.
+lane_state() {
+  local id="$1" out rc br dirty
+  out=$(bash "$LANE" harvest "$id" 2>/dev/null); rc=$?
+  [ $rc -eq 0 ] || die 5 "no lane for id $id (expected lane/$id-<slug>)"
+  br=$(printf '%s' "$out" | grep -oE 'branch=[^ ]+' | head -1 | cut -d= -f2-)
+  dirty=$(printf '%s' "$out" | grep -oE 'dirty=[^ ]+' | head -1 | cut -d= -f2-)
+  printf '%s %s' "$br" "$dirty"
+}
+
+# files insertions deletions of the lane's own commits (merge-base..branch).
+footprint() {
+  local br="$1" base
+  base=$(git -C "$CODE" merge-base "$(integ)" "$br" 2>/dev/null) \
+    || die 5 "cannot find a merge-base for $br"
+  git -C "$CODE" diff --numstat "$base..$br" \
+    | awk '{f++; i+=($1=="-"?0:$1); d+=($2=="-"?0:$2)} END{printf "files=%d insertions=%d deletions=%d", f+0, i+0, d+0}'
+}
+
+# Extract the deliverable's acceptance block (by ID) from a REQUIREMENTS file:
+# from the deliverable's lead line through to the next deliverable lead or a
+# section boundary. Empty if the ID is absent.
+acceptance_block() {
+  local id="$1" file="$2"
+  awk -v id="$id" '
+    function is_lead(l) { return (l ~ /\*\*\[[0-9]+\.[0-9]+\]\*\*/) }
+    BEGIN { cap=0; idpat="\\*\\*\\[" id "\\]\\*\\*" }
+    {
+      if (!cap && $0 ~ idpat) { cap=1; print; next }
+      if (cap && (is_lead($0) || $0 ~ /^## / || $0 ~ /^---/)) { cap=0 }
+      if (cap) print
+    }
+  ' "$file"
+}
+
+[ $# -ge 1 ] || die 2 "usage: bash .claude/merge-queue.sh precheck <id> | preview <id>… | gate-input <id> | land <id>"
+VERB="$1"; shift
+
+case "$VERB" in
+  precheck)
+    [ $# -eq 1 ] || die 2 "usage: precheck <id>"
+    ID="$1"
+    read -r BR DIRTY <<<"$(lane_state "$ID")"
+    [ "$DIRTY" = "1" ] \
+      && die 6 "lane $ID worktree is dirty — commit or discard before queueing (refused before any agent invocation)"
+    BASE=$(git -C "$CODE" merge-base "$(integ)" "$BR")
+    if git -C "$CODE" log --format='%s' "$BASE..$BR" | grep -qiE '^(wip|fixup!|squash!|amend!)'; then
+      die 6 "lane $ID carries a WIP/fixup commit message — clean the history before queueing"
+    fi
+    echo "precheck=ok lane=$ID footprint $(footprint "$BR")"
+    ;;
+
+  gate-input)
+    [ $# -eq 1 ] || die 2 "usage: gate-input <id>"
+    ID="$1"
+    REQ="docs/REQUIREMENTS.md"
+    [ -f "$REQ" ] || die 4 "no $REQ (cwd must be the control plane)"
+    ACC=$(acceptance_block "$ID" "$REQ")
+    [ -n "$ACC" ] || die 5 "no deliverable [$ID] in $REQ — acceptance criteria not found"
+    read -r BR DIRTY <<<"$(lane_state "$ID")"
+    HEAD=$(git -C "$CODE" rev-parse "$BR")
+    echo "=== gate-input for [$ID] — evaluator grading bundle ==="
+    echo "deliverable: $ID"
+    echo "lane: $BR head=$HEAD"
+    echo "footprint $(footprint "$BR")"
+    echo "--- acceptance criteria (from $REQ; what counts as good) ---"
+    printf '%s\n' "$ACC"
+    ;;
+
+  preview)
+    [ $# -ge 1 ] || die 2 "usage: preview <id>…"
+    INTEG=$(integ)
+    declare -a IDS=() BRS=() FP=() CVI=()
+    for id in "$@"; do
+      read -r br dirty <<<"$(lane_state "$id")"
+      base=$(git -C "$CODE" merge-base "$INTEG" "$br")
+      lines=$(git -C "$CODE" diff --numstat "$base..$br" | awk '{i+=($1=="-"?0:$1); d+=($2=="-"?0:$2)} END{print i+d+0}')
+      cvi=0
+      git -C "$CODE" merge-tree --write-tree "$INTEG" "$br" >/dev/null 2>&1 || cvi=1
+      IDS+=("$id"); BRS+=("$br"); FP+=("$lines"); CVI+=("$cvi")
+      echo "lane=$id branch=$br footprint_lines=$lines conflicts_integration=$cvi"
+    done
+    # Pairwise conflict detection among queued lanes (the manufactured-conflict
+    # case: each clean vs integration, but they collide with each other).
+    conflict=0
+    n=${#IDS[@]}
+    for ((a=0; a<n; a++)); do
+      for ((b=a+1; b<n; b++)); do
+        if ! git -C "$CODE" merge-tree --write-tree "${BRS[a]}" "${BRS[b]}" >/dev/null 2>&1; then
+          conflict=1
+          echo "conflict: lane ${IDS[a]} and lane ${IDS[b]} touch the same lines"
+        fi
+      done
+    done
+    # Order cheapest-first: clean-vs-integration before conflicting, then by
+    # smallest footprint, then by id.
+    ORDER=$(for ((i=0; i<n; i++)); do echo "${CVI[i]} ${FP[i]} ${IDS[i]}"; done \
+            | sort -k1,1n -k2,2n -k3,3 | awk '{printf "%s ", $3}' | sed 's/ $//')
+    echo "order=$ORDER"
+    [ "$conflict" -eq 0 ] && { for c in "${CVI[@]}"; do [ "$c" = "0" ] || conflict=1; done; }
+    exit "$conflict"
+    ;;
+
+  land)
+    [ $# -eq 1 ] || die 2 "usage: land <id>"
+    ID="$1"
+    INTEG=$(integ)
+    read -r BR DIRTY <<<"$(lane_state "$ID")"
+    WT="$CODE/.worktrees/lane-$ID"
+    [ -d "$WT" ] || die 5 "lane $ID has no worktree at $WT to land from"
+    # Rebase onto the post-merge integration head IN THE LANE'S OWN WORKTREE,
+    # so the main worktree is never disturbed. A conflict here is the heavy
+    # path: abort cleanly, land nothing, route to /replan (Rule 15).
+    if ! git -C "$WT" rebase "$INTEG" >/dev/null 2>&1; then
+      git -C "$WT" rebase --abort >/dev/null 2>&1
+      echo "land=refused lane=$ID reason=heavy-conflict (rebase onto $INTEG conflicts)"
+      echo "conflict-as-DAG-lint: land the lane it collides with first, then re-dispatch [$ID] serially."
+      echo "Proposed: /replan (/guv:replan under the plugin) deps-amend [$ID] — add the conflicting deliverable as a dep so the queue serializes them (the model improvises the repair, never the route)."
+      exit 7
+    fi
+    # The lane now fast-forwards onto integration; advance it in the main worktree.
+    if ! git -C "$CODE" merge --ff-only "$BR" >/dev/null 2>&1; then
+      die 1 "ff-merge of $BR onto $INTEG failed (integration worktree dirty or not on $INTEG?)"
+    fi
+    echo "landed=$ID branch=$BR head=$(git -C "$CODE" rev-parse "$INTEG")"
+    ;;
+
+  *) die 2 "unknown verb '$VERB' (precheck | preview | gate-input | land)" ;;
+esac
