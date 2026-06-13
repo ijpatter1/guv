@@ -384,6 +384,76 @@ else
   trap - EXIT
 fi
 
+# T12e — SOURCE-side decoder lint: the in-lane shift-left of T12d. T12d scans the
+# BUILT plugin/, which a source-only fan-out lane never rebuilds (the join owns
+# the rebuild; lane-dispatch confine even refuses a lane that touches plugin/).
+# So a new script's bare /command with no guv: decoder slips every rebuild-free
+# in-lane check and surfaces only at the join battery — exactly how [9.6]'s
+# estimate.sh missed its /plan-initiative + /replan decoders. This lint applies
+# the SAME decoder rule to the source that reaches plugin consumers verbatim for
+# slash-command purposes — the FULL byte-identical-shipping surface, both halves:
+#   - .claude helper + hook scripts        -> scripts/ (byte-identical)
+#   - maintainers/plugin-src/scripts/*.sh  -> scripts/ (byte-identical; authored
+#                                             plugin-only, but lane-editable
+#                                             source — confine T3c permits it)
+#   - .claude/rules/guv-*.md               -> rules/   (byte-identical)
+#   - .claude/workflows/*.js               -> workflows/ (rewritten ONLY at its
+#                                             agentType lines, never at /command
+#                                             mentions — so the decoder rule holds)
+# No plugin/ rebuild needed, so it fires the moment any context runs the suite,
+# naming the SOURCE file. Commands/skills/agents source is excluded — the build
+# namespace-rewrites those in transit, so bare mentions there are fixed on the
+# way in (T12b owns that surface). Reuses $CMDS and $GENERIC_DECODER from
+# T12b/T12d. Runs unconditionally (no plugin/ dependency; tolerates an absent
+# maintainers/), so it is the one plugin-transform check a lane can run.
+t12e_sources() {
+  local x
+  for x in "$SRC"/*.sh "$SRC"/hooks/*.sh "$ROOT"/maintainers/plugin-src/scripts/*.sh \
+           "$SRC"/rules/guv-*.md "$SRC"/workflows/*.js; do
+    [ -e "$x" ] && echo "$x"
+  done
+}
+t12e_violations() {
+  local f n scanned=0
+  while IFS= read -r f; do
+    [ -e "$f" ] || continue
+    scanned=$((scanned + 1))
+    grep -qE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$f" 2>/dev/null || continue
+    grep -qE "$GENERIC_DECODER" "$f" && continue
+    for n in $(printf '%s' "$CMDS" | tr '|' ' '); do
+      if grep -qE '(^|[^[:alnum:].:-])/'"$n"'($|[^[:alnum:]:_-])' "$f" 2>/dev/null \
+         && ! grep -qE "guv:$n($|[^[:alnum:]_-])" "$f"; then
+        printf '%s:%s\n' "$(basename "$f")" "$n"
+      fi
+    done
+  done < <(t12e_sources)
+  printf 'SCANNED:%s\n' "$scanned"
+}
+T12E_OUT=$(t12e_violations)
+T12E_SCANNED=$(printf '%s\n' "$T12E_OUT" | grep '^SCANNED:' | cut -d: -f2)
+T12E_VIOL=$(printf '%s\n' "$T12E_OUT" | grep -v '^SCANNED:' | grep -c . )
+if [ "${T12E_SCANNED:-0}" -gt 0 ] && [ "$T12E_VIOL" -eq 0 ]; then
+  ok "source decoder lint ($T12E_SCANNED files): every bare /command in a byte-identical-shipping source carries its guv: decoder"
+else
+  no "T12e: scanned=$T12E_SCANNED, source violations: $(printf '%s\n' "$T12E_OUT" | grep -v '^SCANNED:' | tr '\n' ' ')"
+fi
+# positive control — plant a source script with a bare mention and no decoder
+T12E_FIX="$SRC/zz-t12e-fixture.sh"
+if [ -e "$T12E_FIX" ]; then
+  no "T12e fixture path unexpectedly exists: $T12E_FIX"
+else
+  trap 'rm -f "$T12E_FIX"' EXIT
+  printf '#!/bin/bash\n# Planted violation: mentions /handoff with no guv: decoder.\n' > "$T12E_FIX"
+  T12E_OUT2=$(t12e_violations)
+  if printf '%s\n' "$T12E_OUT2" | grep -q 'zz-t12e-fixture.sh:handoff'; then
+    ok "positive control: the source lint flags a planted bare mention without a decoder"
+  else
+    no "T12e positive control failed — the source scan did not flag the planted violation"
+  fi
+  rm -f "$T12E_FIX"
+  trap - EXIT
+fi
+
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
 T13_OK=1
@@ -499,32 +569,34 @@ else
   echo "  - maintainers/build-plugin.sh absent (consumer fork) — skipping drift guard"
 fi
 
-# T17 — settings↔plugin hook parity ([9.2] fix wave). The plugin's Stop/
-# PreToolUse/PostToolUse registrations live in the HAND-AUTHORED source
-# maintainers/plugin-src/hooks/hooks.json, derived from nothing — so a hook
-# wired into project-mode settings.json can silently miss the plugin surface
-# (exactly how the occupancy meter shipped dead to plugin consumers). This
-# guard closes that drift class: every event-hook script registered in
-# .claude/settings.json MUST have a matching command registration in the
-# plugin hooks.json for the SAME event, matched by script basename (the two
-# surfaces use different path prefixes: .claude/hooks/X.sh vs
-# ${CLAUDE_PLUGIN_ROOT}/scripts/X.sh). The check is DIRECTIONAL by design:
-# settings ⊆ plugin, not the reverse — hooks.json legitimately carries
-# plugin-only entries with no project-mode counterpart (reviewer-readonly.sh,
-# whose project-mode equivalent rides the reviewer agents' frontmatter hooks:
-# block, asserted by T7). A consumer fork that dropped maintainers/ has no
-# plugin source to compare against — skip cleanly, never as a failure.
-PSRC_HOOKS="$ROOT/maintainers/plugin-src/hooks/hooks.json"
-if [ ! -f "$SRC/settings.json" ] || [ ! -f "$PSRC_HOOKS" ]; then
-  echo "  - settings.json or plugin-src hooks.json absent — skipping settings↔plugin parity guard"
-elif ! jq -e . "$PSRC_HOOKS" >/dev/null 2>&1; then
-  no "plugin-src hooks.json is not valid JSON: $PSRC_HOOKS"
+# T17 — settings↔plugin hook parity. The plugin hooks.json is now DERIVED from
+# .claude/settings.json (build-plugin), so parity holds by construction — this
+# guard is the backstop on the COMMITTED plugin tree: it fails on a hand-edit to
+# plugin/hooks.json or a derivation regression. The [9.2] occupancy meter
+# shipped dead to plugin consumers precisely because the two surfaces were
+# hand-wired independently; derivation removes the second copy and this guard
+# proves the shipped artifact still carries every settings hook. Every
+# event-hook script registered in .claude/settings.json MUST have a matching
+# command registration in the committed plugin hooks.json for the SAME event,
+# matched by script basename (the surfaces differ only in path prefix:
+# .claude/hooks/X.sh vs ${CLAUDE_PLUGIN_ROOT}/scripts/X.sh). DIRECTIONAL by
+# design: settings ⊆ plugin — hooks.json legitimately carries the one
+# plugin-only entry (reviewer-readonly.sh, whose project-mode equivalent rides
+# the reviewer agents' frontmatter hooks: block, asserted by T7). T17b proves
+# the derivation propagates a NEW settings hook; this proves the committed
+# artifact matches today's settings. (Past the suite's plugin/-present skip,
+# the committed hooks.json is always there; the guard still tolerates absence.)
+PLUGIN_HOOKS="$HOOKS_JSON"
+if [ ! -f "$SRC/settings.json" ] || [ ! -f "$PLUGIN_HOOKS" ]; then
+  echo "  - settings.json or plugin hooks.json absent — skipping settings↔plugin parity guard"
+elif ! jq -e . "$PLUGIN_HOOKS" >/dev/null 2>&1; then
+  no "plugin hooks.json is not valid JSON: $PLUGIN_HOOKS"
 else
   # basenames of the hook scripts registered for an event on a given surface
   event_scripts() { jq -r --arg e "$1" '.hooks[$e][]?.hooks[]?.command' "$2" 2>/dev/null | grep -oE '[A-Za-z0-9_-]+\.sh' | sort -u; }
   PARITY_MISSING=""
   for ev in PreToolUse PostToolUse Stop; do
-    plugin_set=$(event_scripts "$ev" "$PSRC_HOOKS")
+    plugin_set=$(event_scripts "$ev" "$PLUGIN_HOOKS")
     while IFS= read -r script; do
       [ -z "$script" ] && continue
       printf '%s\n' "$plugin_set" | grep -qx "$script" \
@@ -539,12 +611,12 @@ EOF
 
   # positive control — a guard that can only report success is not a guard
   # (the pass-5 lesson, T12d). Plant a settings.json that wires a hook absent
-  # from the plugin source and confirm the parity check FLAGS it.
+  # from the committed plugin hooks.json and confirm the parity check FLAGS it.
   PC_SETTINGS=$(mktemp)
   jq '.hooks.Stop[0].hooks += [{"type":"command","command":"bash .claude/hooks/zz-parity-fixture.sh"}]' "$SRC/settings.json" > "$PC_SETTINGS"
   PC_MISSING=""
   for ev in PreToolUse PostToolUse Stop; do
-    plugin_set=$(event_scripts "$ev" "$PSRC_HOOKS")
+    plugin_set=$(event_scripts "$ev" "$PLUGIN_HOOKS")
     while IFS= read -r script; do
       [ -z "$script" ] && continue
       printf '%s\n' "$plugin_set" | grep -qx "$script" \
@@ -558,6 +630,31 @@ EOF
     *) no "parity positive control failed — a planted settings-only hook was not flagged" ;;
   esac
   rm -f "$PC_SETTINGS"
+fi
+
+# T17b — the plugin hooks.json is DERIVED from settings.json, not a
+# hand-maintained second copy (the [9.2] dead-hook root: two-place wiring with
+# nothing enforcing parity). A hook wired into settings.json must reach plugin
+# consumers WITHOUT a second edit. Proof end-to-end: build with a settings.json
+# carrying a synthetic Stop hook (the PLUGIN_SETTINGS seam) and confirm the
+# derived plugin hooks.json carries it under the SAME event with the path
+# rewritten to the plugin root. Red against a verbatim-copy build (which ignores
+# settings.json for hooks entirely). The reviewer-readonly guard — the one
+# plugin-only hook, compensating for the agent frontmatter hooks: block the
+# build strips — is asserted separately by T7; here we prove the settings→plugin
+# flow that makes a silent miss impossible.
+if [ -f "$BUILD" ] && [ -f "$SRC/settings.json" ]; then
+  T17B_SET=$(mktemp)
+  jq '.hooks.Stop[0].hooks += [{"type":"command","command":"bash .claude/hooks/zz-derive-fixture.sh"}]' "$SRC/settings.json" > "$T17B_SET"
+  T17B_TMP=$(mktemp -d)
+  if PLUGIN_SETTINGS="$T17B_SET" bash "$BUILD" --out "$T17B_TMP/plugin" >/dev/null 2>&1 \
+     && jq -e '[.hooks.Stop[]?.hooks[]?.command] | any(. == "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/zz-derive-fixture.sh")' \
+          "$T17B_TMP/plugin/hooks/hooks.json" >/dev/null 2>&1; then
+    ok "plugin hooks.json is derived from settings.json (a new settings hook reaches the plugin, path-rewritten)"
+  else
+    no "a hook added to settings.json must appear in the derived plugin hooks.json (settings→plugin derivation)"
+  fi
+  rm -rf "$T17B_TMP" "$T17B_SET"
 fi
 
 finish

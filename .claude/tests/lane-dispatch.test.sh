@@ -103,6 +103,37 @@ OUT=$(run confine 7.A); RC=$?
   && ok "confine: a lane editing shared prose (CHANGELOG) is refused (use docFragments)" \
   || no "confine must refuse a lane that edits shared prose (rc=$RC): $OUT"
 
+# ── T3b — confine: a lane that edits the DERIVED plugin/ tree drifts → refused ──
+# plugin/ is GENERATED (maintainers/build-plugin.sh) and rebuilt at the join — a
+# lane edits the SOURCE (.claude/ or maintainers/plugin-src/) and the join owns
+# the derived tree. A lane diff onto plugin/ is work the rebuild will overwrite;
+# refuse it, and keep the source/derived boundary crisp (the [9.2] dead-hook
+# lesson: blur it and a lane wires plugin mode in the wrong tree — or avoids
+# both and ships the hook dead). plugin-src/ (real source) must NOT be caught.
+setup
+mklane create 7.A driftplugin
+( cd "$CODE/.worktrees/lane-7.A" && mkdir -p plugin/hooks && printf '{}\n' > plugin/hooks/hooks.json \
+  && git add -A && git -c user.email=t@t -c user.name=t commit -qm "drift: hand-edited derived plugin/" ) >/dev/null 2>&1
+OUT=$(run confine 7.A); RC=$?
+[ $RC -ne 0 ] && echo "$OUT" | grep -q "plugin/hooks/hooks.json" \
+  && ok "confine: a lane editing the derived plugin/ tree is refused (edit the source; the join rebuilds)" \
+  || no "confine must refuse a lane that edits the derived plugin/ tree (rc=$RC): $OUT"
+
+# ── T3c — confine: a lane editing real plugin SOURCE (plugin-src/) passes ──
+# The boundary's other half: maintainers/plugin-src/ is hand-authored SOURCE a
+# lane edits like any other — only the derived plugin/ is off-limits. A guard
+# that swept plugin-src/ too is exactly the over-confinement that left [9.2]'s
+# hook dead, so this asserts plugin-src/ is NOT refused.
+setup
+mklane create 7.A srcplugin
+( cd "$CODE/.worktrees/lane-7.A" && mkdir -p maintainers/plugin-src/hooks \
+  && printf '{}\n' > maintainers/plugin-src/hooks/extra.json \
+  && git add -A && git -c user.email=t@t -c user.name=t commit -qm "edit real plugin source" ) >/dev/null 2>&1
+OUT=$(run confine 7.A); RC=$?
+[ $RC -eq 0 ] \
+  && ok "confine: a lane editing maintainers/plugin-src/ (real source) passes — only derived plugin/ is protected" \
+  || no "confine must NOT refuse a lane editing real plugin-src/ source (rc=$RC): $OUT"
+
 # ── T4 — harvest: a clean, confined, status=ok lane harvests ──
 setup
 mklane create 7.A okharv

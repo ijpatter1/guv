@@ -3,10 +3,13 @@
 #
 # The committed plugin/ directory is GENERATED, never hand-edited. The single
 # source of truth stays in .claude/ (commands, skills, agents, hooks, rules,
-# helper scripts, the saved workflow); plugin-only files (manifest, hooks.json,
-# the reviewer-readonly guard, the zen and evaluate-parallel skills) are
-# authored in maintainers/plugin-src/ and copied verbatim. plugin.test.sh's
-# drift guard rebuilds into a temp dir and diffs against the committed tree.
+# helper scripts, the saved workflow); plugin-only files (manifest, the
+# reviewer-readonly guard, the zen and evaluate-parallel skills) are authored in
+# maintainers/plugin-src/ and copied verbatim. The plugin hooks.json is DERIVED
+# from .claude/settings.json (one source — a hook wired in project mode can't
+# silently miss plugin mode; the [9.2] dead-hook class), not authored: see the
+# derivation below. plugin.test.sh's drift guard rebuilds into a temp dir and
+# diffs against the committed tree.
 #
 # Transforms applied to derived files:
 #   - commands/<name>.md  -> skills/<name>/SKILL.md, gaining a frontmatter
@@ -30,6 +33,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/.claude"
 PSRC="$ROOT/maintainers/plugin-src"
 OUT="$ROOT/plugin"
+# The single source for the plugin hook wiring; PLUGIN_SETTINGS overrides it so
+# plugin.test.sh can prove the settings→plugin derivation end-to-end (T17b).
+SETTINGS="${PLUGIN_SETTINGS:-$SRC/settings.json}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -112,9 +118,30 @@ rm -rf "$OUT"
 mkdir -p "$OUT/.claude-plugin" "$OUT/skills" "$OUT/agents" "$OUT/hooks" \
   "$OUT/scripts" "$OUT/rules" "$OUT/workflows"
 
+# ── plugin hooks.json: DERIVED from settings.json (one source) ──
+# Every hook is wired once, in .claude/settings.json; the build rewrites each
+# command's project path (.claude/hooks/X.sh) to the plugin-root path, then
+# injects the reviewer-readonly guard into the Bash PreToolUse matcher. That
+# guard is the ONE plugin-only hook: plugin agents can't carry the frontmatter
+# hooks: block that enforces reviewer read-only in project mode (stripped from
+# the agents below), so it rides hooks.json instead, gated on agent_type. No
+# hand-maintained second copy means a settings hook can never silently miss the
+# plugin (the [9.2] dead-hook class); T17/T17b guard the derivation.
+jq '{
+  hooks: (
+    .hooks
+    | walk(if type == "object" and has("command")
+           then .command |= gsub("\\.claude/hooks/"; "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/")
+           else . end)
+    | .PreToolUse |= map(
+        if (.matcher // "" | test("Bash"))
+        then .hooks += [{"type":"command","command":"bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/reviewer-readonly.sh"}]
+        else . end)
+  )
+}' "$SETTINGS" > "$OUT/hooks/hooks.json"
+
 # ── authored plugin-only sources, verbatim ──
 cp "$PSRC/plugin.json" "$OUT/.claude-plugin/plugin.json"
-cp "$PSRC/hooks/hooks.json" "$OUT/hooks/hooks.json"
 cp "$PSRC/scripts/"*.sh "$OUT/scripts/"
 for d in "$PSRC/skills"/*/; do
   name="$(basename "$d")"
@@ -199,7 +226,7 @@ cp "$ROOT/.gitignore" "$OUT/shell/gitignore"
 cp "$ROOT/Makefile" "$OUT/shell/Makefile"
 cp "$SRC/project.schema.json" "$OUT/shell/project.schema.json"
 cp "$SRC/settings.sandbox-example.json" "$OUT/shell/settings.sandbox-example.json"
-jq 'del(.hooks)' "$SRC/settings.json" > "$OUT/shell/settings.json"
+jq 'del(.hooks)' "$SETTINGS" > "$OUT/shell/settings.json"
 mkdir -p "$OUT/shell/sandbox" "$OUT/shell/docs"
 cp "$ROOT/sandbox/"* "$OUT/shell/sandbox/"
 # the three phase-doc skeletons template-clone consumers get from docs/
