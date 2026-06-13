@@ -138,6 +138,37 @@ for copy in "${COPIES[@]}"; do
   awk '/^## Closing the loop/,0' "$copy" | grep -q '`local`' \
     && ok "Closing the loop states what local entries do now in $label" \
     || no "Closing the loop in $label must state what routing:local entries do now"
+
+  # T8b — the sync/dogfooding close path: a dogfooding control plane consumes
+  # the harness via --sync (not releases), so an upstream entry graduates when
+  # its fix lands in source and reaches the plane via sync — the close trigger
+  # the release-keyed drain alone left missing. Scoped to Closing the loop, and
+  # the anchors carry no slash-commands so the plugin rewrite leaves them intact.
+  CL=$(awk '/^## Closing the loop/,0' "$copy" | tr '\n' ' ' | tr -s ' ')
+  echo "$CL" | grep -q 'dogfooding control plane' && echo "$CL" | grep -q -- '--sync' \
+    && ok "Closing the loop documents the --sync/dogfooding graduation path in $label" \
+    || no "Closing the loop in $label must document the --sync/dogfooding close path (fix lands in source -> graduates)"
+done
+
+# T8c — /handoff Step 10 DRAINS, not just counts: it must propose graduating the
+# entries this session resolved and frame that as closing the loop — the
+# agent-executable close trigger for the sync model. Both the command source and
+# its plugin-skill copy; anchors are slash-command-free (rewrite-stable).
+HANDOFF_SRC="$ROOT/.claude/commands/handoff.md"
+HANDOFF_COPIES=("$HANDOFF_SRC")
+if [ -d "${FEEDBACK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
+  HANDOFF_COPIES+=("$ROOT/plugin/skills/handoff/SKILL.md")
+fi
+for copy in "${HANDOFF_COPIES[@]}"; do
+  label="${copy#"$ROOT"/}"
+  if [ ! -f "$copy" ]; then no "handoff copy missing: $copy"; continue; fi
+  HFLAT=$(tr '\n' ' ' < "$copy" | tr -s ' ')
+  echo "$HFLAT" | grep -q 'propose graduating' \
+    && ok "handoff Step 10 proposes graduations (drains the loop) in $label" \
+    || no "$label Step 10 must propose graduating the entries this session resolved, not only count them"
+  echo "$HFLAT" | grep -q 'close the loop' \
+    && ok "handoff Step 10 frames the drain as closing the loop in $label" \
+    || no "$label Step 10 must frame the triage as closing the loop, not only surfacing a count"
 done
 
 # T9 — positive control: the deferral detector fires on planted deferral text
