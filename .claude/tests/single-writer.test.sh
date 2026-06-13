@@ -26,8 +26,10 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
-# feed <json> -> hook stdout (stderr suppressed so a bad jq never trips the
-# run-harness-tests stderr gate; the hook itself is stderr-clean by design)
+# feed <json> -> hook stdout. stderr is suppressed only as belt-and-suspenders
+# for the run-harness-tests gate: the hook is stderr-clean for the well-formed
+# JSON the runtime always delivers (non-JSON stdin would make jq complain and
+# the hook would fail-open with exit 0 — but Claude Code never feeds that).
 feed() { printf '%s' "$1" | bash "$HOOK" 2>/dev/null; }
 
 # A denied call: structural decision == deny AND the reason names the invariant
@@ -52,6 +54,15 @@ out=$(feed "$(mk evaluator Write /home/proj/docs/PHASE_STATUS.md)")
 is_deny "$out" \
   && ok "subagent Write docs/PHASE_STATUS.md -> deny (names the single-writer invariant)" \
   || no "a subagent Write to docs/PHASE_STATUS.md must be denied"
+
+# T1b — the deny reason names the offending agent_type AND the target file, so a
+# regression that dropped or hard-coded the interpolation fails (the "name the
+# offender" bar the resolver/grammar suites set), and the message can guide.
+out=$(feed "$(mk guv:product-reviewer Write /home/proj/docs/REQUIREMENTS.md)")
+reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' 2>/dev/null)
+echo "$reason" | grep -qF 'guv:product-reviewer' && echo "$reason" | grep -qF '/home/proj/docs/REQUIREMENTS.md' \
+  && ok "deny reason interpolates the offending agent_type and file (message names the offender)" \
+  || no "deny reason must name the agent_type and the file_path"
 
 # T2 — subagent (bare) Edit to REQUIREMENTS.md -> deny (the Edit tool + 2nd file)
 out=$(feed "$(mk product-reviewer Edit /home/proj/docs/REQUIREMENTS.md)")
@@ -79,6 +90,14 @@ out=$(feed "$(mk evaluator Write docs/PHASE_STATUS.md)")
 is_deny "$out" \
   && ok "relative docs/PHASE_STATUS.md path -> deny (anchor matches ^docs/ too)" \
   || no "the path anchor must match the leading-segment relative form"
+
+# T5b — the target path is resolved from tool_input.path too, matching
+# auto-format.sh's field set (the other Write|Edit|MultiEdit guard). A tool that
+# delivered the tracker under .path instead of .file_path must not slip through.
+out=$(feed "$(jq -nc --arg a evaluator --arg f /home/proj/docs/PHASE_STATUS.md '{agent_type:$a,tool_name:"Edit",tool_input:{path:$f}}')")
+is_deny "$out" \
+  && ok "tracker path under tool_input.path -> deny (field parity with auto-format.sh)" \
+  || no "the hook must read tool_input.path as a fallback, like auto-format.sh"
 
 # ── ALLOW: the main session, and every non-tracker file ──
 

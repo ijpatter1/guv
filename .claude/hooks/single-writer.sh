@@ -13,7 +13,8 @@
 # (Explore, lane workers) — the rule needs no per-agent list. The matcher is
 # Write|Edit|MultiEdit (the same file-write set settings.json already routes to
 # auto-format), so a subagent can't slip the tracker through MultiEdit; the hook
-# keys on tool_input.file_path, which all three tools carry. Bash-driven writes
+# keys on the tool_input path, resolving the same field set as auto-format.sh
+# (file_path, then path). Bash-driven writes
 # (shell redirection) are a different tool surface and out of scope here — the
 # spec scopes this hook to Write/Edit; bash-guard owns Bash. Legitimate plan
 # mutation runs through /replan (replan.sh) in the MAIN session.
@@ -29,7 +30,10 @@ AGENT=$(echo "$INPUT" | jq -r '.agent_type // empty')
 # Main session (no agent_type) is the single writer — never our concern.
 [ -z "$AGENT" ] && exit 0
 
-FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+# Extract the target path — different tools use different field names; resolve
+# the same field set as auto-format.sh (the other Write|Edit|MultiEdit guard) so
+# the two read the path identically.
+FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty')
 
 # The two plan-of-record trackers, anchored to a docs/ segment and the .md tail
 # so near-misses (REQUIREMENTS.md.bak, a stray PHASE_STATUS elsewhere) don't match.
