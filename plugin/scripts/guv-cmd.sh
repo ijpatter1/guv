@@ -18,8 +18,12 @@ set -u
 NAME="$1"
 MANIFEST=".claude/project.json"
 [ -f "$MANIFEST" ] || { echo "guv-cmd: no manifest at $MANIFEST (cwd must be the project root)" >&2; exit 4; }
+# An unparseable manifest is a loud error, never a null-skip — "skipping"
+# would misreport a corrupt manifest as a designed absence (Rule 15).
+jq -e . "$MANIFEST" >/dev/null 2>&1 \
+  || { echo "guv-cmd: $MANIFEST exists but is not valid JSON — fix the manifest" >&2; exit 4; }
 
-CMD=$(jq -r --arg n "$NAME" '.commands[$n] // empty' "$MANIFEST" 2>/dev/null)
+CMD=$(jq -r --arg n "$NAME" '.commands[$n] // empty' "$MANIFEST")
 if [ -z "$CMD" ]; then
   echo "[guv-cmd] commands.$NAME is null — skipping"
   exit 0

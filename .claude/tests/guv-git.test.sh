@@ -64,16 +64,30 @@ P=$(make_project "../code")
   && ok "git failure exit code propagates" \
   || no "a failing git command must exit non-zero"
 
-# T5 — the teaching surfaces route through the helper: no inline
-# git -C "$(jq -r '.roots.code' …)" incantation survives in executable
-# command/skill/agent markdown (prose explaining roots.code topology is
-# legitimate; the retired pattern is the inline command substitution).
+# T4b — a manifest that exists but cannot be parsed is a LOUD error, never
+# the single-repo fallback (which would silently run git against the wrong
+# repo in a split plane).
+P=$(make_project "../code")
+echo '{not json' > "$P/.claude/project.json"
+OUT=$( (cd "$P" && bash "$SCRIPT" log --oneline -1) 2>&1 ); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -q "not valid JSON" \
+  && ok "corrupt manifest -> loud error (exit 4), not the '.' fallback" \
+  || no "corrupt manifest must fail loud, never fall back (rc=$RC: $OUT)"
+
+# T5 — the teaching surfaces route through the helper: no jq read of
+# roots.code survives in executable command/skill/agent markdown — this
+# catches the one-line git -C "$(jq …)" form AND the two-step
+# CODE=$(jq …) form. One pinned exception: handoff.md's evaluator-target
+# block genuinely needs BOTH roots to compare (the disclosed judgment, same
+# class as check-citations.sh). Prose explaining roots.code topology without
+# a jq read is legitimate.
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
-INLINE=$(grep -r "git -C \"\$(jq -r '\.roots\.code'" \
-  "$ROOT/.claude/commands" "$ROOT/.claude/skills" "$ROOT/.claude/agents" 2>/dev/null | wc -l | tr -d ' ')
+INLINE=$(grep -r "jq -r '\.roots\.code'" \
+  "$ROOT/.claude/commands" "$ROOT/.claude/skills" "$ROOT/.claude/agents" 2>/dev/null \
+  | grep -v 'commands/handoff\.md' | wc -l | tr -d ' ')
 [ "$INLINE" -eq 0 ] \
-  && ok "no inline roots.code git incantation on the teaching surfaces" \
-  || no "$INLINE inline git -C incantation(s) remain on teaching surfaces (route through guv-git.sh)"
+  && ok "no roots.code jq read on the teaching surfaces (handoff's both-roots block pinned as the exception)" \
+  || no "$INLINE roots.code jq read(s) remain on teaching surfaces (route through guv-git.sh)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

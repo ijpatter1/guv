@@ -27,7 +27,11 @@ die6() { echo "guv-lane: $1" >&2; exit 6; }
 
 CODE="."
 if [ -f .claude/project.json ]; then
-  CODE=$(jq -r '.roots.code // "."' .claude/project.json 2>/dev/null) || CODE="."
+  # Unparseable manifest -> loud error, never the single-repo fallback (a lane
+  # created in the wrong repo is the worst version of this mistake; Rule 15).
+  jq -e . .claude/project.json >/dev/null 2>&1 \
+    || die4 ".claude/project.json exists but is not valid JSON — fix the manifest"
+  CODE=$(jq -r '.roots.code // "."' .claude/project.json)
   { [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
 fi
 git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \

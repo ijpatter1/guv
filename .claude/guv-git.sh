@@ -17,7 +17,12 @@ set -u
 
 CODE="."
 if [ -f .claude/project.json ]; then
-  CODE=$(jq -r '.roots.code // "."' .claude/project.json 2>/dev/null) || CODE="."
+  # A manifest that exists but cannot be parsed is a loud error, never the
+  # single-repo fallback — in a split plane that fallback would silently run
+  # git against the wrong repo (Rule 15: loud stop, not an invented path).
+  jq -e . .claude/project.json >/dev/null 2>&1 \
+    || { echo "guv-git: .claude/project.json exists but is not valid JSON — fix the manifest" >&2; exit 4; }
+  CODE=$(jq -r '.roots.code // "."' .claude/project.json)
   { [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
 fi
 exec git -C "$CODE" "$@"

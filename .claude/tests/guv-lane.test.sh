@@ -140,6 +140,17 @@ run destroy 1.1 >/dev/null 2>&1
   && ok "single-repo: lifecycle invariant holds" \
   || no "single-repo: worktree count != 1 after destroy"
 
+# T8b — a corrupt manifest is a loud error before any lane op (a lane created
+# in the wrong repo via the '.' fallback is the worst version of the mistake).
+P="$WORK/corrupt"
+mkdir -p "$P/.claude"
+echo '{not json' > "$P/.claude/project.json"
+git -C "$P" init -q
+OUT=$(run create 2.2 oops); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -q "not valid JSON" \
+  && ok "corrupt manifest -> loud error (exit 4) before any mutation" \
+  || no "corrupt manifest must fail loud before lane ops (rc=$RC: $OUT)"
+
 # T9 — .worktrees/ is gitignored via the guv-core block (single source: the
 # repo-root .gitignore between the guv-core-start/end markers, which the build
 # extracts for the scaffold shell). Only the harness repo carries the block —

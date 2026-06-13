@@ -66,6 +66,15 @@ rm -rf "$WORK/proj"; mkdir -p "$WORK/proj"
   && ok "no manifest -> loud error (exit 4)" \
   || no "missing manifest must exit 4"
 
+# T6b — a manifest that exists but cannot be parsed is a LOUD error, never a
+# null-skip ("skipping" would misreport corruption as designed absence).
+P=$(make_project '{}')
+echo '{not json' > "$P/.claude/project.json"
+OUT=$( (cd "$P" && bash "$SCRIPT" test) 2>&1 ); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -q "not valid JSON" && ! echo "$OUT" | grep -qi "skip" \
+  && ok "corrupt manifest -> loud error (exit 4), never a skip" \
+  || no "corrupt manifest must fail loud, not skip (rc=$RC: $OUT)"
+
 # T7 — the teaching surfaces route through the helper: no inline
 # jq -r '.commands.…' read survives in executable command/skill markdown
 # (prose naming commands.test as a manifest field is legitimate; the retired

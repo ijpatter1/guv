@@ -73,8 +73,8 @@ Wait for the user to confirm before proceeding. They may reclassify — if someo
 
 ## Step 3 — Execute
 
-Run git/commits against the **code** repo (`roots.code` from the manifest; a no-op
-for single-repo): `CODE=$(jq -r '.roots.code' .claude/project.json)`.
+Run git/commits against the **code** repo via the helper (`bash
+.claude/guv-git.sh <git args>` — it targets `roots.code`; a no-op for single-repo).
 
 ### Bug Fix Path (and the default for `task`/`onboard` mode)
 
