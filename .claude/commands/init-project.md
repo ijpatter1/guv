@@ -1,5 +1,30 @@
 Scaffold the project documentation from a PRD or spec document.
 
+## Step 0 — Routing Guard
+
+This is the **greenfield** door — it lays down phase docs and a `phased`
+manifest from a spec. Before scaffolding, ask the deterministic router whether
+this is the right door (the routing collapse, [8.1] — manifest + repo state
+select the entry; no user disambiguation):
+
+```bash
+bash .claude/route.sh --for init-project
+```
+
+- **`match=yes`** (exit 0) — greenfield confirmed (a `phased` manifest with no
+  phase docs yet, or no manifest in a fresh workspace where exit 2 also lands
+  here); continue.
+- **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
+  names the correct door in `door=` — e.g. `door=resume`/`door=start-phase` if a
+  plan already exists (don't re-scaffold over it), `door=onboard` for an
+  existing repo, `door=task` for scoped work. Tell the user the routed door and
+  the `reason=`, and defer to it.
+- **Exit 2/3** — no manifest yet (the common greenfield case) or an ambiguous
+  state. If there is genuinely no project here, proceed with scaffolding; if the
+  router named a reason that contradicts greenfield (a malformed existing plan),
+  surface it and **stop** rather than scaffold over an undetermined state
+  (rule 15).
+
 ## Input
 
 $ARGUMENTS

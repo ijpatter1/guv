@@ -21,6 +21,15 @@ docs. How much ceremony it applies is read from `ceremony` in `.claude/project.j
 A missing project-shape artifact (no `docs/REQUIREMENTS.md`, no phase docs) is a
 **mode signal, not an error** — it means task mode, so skip the doc steps cleanly.
 
+**Routing note ([8.1]).** `/task` is **content-driven**: it processes the specific
+change in `$ARGUMENTS` and is legitimate in any ceremony — so it does *not*
+redirect away from an explicit request. It is, however, the door the deterministic
+router (`.claude/route.sh`) selects for **session entry** in a `ceremony=task`
+project, and the door the phased entry commands (`/start-phase`, `/resume`) and
+`/init-project`/`/onboard` redirect *to* when invoked in a scoped project. If you
+landed here at session start with no specific change in mind, that redirect was
+the router doing its job — describe the change and proceed.
+
 ## Input
 
 $ARGUMENTS

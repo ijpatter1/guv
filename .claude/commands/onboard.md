@@ -5,6 +5,28 @@ phased plan), `/onboard` reads what's there and records it. It does not scaffold
 conventions, and it does not create phase docs. Most real work is on existing code —
 this is the path that unlocks it.
 
+## Step 0 — Routing Guard
+
+If a manifest already exists, ask the deterministic router whether this is the
+right door (the routing collapse, [8.1] — manifest + repo state select the
+entry; no user disambiguation):
+
+```bash
+bash .claude/route.sh --for onboard
+```
+
+- **`match=yes`** (exit 0) — `ceremony=onboard` confirmed; continue.
+- **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
+  names the correct door in `door=` — e.g. `door=task` if the repo is already
+  onboarded as a scoped project, or `door=resume`/`door=start-phase` if it
+  carries a phased plan. Tell the user the routed door and the `reason=`, and
+  defer to it.
+- **Exit 2** — no manifest yet (the common first-onboard case): proceed; you are
+  about to write the manifest this guard would have read.
+- **Exit 3 (loud stop)** — an ambiguous state (unrecognized ceremony, or a
+  malformed existing plan). Surface the `reason=` and **stop** rather than
+  re-onboard over an undetermined state (rule 15).
+
 > **`/onboard` supersedes Claude Code's native `/init` in harness projects.** `/init`
 > inlines commands and stack facts into `CLAUDE.md`, which violates the manifest
 > contract (commands live in `.claude/project.json` and are never restated). Run this
