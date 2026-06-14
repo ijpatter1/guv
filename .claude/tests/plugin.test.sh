@@ -654,4 +654,53 @@ if [ -f "$BUILD" ] && [ -f "$SRC/settings.json" ]; then
   rm -rf "$T17B_TMP" "$T17B_SET"
 fi
 
+# T18 — shipped test suites + the layout-reconstructing runner ([10.3]). The
+# build ships the consumer-meaningful suites into plugin/tests/ (the glob set
+# minus the maintainer-only suites) with run-plugin-tests.sh, which rebuilds a
+# temp .claude/-shaped tree from the FLATTENED scripts/ so the location-relative
+# suites run unmodified. This is the drift assertion: a shipped suite that can no
+# longer resolve its scripts in plugin layout turns the runner red here. The full
+# partition + positive-control drift guard live in ship-suite.test.sh; this is the
+# committed-tree backstop, paralleling T14's drift guard for the plugin proper.
+# Skipped in a fork that dropped maintainers/ (no build to exercise — same guard
+# as T14). The committed plugin/ is also checked directly (no rebuild) so the
+# guard catches a hand-deleted plugin/tests/.
+if [ -d "$PLUGIN/tests" ]; then
+  ok "committed plugin/tests/ ships the consumer suites"
+  # named maintainer-only suites must be absent from the committed tree
+  T18_LEAK=0
+  for b in plugin.test.sh setup-control-plane.test.sh single-writer.test.sh release.test.sh; do
+    [ -e "$PLUGIN/tests/$b" ] && { no "maintainer-only suite leaked into committed plugin/tests/: $b"; T18_LEAK=1; }
+  done
+  [ "$T18_LEAK" -eq 0 ] && ok "no named maintainer-only suite in committed plugin/tests/"
+  RUNNER="$PLUGIN/tests/run-plugin-tests.sh"
+  if [ -x "$RUNNER" ]; then
+    if bash "$RUNNER" >/dev/null 2>"$ROOT/.t18-runner.err"; then
+      ok "run-plugin-tests.sh runs the shipped suite green in plugin layout (committed tree)"
+    else
+      no "the shipped suite must run green via run-plugin-tests.sh (a suite can't resolve its scripts in plugin layout?)"
+    fi
+    [ -s "$ROOT/.t18-runner.err" ] \
+      && no "run-plugin-tests.sh emitted to stderr: $(head -c 200 "$ROOT/.t18-runner.err")" \
+      || ok "run-plugin-tests.sh reconstruction is stderr-clean (committed tree)"
+    rm -f "$ROOT/.t18-runner.err"
+  else
+    no "plugin/tests/run-plugin-tests.sh must ship executable"
+  fi
+elif [ -f "$BUILD" ]; then
+  # plugin/tests absent but a build exists -> stale committed tree; rebuild and
+  # prove the runner green against the fresh build so the guard still fires
+  T18_TMP=$(mktemp -d)
+  if bash "$BUILD" --out "$T18_TMP/plugin" >/dev/null 2>&1 \
+     && [ -x "$T18_TMP/plugin/tests/run-plugin-tests.sh" ] \
+     && bash "$T18_TMP/plugin/tests/run-plugin-tests.sh" >/dev/null 2>&1; then
+    ok "rebuild ships plugin/tests/ and the runner runs the shipped suite green ([10.3])"
+  else
+    no "build must ship plugin/tests/ with a runner that runs the shipped suite green"
+  fi
+  rm -rf "$T18_TMP"
+else
+  echo "  - plugin/tests absent and no build (consumer fork) — skipping shipped-suite drift guard"
+fi
+
 finish

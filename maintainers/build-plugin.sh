@@ -213,6 +213,122 @@ chmod +x "$OUT/scripts"/*.sh
 # ── rules, byte-identical ──
 cp "$SRC/rules"/guv-*.md "$OUT/rules/"
 
+# ── consumer-meaningful test suites + the layout-reconstructing runner ([10.3]) ──
+# Ship the glob-derived suite set MINUS the maintainer-only suites. "Maintainer-
+# only" is the deliverable's three named reference patterns (maintainers/,
+# plugin-src/, .claude/settings.json) COMPLETED with the source-tree surfaces a
+# plugin install does not reproduce: source command/skill files, project.schema.
+# json, and the top-level .claude/ shape docs (estimate.shape.md, metering*.md).
+# A suite that asserts any of those is a source-shape check, not consumer script
+# behavior — it cannot run green in plugin layout no matter how the tree is
+# reconstructed, so it is maintainer-only in the same spirit as the named three.
+# The directory-grep forms a green consumer suite uses
+# (grep -r … .claude/commands .claude/skills 2>/dev/null) do NOT match — the
+# patterns require a trailing /<file>.md or /SKILL.md. ship-suite.test.sh derives
+# the SAME partition and asserts it both directions, so this rule lives once.
+MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|commands/[a-z][a-z-]*\.md|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|estimate\.shape\.md|/metering[a-z-]*\.md'
+mkdir -p "$OUT/tests"
+for t in "$SRC/tests"/*.test.sh; do
+  b="$(basename "$t")"
+  # the ship-suite self-test IS the shipping machinery's own guard — it builds
+  # the plugin and asserts the partition, so it never ships into the plugin
+  case "$b" in ship-suite.test.sh) continue ;; esac
+  grep -qE "$MAINTAINER_ONLY" "$t" && continue
+  cp "$t" "$OUT/tests/$b"
+done
+
+# The runner rebuilds a temp .claude/-shaped tree from the FLATTENED plugin
+# scripts/ so the location-relative suites ($(dirname "$0")/.. -> .claude/) run
+# unmodified: scripts at the .claude/ top level, hooks in .claude/hooks/ recovered
+# from which scripts hooks.json references, rules in .claude/rules/, the shipped
+# suites in .claude/tests/. Authored here as a heredoc (no .claude/ source — it is
+# plugin-runtime-only, like the manifest), self-locating from plugin/tests/.
+cat > "$OUT/tests/run-plugin-tests.sh" <<'RUNNER'
+#!/bin/bash
+# Layout-reconstructing runner for the shipped guv test suites ([10.3]).
+# The plugin ships scripts FLATTENED into scripts/; the consumer suites self-
+# locate via $(dirname "$0")/.. expecting a .claude/-shaped tree (scripts at the
+# top level, hooks in hooks/, tests in tests/). This runner rebuilds that shape in
+# a temp dir and runs every shipped suite against it, so the location-relative
+# suites verify the plugin's INSTALLED script copies unmodified.
+#
+# Hooks are recovered deterministically: a script is a hook iff hooks.json
+# references it (the build flattens both into scripts/; hooks.json is the only
+# record of which were hooks). Everything else in scripts/ is a top-level helper.
+#
+# Pure bash + jq. Run: bash <plugin>/tests/run-plugin-tests.sh
+set -u
+
+PLUGIN="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPTS="$PLUGIN/scripts"
+HOOKS_JSON="$PLUGIN/hooks/hooks.json"
+TESTS="$PLUGIN/tests"
+RULES="$PLUGIN/rules"
+
+if [ ! -d "$SCRIPTS" ] || [ ! -f "$HOOKS_JSON" ]; then
+  echo "run-plugin-tests: not a plugin tree (missing scripts/ or hooks/hooks.json): $PLUGIN" >&2
+  exit 2
+fi
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+REC="$WORK/.claude"
+mkdir -p "$REC/hooks" "$REC/tests" "$REC/rules"
+
+# the hook basenames hooks.json references — these scripts were .claude/hooks/X.sh
+HOOK_NAMES="$(jq -r '.hooks[][]?.hooks[]?.command' "$HOOKS_JSON" 2>/dev/null \
+  | grep -oE '[A-Za-z0-9_-]+\.sh' | sort -u)"
+is_hook() { printf '%s\n' "$HOOK_NAMES" | grep -qx "$1"; }
+
+for s in "$SCRIPTS"/*.sh; do
+  [ -e "$s" ] || continue
+  b="$(basename "$s")"
+  if is_hook "$b"; then cp "$s" "$REC/hooks/$b"; else cp "$s" "$REC/$b"; fi
+done
+chmod +x "$REC"/*.sh "$REC/hooks"/*.sh 2>/dev/null || true
+
+# rules ship as plugin assets; some location-relative suites read .claude/rules/
+[ -d "$RULES" ] && cp "$RULES"/*.md "$REC/rules/" 2>/dev/null || true
+
+# the suites themselves, into the reconstructed tests/ so $(dirname "$0")/.. lands
+# on the reconstructed .claude/
+SHIPPED=0
+for t in "$TESTS"/*.test.sh; do
+  [ -e "$t" ] || continue
+  b="$(basename "$t")"
+  case "$b" in run-plugin-tests.sh) continue ;; esac
+  cp "$t" "$REC/tests/$b"
+  SHIPPED=$((SHIPPED + 1))
+done
+
+if [ "$SHIPPED" -eq 0 ]; then
+  echo "run-plugin-tests: no shipped suites found in $TESTS" >&2
+  exit 2
+fi
+
+PASS_SUITES=0; FAIL_SUITES=0; FAILED_NAMES=""
+for t in "$REC/tests"/*.test.sh; do
+  b="$(basename "$t")"
+  echo "── $b ──"
+  if bash "$t"; then
+    PASS_SUITES=$((PASS_SUITES + 1))
+  else
+    FAIL_SUITES=$((FAIL_SUITES + 1))
+    FAILED_NAMES="$FAILED_NAMES $b"
+  fi
+  echo ""
+done
+
+echo "════════════════════════════════════════"
+if [ "$FAIL_SUITES" -eq 0 ]; then
+  echo "All $PASS_SUITES shipped suites passed in plugin layout (suites: 0 failed)"
+else
+  echo "Plugin-layout suites: $PASS_SUITES passed, $FAIL_SUITES failed —$FAILED_NAMES"
+fi
+[ "$FAIL_SUITES" -eq 0 ]
+RUNNER
+chmod +x "$OUT/tests/run-plugin-tests.sh"
+
 # ── project-shell assets for /guv:scaffold ──
 # Everything the template-clone step used to provide that must live in the
 # PROJECT (the plugin can't supply these from its own directory at runtime).
