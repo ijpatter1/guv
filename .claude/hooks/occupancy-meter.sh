@@ -25,16 +25,29 @@
 # exercised by synthetic transcript fixtures independent of any live session. When
 # the signal is absent or unreadable (no transcript, no assistant usage) the hook
 # takes the documented fallback rung: SILENCE — it never fabricates an occupancy
-# number and never degrades on a guess. The threshold is the only setpoint; the
-# context-window SIZE is deliberately not assumed (it drifts per model), so the
-# setpoint is an absolute token count the person tunes to their model's calm-handoff
-# point — floor measured, ceiling chosen.
+# number and never degrades on a guess.
+#
+# DEFAULT CALIBRATION ([10.6]) ────────────────────────────────────────────────────
+# The threshold is the setpoint, but its SHIPPED DEFAULT is now window-relative, not
+# a fixed absolute. A fixed 120000-token default ([9.2]) was ~12% of a 1M-context
+# model's window, so the meter tripped EVERY turn — the degradation fired as the
+# normal path instead of the boundary (feedback occdefault). The calibrated default
+# is CONTEXT-WINDOW AWARE: where the hook can see the model (the transcript's latest
+# assistant turn carries message.model), it derives the window from that model id —
+# the [1m] marker / known 1M models → a 1,000,000-token window, every other / unknown
+# model → the standard 200,000-token Claude window — and sets the default to
+# CALM_FRACTION (3/4) of that window: the calm-handoff point with headroom to flush a
+# handoff before the wall, not so eager it fires constantly. With no model signal the
+# default is the DOCUMENTED window-relative fallback below (3/4 of the standard
+# 200000 window = DEFAULT_THRESHOLD). A person who sets occupancy.threshold still
+# overrides this entirely — floor measured, ceiling tunable.
 #
 # SETPOINT ───────────────────────────────────────────────────────────────────────
 # project.json → occupancy.threshold (a positive integer token count),
-# schema-validated, person-adjustable. Absent → DEFAULT_THRESHOLD below (the shipped
-# default; absent means "use the default", NOT "off"). The schema documents the same
-# default; the two must not drift (asserted by the suite).
+# schema-validated, person-adjustable. Absent → the window-derived default (see
+# DEFAULT CALIBRATION above), falling back to DEFAULT_THRESHOLD when no model window
+# is visible; absent means "use the default", NOT "off". The schema documents the
+# same fallback default; the two must not drift (asserted by the suite).
 #
 # OUTPUT ──────────────────────────────────────────────────────────────────────────
 # Crossing: exit 0 with a Stop block (decision:"block") naming the handoff and the
@@ -47,9 +60,20 @@
 # mode) register it on the Stop event alongside stop-check.sh — both Stop hooks run.
 set -u
 
-# The shipped default threshold (tokens). Mirrored in project.schema.json's
-# occupancy.threshold.default — keep them equal (suite asserts it).
-DEFAULT_THRESHOLD=120000
+# Window-relative default calibration ([10.6]). The default threshold is CALM_FRACTION
+# of the model's context window. Context windows are inferred from the model id the
+# transcript reports; the 1M marker / known 1M models get the wide window, everything
+# else the standard window.
+CALM_FRACTION_NUM=3        # 3/4 of the window = the calm-handoff default
+CALM_FRACTION_DEN=4
+STANDARD_WINDOW=200000     # the standard Claude context window (documented fallback)
+WIDE_WINDOW=1000000        # 1M-context models (the [1m] marker)
+
+# The shipped FALLBACK default threshold (tokens), used when no model window is
+# visible to the hook: CALM_FRACTION of the standard window (200000 * 3 / 4 = 150000).
+# A literal so the schema/hook drift guard can read it; mirrored in
+# project.schema.json's occupancy.threshold.default — keep them equal (suite asserts).
+DEFAULT_THRESHOLD=150000
 
 INPUT=$(cat)
 
@@ -64,10 +88,12 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 [ -z "$CWD" ] && CWD="$PWD"
 
-# ── Read occupancy from the transcript (the mechanical source) ──
-# The LATEST assistant entry's usage. Missing file / no assistant usage → empty,
-# which the guard below routes to the silent fallback rung.
+# ── Read occupancy AND the model id from the transcript (the mechanical source) ──
+# The LATEST assistant entry's usage gives occupancy; that same entry's message.model
+# gives the model id we derive the context window from. Missing file / no assistant
+# usage → empty occupancy, which the guard below routes to the silent fallback rung.
 OCC=""
+MODEL=""
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   OCC=$(jq -rs '
     [ .[] | select(.type=="assistant") | .message.usage // empty ] as $u
@@ -76,6 +102,10 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
         | (($l.input_tokens // 0) + ($l.cache_read_input_tokens // 0) + ($l.cache_creation_input_tokens // 0))
       end
   ' "$TRANSCRIPT" 2>/dev/null)
+  MODEL=$(jq -rs '
+    [ .[] | select(.type=="assistant") | .message.model // empty ] as $m
+    | if ($m | length) == 0 then empty else ($m | last) end
+  ' "$TRANSCRIPT" 2>/dev/null)
 fi
 
 # No usable signal → silence. Never fabricate, never degrade on a guess.
@@ -83,8 +113,23 @@ case "$OCC" in
   ''|*[!0-9]*) exit 0 ;;
 esac
 
-# ── Read the threshold setpoint from the manifest (default if absent) ──
-THRESHOLD="$DEFAULT_THRESHOLD"
+# ── Derive the window-relative default from the model ([10.6]) ──
+# Where the model id is visible, size its context window and set the default to
+# CALM_FRACTION of it; otherwise keep the documented DEFAULT_THRESHOLD fallback. This
+# is a deterministic id→window map, not a guess: the [1m] marker or a known 1M model
+# gets the wide window, every other model the standard one.
+DERIVED_DEFAULT="$DEFAULT_THRESHOLD"
+case "$MODEL" in
+  '')      : ;;                                  # no model signal → documented fallback
+  *'[1m]'*) WINDOW=$WIDE_WINDOW ;;               # the 1M-context marker
+  *)       WINDOW=$STANDARD_WINDOW ;;            # known/unknown model → standard window
+esac
+if [ -n "$MODEL" ]; then
+  DERIVED_DEFAULT=$((WINDOW * CALM_FRACTION_NUM / CALM_FRACTION_DEN))
+fi
+
+# ── Read the threshold setpoint from the manifest (derived default if absent) ──
+THRESHOLD="$DERIVED_DEFAULT"
 MANIFEST="$CWD/.claude/project.json"
 if [ -f "$MANIFEST" ]; then
   T=$(jq -r '.occupancy.threshold // empty' "$MANIFEST" 2>/dev/null)
