@@ -9,8 +9,8 @@ ships under a bump. The bump policy and release checklist live in
 
 Minor release: the harness-hardening wave — eight additive capabilities groomed
 from the open feedback backlog and built as a single Phase-10 fan-out (built →
-calibrated dual-review → fix-loop → joined through the gated merge queue, full
-battery green at 1089/0). The `v0.2.0` tag lands on the default-branch release
+calibrated dual-review → fix-loop → joined through the gated merge queue, full battery green,
+stderr-clean). The `v0.2.0` tag lands on the default-branch release
 commit, merge-before-tag.
 
 ### Added
