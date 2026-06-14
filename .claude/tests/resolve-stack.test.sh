@@ -52,6 +52,33 @@ J=$(propose "$RS")
 mkdir -p "$WORK/empty"
 ( bash "$RESOLVER" "$WORK/empty" >/dev/null 2>&1 ); [ $? -eq 2 ] && ok "no-stack: exit 2" || no "no-stack: expected exit 2"
 
+# ── ceremony detection ([10.7]): onboard adopts an already-phased repo ───────
+# The resolver keys ceremony on the TARGET repo's tracker grammar, not a
+# filename guess — a live DAG-grammar PHASE_STATUS.md routes to `phased`
+# (adopt the existing plan); no phase docs, or a pre-grammar token-free
+# (LEGACY) tracker, stays `onboard`.
+
+# (a) no phase docs → onboard (the unchanged path — node fixture has no docs/)
+[ "$(field "$(propose "$ND")" .ceremony)" = onboard ] \
+  && ok "ceremony: no phase docs → onboard (unchanged path)" \
+  || no "ceremony: no-phase-docs repo must propose onboard (got $(field "$(propose "$ND")" .ceremony))"
+
+# (b) live DAG-grammar tracker → phased (adopt, don't impose onboard scaffold)
+PH="$WORK/phased"; mkdir -p "$PH/docs"
+printf '[package]\nname="planned"\n' > "$PH/Cargo.toml"
+printf '## Phase 1\n- ⬜ **[1.1]** lay the foundation `[deps: none]`\n- ✅ **[1.2]** prior work `[deps: 1.1]`\n' > "$PH/docs/PHASE_STATUS.md"
+[ "$(field "$(propose "$PH")" .ceremony)" = phased ] \
+  && ok "ceremony: live DAG-grammar tracker → phased (adopt existing plan)" \
+  || no "ceremony: already-phased repo must propose phased (got $(field "$(propose "$PH")" .ceremony))"
+
+# (c) LEGACY token-free tracker → onboard (not the DAG grammar; don't adopt)
+LG="$WORK/legacy"; mkdir -p "$LG/docs"
+printf '[package]\nname="legacy"\n' > "$LG/Cargo.toml"
+printf '## Phase 1\n- ⬜ Build the thing\n- ✅ Did a thing\n' > "$LG/docs/PHASE_STATUS.md"
+[ "$(field "$(propose "$LG")" .ceremony)" = onboard ] \
+  && ok "ceremony: pre-grammar (LEGACY) tracker → onboard (not DAG grammar)" \
+  || no "ceremony: LEGACY tracker must stay onboard (got $(field "$(propose "$LG")" .ceremony))"
+
 # ── schema alignment: every emitted key is declared (guards additionalProperties:false) ──
 J=$(propose "$ND")
 UNKNOWN_TOP=$(comm -23 <(echo "$J" | jq -r 'keys[]' | sort) <(jq -r '.properties|keys[]' "$SCHEMA" | sort))

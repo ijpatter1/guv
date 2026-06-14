@@ -142,6 +142,22 @@ else
   exit 2
 fi
 
+# ── Ceremony: adopt an already-phased repo, don't impose onboard over it ([10.7]).
+# An existing repo that already carries a live phase plan is not pre-scaffold —
+# onboarding scaffold over it would clobber the plan. Detection keys on the
+# tracker GRAMMAR, not a filename guess: resolve-ready.sh reports mode=GRAMMAR
+# only for a DAG-grammar tracker (a LEGACY token-free tracker, or none at all,
+# stays onboard — the unchanged path). The resolver is the single grammar oracle
+# (never re-parse the tracker here); if it is absent we degrade to onboard.
+CEREMONY="onboard"
+RESOLVER="$(cd "$(dirname "$0")" && pwd)/resolve-ready.sh"
+if [ -f "$RESOLVER" ]; then
+  if bash "$RESOLVER" "$DIR/docs/PHASE_STATUS.md" 2>/dev/null \
+       | grep -qx 'mode=GRAMMAR'; then
+    CEREMONY="phased"
+  fi
+fi
+
 # ── Build the proposed manifest JSON ────────────────────────────────────────
 FMT_JSON=$(printf '%s\n' "${FMT_EXT[@]}" | jq -R . | jq -s .)
 GUARDS_JSON=$(if [ ${#GUARDS[@]} -eq 0 ]; then echo '[]'; else printf '%s\n' "${GUARDS[@]}" | jq -R . | jq -s .; fi)
@@ -160,6 +176,7 @@ jq -n \
   --argjson readyCheck "$(jstr "$READY_CHECK")" \
   --argjson formatExtensions "$FMT_JSON" \
   --argjson guards "$GUARDS_JSON" \
+  --arg ceremony "$CEREMONY" \
   '{
     "$schema": "./project.schema.json",
     name: $name,
@@ -171,10 +188,14 @@ jq -n \
     readyCheck: $readyCheck,
     formatExtensions: $formatExtensions,
     guards: $guards,
-    ceremony: "onboard"
+    ceremony: $ceremony
   }'
 
 log "Proposed: language=$LANGUAGE packageManager=$PACKAGE_MANAGER guards=[${GUARDS[*]:-}]"
 log "This is a PROPOSAL. Confirm or override before writing .claude/project.json."
 log "roots default to single-repo ('.'); set roots.code for a control-plane split."
-log "ceremony defaults to 'onboard'; /init-project (/guv:init-project under the plugin) should set it to 'phased'."
+if [ "$CEREMONY" = "phased" ]; then
+  log "ceremony=phased — a live DAG-grammar tracker was detected at $DIR/docs/PHASE_STATUS.md; adopt the existing plan (resume/start-phase), do not impose onboard scaffold."
+else
+  log "ceremony defaults to 'onboard'; /init-project (/guv:init-project under the plugin) should set it to 'phased'."
+fi

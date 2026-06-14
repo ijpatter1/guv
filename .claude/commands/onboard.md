@@ -53,8 +53,9 @@ control-plane/code split, the code repo is the sibling at `roots.code`.
 
 Run the stack resolver in `.claude/resolve-stack.sh` against the code root. It sniffs
 the repo (lockfiles, manifests) and **proposes** a manifest — `language`,
-`packageManager`, `commands`, `scaffoldCheck`, `formatExtensions`, and suggested
-`guards`. Detection only _bootstraps_ the declaration; it never replaces it.
+`packageManager`, `commands`, `scaffoldCheck`, `formatExtensions`, suggested
+`guards`, and `ceremony`. Detection only _bootstraps_ the declaration; it never
+replaces it.
 
 ```bash
 bash .claude/resolve-stack.sh "${CODE_ROOT:-.}"
@@ -63,6 +64,16 @@ bash .claude/resolve-stack.sh "${CODE_ROOT:-.}"
 Present the proposed values to the user. **Wait for confirmation or overrides** — the
 human-confirmed manifest is authoritative from here on. When the project does
 something unusual, the human override wins and stays deterministic.
+
+**Already-phased redirect ([10.7]).** The resolver keys `ceremony` on the target
+repo's tracker grammar, not a filename guess: if it detects a *live DAG-grammar*
+`docs/PHASE_STATUS.md` it proposes **`ceremony=phased`** — the repo is already
+planned, and onboarding scaffold would clobber that plan. When the proposal is
+`phased`, do **not** scaffold onboard over it: confirm with the user, write the
+manifest with the existing plan adopted, and hand off to the phased doors
+(`/resume` for open work, `/start-phase` at a boundary) instead of continuing the
+onboard scaffold steps below. A token-free (LEGACY) tracker or no phase docs at all
+stays `ceremony=onboard` — the unchanged path.
 
 ## Step 2 — Infer Existing Conventions
 
@@ -85,7 +96,9 @@ Write `.claude/project.json` from the confirmed values, validating against
 
 - `roots` — `control` is `"."` (cwd). `code` is `"."` for single-repo, or the sibling
   path for a control-plane split.
-- `ceremony` — **`"onboard"`**.
+- `ceremony` — the resolver's proposal: **`"onboard"`** for a repo with no live plan
+  (the common case), or **`"phased"`** when it detected a live DAG-grammar tracker
+  ([10.7] — adopt the existing plan; the phased-redirect note in Step 1 applies).
 - `guards` — only what applies to this stack (e.g. `["npm-publish"]` for a published
   npm package; omit `gcp` unless the project uses GCP).
 
