@@ -129,17 +129,24 @@ must be respected (the "Match the codebase's conventions" rule). Decide by what'
 - **The repo's README is the harness template README** (e.g. it still says "Claude Code
   Development Environment" — common when someone copied this template without rendering):
   render `README.template.md` → `README.md` as `/init-project` does, describing what's
-  already there. (The one greenfield line, `_Status: not yet scaffolded._`, is replaced
-  by the status block update in the next step anyway.)
-- **The repo has its own real project README:** leave its prose alone. Only ensure a
-  maintained status block exists — if it has the `<!-- STATUS:START/END -->` markers,
-  the next step updates them; if not, offer to insert the marker block (with a one-line
-  "developed with the Claude Code harness" note) near the top, but only with the user's
-  ok. Never overwrite the file.
+  already there, and replace the greenfield line with a one-time status note (below).
+- **The repo has its own real project README:** leave its prose alone. Optionally, with
+  the user's ok, insert the `<!-- STATUS:START/END -->` marker block near the top (with a
+  one-line "developed with the Claude Code harness" note). Never overwrite the file.
 - **No README at all:** render `README.template.md` → `README.md` in full.
 
-In all cases, never hand-edit between the STATUS markers; `update-readme-status.sh`
-owns that region and no-ops safely when the markers are absent.
+In an onboarded repo the status block is a **one-time snapshot, not a live view**:
+onboard ceremony imposes no phase tracker (Step 6), so the §3.3 render hooks — which
+derive the block from `docs/PHASE_STATUS.md` — never fire here, and nothing keeps it
+current. If you write the block, populate it once and leave it:
+
+```bash
+printf '%s\n' "_Adopted with the Claude Code harness._" \
+  | bash .claude/update-readme-status.sh README.md
+```
+
+Never edit between the STATUS markers by hand; `update-readme-status.sh` owns that region
+and no-ops safely when the markers are absent.
 
 ## Step 6 — Do NOT Impose Phase Structure
 

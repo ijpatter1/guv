@@ -188,14 +188,21 @@ with a **project** README rendered from `README.template.md`:
    numbers between them.
 4. Strip the leading `<!-- TEMPLATE … -->` comment block.
 5. Write the result to `${roots.control}/README.md` (overwriting the harness README).
-6. Populate the initial status block from the freshly written tracker:
+6. Populate the initial status block — derive it with the same composer the §3.3
+   render hooks use, so the seed matches the line they will regenerate (phase +
+   completed/total; the resolver carries no phase name, so the line is leaner than a
+   hand-written one — that is the one-parser tradeoff):
 
    ```bash
-   printf '%s\n' "**Phase 1 — [name]** · 0/[N] deliverables · not started" \
+   bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json \
+     | bash .claude/status-line.sh - \
      | bash .claude/update-readme-status.sh README.md
    ```
 
-Thereafter `/handoff` keeps that block current; never hand-edit between the markers.
+Thereafter the §3.3 render hooks keep that block current — the native PostToolUse hook
+regenerates it when a tracker edit lands (e.g. `/handoff` Step 7 marking a deliverable
+✅), and a dogfooding control plane's git post-commit hook refreshes it on every tracker
+commit. Never hand-edit between the markers.
 
 ## After Generation
 
@@ -206,7 +213,7 @@ Present a summary of what was generated:
 - **docs/PHASE_STATUS.md** — N deliverables tracked
 - **.claude/project.json** — manifest for [language/package-manager], `ceremony: phased`
 - **CLAUDE.md** — rendered from `CLAUDE.template.md` for [tech stack summary]
-- **README.md** — rendered from `README.template.md` (project-facing, with a maintained status block)
+- **README.md** — rendered from `README.template.md` (project-facing, with a hook-maintained status block)
 
 Suggest the user review each file, then:
 

@@ -45,9 +45,11 @@ if bash "$BASE/resolve-ready.sh" "$TRACKER" --json > "$TMP_JSON" 2>/dev/null; th
   else
     rm -f "$TMP_HTML"
   fi
-  # README status block — update-readme-status.sh no-ops safely without markers.
-  bash "$BASE/status-line.sh" "$TMP_JSON" 2>/dev/null \
-    | bash "$BASE/update-readme-status.sh" README.md 2>/dev/null
+  # README status block — compose first, write only a NON-EMPTY line: symmetry with
+  # the status.html stale-beats-broken swap above (a failed compose must never blank
+  # the block). update-readme-status.sh no-ops safely without the markers.
+  LINE="$(bash "$BASE/status-line.sh" "$TMP_JSON" 2>/dev/null)"
+  [ -n "$LINE" ] && printf '%s\n' "$LINE" | bash "$BASE/update-readme-status.sh" README.md 2>/dev/null
 fi
 rm -f "$TMP_JSON"
 exit 0

@@ -266,8 +266,10 @@ if bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > "$TMP_JSON" 2>"$E
     # status.html is not one of the recording forms the view-acceptance check allows.
     MSG="chore(render): regenerate status views (post-commit hook)"
     if [ -f .claude/status-line.sh ] && [ -f .claude/update-readme-status.sh ] && [ -f README.md ]; then
-      bash .claude/status-line.sh "$TMP_JSON" 2>>"$ERR" \
-        | bash .claude/update-readme-status.sh README.md 2>>"$ERR"
+      # Compose first, write only a NON-EMPTY line (a failed compose must not blank
+      # the block); the status.html swap above is guarded the same "stale beats broken" way.
+      LINE="$(bash .claude/status-line.sh "$TMP_JSON" 2>>"$ERR")"
+      [ -n "$LINE" ] && printf '%s\n' "$LINE" | bash .claude/update-readme-status.sh README.md 2>>"$ERR"
       git add status.html README.md 2>>"$ERR" \
         && git commit -q -m "$MSG" -- status.html README.md 2>>"$ERR"
     else
