@@ -310,7 +310,7 @@ if [ ! -f "$DEST/.claude/project.json" ]; then
   jq -n --arg code "$CODE_REL" '{
     "$schema": "./project.schema.json",
     name: "harness-dev",
-    language: "node",
+    language: "shell",
     packageManager: null,
     roots: { control: ".", code: $code },
     commands: {

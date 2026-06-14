@@ -25,7 +25,7 @@
     },
     "language": {
       "type": "string",
-      "description": "Primary language. Drives the sandbox base image and the per-language firewall registry set.",
+      "description": "Primary language. Drives the sandbox base image and the per-language firewall registry set. 'shell' is for bash/jq/git projects with no language runtime: it maps to the plain Debian-slim base image and adds no language-specific registry to the firewall (only the always-on Anthropic + GitHub core).",
       "enum": [
         "node",
         "python",
@@ -34,7 +34,8 @@
         "ruby",
         "jvm",
         "dotnet",
-        "elixir"
+        "elixir",
+        "shell"
       ]
     },
     "packageManager": {

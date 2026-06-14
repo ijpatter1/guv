@@ -43,6 +43,7 @@ case "$LANGUAGE" in
     jvm)    REGISTRY_DOMAINS=( "repo.maven.apache.org" "repo1.maven.org" ) ;;
     dotnet) REGISTRY_DOMAINS=( "api.nuget.org" ) ;;
     elixir) REGISTRY_DOMAINS=( "hex.pm" "repo.hex.pm" "builds.hex.pm" ) ;;
+    shell)  REGISTRY_DOMAINS=() ;;   # bash/jq/git project: no language registry, only the always-on core
     *)
         # No (or unrecognized) language declared — default to npm to preserve
         # the original behavior. A declared language narrows this set.

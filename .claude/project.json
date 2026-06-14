@@ -1,14 +1,14 @@
 {
   "$schema": "./project.schema.json",
   "name": "claude-code-sandbox",
-  "language": "node",
+  "language": "shell",
   "packageManager": "npm",
   "roots": {
     "control": ".",
     "code": "."
   },
   "commands": {
-    "test": "npm test",
+    "test": "fail=0; for t in .claude/tests/*.test.sh; do err=$(mktemp); bash \"$t\" 2>\"$err\" || fail=1; [ -s \"$err\" ] && { echo \"[stderr] $(basename \"$t\")\"; cat \"$err\"; fail=1; }; rm -f \"$err\"; done; exit $fail",
     "build": "npm run build",
     "lint": "npm run lint",
     "format": "npx prettier --write",
