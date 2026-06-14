@@ -114,7 +114,7 @@ fi
 
 # ── Part B — template-repo doc surface (skips in consumer/plane shape) ────────
 # A rendered consumer project replaces README.md and may delete maintainers/;
-# a control plane carries the commands but not the harness's README/template.
+# a control plane carries the commands but not the guv's README/template.
 # ES_TEST_README seams the marker probe for the self-check below.
 README_PROBE="${ES_TEST_README:-$ROOT/README.md}"
 MAINT_PROBE="${ES_TEST_MAINTAINERS:-$ROOT/maintainers}"

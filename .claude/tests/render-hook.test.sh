@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for the [6.7] self-aware regeneration surface: the harness-owned
+# Tests for the [6.7] self-aware regeneration surface: the core-owned
 # post-commit hook that setup-control-plane.sh installs into a control
 # plane's .git/hooks/, the schema-validated `views` manifest entry, and the
 # publishing docs. The contract, per the A-001 insert:
@@ -44,9 +44,9 @@ fi
 WORK=$(mktemp -d)
 trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' EXIT
 
-# ── Fixture harness: the real setup script plus the real render chain, so
+# ── Fixture guv repo: the real setup script plus the real render chain, so
 # the hook the fixture control plane receives exercises the real machinery.
-H="$WORK/harness"
+H="$WORK/guv"
 mkdir -p "$H/maintainers" "$H/.claude/commands" "$H/.claude/skills" "$H/.claude/hooks"
 cp "$REAL_SCRIPT" "$H/maintainers/"
 # The full render chain, so the installed hook exercises the real machinery —
@@ -83,14 +83,14 @@ tracker() {
 MD
 }
 
-# ── T1 — create mode installs the hook: executable, harness-owned, names
+# ── T1 — create mode installs the hook: executable, core-owned, names
 # its generator (the write_runner ownership convention).
 [ -f "$HOOK" ] && ok "create: post-commit hook installed" \
   || no "create mode must install .git/hooks/post-commit"
 [ -x "$HOOK" ] && ok "create: hook is executable" || no "hook must be executable"
 grep -q 'Core-owned' "$HOOK" 2>/dev/null \
   && ok "create: hook carries the Core-owned marker" \
-  || no "hook must be marked harness-owned (ownership convention)"
+  || no "hook must be marked core-owned (ownership convention)"
 grep -q 'setup-control-plane.sh' "$HOOK" 2>/dev/null \
   && ok "create: hook names its generator" \
   || no "hook must say improve-the-generator, naming setup-control-plane.sh"
@@ -297,15 +297,15 @@ echo "#!/bin/bash" > "$HOOK"; echo "# Core-owned (drifted fixture)" >> "$HOOK"
 bash "$H/maintainers/setup-control-plane.sh" "$CP" --sync > "$WORK/sync1.log" 2>&1
 grep -q 'Core-owned' "$HOOK" && grep -q 'post-commit' "$WORK/sync1.log" \
   && grep -qi 'refreshed' "$WORK/sync1.log" \
-  && ok "sync: drifted harness-owned hook refreshed, announced" \
-  || no "--sync must refresh a drifted harness-owned hook and say so"
+  && ok "sync: drifted core-owned hook refreshed, announced" \
+  || no "--sync must refresh a drifted core-owned hook and say so"
 rm -f "$HOOK"
 bash "$H/maintainers/setup-control-plane.sh" "$CP" --sync > "$WORK/sync2.log" 2>&1
 [ ! -f "$HOOK" ] \
   && ok "sync: absent hook is NOT created on --sync (consumer protection)" \
   || no "--sync must never hand a project a git hook it didn't have"
 
-# ── T9 — a foreign (non-harness-owned) hook is never clobbered, in either mode.
+# ── T9 — a foreign (non-core-owned) hook is never clobbered, in either mode.
 printf '#!/bin/bash\n# my own hook\n' > "$HOOK"; chmod +x "$HOOK"
 bash "$H/maintainers/setup-control-plane.sh" "$CP" --sync > "$WORK/sync3.log" 2>&1
 grep -q 'my own hook' "$HOOK" \
@@ -317,7 +317,7 @@ git -C "$CP2" config user.email t@t && git -C "$CP2" config user.name t
 printf '#!/bin/bash\n# my own hook\n' > "$CP2/.git/hooks/post-commit"
 bash "$H/maintainers/setup-control-plane.sh" "$CP2" > "$WORK/create2.log" 2>&1
 grep -q 'my own hook' "$CP2/.git/hooks/post-commit" \
-  && grep -qi 'not harness-owned\|left untouched' "$WORK/create2.log" \
+  && grep -qi 'not core-owned\|left untouched' "$WORK/create2.log" \
   && ok "ownership: foreign hook survives re-create, refusal announced" \
   || no "create must not clobber a foreign hook, and must say so"
 

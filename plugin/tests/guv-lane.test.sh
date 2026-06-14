@@ -164,7 +164,7 @@ OUT=$(run create 2.2 oops); RC=$?
 
 # T9 — .worktrees/ is gitignored via the guv-core block (single source: the
 # repo-root .gitignore between the guv-core-start/end markers, which the build
-# extracts for the scaffold shell). Only the harness repo carries the block —
+# extracts for the scaffold shell). Only the guv repo carries the block —
 # a control plane's generated .gitignore has no markers, so the plane shape
 # skips visibly ([7.7] convention), never as a failure.
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"

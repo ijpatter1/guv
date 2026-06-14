@@ -220,6 +220,19 @@ maintainers/plugin-src/scripts/scaffold-shell.sh
 maintainers/build-plugin.sh
 maintainers/check-template-clean.sh
 maintainers/DOGFOODING.md
+.claude/skills/feedback/scripts/feedback-submit.sh
+.claude/tests/setup-control-plane.test.sh
+.claude/tests/scaffold.test.sh
+.claude/tests/render-hook.test.sh
+.claude/tests/plugin.test.sh
+.claude/tests/eval-parallel.test.sh
+.claude/tests/estimate.test.sh
+.claude/tests/check-template-clean.test.sh
+.claude/tests/single-writer.test.sh
+.claude/tests/render-status.test.sh
+.claude/tests/guv-lane.test.sh
+.claude/tests/feedback-log.test.sh
+.claude/tests/entry-split.test.sh
 "
 for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"

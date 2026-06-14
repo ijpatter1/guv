@@ -27,7 +27,7 @@ ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 # feed <json> -> hook stdout. stderr is suppressed only as belt-and-suspenders
-# for the run-harness-tests gate: the hook is stderr-clean for the well-formed
+# for the run-core-tests gate: the hook is stderr-clean for the well-formed
 # JSON the runtime always delivers (non-JSON stdin would make jq complain and
 # the hook would fail-open with exit 0 — but Claude Code never feeds that).
 feed() { printf '%s' "$1" | bash "$HOOK" 2>/dev/null; }

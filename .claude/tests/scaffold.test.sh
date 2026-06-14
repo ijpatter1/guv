@@ -5,7 +5,7 @@
 # drive the script against scratch project dirs using the COMMITTED plugin/
 # (the build's output — drift vs sources is plugin.test.sh's job).
 # Ownership semantics mirror copy_core:
-#   - harness-owned, refreshed every run: schema, guv-* rules, both templates,
+#   - core-owned, refreshed every run: schema, guv-* rules, both templates,
 #     the sandbox-settings example
 #   - consumer-owned after first deploy, never clobbered: settings.json,
 #     .gitignore content (guv block appended once, marker-guarded), Docker tier
@@ -73,15 +73,15 @@ jq -e 'has("hooks") | not' "$P1/.claude/settings.json" >/dev/null 2>&1 \
   && ok "deployed settings.json has no hooks block (plugin hooks.json owns them)" \
   || no "deployed settings.json must not wire hooks"
 
-# T4 — .gitignore carries the harness entries (and the marker that keeps the
+# T4 — .gitignore carries the guv entries (and the marker that keeps the
 # append idempotent)
 T4_OK=1
 for entry in "secrets/" ".claude/settings.local.json" ".claude/agent-memory/" ".DS_Store"; do
   grep -qF "$entry" "$P1/.gitignore" || { no ".gitignore missing entry: $entry"; T4_OK=0; }
 done
-[ "$T4_OK" -eq 1 ] && ok ".gitignore carries the harness entries"
+[ "$T4_OK" -eq 1 ] && ok ".gitignore carries the guv entries"
 
-# T5 — ownership on re-run: consumer-owned survives, harness-owned refreshes
+# T5 — ownership on re-run: consumer-owned survives, core-owned refreshes
 echo '{"permissions":{"allow":["Bash(mycustom:*)"]}}' > "$P1/.claude/settings.json"
 echo "# my team rule" > "$P1/.claude/rules/team-style.md"
 echo "stale" > "$P1/.claude/rules/guv-verification.md"
@@ -97,8 +97,8 @@ grep -q "stale" "$P1/.claude/rules/guv-verification.md" \
   && no "stale guv-* rule not refreshed on re-run" \
   || ok "stale guv-* rule refreshed on re-run (ownership by filename)"
 grep -q "consumer-edited" "$P1/CLAUDE.template.md" \
-  && no "harness-owned template not refreshed on re-run" \
-  || ok "templates are harness-owned: refreshed on re-run"
+  && no "core-owned template not refreshed on re-run" \
+  || ok "templates are core-owned: refreshed on re-run"
 echo "# my filled-in requirements" > "$P1/docs/REQUIREMENTS.md"
 deploy "$P1" >/dev/null 2>&1
 grep -q "my filled-in requirements" "$P1/docs/REQUIREMENTS.md" \
@@ -119,7 +119,7 @@ N=$(grep -c "secrets/" "$P2/.gitignore")
   || no "guv block duplicated or missing (secrets/ appears ${N}x)"
 # single-source guard: the appended block IS the template's marker-delimited
 # core block — extracted at deploy time, no hardcoded copy in the script to
-# drift when the template gains a harness-critical entry
+# drift when the template gains a guv-critical entry
 diff <(awk '/^# guv-core-start/,/^# guv-core-end/' "$SHELL_DIR/gitignore") \
      <(awk '/^# guv-core-start/,/^# guv-core-end/' "$P2/.gitignore") >/dev/null 2>&1 \
   && ok "appended block == template's guv-core block (single source, extracted)" \
@@ -175,7 +175,7 @@ echo "$OUT2" | grep -E '^\[scaffold\] refreshed:.*rules/guv-' >/dev/null \
   && ok "re-run labels the rules as refreshed" \
   || no "re-run must label rules refreshed"
 
-# T10 — shell assets in the plugin match their harness sources: templates,
+# T10 — shell assets in the plugin match their guv sources: templates,
 # gitignore, schema, sandbox-example, and the Docker tier byte-identical;
 # settings = source settings minus the hooks block (jq-normalized compare)
 T10_OK=1
@@ -192,7 +192,7 @@ for pair in \
   cmp -s "$ROOT/${pair%%:*}" "$PLUGIN/${pair##*:}" || { no "shell asset ${pair##*:} differs from ${pair%%:*}"; T10_OK=0; }
 done
 diff -r "$ROOT/sandbox" "$PLUGIN/shell/sandbox" >/dev/null 2>&1 || { no "shell/sandbox differs from sandbox/"; T10_OK=0; }
-[ "$T10_OK" -eq 1 ] && ok "shell assets byte-identical to harness sources"
+[ "$T10_OK" -eq 1 ] && ok "shell assets byte-identical to guv sources"
 diff <(jq -S 'del(.hooks)' "$ROOT/.claude/settings.json") <(jq -S . "$PLUGIN/shell/settings.json") >/dev/null 2>&1 \
   && ok "shell settings.json = source settings minus the hooks block" \
   || no "shell settings.json must equal the source with .hooks deleted"

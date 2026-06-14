@@ -8,7 +8,7 @@
 # deliverable invariants this suite defends:
 #   1. estimate edits leave the tracker BYTE-IDENTICAL (asserted with cmp);
 #   2. NO estimate token ever enters the tracker grammar (grep-asserted).
-# The default is 1 (the harness pushes deliverables toward session-sized);
+# The default is 1 (the guv pushes deliverables toward session-sized);
 # anything above 1 is a flagged balloon.
 #
 # Pure bash + jq, no test runner. Run: bash .claude/tests/estimate.test.sh
@@ -44,7 +44,7 @@ MD
 
 fresh_sidecar() { printf '%s\n' "$WORK/$1.json"; }
 
-# ════ T1 — default: a balloon-free harness defaults every deliverable to 1 ════
+# ════ T1 — default: a balloon-free guv defaults every deliverable to 1 ════
 [ "$(bash "$SCRIPT" default 2>/dev/null)" = "1" ] \
   && ok "default: the shipped default estimate is 1 (session-sized)" \
   || no "default should print 1 (got: $(bash "$SCRIPT" default 2>&1))"

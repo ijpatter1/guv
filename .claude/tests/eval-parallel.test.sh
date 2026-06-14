@@ -10,7 +10,7 @@
 #   - the fix loop is explicitly excluded (Step 5 stays conversational —
 #     workflow subagents run in acceptEdits mode, which conflicts with it)
 #   - the script parses as JavaScript (node --check; skipped cleanly when node
-#     is absent — the harness's own runtime deps stay bash + jq + git)
+#     is absent — the guv's own runtime deps stay bash + jq + git)
 # Pure bash, no test runner required.
 # Run: bash .claude/tests/eval-parallel.test.sh
 set -u
@@ -74,7 +74,7 @@ grep -qi "fix loop" "$WF" && grep -qi "conversational" "$WF" \
 # export and runs the body inside an async function (that's what legalizes
 # top-level await/return), so the check emulates that wrapping — which also
 # keeps it CommonJS-parsed and independent of node's ESM-detection version
-# threshold. node is not a harness runtime dep: skip cleanly (loudly) if absent.
+# threshold. node is not a guv runtime dep: skip cleanly (loudly) if absent.
 if command -v node >/dev/null 2>&1; then
   { printf 'async function __wf(){\n'; sed 's/^export //' "$WF"; printf '\n}\n'; } \
     | node --check >/dev/null 2>&1 \

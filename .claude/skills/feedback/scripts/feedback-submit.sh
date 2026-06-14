@@ -4,7 +4,7 @@
 # Drains open `routing: upstream` feedback entries from a guv dogfooding control
 # plane into the guv SOURCE repo as issues, replacing the manual copy-paste that
 # drain does today. (Its home is the dogfooding plane, where `roots.code` IS the
-# harness source — see the AUDIENCE note at the tracker-resolution step; any other
+# guv source — see the AUDIENCE note at the tracker-resolution step; any other
 # target is reached with `--repo`.) For each open upstream entry that has no upstream
 # link yet it DRAFTS an issue (title + body) and writes a draft annotation back onto
 # the entry, so a re-run is idempotent — deduped by entry id via that writeback
@@ -105,17 +105,17 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 \
 # `gh repo view` reads the remote and reports nameWithOwner.
 #
 # AUDIENCE — this transport's home is a guv DOGFOODING control plane, where
-# `roots.code` IS the harness source checkout (see maintainers/DOGFOODING.md:
+# `roots.code` IS the guv source checkout (see maintainers/DOGFOODING.md:
 # `roots.code` → ijpatter1/guv), so its GitHub repo is the right upstream tracker.
 # That is the only context where the resolved default is correct. A plain plugin
 # *consumer* (whose `roots.code` is their OWN product, not the guv upstream) has no
-# manifest field naming the harness source — so for them the resolved default would
+# manifest field naming the guv source — so for them the resolved default would
 # be their own tracker, the wrong target. Two things keep that from being a silent
 # misfire: (1) the resolved slug is ANNOUNCED ("…to draft against <REPO>") before any
 # draft is emitted or written, so the operator sees the target every run; and (2)
 # `--repo <owner/name>` is the explicit override to point the drain anywhere else.
 # A consumer who wants the guv upstream passes `--repo` (or runs this from a plane
-# whose `roots.code` is the harness).
+# whose `roots.code` is guv).
 CODE=$(jq -r '.roots.code // "."' "$MANIFEST")
 { [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
 

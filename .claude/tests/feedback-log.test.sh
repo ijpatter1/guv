@@ -164,7 +164,7 @@ for copy in "${COPIES[@]}"; do
     || no "Closing the loop in $label must state what routing:local entries do now"
 
   # T8b — the sync/dogfooding close path: a dogfooding control plane consumes
-  # the harness via --sync (not releases), so an upstream entry graduates when
+  # guv via --sync (not releases), so an upstream entry graduates when
   # its fix lands in source and reaches the plane via sync — the close trigger
   # the release-keyed drain alone left missing. Scoped to Closing the loop, and
   # the anchors carry no slash-commands so the plugin rewrite leaves them intact.

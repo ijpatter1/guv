@@ -25,12 +25,12 @@ WORK=$(mktemp -d)
 # Keep fixtures + setup.log around on failure — they ARE the diagnostics.
 trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures + setup.log kept at $WORK)"' EXIT
 
-# A fixture harness with the real script in place (GUV_DIR is derived from
+# A fixture guv repo with the real script in place (GUV_DIR is derived from
 # the script's own location, so it must live at <fixture>/maintainers/).
 # Finder droppings are planted at the item root and one nested level deep —
 # the nested one is what distinguishes a recursive scrub from a naive rm.
-make_harness() {
-  local h="$WORK/harness"
+make_guv() {
+  local h="$WORK/guv"
   rm -rf "$h"
   mkdir -p "$h/maintainers" "$h/.claude/skills/status" "$h/.claude/skills/task" "$h/.claude/hooks"
   cp "$REAL_SCRIPT" "$h/maintainers/"
@@ -50,7 +50,7 @@ make_harness() {
 run_setup() { ( bash "$1/maintainers/setup-control-plane.sh" "$2" ${3:-} ) >> "$WORK/setup.log" 2>&1; }
 
 # T1 — create mode copies the core...
-H=$(make_harness)
+H=$(make_guv)
 D="$WORK/control"
 run_setup "$H" "$D"
 [ -f "$D/.claude/skills/task/SKILL.md" ] && [ -f "$D/.claude/rules/guv-core.md" ] \
@@ -64,7 +64,7 @@ run_setup "$H" "$D"
 # T1b — glob-derived helper registry ([7.1]): a helper the enumeration never
 # heard of must reach the plane on create AND refresh on --sync, with zero
 # copy_core edits. Red until copy_core derives the .sh set by glob.
-H2=$(make_harness)
+H2=$(make_guv)
 echo "fixture v1" > "$H2/.claude/zzregistry-fixture.sh"
 D2="$WORK/control-registry"
 run_setup "$H2" "$D2"
@@ -99,7 +99,7 @@ grep -qF '`.claude/rules/`' "$D/CLAUDE.md" \
 
 # T3 — --sync also scrubs a .DS_Store that already sits in the destination core
 # (rm -rf + re-copy of each item must not leave or re-introduce one).
-H=$(make_harness)
+H=$(make_guv)
 D="$WORK/control2"
 run_setup "$H" "$D"
 touch "$D/.claude/skills/.DS_Store"
@@ -111,7 +111,7 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
 # T3c — --sync backfills .lane-reports/ into an EXISTING plane whose .gitignore
 # predates the line (create-mode write is skipped when a .gitignore exists), and
 # is idempotent (a second --sync does not duplicate it). UAT-F4 + eval Minor.
-H=$(make_harness)
+H=$(make_guv)
 D="$WORK/control-gi"
 run_setup "$H" "$D"
 # Simulate a plane scaffolded before the line shipped: strip it back out.
@@ -130,7 +130,7 @@ run_setup "$H" "$D" --sync
 # (the full contract the script's header states: manifest, CLAUDE.md, docs,
 # and feedback untouched). Sentinel CONTENT is asserted, not mere existence —
 # a regression that recreated/emptied these files must fail here.
-H=$(make_harness)
+H=$(make_guv)
 D="$WORK/control3"
 run_setup "$H" "$D"
 mkdir -p "$D/.claude/feedback" "$D/docs/sessions"
@@ -156,8 +156,8 @@ cmp -s "$WORK/team-style.before" "$D/.claude/rules/team-style.md" \
   && ok "sync: consumer-authored rule survives byte-for-byte (cmp)" \
   || no "sync: unprefixed consumer rules must never be touched"
 grep -q "wf-edited" "$D/.claude/workflows/eval-parallel.js" 2>/dev/null \
-  && ok "sync: stale harness workflow refreshed" \
-  || no "sync: harness-shipped workflows should be refreshed"
+  && ok "sync: stale guv workflow refreshed" \
+  || no "sync: guv-shipped workflows should be refreshed"
 cmp -s "$WORK/my-migration.before" "$D/.claude/workflows/my-migration.js" \
   && ok "sync: consumer-saved workflow survives byte-for-byte (cmp)" \
   || no "sync: user-saved workflows must never be touched (native feature saves them here)"
@@ -191,10 +191,10 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
 # T5 — create-mode never-clobber: re-running create on an existing control
 # plane must not overwrite the manifest or CLAUDE.md ("write ... ONLY if they
 # don't exist yet"). The generated test runner is the exception: it carries no
-# consumer state, so it is harness-owned and refreshed like guv-* rules
+# consumer state, so it is core-owned and refreshed like guv-* rules
 # (entry 2026-06-11T23:17:51Z-15612590 — create-only meant generator
 # improvements never reached existing control planes).
-H=$(make_harness)
+H=$(make_guv)
 D="$WORK/control4"
 run_setup "$H" "$D"
 echo "sentinel-claude-md" > "$D/CLAUDE.md"
@@ -211,16 +211,16 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   || no "create re-run must not clobber the manifest or CLAUDE.md"
 if ! grep -q "sentinel-runner" "$D/.claude/run-core-tests.sh" 2>/dev/null \
   && grep -q '\[stderr\]' "$D/.claude/run-core-tests.sh" 2>/dev/null; then
-  ok "create re-run: drifted runner refreshed (harness-owned, no consumer state)"
+  ok "create re-run: drifted runner refreshed (core-owned, no consumer state)"
 else
-  no "create re-run should refresh the generated runner — it is harness-owned"
+  no "create re-run should refresh the generated runner — it is core-owned"
 fi
 
 # T6 — generated runner enforces the empty-stderr gate: a suite that PASSES but
 # writes to stderr must fail the run (a green summary above a parse error is
 # how a vacuous guard slipped two review gates — session-2026-06-11-003).
 # The clean-suite case first is the positive control for the runner itself.
-H=$(make_harness)
+H=$(make_guv)
 D="$WORK/control-runner"
 mkdir -p "$H/.claude/tests"
 printf '#!/bin/bash\necho "  ok"\nexit 0\n' > "$H/.claude/tests/clean.test.sh"
@@ -253,8 +253,8 @@ fi
 # T8 — --sync refreshes the generated test runner (the same entry as T5's
 # exception: the D3 stderr-gate fix changed the runner heredoc and the live
 # copy had to be hand-edited to match — any drift from the generator is stale
-# harness code, not consumer state).
-H=$(make_harness)
+# guv code, not consumer state).
+H=$(make_guv)
 D="$WORK/control5"
 run_setup "$H" "$D"
 # Fresh create is where chmod is load-bearing: cp from mktemp yields a
@@ -284,7 +284,7 @@ echo "$OUT2" | grep -q "refreshed .claude/run-core-tests.sh" \
 # T8b — refresh-only on --sync: the runner is dogfooding tooling, but --sync is
 # ALSO the template-clone consumer update path, and a consumer project never had
 # the runner. Syncing into a dest without one must not plant it.
-H=$(make_harness)
+H=$(make_guv)
 D="$WORK/consumer-clone"
 mkdir -p "$D/.claude"
 run_setup "$H" "$D" --sync
@@ -309,7 +309,7 @@ if [ -f "$DOG" ]; then
     && ok "DOGFOODING: plugin generator + authored sources named" \
     || no "DOGFOODING must name build-plugin.sh and plugin-src/ (Phase 5 tooling)"
   grep -q 'RELEASING\.md' "$DOG" \
-    && ok "DOGFOODING: RELEASING.md in the what-lives-in-the-harness-repo list" \
+    && ok "DOGFOODING: RELEASING.md in the what-lives-in-the-guv-repo list" \
     || no "DOGFOODING must list RELEASING.md among durable maintainer tooling"
   grep -q 'unreleased' "$DOG" \
     && ok "DOGFOODING: maintainer disposition — --sync kept for unreleased changes" \
@@ -384,7 +384,7 @@ elif [ -f "$RM" ]; then
   # the fallback audience is invited to make.
   flat "$RM" | grep -qi 'replaces core-owned surfaces[^.]*wholesale' \
     && ok "README: customized forks warned that --sync replaces core-owned surfaces wholesale" \
-    || no "README must warn customized forks that --sync reverts harness-owned edits"
+    || no "README must warn customized forks that --sync reverts core-owned edits"
 else
   echo "  - README.md absent (fork) — disposition guards skip"
 fi
@@ -439,10 +439,10 @@ if [ -z "${SCP_TEST_INNER:-}" ]; then
 fi
 
 # ── the <project>-guv default destination ([6.4]) ──────────────────────────
-# No-arg create defaults to a SIBLING of the harness named <repo>-guv. This is
+# No-arg create defaults to a SIBLING of guv named <repo>-guv. This is
 # a constructed default, announced loudly — never discovery (no glob; the
 # docs-sweep suite pins that boundary repo-wide).
-H=$(make_harness)
+H=$(make_guv)
 DH="$WORK/widget"; rm -rf "$DH" "$WORK/widget-guv"; mv "$H" "$DH"
 OUT_DEF=$( cd "$WORK" && bash "$DH/maintainers/setup-control-plane.sh" 2>&1 )
 if [ -d "$WORK/widget-guv/.claude/skills" ]; then
@@ -474,7 +474,7 @@ else
 fi
 # Sync against an ABSENT destination refuses — it must never manufacture an
 # empty half-plane and report success while the real plane stays stale.
-H=$(make_harness)
+H=$(make_guv)
 DH2="$WORK/phantom"; rm -rf "$DH2" "$WORK/phantom-guv"; mv "$H" "$DH2"
 OUT_ABS=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" --sync 2>&1 )
 RC_ABS=$?
@@ -514,7 +514,7 @@ fi
 # ── [7.7] — control planes carry the installed test suite. The suites are
 # location-relative by design, so the plane's copy verifies the plane's
 # INSTALLED scripts — the installation tests itself, one sync behind the
-# source. The fixture harness gets the REAL resolver + its REAL suite so
+# source. The fixture guv repo gets the REAL resolver + its REAL suite so
 # the divergence proof below is genuine, plus the REAL copy of this very
 # suite to prove the maintainers-shape skip in the plane. Outer-run only
 # (the T10b seamed self-invocations re-run this whole file; real-suite
@@ -522,7 +522,7 @@ fi
 # exit-code assertions to this block's state).
 if [ -z "${SCP_TEST_INNER:-}" ]; then
 REALROOT="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)"
-H77=$(make_harness)
+H77=$(make_guv)
 mkdir -p "$H77/.claude/tests"
 cp "$REALROOT/.claude/resolve-ready.sh" "$H77/.claude/resolve-ready.sh"
 # The resolver suite cross-checks regex parity against its sibling
@@ -540,7 +540,7 @@ run_setup "$H77" "$D77"
 { echo "drifted" > "$D77/.claude/tests/resolve-ready.test.sh"; } 2>/dev/null
 run_setup "$H77" "$D77" --sync
 cmp -s "$H77/.claude/tests/resolve-ready.test.sh" "$D77/.claude/tests/resolve-ready.test.sh" \
-  && ok "[7.7] sync: a drifted plane suite is refreshed (harness-owned, like the core)" \
+  && ok "[7.7] sync: a drifted plane suite is refreshed (core-owned, like the core)" \
   || no "[7.7] --sync must refresh the plane's tests copy"
 
 # The point of the whole deliverable: the plane's suite tests the plane's

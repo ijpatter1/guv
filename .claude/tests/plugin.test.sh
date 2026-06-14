@@ -112,7 +112,7 @@ for d in "$SRC"/skills/*/; do
 done
 [ "$T3_OK" -eq 1 ] && ok "every source skill (incl. flattened former commands) ships with name + description frontmatter"
 
-# T4 — every harness skill ships under the same name (body content preserved:
+# T4 — every core skill ships under the same name (body content preserved:
 # the part after the source frontmatter appears verbatim in the plugin copy,
 # modulo the script-path rewrite, which T9 checks separately).
 T4_OK=1
@@ -120,7 +120,7 @@ for d in "$SRC"/skills/*/; do
   name="$(basename "$d")"
   [ -f "$PLUGIN/skills/$name/SKILL.md" ] || { no "skill $name missing from plugin"; T4_OK=0; }
 done
-[ "$T4_OK" -eq 1 ] && ok "all harness skills ship in the plugin under their own names"
+[ "$T4_OK" -eq 1 ] && ok "all core skills ship in the plugin under their own names"
 
 # T4b — bundled single-owner scripts ([8.3]) ship byte-identical inside their
 # skill's scripts/ (referenced via ${CLAUDE_SKILL_DIR}), and NOT in the shared
@@ -188,7 +188,7 @@ for a in evaluator reviewer; do
 done
 [ "$T6_OK" -eq 1 ] && ok "both agents ship hook-free with name/tools/body preserved"
 
-# T7 — hooks.json wires all three harness hooks plus the reviewer read-only
+# T7 — hooks.json wires all three core hooks plus the reviewer read-only
 # guard, every command routed through \${CLAUDE_PLUGIN_ROOT}.
 if [ -f "$HOOKS_JSON" ] && jq -e . "$HOOKS_JSON" >/dev/null 2>&1; then
   ok "hooks/hooks.json exists and is valid JSON"
