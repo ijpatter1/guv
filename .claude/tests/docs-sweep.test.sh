@@ -219,6 +219,7 @@ maintainers/setup-control-plane.sh
 maintainers/plugin-src/scripts/scaffold-shell.sh
 maintainers/build-plugin.sh
 maintainers/check-template-clean.sh
+maintainers/DOGFOODING.md
 "
 for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"

@@ -1,4 +1,4 @@
-# Dogfooding the harness — the control-plane split
+# Dogfooding guv — the control-plane split
 
 > **Maintainer-only.** This directory is about _developing_ Governor (guv), not using
 > it. A consumer who forks the template can delete `maintainers/` — it never affects a
@@ -8,7 +8,7 @@
 
 ## The problem
 
-This repo is **both the product and its own first consumer.** Using the harness's full
+This repo is **both the product and its own first consumer.** Using guv's full
 workflow on itself (`/handoff` artifacts, the feedback log, README/CLAUDE.md render,
 phase docs) produces **project-shell (L3) artifacts** — exactly what the template must
 _not_ ship. We want full functionality without those artifacts contaminating the
@@ -16,37 +16,37 @@ template.
 
 ## The mechanism
 
-Eat our own control-plane split. The harness repo becomes the **code repo**
+Eat our own control-plane split. The guv repo becomes the **code repo**
 (`roots.code`); a **separate sibling control plane** holds every session artifact. The
 split keeps the template clean _by construction_ — the shell physically lives in a
-different repo — and it dogfoods the least-tested path in the harness.
+different repo — and it dogfoods the least-tested path in guv.
 
 Control planes are named **`<project>-guv`** by convention — a suffix, not a prefix
-(`guv-` as a prefix already means harness-owned-and-sync-replaced, and the control
+(`guv-` as a prefix already means core-owned-and-sync-replaced, and the control
 plane is precisely the artifact guv must never overwrite). The suffix reads as a
 possessive — the project's guv — and sorts adjacent to its project. The convention
 is human-facing only: the setup script offers it as the default directory name and
 the docs teach it, but no script ever discovers a control plane by name — the
-manifest (`roots`) is the sole machine pointer. The harness's own control plane is
+manifest (`roots`) is the sole machine pointer. guv's own control plane is
 therefore `guv-guv`, deliberately. Renaming a pre-convention control plane to match
 is a manual human act, not a deliverable: by the convention's own terms, nothing
 machine-readable knows or cares what the directory is called.
 
 ```
 ~/dev/
-├── guv/                            # THE HARNESS = roots.code (repo: ijpatter1/guv).
+├── guv/                            # guv = roots.code (repo: ijpatter1/guv).
 │                                   #   We edit this; product commits (real template
 │                                   #   improvements) land here. Stays clean: no rendered
 │                                   #   CLAUDE.md, no feedback data, docs/ stay placeholders.
 └── guv-guv/                        # CONTROL PLANE = cwd (<project>-guv). Claude launches
     ├── .claude/                    #   here. Its own git repo, its own commit stream.
-    │   ├── (core copied from the harness — commands, skills, agents, hooks, tests,
+    │   ├── (core copied from guv — commands, skills, agents, hooks, tests,
     │   │   guv-* rules, workflows, scripts, schema, settings)  ← refreshed by --sync
-    │   ├── project.json             #   dogfooding manifest: roots.code → the harness
-    │   ├── run-core-tests.sh     #   commands.test → runs the harness's bash suites
-    │   │                            #   (generated; harness-owned — --sync refreshes it too)
-    │   └── feedback/feedback.ndjson #   harness friction lives HERE, not in the template
-    ├── CLAUDE.md                    #   "you are improving the harness at roots.code"
+    │   ├── project.json             #   dogfooding manifest: roots.code → guv
+    │   ├── run-core-tests.sh     #   commands.test → runs the core's bash suites
+    │   │                            #   (generated; core-owned — --sync refreshes it too)
+    │   └── feedback/feedback.ndjson #   guv friction lives HERE, not in the template
+    ├── CLAUDE.md                    #   "you are improving guv at roots.code"
     └── docs/                        #   sessions/ handoffs; when an initiative is active,
                                      #   the phase docs (REQUIREMENTS/ARCHITECTURE/PHASE_STATUS)
 ```
@@ -55,34 +55,34 @@ machine-readable knows or cares what the directory is called.
 
 | Artifact                                                            | Lands in                           |
 | ------------------------------------------------------------------- | ---------------------------------- |
-| Template improvements (commands, skills, hooks, tests, plugin, …)   | **harness repo** (product commits) |
+| Template improvements (commands, skills, hooks, tests, plugin, …)   | **guv repo** (product commits) |
 | Rendered `CLAUDE.md`, session handoffs, feedback log, phase docs    | **control plane**                  |
 | `agent-memory/`                                                     | control plane (gitignored there)   |
 
-`git -C $(roots.code)` operations target the harness; doc/session/feedback commits stay
+`git -C $(roots.code)` operations target guv; doc/session/feedback commits stay
 in the control plane. Two commit streams, by design — and the template repo never sees a
 single shell artifact.
 
 ## Why copy-and-sync, not symlink
 
-The control plane's `.claude/` core is a **copy** of the harness, not a symlink. That is
-deliberate: with a symlink you'd be _running on the harness you're editing_, so a
+The control plane's `.claude/` core is a **copy** of guv's core, not a symlink. That is
+deliberate: with a symlink you'd be _running on the core you're editing_, so a
 half-finished edit to a hook or command would brick the live session (the exact "don't
-modify the harness you're standing on" hazard the auto-mode classifier keeps flagging).
+modify the core you're standing on" hazard the auto-mode classifier keeps flagging).
 
-With a copy, edits land in the harness repo (the source of truth, where commits go) and
+With a copy, edits land in the guv repo (the source of truth, where commits go) and
 **don't affect the running session until you deliberately sync them in**:
 
 ```bash
 bash maintainers/setup-control-plane.sh --sync    # destination defaults to ../guv-guv
 ```
 
-So the loop is: edit in the harness repo → run its tests there → `--sync` into the
-control plane → exercise the changed harness from a control-plane session → commit the
-harness change in the harness repo, and any session artifacts in the control plane.
+So the loop is: edit in the guv repo → run its tests there → `--sync` into the
+control plane → exercise the changed core from a control-plane session → commit the
+guv change in the guv repo, and any session artifacts in the control plane.
 
 What `--sync` refreshes is ownership-scoped, not tree-wide: core-owned surfaces
-(commands, skills, agents, hooks, tests, `guv-*` rules, harness-shipped workflows,
+(commands, skills, agents, hooks, tests, `guv-*` rules, guv-shipped workflows,
 scripts, schema, settings — and the generated `run-core-tests.sh`, which carries no
 consumer state) are replaced; consumer-owned state (the manifest, `CLAUDE.md`,
 unprefixed rules, consumer-saved workflows, docs, feedback) is never touched.
@@ -116,7 +116,7 @@ that keeps `maintainers/` reads as source-shaped to the suites, so prune
 `maintainers/` before pruning doc surfaces — keeping one without the other is
 an unsupported shape that fails loud by design.) This never replaces the dogfooding
 battery — `commands.test` keeps running the source's suites via `roots.code` —
-but for a generic `<project>-guv` it is the only harness verification that
+but for a generic `<project>-guv` it is the only guv verification that
 exists, and on any plane it is what catches a bad or partial sync.
 
 ## The plugin, and why `--sync` survives it
@@ -124,7 +124,7 @@ exists, and on any plane it is what catches a bad or partial sync.
 Since Phase 5 the durable core also ships as the **guv plugin**: `plugin/` is generated
 by `maintainers/build-plugin.sh` from `.claude/` + `maintainers/plugin-src/` (authored
 plugin-only sources), and the marketplace serves it from the default branch. That gives
-the harness two delivery channels, and the `setup-control-plane.sh` disposition is
+guv two delivery channels, and the `setup-control-plane.sh` disposition is
 decided by audience:
 
 - **Consumers, default path:** install the plugin. Updates arrive as versioned releases
@@ -132,7 +132,7 @@ decided by audience:
   replace `--sync` entirely; nothing in a plugin-installed project ever runs this
   script.
 - **Consumers, template-clone fallback:** kept and supported — for forks that customize
-  harness-owned files (the plugin's surfaces aren't editable; a clone's are) or
+  core-owned files (the plugin's surfaces aren't editable; a clone's are) or
   environments that can't install plugins. `--sync` remains their update path, with
   the documented caveat that it replaces core-owned surfaces **wholesale** (see
   the ownership-scoped list above — only unprefixed rules and consumer-saved
@@ -159,8 +159,8 @@ unreleased changes, mind which copy you invoke: bare names are the synced projec
 ## Ceremony: seeded `task`, flipped per initiative
 
 The setup script seeds the control plane's manifest with `ceremony: task` — the
-harness's resting state is scoped maintenance, where every improvement is a `/task`.
-When a phased initiative runs against the harness, `/plan` flips the control
+guv's resting state is scoped maintenance, where every improvement is a `/task`.
+When a phased initiative runs against guv, `/plan` flips the control
 plane to `ceremony: phased` and generates the phase docs in the control plane's `docs/`
 (the native-alignment initiative did exactly this on 2026-06-10). There is no revert
 machinery, by design: phased with a fully-✅ tracker is itself a clean resting state —
@@ -176,14 +176,14 @@ scaffolds from a spec.
 ## Setup
 
 ```bash
-# from the harness repo:
+# from the guv repo:
 bash maintainers/setup-control-plane.sh    # destination defaults to ../guv-guv (the <project>-guv convention)
 cd ../guv-guv
 claude
-/status           # confirm roots.code points back at the harness (ceremony starts as task)
+/status           # confirm roots.code points back at guv (ceremony starts as task)
 ```
 
-Re-run with `--sync` after editing the harness to pull your changes into the control
+Re-run with `--sync` after editing guv to pull your changes into the control
 plane before testing them.
 
 ## Publishing the status view (GitHub Pages)
@@ -216,7 +216,7 @@ the previous render stays in place, the refusal is loud, and the manual
 two-liner above always works (`status.json` is the intermediate file; the
 generated `.gitignore` keeps it out of the repo — planes created before this
 entry existed should add the `status.json` line once by hand). A pre-existing
-post-commit hook the harness doesn't own is never touched.
+post-commit hook guv doesn't own is never touched.
 
 To publish: enable GitHub Pages on the control-plane repo (Settings → Pages →
 deploy from branch, `main`, `/(root)`), and the committed `status.html` is served
@@ -240,7 +240,7 @@ schema-validated). It is **descriptive only** — no execution path reads it; th
 declaration exists so the published surface is explicit manifest rather than
 implicit convention.
 
-## What still lives in the harness repo
+## What still lives in the guv repo
 
 Durable maintainer tooling is the _bootstrap_ for the split, so it lives here — you
 need it before the control plane exists:
@@ -256,5 +256,5 @@ need it before the control plane exists:
 
 Ongoing **session** artifacts do not live here: they belong in the control plane. The
 distinction is the same one the feedback log's `routing` field encodes: _is this about
-building the harness (quarantine to the control plane), or part of the shipped template
+building guv (quarantine to the control plane), or part of the shipped template
 (commit here)?_
