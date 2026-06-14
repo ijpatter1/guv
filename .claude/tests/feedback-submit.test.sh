@@ -322,6 +322,91 @@ AFTER11=$(cat "$LOG11")
   && ok "an entry carrying the real issue URL is skipped (loop closed, byte-identical)" \
   || no "a real-URL-linked entry must be deduped, not re-drafted (rc=$RC11, out=$OUT11)"
 
+# ── T12 — consumer-fork safety: the resolved target is ANNOUNCED, and a target ──
+# resolved FROM roots.code carries the loud caveat. The headline fork-safety fix is
+# that `submit` never silently drains to the wrong tracker: in a consumer fork
+# `roots.code` is the consumer's OWN product, not the guv upstream, so the run must
+# (a) name the tracker it is about to draft against every run, and (b) when that slug
+# came from roots.code (the only context where the default can be the wrong upstream)
+# say so and point at the `--repo` override. No --repo here -> resolved from roots.code.
+P12=$(make_project); LOG12="$P12/$LOG_REL"
+add_entry "$LOG12" "fork1" "upstream" "open" "would drain to whichever tracker roots.code names"
+OUT12=$( cd "$P12" && GUV_GH="$STUB_DIR/gh-reachable" bash "$SCRIPT" submit ) 2>"$WORK/t12.err"; RC12=$?
+[ $RC12 -eq 0 ] \
+  && ok "submit exits 0 resolving the tracker from roots.code (rc=$RC12)" \
+  || no "submit should exit 0 (rc=$RC12, err=$(cat "$WORK/t12.err"))"
+# (a) the resolved slug is named ON THE ANNOUNCEMENT LINE before any draft — the
+# operator sees the target. Anchor on the announce line itself ("…to draft against
+# <slug>"), not a bare slug match (the slug also recurs in every drafted body, which
+# would mask a missing announcement).
+echo "$OUT12" | grep -qE 'to draft against .*ijpatter1/guv' \
+  && ok "the resolved tracker slug is ANNOUNCED before drafting (fork can't drain blind)" \
+  || no "submit must announce the resolved tracker on its own line every run (out=$OUT12)"
+# (b) resolved-from-roots.code -> the loud caveat + the --repo override fires.
+echo "$OUT12" | grep -qF "roots.code" && echo "$OUT12" | grep -qF -- "--repo" \
+  && ok "a roots.code-resolved target carries the loud caveat naming --repo as the override" \
+  || no "resolved-from-roots.code must surface the wrong-tracker caveat + --repo (out=$OUT12)"
+
+# ── T13 — explicit --repo SUPPRESSES the roots.code caveat (target is chosen) ──
+# When the operator names the tracker with --repo there is no roots.code-default
+# ambiguity to warn about: the announcement still names the chosen target, but the
+# "resolved from roots.code; pass --repo" caveat must NOT fire (it would be a lie —
+# the target was not resolved from roots.code). This pins the REPO_FROM_CODE guard:
+# the caveat is keyed on provenance, not printed unconditionally.
+P13=$(make_project); LOG13="$P13/$LOG_REL"
+add_entry "$LOG13" "expl1" "upstream" "open" "drain to an explicitly-named tracker"
+OUT13=$( cd "$P13" && GUV_GH="$STUB_DIR/gh-reachable" bash "$SCRIPT" submit --repo "someorg/other" ) 2>"$WORK/t13.err"; RC13=$?
+[ $RC13 -eq 0 ] \
+  && ok "submit --repo exits 0 against the explicitly-named tracker (rc=$RC13)" \
+  || no "submit --repo should exit 0 (rc=$RC13, err=$(cat "$WORK/t13.err"))"
+echo "$OUT13" | grep -qE 'to draft against .*someorg/other' \
+  && ok "submit --repo announces the explicitly-chosen target on the announce line" \
+  || no "submit --repo must announce the chosen target on its own line (out=$OUT13)"
+echo "$OUT13" | grep -qF "resolved from roots.code" \
+  && no "the roots.code caveat must NOT fire when --repo named the target (out=$OUT13)" \
+  || ok "explicit --repo suppresses the roots.code caveat (guard keyed on provenance)"
+
+# ── T14 — the emitted --title is QUOTE-SAFE (same class as the body, title axis) ──
+# A summary carrying a ", $, backtick, or ' must reach gh literally — never break the
+# emitted command's quoting and never run as a command substitution when the user
+# copy-pastes the block. The body is already safe (quoted heredoc); this guards the
+# inline --title argument, the remaining injection axis. We give an entry a hostile
+# summary, extract the emitted gh line, and assert (1) it parses as ONE command whose
+# --title round-trips to the exact hostile string, and (2) running it through a stub
+# fires no embedded `$(…)` side effect.
+P14=$(make_project); LOG14="$P14/$LOG_REL"
+HOSTILE='broke "this" and $(touch '"$WORK"'/PWNED) and it'"'"'s `bad`'
+# Append an entry whose SUMMARY (the title source) is the hostile string.
+jq -cn --arg s "$HOSTILE" \
+  '{id:"hostile1", ts:"2026-06-14T00:00:00Z", session:"session-2026-06-14-001",
+    category:"friction", artifact:".claude/x.md", summary:$s, detail:"d",
+    severity:"minor", routing:"upstream", status:"open"}' >> "$LOG14"
+OUT14=$( cd "$P14" && GUV_GH="$STUB_DIR/gh-reachable" bash "$SCRIPT" submit ) 2>"$WORK/t14.err"
+# The emitted gh line (first line of the heredoc block).
+GHLINE=$(printf '%s\n' "$OUT14" | grep -m1 '^gh issue create ')
+[ -n "$GHLINE" ] \
+  && ok "submit emits a gh issue create line for a hostile-summary entry" \
+  || no "submit must still emit the filing line for a hostile summary (out=$OUT14)"
+# Parse the emitted line's args exactly as the user's shell would (drop the heredoc
+# redirection), then assert --title round-trips to the literal hostile summary.
+PARSED_TITLE=""
+eval "set -- $(printf '%s' "$GHLINE" | sed "s/ --body-file.*//")"
+while [ $# -gt 0 ]; do [ "$1" = "--title" ] && { PARSED_TITLE="$2"; break; }; shift; done
+[ "$PARSED_TITLE" = "[feedback] $HOSTILE" ] \
+  && ok "the emitted --title round-trips the hostile summary LITERALLY (quote-safe)" \
+  || no "emitted --title must deliver the summary literally (got [$PARSED_TITLE])"
+# Belt-and-braces: running the emitted gh line through the filer stub must not have
+# fired the embedded \$(touch …) — proves no command substitution leaked.
+rm -f "$WORK/PWNED"
+GHDIR14="$WORK/ghbin14"; mkdir -p "$GHDIR14"; cp "$STUB_DIR/gh-filer" "$GHDIR14/gh"; chmod +x "$GHDIR14/gh"
+BLOCK14=$(printf '%s\n' "$OUT14" | awk '/^gh issue create / {f=1} f {print} f && /^GUV-FEEDBACK-BODY$/ {exit}')
+printf '%s\n' "$BLOCK14" > "$WORK/t14-block.sh"
+( cd "$P14" && PATH="$GHDIR14:$PATH" GH_FILER_OUT="$WORK/filer14.out" bash "$WORK/t14-block.sh" ) \
+  >/dev/null 2>"$WORK/t14b.err"
+[ ! -e "$WORK/PWNED" ] \
+  && ok "running the emitted block fires no embedded command substitution (no injection)" \
+  || no "the emitted block executed an injected \$(…) — title is not quote-safe"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

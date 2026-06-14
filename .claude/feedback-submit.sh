@@ -22,6 +22,19 @@
 # Until then the DRAFTED-<id> marker keeps the re-run a no-op AND visibly reads
 # "drafted, awaiting filing". The agent drafts; the person files.
 #
+# ACCEPTANCE REINTERPRETATION (consciously ratified, per Rule 7 — surface the
+# conflict, pick the better-tested pattern, say why). REQUIREMENTS [10.8] reads:
+# "a submit run files an issue per open upstream entry lacking a link and records
+# the URL back on the entry." Taken literally that is an agent calling `gh issue
+# create`. We deliberately DO NOT meet that wording, because it contradicts the
+# older, load-bearing "Closing the loop" contract (predates this lane) that gates
+# issue filing to the person. Where two patterns conflict we take the more recent /
+# better-tested one and name the other (Rule 7): the user-gate wins; this transport
+# DRAFTS + EMITS and the person files. So the deliverable's INTENT — close the
+# manual copy-paste loop with a deduped, idempotent, URL-anchored end-state — is
+# what we deliver; the literal "the agent files" verb is the part reinterpreted, and
+# the reinterpretation is recorded here so it is a chosen position, not a silent gap.
+#
 # The only tracker call this script makes is `gh repo view` against the guv source
 # repo — for reachability and slug resolution. If the tracker is unreachable it
 # degrades LOUDLY (non-zero exit + message) and writes NOTHING (no half-writeback
@@ -52,6 +65,14 @@ GH="${GUV_GH:-gh}"
 
 err() { echo "feedback-submit: $1" >&2; }
 die() { err "$2"; exit "$1"; }
+
+# Single-quote-escape a string for a shell command we EMIT for the user to run.
+# Wrap in single quotes and rewrite every embedded ' as '\'' so the value reaches
+# their shell literally — no expansion of $, `…`, or "…", and no quote-break. The
+# body uses a quoted heredoc; this is the same safety on the inline argument axis
+# (--title, -R), where a summary carrying a ", $, or backtick would otherwise break
+# the emitted command or run as a command substitution.
+shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 [ $# -ge 1 ] || die 2 "usage: bash .claude/feedback-submit.sh submit [--dry-run] [--log path] [--repo slug]"
 SUB="$1"; shift
@@ -194,7 +215,11 @@ while IFS= read -r id; do
   # empty issue, never a hung stdin read.
   echo "    To file (user-gated), copy-paste this whole block:"
   echo ""
-  echo "gh issue create -R \"$REPO\" --title \"$TITLE\" --body-file - <<'GUV-FEEDBACK-BODY'"
+  # -R and --title are single-quote-escaped (shq) so a summary carrying a ", $, or
+  # backtick reaches gh literally instead of breaking the quoting or running as a
+  # command substitution — the quoted-heredoc safety the body already has, on the
+  # inline-argument axis.
+  echo "gh issue create -R $(shq "$REPO") --title $(shq "$TITLE") --body-file - <<'GUV-FEEDBACK-BODY'"
   printf '%s\n' "$BODY"
   echo "GUV-FEEDBACK-BODY"
 
