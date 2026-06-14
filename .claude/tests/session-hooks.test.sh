@@ -165,6 +165,105 @@ SS_WIRED=$(jq -r '.hooks.SessionStart[]? | select(any(.hooks[]?.command; test("s
   && ok "settings.json wires session-start.sh on the SessionStart event (project mode)" \
   || no "settings.json SessionStart must wire session-start.sh"
 
+# ════════════════════════════════════════════════════════════════════════════
+# render-on-status-edit.sh — PostToolUse render hook (status.html + README block)
+# ════════════════════════════════════════════════════════════════════════════
+RENDER_HOOK="$CLAUDE_DIR/hooks/render-on-status-edit.sh"
+[ -f "$RENDER_HOOK" ] && ok "render-on-status-edit.sh ships in .claude/hooks/" \
+  || no "render-on-status-edit.sh missing"
+
+# mkrender <name> — fixture with the render chain + wrapper symlinked, a GRAMMAR
+# tracker (1 of 2 done), and a README carrying the STATUS markers. Returns the dir.
+mkrender() {
+  local d="$WORK/$1" s
+  mkdir -p "$d/.claude/hooks" "$d/docs"
+  for s in resolve-ready render-status status-line update-readme-status; do
+    ln -s "$CLAUDE_DIR/$s.sh" "$d/.claude/$s.sh"
+  done
+  ln -s "$RENDER_HOOK" "$d/.claude/hooks/render-on-status-edit.sh"
+  cat > "$d/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Build
+
+- ✅ **[6.1]** Done `[deps: none]`
+- ⬜ **[6.2]** Open `[deps: 6.1]`
+MD
+  cp "$d/docs/PHASE_STATUS.md" "$d/docs/REQUIREMENTS.md"
+  printf '# Fx\n\n<!-- STATUS:START -->\nold status\n<!-- STATUS:END -->\n\ntail\n' > "$d/README.md"
+  printf '%s\n' "$d"
+}
+
+# fire <dir> <file_path> — run the render hook with a PostToolUse payload naming
+# <file_path>. Sets RC / ERR.
+fire() {
+  local d="$1" fp="$2" errf; errf=$(mktemp)
+  ( cd "$d" && printf '%s' "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$fp\"}}" \
+    | bash .claude/hooks/render-on-status-edit.sh ) 2>"$errf"; RC=$?
+  ERR=$(cat "$errf"); rm -f "$errf"
+}
+
+# ── R1: a tracker edit renders status.html AND refreshes the README block ─────
+R=$(mkrender render-fire)
+fire "$R" "docs/PHASE_STATUS.md"
+[ "$RC" -eq 0 ] && ok "tracker edit: exit 0" || no "tracker edit should exit 0 (rc=$RC; err=$ERR)"
+[ -z "$ERR" ] && ok "tracker edit: stderr clean (chain stderr swallowed)" \
+  || no "tracker edit stderr not clean: $ERR"
+{ [ -f "$R/status.html" ] && head -1 "$R/status.html" | grep -q '<!DOCTYPE html>'; } \
+  && ok "tracker edit: status.html rendered (doctype present)" \
+  || no "tracker edit must render status.html"
+grep -q '\*\*Phase 6\*\* · 1/2 deliverables' "$R/README.md" \
+  && ok "tracker edit: README block refreshed from resolver state (Phase 6 · 1/2)" \
+  || no "tracker edit must refresh the README block"
+grep -q 'old status' "$R/README.md" \
+  && no "tracker edit: stale README content must be replaced (found 'old status')" \
+  || ok "tracker edit: stale README content replaced"
+
+# ── R2: an edit to any other file does NOT render (matcher is tracker-only) ───
+R2=$(mkrender render-skip)
+fire "$R2" "src/app.js"
+[ "$RC" -eq 0 ] && ok "non-tracker edit: exit 0" || no "non-tracker edit should exit 0 (rc=$RC)"
+[ ! -f "$R2/status.html" ] \
+  && ok "non-tracker edit: no render (status.html not created)" \
+  || no "non-tracker edit must NOT render"
+grep -q 'old status' "$R2/README.md" \
+  && ok "non-tracker edit: README left untouched" \
+  || no "non-tracker edit must leave the README untouched"
+
+# ── R3: stale beats broken — a MALFORMED tracker leaves the prior status.html ─
+R3=$(mkrender render-stale)
+printf 'SENTINEL-PRIOR-RENDER\n' > "$R3/status.html"
+cat > "$R3/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Build
+
+- ⬜ **[6.2]** Open `[deps: 9.9]`
+MD
+fire "$R3" "docs/PHASE_STATUS.md"
+[ "$RC" -eq 0 ] && ok "malformed tracker: exit 0 (a render failure never errors the tool)" \
+  || no "malformed tracker should exit 0 (rc=$RC)"
+grep -q 'SENTINEL-PRIOR-RENDER' "$R3/status.html" \
+  && ok "malformed tracker: stale beats broken — prior status.html preserved" \
+  || no "a malformed render must not clobber the prior status.html"
+
+# ── R4: no tracker file at the cwd → stand aside cleanly ──────────────────────
+R4=$(mkrender render-notracker); rm -f "$R4/docs/PHASE_STATUS.md"
+fire "$R4" "docs/PHASE_STATUS.md"
+{ [ "$RC" -eq 0 ] && [ ! -f "$R4/status.html" ]; } \
+  && ok "no tracker at cwd: exit 0, nothing rendered" \
+  || no "absent tracker must stand aside (rc=$RC)"
+
+# ── R5: settings.json wires the render hook on PostToolUse, additively ────────
+RH_WIRED=$(jq -r '.hooks.PostToolUse[]? | select(any(.hooks[]?.command; test("render-on-status-edit\\.sh")))' "$SETTINGS" 2>/dev/null)
+[ -n "$RH_WIRED" ] \
+  && ok "settings.json wires render-on-status-edit.sh on PostToolUse (project mode)" \
+  || no "settings.json PostToolUse must wire render-on-status-edit.sh"
+AF_WIRED=$(jq -r '.hooks.PostToolUse[]? | select(any(.hooks[]?.command; test("auto-format\\.sh")))' "$SETTINGS" 2>/dev/null)
+[ -n "$AF_WIRED" ] \
+  && ok "settings.json keeps auto-format on PostToolUse (render hook added, not swapped)" \
+  || no "auto-format must remain wired on PostToolUse"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

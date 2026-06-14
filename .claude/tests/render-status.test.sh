@@ -294,9 +294,12 @@ CLOSES=$(echo "$EHTML" | grep -c '</script>')
 # (and redirects INTO status.html) is the designed regeneration path; a line
 # that reads status.html as input is a machine consumer of a view and a
 # violation. Exemption is by file path (the renderer's own copies, this
-# suite, and the [6.7] hook suite that exercises fixture renders), not by
-# line content — an invoking line elsewhere that also reads status.html back
-# is caught. Legal mentions outside those files are the non-read forms the
+# suite, and the suites that exercise fixture renders), not by line content —
+# an invoking line elsewhere that also reads status.html back is caught. The
+# render-exercising suites are render-hook.test.sh (the [6.7] post-commit hook)
+# and, from [8.3], session-hooks.test.sh (the native PostToolUse render hook):
+# both read status.html only to verify a fixture render. Legal mentions outside
+# those files are the non-read forms the
 # [6.7] regeneration hook uses — write-redirects, mv-to, git add/commit
 # (recording, not reading), chmod (mode, not content), and echo
 # announcements — each guarded against a same-line `<` or `$(` read; plus comment
@@ -308,7 +311,7 @@ CONSUMERS=$(grep -rn 'status\.html' \
     "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/workflows" \
     "$CLAUDE_DIR/tests" "$CLAUDE_DIR"/*.sh \
     "$ROOT/maintainers" "$ROOT/Makefile" "$ROOT/plugin" 2>/dev/null \
-  | grep -Ev '^[^:]*/(render-status(\.test)?\.sh|render-hook\.test\.sh):' \
+  | grep -Ev '^[^:]*/(render-status(\.test)?\.sh|render-hook\.test\.sh|session-hooks\.test\.sh):' \
   | grep -Ev '^[^:]*/maintainers/[^:]*\.md:' \
   | grep -Ev '>[[:space:]]*[^[:space:]]*status\.html' \
   | grep -Ev '(mv |git add |git commit |chmod [0-9]+ |echo )([^<$]|\$[^(])*status\.html' \
