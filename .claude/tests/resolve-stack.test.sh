@@ -79,12 +79,40 @@ printf '## Phase 1\n- ⬜ Build the thing\n- ✅ Did a thing\n' > "$LG/docs/PHAS
   && ok "ceremony: pre-grammar (LEGACY) tracker → onboard (not DAG grammar)" \
   || no "ceremony: LEGACY tracker must stay onboard (got $(field "$(propose "$LG")" .ceremony))"
 
+# (d) MALFORMED tracker (DAG IDs present but a broken deps token, resolver exit 5)
+# → onboard ceremony (schema-valid default) AND a loud MALFORMED warning on
+# stderr. This is the "clearly mid-plan-but-broken" repo that route.sh's exit-5
+# loud stop never sees (route.sh keys on an existing manifest; a no-manifest
+# onboard never reaches it), so the resolver must not silently scaffold over it
+# (rule 15). The stderr warning is what makes this mutation-killing — a naive
+# silent fall-through (treating exit 5 like exit 4) passes the ceremony check but
+# fails the warning assertion.
+ML="$WORK/malformed"; mkdir -p "$ML/docs"
+printf '[package]\nname="midplan"\n' > "$ML/Cargo.toml"
+printf '## Phase 1\n- ⬜ **[1.1]** broken token `[deps: bogus]`\n' > "$ML/docs/PHASE_STATUS.md"
+[ "$(field "$(propose "$ML")" .ceremony)" = onboard ] \
+  && ok "ceremony: MALFORMED tracker → onboard (schema-valid default, not phased)" \
+  || no "ceremony: MALFORMED tracker must stay onboard (got $(field "$(propose "$ML")" .ceremony))"
+bash "$RESOLVER" "$ML" 2>&1 >/dev/null | grep -qi 'MALFORMED' \
+  && ok "ceremony: MALFORMED tracker emits a loud warning (no silent overwrite)" \
+  || no "ceremony: MALFORMED tracker must warn loudly on stderr (rule 15)"
+
 # ── schema alignment: every emitted key is declared (guards additionalProperties:false) ──
 J=$(propose "$ND")
 UNKNOWN_TOP=$(comm -23 <(echo "$J" | jq -r 'keys[]' | sort) <(jq -r '.properties|keys[]' "$SCHEMA" | sort))
 [ -z "$UNKNOWN_TOP" ] && ok "schema: no undeclared top-level keys" || no "schema: undeclared top-level: $UNKNOWN_TOP"
 UNKNOWN_CMD=$(comm -23 <(echo "$J" | jq -r '.commands|keys[]' | sort) <(jq -r '.properties.commands.properties|keys[]' "$SCHEMA" | sort))
 [ -z "$UNKNOWN_CMD" ] && ok "schema: no undeclared commands keys" || no "schema: undeclared commands: $UNKNOWN_CMD"
+
+# The phased branch ([10.7]) is a distinct emission path — assert IT too aligns
+# (same key shape, and the ceremony it emits is in the schema enum). A future
+# divergence in the phased branch's JSON shape, or a ceremony value the schema
+# rejects, fails here rather than at a consumer.
+JP=$(propose "$PH")
+UNKNOWN_TOP_PH=$(comm -23 <(echo "$JP" | jq -r 'keys[]' | sort) <(jq -r '.properties|keys[]' "$SCHEMA" | sort))
+[ -z "$UNKNOWN_TOP_PH" ] && ok "schema: phased proposal has no undeclared top-level keys" || no "schema: phased undeclared top-level: $UNKNOWN_TOP_PH"
+jq -e --arg c "$(field "$JP" .ceremony)" '.properties.ceremony.enum | index($c)' "$SCHEMA" >/dev/null \
+  && ok "schema: phased proposal's ceremony is in the schema enum" || no "schema: ceremony '$(field "$JP" .ceremony)' not in schema enum"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
