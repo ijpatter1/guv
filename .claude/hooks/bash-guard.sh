@@ -82,7 +82,9 @@ fi
 # ─────────────────────────────────────────────
 UNIVERSAL_BLOCKED=(
   # Destructive filesystem operations
-  'rm\s+-rf\s+/'                    # rm -rf from root
+  'rm\s+-rf\s+/($|[[:space:]*;&|])'  # rm -rf the bare filesystem root (/, /*, "/ ", "/;")
+  'rm\s+-rf\s+/(bin|sbin|lib|lib64|usr|etc|boot|dev|proc|sys|root|opt|srv|run|System|Library|Applications|Network|Volumes|cores)(/|$|[[:space:]])'  # rm -rf a SYSTEM dir or its subtree — anchored, so an absolute scratch path (/private/tmp/…, /var/folders/…, a repo under /Users) is NOT blanket-blocked
+  'rm\s+-rf\s+/(home|var|mnt|media)($|[[:space:]*;&|])'  # rm -rf the WHOLE /home,/var,/mnt,/media (catastrophic on Linux) — but a SUBPATH is allowed, because scratch lives under these (/var/folders/…, /home/<u>/<repo>); the dir-itself form is the dangerous one
   'rm\s+-rf\s+~'                    # rm -rf home directory
   'rm\s+-rf\s+\.\.?/?(\s|$)'        # rm -rf . / ./ / .. / ../ (the dir itself) — but NOT ./subdir
   'mkfs\.'                          # format filesystem

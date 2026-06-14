@@ -369,20 +369,19 @@ fi
 # positive control — the same plumbing must FLAG a planted violation; a guard
 # that can only ever report success is not a guard (the pass-5 lesson)
 T12D_FIX="$PLUGIN/zz-t12d-fixture.md"
-if [ -e "$T12D_FIX" ]; then
-  no "T12d fixture path unexpectedly exists: $T12D_FIX"
+# Leftover from a crashed run → clean and proceed (throwaway path), never
+# hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
+[ -e "$T12D_FIX" ] && { echo "  - cleaning a stale T12d fixture (prior crashed run): $T12D_FIX"; rm -f "$T12D_FIX"; }
+trap 'rm -f "$T12D_FIX"' EXIT
+printf 'Planted violation: run /handoff now, with no decoder in this file.\n' > "$T12D_FIX"
+T12D_OUT2=$(t12d_violations)
+if printf '%s\n' "$T12D_OUT2" | grep -q 'zz-t12d-fixture.md:handoff'; then
+  ok "positive control: the scan flags a planted bare mention without a decoder"
 else
-  trap 'rm -f "$T12D_FIX"' EXIT
-  printf 'Planted violation: run /handoff now, with no decoder in this file.\n' > "$T12D_FIX"
-  T12D_OUT2=$(t12d_violations)
-  if printf '%s\n' "$T12D_OUT2" | grep -q 'zz-t12d-fixture.md:handoff'; then
-    ok "positive control: the scan flags a planted bare mention without a decoder"
-  else
-    no "T12d positive control failed — the scan did not flag the planted violation"
-  fi
-  rm -f "$T12D_FIX"
-  trap - EXIT
+  no "T12d positive control failed — the scan did not flag the planted violation"
 fi
+rm -f "$T12D_FIX"
+trap - EXIT
 
 # T12e — SOURCE-side decoder lint: the in-lane shift-left of T12d. T12d scans the
 # BUILT plugin/, which a source-only fan-out lane never rebuilds (the join owns
@@ -439,20 +438,19 @@ else
 fi
 # positive control — plant a source script with a bare mention and no decoder
 T12E_FIX="$SRC/zz-t12e-fixture.sh"
-if [ -e "$T12E_FIX" ]; then
-  no "T12e fixture path unexpectedly exists: $T12E_FIX"
+# Leftover from a crashed run → clean and proceed (throwaway path), never
+# hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
+[ -e "$T12E_FIX" ] && { echo "  - cleaning a stale T12e fixture (prior crashed run): $T12E_FIX"; rm -f "$T12E_FIX"; }
+trap 'rm -f "$T12E_FIX"' EXIT
+printf '#!/bin/bash\n# Planted violation: mentions /handoff with no guv: decoder.\n' > "$T12E_FIX"
+T12E_OUT2=$(t12e_violations)
+if printf '%s\n' "$T12E_OUT2" | grep -q 'zz-t12e-fixture.sh:handoff'; then
+  ok "positive control: the source lint flags a planted bare mention without a decoder"
 else
-  trap 'rm -f "$T12E_FIX"' EXIT
-  printf '#!/bin/bash\n# Planted violation: mentions /handoff with no guv: decoder.\n' > "$T12E_FIX"
-  T12E_OUT2=$(t12e_violations)
-  if printf '%s\n' "$T12E_OUT2" | grep -q 'zz-t12e-fixture.sh:handoff'; then
-    ok "positive control: the source lint flags a planted bare mention without a decoder"
-  else
-    no "T12e positive control failed — the source scan did not flag the planted violation"
-  fi
-  rm -f "$T12E_FIX"
-  trap - EXIT
+  no "T12e positive control failed — the source scan did not flag the planted violation"
 fi
+rm -f "$T12E_FIX"
+trap - EXIT
 
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
@@ -480,43 +478,43 @@ if [ -f "$BUILD" ]; then
   # instead of silently clobbering the authored copy. Fixture: a plugin-src
   # skill named like an existing command; cleaned up by trap even on failure.
   FIXTURE="$ROOT/maintainers/plugin-src/skills/status"
-  if [ -e "$FIXTURE" ]; then
-    no "collision fixture path unexpectedly exists: $FIXTURE"
+  # Leftover from a crashed run → clean and proceed (throwaway path), never
+  # hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
+  [ -e "$FIXTURE" ] && { echo "  - cleaning a stale collision fixture (prior crashed run): $FIXTURE"; rm -rf "$FIXTURE"; }
+  trap 'rm -rf "$FIXTURE"' EXIT
+  mkdir -p "$FIXTURE"
+  printf -- '---\ndescription: "collision fixture"\n---\nx\n' > "$FIXTURE/SKILL.md"
+  TMP2=$(mktemp -d)
+  if bash "$BUILD" --out "$TMP2/plugin" >/dev/null 2>&1; then
+    no "build must fail when a derived command collides with an authored skill"
   else
-    trap 'rm -rf "$FIXTURE"' EXIT
-    mkdir -p "$FIXTURE"
-    printf -- '---\ndescription: "collision fixture"\n---\nx\n' > "$FIXTURE/SKILL.md"
-    TMP2=$(mktemp -d)
-    if bash "$BUILD" --out "$TMP2/plugin" >/dev/null 2>&1; then
-      no "build must fail when a derived command collides with an authored skill"
-    else
-      ok "build fails loud on authored/derived skill-name collision"
-    fi
-    rm -rf "$TMP2" "$FIXTURE"
-    trap - EXIT
+    ok "build fails loud on authored/derived skill-name collision"
   fi
+  rm -rf "$TMP2" "$FIXTURE"
+  trap - EXIT
 
   # T15b — adjacent-mention rewrite: the boundary guard consumes the char
   # between two adjacent /commands, so a single sed pass misses the second —
   # the double-pass exists for exactly this. Fixture command exercises it
   # end-to-end through a real build.
   FIX2="$SRC/commands/zzadjacency-fixture.md"
-  if [ -e "$FIX2" ]; then
-    no "adjacency fixture path unexpectedly exists: $FIX2"
+  # A pre-existing fixture is a leftover from a crashed run (the path is a known
+  # zz-throwaway, never a real command) — clean it and proceed, never hard-fail
+  # the battery. Hard-failing here is what let one crashed run poison the next
+  # and false-fail overlapping runs (feedback 2026-06-12T04:35:14Z-143815213).
+  [ -e "$FIX2" ] && { echo "  - cleaning a stale adjacency fixture (prior crashed run): $FIX2"; rm -f "$FIX2"; }
+  trap 'rm -f "$FIX2"' EXIT
+  printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /evaluate too.\n' > "$FIX2"
+  TMP3=$(mktemp -d)
+  if bash "$BUILD" --out "$TMP3/plugin" >/dev/null 2>&1 \
+     && grep -q '/guv:task /guv:handoff' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md" \
+     && grep -q '/guv:status /guv:evaluate' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
+    ok "adjacent /command mentions both rewritten (double-pass verified end-to-end)"
   else
-    trap 'rm -f "$FIX2"' EXIT
-    printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /evaluate too.\n' > "$FIX2"
-    TMP3=$(mktemp -d)
-    if bash "$BUILD" --out "$TMP3/plugin" >/dev/null 2>&1 \
-       && grep -q '/guv:task /guv:handoff' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md" \
-       && grep -q '/guv:status /guv:evaluate' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
-      ok "adjacent /command mentions both rewritten (double-pass verified end-to-end)"
-    else
-      no "adjacent /command mentions must both be namespaced by the double-pass"
-    fi
-    rm -rf "$TMP3" "$FIX2"
-    trap - EXIT
+    no "adjacent /command mentions must both be namespaced by the double-pass"
   fi
+  rm -rf "$TMP3" "$FIX2"
+  trap - EXIT
 
   # T15c — glob-derived helper registry ([7.1]): a helper dropped into
   # .claude/ ships and gets path-rewritten with ZERO enumeration-list edits.
@@ -526,23 +524,22 @@ if [ -f "$BUILD" ]; then
   # rewrite_paths derive from the source tree.
   FIX3="$SRC/zzregistry-fixture.sh"
   FIX3CMD="$SRC/commands/zzregistry-fixture-cmd.md"
-  if [ -e "$FIX3" ] || [ -e "$FIX3CMD" ]; then
-    no "registry fixture paths unexpectedly exist: $FIX3 / $FIX3CMD"
+  # Leftovers from a crashed run → clean and proceed (throwaway paths), never
+  # hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
+  { [ -e "$FIX3" ] || [ -e "$FIX3CMD" ]; } && { echo "  - cleaning stale registry fixtures (prior crashed run)"; rm -f "$FIX3" "$FIX3CMD"; }
+  trap 'rm -f "$FIX3" "$FIX3CMD"' EXIT
+  printf '#!/bin/bash\necho zzregistry-fixture\n' > "$FIX3"
+  printf 'Registry fixture.\n\nRun `bash .claude/zzregistry-fixture.sh` to exercise the registry.\n' > "$FIX3CMD"
+  TMP4=$(mktemp -d)
+  if bash "$BUILD" --out "$TMP4/plugin" >/dev/null 2>&1 \
+     && cmp -s "$FIX3" "$TMP4/plugin/scripts/zzregistry-fixture.sh" \
+     && grep -q 'CLAUDE_PLUGIN_ROOT.*scripts/zzregistry-fixture\.sh' "$TMP4/plugin/skills/zzregistry-fixture-cmd/SKILL.md"; then
+    ok "fixture helper ships and rewrites with zero enumeration-list edits (registry is glob-derived)"
   else
-    trap 'rm -f "$FIX3" "$FIX3CMD"' EXIT
-    printf '#!/bin/bash\necho zzregistry-fixture\n' > "$FIX3"
-    printf 'Registry fixture.\n\nRun `bash .claude/zzregistry-fixture.sh` to exercise the registry.\n' > "$FIX3CMD"
-    TMP4=$(mktemp -d)
-    if bash "$BUILD" --out "$TMP4/plugin" >/dev/null 2>&1 \
-       && cmp -s "$FIX3" "$TMP4/plugin/scripts/zzregistry-fixture.sh" \
-       && grep -q 'CLAUDE_PLUGIN_ROOT.*scripts/zzregistry-fixture\.sh' "$TMP4/plugin/skills/zzregistry-fixture-cmd/SKILL.md"; then
-      ok "fixture helper ships and rewrites with zero enumeration-list edits (registry is glob-derived)"
-    else
-      no "a dropped-in helper must ship in scripts/ and be path-rewritten without touching any list"
-    fi
-    rm -rf "$TMP4" "$FIX3" "$FIX3CMD"
-    trap - EXIT
+    no "a dropped-in helper must ship in scripts/ and be path-rewritten without touching any list"
   fi
+  rm -rf "$TMP4" "$FIX3" "$FIX3CMD"
+  trap - EXIT
 
   # T16 — consumer-fork resilience: with the build script absent, the whole
   # suite must still exit 0 (the drift guard skips; nothing else needs

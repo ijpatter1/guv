@@ -64,6 +64,28 @@ Read the grammar section of the phase-docs skill (`.claude/skills/phase-docs/SKI
   as a **balloon** if the scope reads as multi-session. The estimate is *not* part of
   the wording and never enters the tracker — it rides the **sidecar**, keyed by ID
   (`.claude/estimate.shape.md`).
+- **For a new phase (the section header):** the engine inserts *deliverables* but
+  does **not** create the `## Phase N` header — it is the one tracker mutation the
+  door does not own, so the header is a sanctioned structural edit you make by hand
+  (in the main session, which is the single writer), REQUIREMENTS first then
+  PHASE_STATUS, *before* the engine can insert `[N.1]…`. Match the canonical shape
+  exactly so every consumer (resolver, sync-check, renderer) parses it — in
+  PHASE_STATUS that is, with the blank lines that engine-era phases carry (the one a
+  hand-edit drops — A-003):
+
+  ```
+  ## Phase N — Title
+
+  _Goal: <one line>._
+
+  - ⬜ **[N.1]** …
+  ```
+
+  REQUIREMENTS uses its own phase shape (`## Phase N — Title`, a `**Goal:**` line, a
+  `**Deliverables:**` lead, then the numbered list). After the header is in place,
+  insert each deliverable through the engine as above, then validate the whole
+  tracker with `bash .claude/replan.sh sync-check` and the resolver — a malformed
+  header surfaces there, loud, before the phase goes live.
 - **For a descope/abandon:** draft the note — why it's leaving, and where its scope
   went if anywhere.
 - **For a reword (deps-amend, reorder, split, merge):** draft the new wording from
@@ -79,8 +101,11 @@ confirmation** ([9.6]): present it alongside the wording (default 1, balloons fl
 so the deliverable *and* its estimate clear one confirm gate, exactly as
 `/plan-initiative` does at plan time. **This is a hard gate: no document is written
 before the user confirms.** In headless mode, a prompt that itself specifies the exact
-mutation is the confirmation; anything less specific means stop and report instead of
-guessing.
+mutation is the confirmation; anything less specific means **draft and defer** (the
+Rule-15 designed degradation), never guess and never auto-apply: write the full
+drafted mutation into the session handoff / report for later ratification, leave the
+plan docs untouched, and proceed with the rest of the work. The mutation lands here,
+through this gate, once a person is back to confirm it.
 
 ## Step 4 — Apply atomically, REQUIREMENTS first
 

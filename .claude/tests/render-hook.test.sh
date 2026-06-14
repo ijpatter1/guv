@@ -84,7 +84,12 @@ grep -q 'Harness-owned' "$HOOK" 2>/dev/null \
 grep -q 'setup-control-plane.sh' "$HOOK" 2>/dev/null \
   && ok "create: hook names its generator" \
   || no "hook must say improve-the-generator, naming setup-control-plane.sh"
-echo "$(cat "$WORK/setup.log")" | grep -qi 'post-commit' \
+# grep the file directly. Piping a large command-substitution into `grep -q`
+# (`echo "$(cat …)" | grep -q`) can SIGPIPE the writer — grep -q closes the pipe
+# on the first match, the echo gets EPIPE ("Broken pipe") on stderr, and the
+# strict-stderr gate fails the whole run. This was an observed flake here; prefer
+# file/herestring input over piping bulky substitutions into grep -q.
+grep -qi 'post-commit' "$WORK/setup.log" \
   && ok "create: installation announced" || no "create must announce the hook install"
 # Pristine copy for assertions that must survive the later drift/foreign-hook
 # fixtures (T8/T9 mutate $HOOK).
@@ -327,7 +332,9 @@ jq -e '.properties.views | .type == "object" and .additionalProperties == false
   || no "project.schema.json must declare views {status: string}, additionalProperties false"
 jq -e '.required | index("views") | not' "$SCHEMA" >/dev/null 2>&1 \
   && ok "views: entry is optional (not required)" || no "views must not be required"
-echo "$(jq -r '.properties.views.description // ""' "$SCHEMA")" | grep -qi 'never\|descri' \
+# herestring, not `echo "$(…)" | grep -q` — grep -q closing the pipe early can
+# SIGPIPE the writer and emit "Broken pipe" to stderr, tripping the strict gate.
+grep -qi 'never\|descri' <<<"$(jq -r '.properties.views.description // ""' "$SCHEMA")" \
   && ok "views: schema description states describes-never-routes" \
   || no "the schema must teach that views is descriptive only"
 

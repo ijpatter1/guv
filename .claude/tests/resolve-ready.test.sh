@@ -73,7 +73,7 @@ MD
 OUT=$(bash "$SCRIPT" "$(fx wip)" 2>&1); RC=$?
 [ "$(val in_progress "$OUT")" = "6.2" ] && ok "wip: in_progress=6.2" || no "expected in_progress=6.2 (got: $OUT)"
 [ "$(val serial "$OUT")" = "6.2" ] && ok "wip: serial = first 🔄, not first ready" || no "serial should be 6.2 (got: $OUT)"
-echo "$(val ready "$OUT")" | grep -q "6.3" && ok "wip: 6.3 still ready" || no "6.3 should be ready (got: $OUT)"
+grep -q "6.3" <<<"$(val ready "$OUT")" && ok "wip: 6.3 still ready" || no "6.3 should be ready (got: $OUT)"  # herestring, not echo|grep -q (SIGPIPE on the strict-stderr gate)
 
 # T3 — transitive blocking: C depends on B depends on A (A ready) — C's named
 # blocker is A, the transitive root, not B.

@@ -83,6 +83,11 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
   || no "create: .DS_Store leaked into the control plane: $FOUND"
 grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
   || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
+# The fan-out scratch (.lane-reports/) lives in the CONTROL PLANE, not roots.code —
+# the worktrees live in roots.code (covered by the scaffold's guv-core block), so
+# the plane's own gitignore must carry the lane-reports dir (UAT-F4).
+grep -q '^\.lane-reports/$' "$D/.gitignore" && ok "create: generated .gitignore covers .lane-reports/ (control-plane fan-out scratch)" \
+  || no "generated .gitignore should ignore .lane-reports/ (UAT-F4: plane scratch left untracked)"
 tr '\n' ' ' < "$D/CLAUDE.md" 2>/dev/null | tr -s ' ' | grep -q "auto memory as hints" \
   && ok "create: generated CLAUDE.md carries the memory-authority line" \
   || no "generated CLAUDE.md should declare manifest+handoff authority over auto memory"
@@ -102,6 +107,24 @@ run_setup "$H" "$D" --sync
 FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
 [ -z "$FOUND" ] && ok "sync: copied core stays .DS_Store-free" \
   || no "sync: .DS_Store survived/leaked: $FOUND"
+
+# T3c — --sync backfills .lane-reports/ into an EXISTING plane whose .gitignore
+# predates the line (create-mode write is skipped when a .gitignore exists), and
+# is idempotent (a second --sync does not duplicate it). UAT-F4 + eval Minor.
+H=$(make_harness)
+D="$WORK/control-gi"
+run_setup "$H" "$D"
+# Simulate a plane scaffolded before the line shipped: strip it back out.
+grep -v '^\.lane-reports/$' "$D/.gitignore" > "$D/.gitignore.tmp" && mv "$D/.gitignore.tmp" "$D/.gitignore"
+grep -qxF '.lane-reports/' "$D/.gitignore" && no "precondition: .lane-reports/ should be stripped before the sync test"
+run_setup "$H" "$D" --sync
+grep -qxF '.lane-reports/' "$D/.gitignore" \
+  && ok "sync: backfills .lane-reports/ into an existing plane's .gitignore" \
+  || no "sync must ensure .lane-reports/ is ignored on an existing plane (UAT-F4)"
+run_setup "$H" "$D" --sync
+[ "$(grep -cxF '.lane-reports/' "$D/.gitignore")" -eq 1 ] \
+  && ok "sync: the .lane-reports/ backfill is idempotent (no duplicate on a second sync)" \
+  || no "sync: .lane-reports/ must not be duplicated on repeated --sync"
 
 # T4 — sync refreshes the core but leaves session state alone, byte-for-byte
 # (the full contract the script's header states: manifest, CLAUDE.md, docs,

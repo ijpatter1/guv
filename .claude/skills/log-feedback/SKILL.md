@@ -148,7 +148,11 @@ the end of this section; a consumer fork that deleted `maintainers/` needs none 
   id. The entry stays `open` while the fix is in flight and flips to `graduated`
   **on the release that ships the fix** — the release checklist's drain step does
   the flip and closes the issue naming the release. Use `resolved` only for friction
-  fixed before any release existed (nothing to graduate on).
+  fixed before any release existed (nothing to graduate on). **Issue filing is
+  user-gated:** the permission classifier denies an agent's `gh issue create` (and
+  the issue close) as an outward publish while allowing `gh pr create` — so the agent
+  **drafts** the issue (and records its triage as an annotation on the entry) and the
+  **user files** it. The PR half is agent-executable; the issue half is not.
 - **`local`** entries → a this-project adaptation, not an upstream fix: an unprefixed
   rules file, a project-owned skill or hook, a manifest tweak. They never enter the
   release flow — when the adaptation lands, mark the entry `graduated`; if the
