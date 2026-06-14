@@ -187,6 +187,37 @@ if [ -z "${DS_TEST_INNER:-}" ]; then
   fi
 fi
 
+# T9 — vocabulary retirement guard ([8.3] stage 5). On the surfaces the sweep has
+# reached, the retired noun "harness" (every guv sense: core / guv / the product
+# category / record) is gone. Runtime-sense files — meter.sh, metering-log.md,
+# stop-check.sh, where "harness" means the Claude Code platform itself — are
+# deliberately NOT listed here; that sense is kept. "control plane" gets no
+# grep-guard: its product-category sense is load-bearing and kept (pinned in
+# release.test.sh), so retiring only the docs-directory sense is judgment-verified
+# per file, not assertable by a blanket grep. The list grows as the sweep lands.
+SWEPT_HARNESS_FREE="
+.claude/rules/guv-codebase-respect.md
+.claude/rules/guv-context-and-llm-use.md
+.claude/rules/guv-failure-paths.md
+.claude/rules/guv-thinking-and-scope.md
+.claude/rules/guv-verification.md
+.claude/guv-git.sh
+.claude/estimate.sh
+.claude/estimate.shape.md
+.claude/skills/replan/SKILL.md
+maintainers/render-smoke.js
+"
+for rel in $SWEPT_HARNESS_FREE; do
+  f="$ROOT/$rel"
+  if [ ! -f "$f" ]; then
+    no "vocab guard: listed surface missing: $rel"
+  elif grep -niw 'harness' "$f" >/dev/null 2>&1; then
+    no "retired noun 'harness' survives in $rel ($(grep -ciw harness "$f") hit) — first: $(grep -niw harness "$f" | head -1 | cut -c1-72)"
+  else
+    ok "vocabulary: $rel free of 'harness'"
+  fi
+done
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

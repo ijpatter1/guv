@@ -4,7 +4,7 @@
 # The git-targeting incantation (git -C "$(jq -r '.roots.code' …)") used to be
 # inlined at every call site; this helper is that incantation, once. cwd must
 # be the project root (where .claude/project.json lives) — the same contract
-# every harness script carries. No manifest, or no roots.code, means
+# every core script carries. No manifest, or no roots.code, means
 # single-repo: git runs in cwd.
 #
 # Usage: bash .claude/guv-git.sh <git args…>

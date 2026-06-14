@@ -1,6 +1,6 @@
 // maintainers/render-smoke.js — dev-only DOM-stub smoke check for
 // render-status.sh's client-side JS. NOT part of the shipped suite (the
-// harness's runtime deps stay bash + jq; the suite's node --check covers
+// guv's runtime deps stay bash + jq; the suite's node --check covers
 // syntax, this covers execution). Stubs the small DOM surface the renderer
 // uses, executes the in-page script against real render output, and asserts
 // the rendered tree: node/edge counts and a hover cycle in GRAMMAR mode, the

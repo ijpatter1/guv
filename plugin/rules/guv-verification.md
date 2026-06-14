@@ -1,4 +1,4 @@
-<!-- Ownership convention: guv-*.md files are harness-owned — harness syncs/updates replace guv-* only and never touch unprefixed files, which are consumer-owned. These rules load unconditionally by design; `paths:` frontmatter scoping is available if a consumer rule needs it. -->
+<!-- Ownership convention: guv-*.md files are core-owned — sync replaces guv-* only and never touches unprefixed files, which are consumer-owned. These rules load unconditionally by design; `paths:` frontmatter scoping is available if a consumer rule needs it. -->
 
 # Engineering Rules 8–10 — Verification & Honesty
 

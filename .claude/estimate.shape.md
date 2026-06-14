@@ -1,6 +1,6 @@
 # Estimate sidecar — shape
 
-The estimate sidecar holds the harness's **session estimates** for the live
+The estimate sidecar holds guv's **session estimates** for the live
 plan's deliverables ([9.6] of the plan-as-data spec; A-003, the governor's
 meter). It is **published shape** alongside the tracker grammar, the manifest
 schema, and `status.json` — the projection ([9.7]) reads it as the quantity
@@ -9,7 +9,7 @@ half of its takeoff, and the helper `.claude/estimate.sh` is the only writer.
 ## Where it lives, and why beside the tracker
 
 ```
-docs/estimates.json        # the sidecar (default path; cwd = the control plane root)
+docs/estimates.json        # the sidecar (default path; cwd = the guv instance root)
 docs/PHASE_STATUS.md       # the tracker — a SEPARATE file, never carrying estimate data
 ```
 
@@ -50,7 +50,7 @@ session estimate:
 
 ## The default, and balloons
 
-The default estimate is **1**. The harness pushes deliverables toward
+The default estimate is **1**. guv pushes deliverables toward
 session-sized work, so a 1 is the unremarkable case and needs no ratification
 event of its own (a deliverable with no entry reads as 1). Anything **above 1**
 is a **balloon** — a deliverable the planner judged larger than one session —

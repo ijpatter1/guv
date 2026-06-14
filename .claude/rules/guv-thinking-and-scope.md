@@ -1,9 +1,9 @@
-<!-- Ownership convention: guv-*.md files are harness-owned — harness syncs/updates replace guv-* only and never touch unprefixed files, which are consumer-owned. These rules load unconditionally by design; `paths:` frontmatter scoping is available if a consumer rule needs it. -->
+<!-- Ownership convention: guv-*.md files are core-owned — sync replaces guv-* only and never touches unprefixed files, which are consumer-owned. These rules load unconditionally by design; `paths:` frontmatter scoping is available if a consumer rule needs it. -->
 
 # Engineering Rules — Behavioral Core
 
 How an agent should *think and act* on this codebase. These rules are stack- and
-task-agnostic, so they ship as the harness-owned `guv-*` files in `.claude/rules/`,
+task-agnostic, so they ship as the core-owned `guv-*` files in `.claude/rules/`,
 loaded natively every session (project-specific rules go in unprefixed files alongside).
 
 Three layers, three jobs — don't confuse them:

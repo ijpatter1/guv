@@ -72,7 +72,7 @@ Read the grammar section of the phase-docs skill (plugin-shipped,
   phase's end; deps carry the sequence). Draft its `- *Acceptance:*` sub-bullet for
   REQUIREMENTS too. Also draft its **session estimate** ([9.6]): you are reading the
   scope and acceptance to draft the line anyway, so propose the estimate in the same
-  breath — **default 1** (the harness pushes deliverables session-sized), and flag it
+  breath — **default 1** (guv pushes deliverables session-sized), and flag it
   as a **balloon** if the scope reads as multi-session. The estimate is *not* part of
   the wording and never enters the tracker — it rides the **sidecar**, keyed by ID
   (`"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md`).

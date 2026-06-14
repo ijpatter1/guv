@@ -11,7 +11,7 @@
 # .claude/estimate.shape.md (published alongside the other shapes).
 #
 # Shape: { "9.6": 1, "9.7": 3, ... } — ID → integer ≥ 1. The default is 1
-# (the harness pushes deliverables toward session-sized); anything above 1 is
+# (guv pushes deliverables toward session-sized); anything above 1 is
 # a flagged balloon, surfaced at the plan-time confirm gate. This is a
 # deterministic read/write/validate helper (Rule 12: no judgment, no LLM) —
 # the judgment (proposing the number, ratifying it) lives in /plan
