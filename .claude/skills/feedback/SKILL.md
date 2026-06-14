@@ -4,7 +4,7 @@ description: "Record harness friction — broken commands, inapplicable settings
 user-invocable: true
 ---
 
-# Log Feedback — Harness Friction Capture
+# Feedback — Harness Friction Capture
 
 Capture friction with the **harness itself** so it can be triaged later into upstream
 fixes versus local adaptations. This is the evidence base for improving the harness.

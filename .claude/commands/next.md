@@ -1,4 +1,4 @@
-Resume work on a phased project: read the resolver's ready-frontier and present the next pick with a light session plan — no phase-boundary ritual.
+Re-enter work on a phased project: read the resolver's ready-frontier and present the next pick with a light session plan — no phase-boundary ritual.
 
 This is the **light** daily/mid-phase entry door — the counterpart to the
 phase-boundary command `/phase`. Use it to re-enter work you already have

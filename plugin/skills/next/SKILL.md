@@ -1,5 +1,5 @@
 ---
-description: "Resume work on a phased project: read the resolver's ready-frontier and present the next pick with a light session plan — no phase-boundary ritual."
+description: "Re-enter work on a phased project: read the resolver's ready-frontier and present the next pick with a light session plan — no phase-boundary ritual."
 ---
 
 
