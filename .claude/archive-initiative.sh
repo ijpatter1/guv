@@ -33,7 +33,11 @@ REQS="docs/REQUIREMENTS.md"
 ARCH="docs/ARCHITECTURE.md"
 
 # Deliverable lines are status-marker bullets; anything not ✅ is incomplete.
-incomplete_lines() { grep -E '^\s*-\s*(⬜|🔄|❌)' "$TRACKER"; }
+# 🔒 (human-gated, [10.1]) is OPEN work — the resolver counts it toward the open
+# phase, so an initiative still holding a 🔒 deliverable is not COMPLETE and
+# archival refuses it (or stamps ABANDONED under --force) like any other
+# incomplete line.
+incomplete_lines() { grep -E '^\s*-\s*(⬜|🔄|❌|🔒)' "$TRACKER"; }
 done_count() { grep -cE '^\s*-\s*✅' "$TRACKER"; }
 max_phase() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+' | sort -n | tail -1; }
 min_phase() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+' | sort -n | head -1; }
@@ -54,7 +58,10 @@ malformed() {
 # skips validation entirely, so old initiatives parse exactly as before.
 ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
 DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
-marker_lines() { grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$TRACKER"; }
+# 🔒 (human-gated, [10.1]) is recognized in the marker class alongside the four
+# original markers — the same set the resolver parses — so a 🔒 deliverable line
+# is a well-formed bullet, never read as MALFORMED nor dropped from validation.
+marker_lines() { grep -E '^\s*-\s*(✅|🔄|⬜|❌|🔒)' "$TRACKER"; }
 
 # Emits one line per violation; emits nothing for LEGACY or a clean tracker.
 grammar_errors() {
@@ -64,12 +71,12 @@ grammar_errors() {
   # lead-position IDs and deps-shaped constructs — a bold cross-reference or a
   # stray "[deps:" substring in legacy prose must not flip a token-free
   # tracker into grammar mode.
-  if ! echo "$lines" | grep -qE "^\s*-\s*(✅|🔄|⬜|❌)\s*$ID_RE" \
+  if ! echo "$lines" | grep -qE "^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*$ID_RE" \
      && ! echo "$lines" | grep -qE '`?\[deps:[^]]*\]`?'; then
     return 0
   fi
   # every deliverable line leads with an ID (right after the status marker)
-  bad=$(echo "$lines" | grep -vE "^\s*-\s*(✅|🔄|⬜|❌)\s*$ID_RE")
+  bad=$(echo "$lines" | grep -vE "^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*$ID_RE")
   [ -n "$bad" ] && printf 'missing or misplaced **[N.M]** ID:\n%s\n' "$bad"
   # ...and carries a well-formed deps token (`none` mandatory — a forgotten
   # annotation must fail loud, not silently read as no-deps). The deliverable's
@@ -83,7 +90,7 @@ grammar_errors() {
   [ -n "$bad" ] && printf 'missing or malformed `[deps: …]` token:\n%s\n' "$bad"
   # IDs are unique across the whole tracker — count only the leading ID, so a
   # cross-reference like **[6.1]** mid-wording is not a spurious duplicate
-  dups=$(echo "$lines" | grep -oE "^\s*-\s*(✅|🔄|⬜|❌)\s*$ID_RE" | grep -oE "$ID_RE" | sort | uniq -d)
+  dups=$(echo "$lines" | grep -oE "^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*$ID_RE" | grep -oE "$ID_RE" | sort | uniq -d)
   [ -n "$dups" ] && printf 'duplicate deliverable IDs:\n%s\n' "$dups"
   return 0
 }

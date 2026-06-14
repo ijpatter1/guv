@@ -42,6 +42,83 @@ else
   no "DEPS_RE drifted across the scripts (resolver='$A' replan='$B' archive='$C')"
 fi
 
+# ── 1b. The fifth 🔒 marker must be recognized by ALL THREE enforcing scripts,
+# not just the resolver ([10.1]). The resolver learned 🔒 (a 🔒 line is visible,
+# never dropped, a dep on it resolves blocked not MALFORMED) — but if replan.sh
+# and archive-initiative.sh, the sibling source-of-truth scripts, still carry a
+# four-marker class, a 🔒 line is invisible/MALFORMED to them and the three
+# scripts contradict each other on the grammar they jointly enforce. (a) Every
+# script that recognizes any status marker must recognize 🔒 — pin it
+# structurally: a script that names ❌ in a marker class but not 🔒 has drifted.
+for s in "$RESOLVER" "$REPLAN" "$ARCHIVE"; do
+  n=$(basename "$s")
+  # marker-class lines: a leading-bullet status grep listing ❌ (the canonical
+  # four-marker tail). Every such class must also list 🔒.
+  drift=$(grep -nE '✅\|🔄\|⬜\|❌\)' "$s" | grep -v '🔒')
+  if [ -z "$drift" ]; then
+    ok "$n: every status-marker class recognizes 🔒 (no four-marker drift)"
+  else
+    no "$n has a marker class missing 🔒 — contradicts the resolver:
+$drift"
+  fi
+done
+
+# (b) Behavioral: feed the SAME 🔒 tracker to replan and archive and prove
+# neither drops it nor flags it MALFORMED — the resolver-consistency the prose
+# above asserts, exercised end-to-end. The fixture: a 🔒 deliverable [6.2] in an
+# otherwise-✅ phase, plus a ⬜ [6.3] depending on it.
+cat > "$WORK/sib.md" <<'MD'
+# Phase Status Tracker
+
+> **Amendments:**
+
+## Phase 6 — Build
+
+- ✅ **[6.1]** A `[deps: none]`
+- 🔒 **[6.2]** Manual deploy `[deps: 6.1]`
+- ⬜ **[6.3]** C `[deps: 6.2]`
+MD
+# replan: guard on the 🔒 ID must succeed (exit 0) — the 🔒 line is a real,
+# targetable deliverable, not an "unknown ID". Before the fix this exit-5'd.
+GOUT=$(bash "$REPLAN" guard 6.2 "$WORK/sib.md" 2>&1); GRC=$?
+if [ "$GRC" -eq 0 ]; then
+  ok "replan.sh guards the 🔒 ID (6.2) — recognized, not 'unknown ID' MALFORMED"
+else
+  no "replan.sh must recognize a 🔒 deliverable as a guard target (rc=$GRC: $GOUT)"
+fi
+# replan: phase 6 still holds open work (the 🔒), so next-ordinal succeeds — the
+# phase is NOT seen as completed/immutable just because its only non-✅ is a 🔒.
+NOUT=$(bash "$REPLAN" next-ordinal 6 "$WORK/sib.md" 2>&1); NRC=$?
+if [ "$NRC" -eq 0 ] && [ "$NOUT" = "6.4" ]; then
+  ok "replan.sh keeps a 🔒-holding phase mutable (next-ordinal 6 → 6.4)"
+else
+  no "replan.sh must treat 🔒 as open work — phase stays mutable (rc=$NRC out=$NOUT)"
+fi
+# archive: --check on a tracker whose ONLY non-✅ line is a 🔒 must report
+# INCOMPLETE (exit 3) — the 🔒 is recognized AND counted as open work. This is
+# the script's most damaging silent-drop: with a four-marker incomplete class, a
+# 🔒-and-otherwise-✅ tracker reads COMPLETE (exit 0) and archival would freeze an
+# initiative whose human-gated work is still pending. The 🔒 must be the lone
+# non-✅ line so the assertion pins THAT bug, not the ⬜ in sib.md. archive
+# hardcodes docs/PHASE_STATUS.md, so run a TRACKER-repointed copy of the real
+# script.
+cat > "$WORK/lock-only.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Build
+
+- ✅ **[6.1]** A `[deps: none]`
+- 🔒 **[6.2]** Manual deploy `[deps: 6.1]`
+MD
+ASCRIPT="$WORK/archive-sib.sh"
+sed "s|^TRACKER=\"docs/PHASE_STATUS.md\"|TRACKER=\"$WORK/lock-only.md\"|" "$ARCHIVE" > "$ASCRIPT"
+AOUT=$(bash "$ASCRIPT" --check 2>&1); ARC=$?
+if [ "$ARC" -eq 3 ] && printf '%s\n' "$AOUT" | grep -q '🔒 \*\*\[6.2\]\*\*'; then
+  ok "archive-initiative.sh counts a lone 🔒 as INCOMPLETE (exit 3), not COMPLETE/MALFORMED"
+else
+  no "archive must see a lone 🔒 line as open work, never archive it as COMPLETE (rc=$ARC: $AOUT)"
+fi
+
 # ── 2. The skill quotes the DEPS_RE regex VERBATIM. We strip the shell
 # assignment wrapper down to just the regex value (between the single quotes)
 # and require that exact string to appear inside a fenced/inline code span in
