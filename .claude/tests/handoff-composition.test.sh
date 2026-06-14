@@ -50,10 +50,16 @@ grep -q '`evaluator`' "$EVALUATE" && grep -q '`product-reviewer`' "$EVALUATE" \
 
 # T2 — /handoff POINTS at /evaluate for the review procedure. The pointer is the
 # whole deliverable: the review steps live once, in /evaluate, and /handoff
-# references that one definition rather than restating it.
+# references that one definition rather than restating it. A bare `/evaluate`
+# mention does NOT discriminate the deliverable — the pre-refactor handoff already
+# named the `/evaluate` skill and `/evaluate-parallel` while still inlining the
+# steps. The load-bearing invariant is the *don't-restate* pointer directive: the
+# review procedure lives in /evaluate and handoff is told not to copy it. That
+# instruction is absent from the inlined predecessor, so this fires on a regression.
 echo "$HANDOFF_FLAT" | grep -qE '/evaluate' \
-  && ok "handoff references /evaluate (the one definition)" \
-  || no "handoff must point at /evaluate's procedure instead of inlining it"
+  && echo "$HANDOFF_FLAT" | grep -qiE 'do not restate' \
+  && ok "handoff points at /evaluate as the one definition and forbids restating its procedure" \
+  || no "handoff must point at /evaluate and direct that its procedure not be restated (no inline copy)"
 
 # T3 — no inlined copy of /evaluate's review steps. The drift surface was the
 # two prose passages that restated, verbatim-ish, /evaluate's Step 2/3 invoke
@@ -88,7 +94,12 @@ echo "$HANDOFF_FLAT" | grep -qiE 'in-band' \
 echo "$HANDOFF_FLAT" | grep -qiE 'disclos' \
   && ok "the skip is disclosed (not silent)" \
   || no "handoff must state the skip is disclosed in the handoff record"
-echo "$HANDOFF_FLAT" | grep -qiE '(never|not|no) [^.]*silent|silent[^.]*(drop|skip)' \
+# Anchor "silent" to the REVIEW not being dropped — not just any "silent" token.
+# The pre-refactor handoff already said "skip this step silently" (about CLAUDE.md
+# updates — the opposite sense), which the looser `silent[^.]*(drop|skip)` form
+# matched vacuously. Requiring "no review … (silent|drop)" ties the assertion to
+# the deliverable's actual guarantee and fails on the inlined predecessor.
+echo "$HANDOFF_FLAT" | grep -qiE 'no review[^.]*(silent|drop)' \
   && ok "states no review is silently dropped" \
   || no "handoff must state no review is silently dropped"
 
