@@ -42,7 +42,9 @@ change is.
 
 If `ceremony` is `task`/`onboard`, or there is no `docs/REQUIREMENTS.md`, **skip to
 Step 3 and use the Bug Fix path** — there is no spec to keep in sync, so just make
-the change with TDD. Otherwise classify the feedback into one of three categories:
+the change with TDD. Otherwise classify the feedback into one of four categories —
+three are product work (a deliverable changes), the fourth is maintenance (no
+deliverable, no test):
 
 ### Bug Fix
 
@@ -68,14 +70,38 @@ An entirely new deliverable that wasn't in the original plan.
 
 **The test:** Is there an existing deliverable this maps to? If no → new capability.
 
+### Chore / Maintenance
+
+A control-plane housekeeping change that maps to **no product deliverable** and
+carries **no TDD test** — a doc-format pass, a migration, a mechanical rename, a
+metadata or convention update. It does not change what any deliverable means or
+does; it touches the plane's own artifacts, not the product's behavior.
+
+**Signals:** "reformat the handoffs", "migrate the feedback log", "update the doc
+template", "renumber the sessions", "bulk-edit these control-plane files" — work
+with no behavior to red/green and no requirement to amend.
+
+**The test:** Does this change product behavior or any deliverable's meaning? If
+**no** — and there is nothing to write a failing test against — it is a chore.
+(If there *is* product behavior to verify, it is a Bug Fix or Quality
+Improvement, not a chore. When unsure, prefer a product class over chore — a
+chore skips the TDD gate, so misclassifying real product work as a chore loses
+the test.)
+
+**Routing — approve-then-write (no TDD):** classify and confirm as below, then in
+Step 3 follow the **Chore / Maintenance path** — present the concrete change for
+approval, write it once approved, and commit. No failing test, no `/evaluate`
+gate (there is no behavior to grade); the human approval is the check. Do not
+force a chore into Bug / Quality / New-capability just to satisfy the TDD loop.
+
 ## Step 2 — Confirm Classification (phased projects only)
 
 Present the classification to the user:
 
 ```
-Classification: [Bug Fix | Quality Improvement | New Capability]
+Classification: [Bug Fix | Quality Improvement | New Capability | Chore / Maintenance]
 Rationale: [one sentence explaining why this category]
-Affected deliverable: [which deliverable in REQUIREMENTS.md, or "new" for new capabilities]
+Affected deliverable: [which deliverable in REQUIREMENTS.md, "new" for new capabilities, or "none — chore" for maintenance]
 ```
 
 Wait for the user to confirm before proceeding. They may reclassify — if someone says "this is actually a quality improvement, not a bug fix," follow their classification.
@@ -122,6 +148,21 @@ No doc updates needed — either the spec already describes the correct behavior
 2. **Then implement** using the standard red/green TDD workflow
 3. Run `/evaluate` and address findings. Commit with `feat(scope): description`
 4. Update `docs/PHASE_STATUS.md` to ✅ when complete
+
+### Chore / Maintenance Path (phased projects — approve-then-write, no TDD)
+
+For a control-plane housekeeping change with no product deliverable and no
+behavior to test:
+
+1. **Present the concrete change for approval** — the exact files and the
+   before/after shape (a diff, a sample of the reformatted output, the migration
+   plan). No `docs/REQUIREMENTS.md` / `docs/PHASE_STATUS.md` edit: a chore maps
+   to no deliverable, so there is no spec to amend and no status marker to move.
+2. **Write it once approved**, then commit with a `chore(scope): description`
+   message (control plane). **No failing test and no `/evaluate` gate** — there
+   is no behavior to red/green or to grade; the approval is the check.
+3. If a session handoff is in play, note it under **Completed** as a chore (no
+   deliverable reference).
 
 ## Reminders
 
