@@ -245,6 +245,26 @@ OUT=$(run preview 7.4); RC=$?
   && ok "preview: detached code-repo HEAD refused (exit 4) — the queue lands onto a branch" \
   || no "a detached HEAD must be refused with exit 4 (rc=$RC): $OUT"
 
+# ── T14 — an UNKNOWN lane id loud-stops (exit 5), it does not limp on ──
+# lane_state resolves inside a $()-substitution; a die there would only kill the
+# subshell, so an unknown id would leave an empty branch and emit raw git fatals
+# (UAT-F6). precheck/preview/land resolve the lane first, so an unknown id hits
+# the no_lane path directly.
+setup
+for verb in precheck preview land; do
+  OUT=$(run "$verb" 7.9); RC=$?
+  [ $RC -eq 5 ] && echo "$OUT" | grep -q "7.9" \
+    && ok "$verb: an unknown lane id loud-stops (exit 5), naming it" \
+    || no "$verb of an unknown lane id must be exit 5, not a limp-on (rc=$RC): $OUT"
+done
+# gate-input checks the acceptance block FIRST, so an absent id stops there, not at
+# no_lane. To exercise gate-input's OWN lane resolution, use a deliverable that IS
+# in REQUIREMENTS ([7.5]) but has no lane in this fixture — that reaches no_lane.
+OUT=$(run gate-input 7.5); RC=$?
+[ $RC -eq 5 ] && echo "$OUT" | grep -q "7.5" \
+  && ok "gate-input: a deliverable in REQUIREMENTS but with no lane loud-stops (exit 5, no_lane path)" \
+  || no "gate-input must loud-stop via no_lane when the deliverable exists but the lane doesn't (rc=$RC): $OUT"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -305,6 +305,45 @@ git -C "$CODE" log --oneline main | grep -q "lane 7.A work" \
   && ok "dispatch: the valid lane still lands despite an unknown sibling id" \
   || no "the valid lane must land despite an unknown sibling"
 
+# ── T15 — dispatch destroys each landed lane (lifecycle ends at destroy) ──
+# Without cleanup the .worktrees/ and lane/* refs accumulate across dispatches
+# (UAT-F5). A landed lane is merged, so destroy needs no --force.
+setup
+mklane create 7.A landdes; laneexec 7.A base.txt "A-change" ok
+OUT=$(run dispatch 7.A); RC=$?
+[ $RC -eq 0 ] || no "dispatch (single ok lane) must succeed (rc=$RC): $OUT"
+git -C "$CODE" log --oneline main | grep -q "lane 7.A work" \
+  || no "precondition: the lane should have landed"
+[ -d "$CODE/.worktrees/lane-7.A" ] \
+  && no "dispatch must destroy the landed lane's worktree (UAT-F5)" \
+  || ok "dispatch: the landed lane's worktree is destroyed"
+git -C "$CODE" branch --list 'lane/7.A-*' | grep -q . \
+  && no "dispatch must delete the landed lane's branch (UAT-F5)" \
+  || ok "dispatch: the landed lane's branch is deleted"
+echo "$OUT" | grep -q "destroyed=1" \
+  && ok "dispatch: the summary reports destroyed=1" \
+  || no "dispatch summary must report the destroyed count: $OUT"
+
+# ── T16 — harvest emits a build-artifact advisory (lanes commit sources only) ──
+# A lane that staged a __pycache__ file (UAT-F2) still harvests ok — it is not a
+# confinement breach — but harvest warns so the orchestrator sees it.
+setup
+mklane create 7.A artifacts
+WT="$CODE/.worktrees/lane-7.A"
+mkdir -p "$WT/pkg/__pycache__"
+printf 'src\n' > "$WT/mod.py"
+printf 'cache\n' > "$WT/pkg/__pycache__/mod.cpython-311.pyc"
+git -C "$WT" add -A
+git -C "$WT" -c user.email=t@t -c user.name=t commit -qm "lane 7.A with artifacts" >/dev/null 2>&1
+jq -n '{id:"7.A",status:"ok",docFragments:[],notes:"n"}' > "$WT/.lane-output.json"
+OUT=$(run harvest 7.A); RC=$?
+[ $RC -eq 0 ] \
+  && ok "harvest: a lane carrying build artifacts still harvests ok (advisory, not refusal)" \
+  || no "harvest must not refuse on build artifacts — advisory only (rc=$RC): $OUT"
+echo "$OUT" | grep -qi "advisory" && echo "$OUT" | grep -q "__pycache__" \
+  && ok "harvest: emits a build-artifact advisory naming the artifact path (UAT-F2)" \
+  || no "harvest must advise on build artifacts in the lane diff: $OUT"
+
 # ── T14 — .lane-reports/ is gitignored in the guv-core block (no scratch leak) ──
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
 if grep -q '^# guv-core-start' "$ROOT/.gitignore" 2>/dev/null; then

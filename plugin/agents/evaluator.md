@@ -128,6 +128,13 @@ Does the feature integrate correctly with the broader system? If the phase has n
 
 ### 7. Produce Your Report
 
+**Your final message MUST BE the full report itself — never a pointer to it.** Write
+the complete report below as your closing message. Updating your project memory is
+fine, but memory is a side effect, not the deliverable: a final message that only
+says "memory updated" or points at a file forces the orchestrator to spawn a
+recovery agent to read it back (observed in session-2026-06-10-003). The report is
+the return value; emit it in full, inline, every time.
+
 Output a structured evaluation report with this format:
 
 ```

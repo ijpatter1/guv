@@ -61,6 +61,34 @@ denies "git push origin feature" "$PLAIN" \
   && no "git push must stay allowed (intentionally unblocked)" \
   || ok "git push allowed (intentional)"
 
+# T3b — the rm -rf root guard is anchored to the FS root and system dirs, not to
+# every absolute path. A lane agent's cleanup of an absolute scratch path (the
+# UAT-F3 case) must stay allowed; the catastrophic roots must stay blocked.
+denies "rm -rf /private/tmp/lane/__pycache__" "$PLAIN" \
+  && no "absolute scratch path under /private/tmp must stay allowed (UAT-F3 overblock)" \
+  || ok "rm -rf of an absolute /private/tmp scratch path allowed"
+denies "rm -rf /var/folders/xy/T/build" "$PLAIN" \
+  && no "absolute macOS temp under /var/folders must stay allowed" \
+  || ok "rm -rf of an absolute /var/folders temp path allowed"
+denies "rm -rf /usr/local/lib" "$PLAIN" \
+  && ok "rm -rf of a system dir (/usr subtree) still blocked" \
+  || no "rm -rf of a system dir must stay blocked (anchored guard)"
+denies "rm -rf /etc" "$PLAIN" \
+  && ok "rm -rf /etc still blocked" || no "rm -rf /etc must stay blocked"
+denies "rm -rf /*" "$PLAIN" \
+  && ok "rm -rf /* (root glob) still blocked" || no "rm -rf /* must stay blocked"
+# The scratch-bearing roots: the WHOLE dir is catastrophic (Linux), but a subpath
+# under them is legit scratch and must stay allowed.
+denies "rm -rf /home" "$PLAIN" \
+  && ok "rm -rf /home (all Linux homes) blocked" || no "rm -rf /home must be blocked"
+denies "rm -rf /var" "$PLAIN" \
+  && ok "rm -rf /var (system state) blocked" || no "rm -rf /var must be blocked"
+denies "rm -rf /mnt" "$PLAIN" \
+  && ok "rm -rf /mnt (mount root) blocked" || no "rm -rf /mnt must be blocked"
+denies "rm -rf /home/dev/project/build" "$PLAIN" \
+  && no "a repo path under /home must stay allowed (subpath, not the whole dir)" \
+  || ok "rm -rf of a subpath under /home allowed"
+
 # T4 — optional guard fires only when the manifest opts in.
 denies "npm publish" "$GUARDED" \
   && ok "npm publish blocked with npm-publish guard" \

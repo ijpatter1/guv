@@ -78,6 +78,14 @@ open (routing: upstream)
   → entry flips to `graduated` on the release that ships the fix; issue closed
 ```
 
+**Issue filing is user-gated; the drain is not agent-executable end to end.** The
+permission classifier treats `gh issue create` (and the issue-closing call) as an
+outward publish and denies it to an agent, while permitting `gh pr create` — so the
+PR half of the drain runs agent-side and the issue half needs a person. The designed
+path: the **agent drafts** the issue body (and records the triage decision as an
+annotation on the entry), the **user files** it. Don't write the drain as if the
+agent can file issues itself — it can't, and an agent that tries hits a denial mid-flow.
+
 `graduated` is distinct from `resolved`: `resolved` marks friction fixed before
 any release existed (no release to graduate on — e.g. the .DS_Store sync fix,
 entry `2026-06-10T20:25:26Z-970732268`), while `graduated` names the release

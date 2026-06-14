@@ -15,7 +15,11 @@
 #   1. EXECUTION (conversational, one build agent per lane) — the orchestrator
 #      spawns a build agent into each lane worktree (guv-lane.sh create), each
 #      doing red/green TDD confined to source. Conservative, user-confirmed; no
-#      script drives it.
+#      script drives it. Lanes commit SOURCES ONLY (the spec invariant: generated
+#      artifacts are never line-merged): a test run leaves build/cache artifacts
+#      (__pycache__, *.pyc, coverage), so a lane `git add`s the touched sources,
+#      never `git add -A`. harvest emits an advisory if it sees such artifacts in
+#      the lane diff (UAT-F2) — a heuristic warning, not a refusal.
 #   2. The Rule-14 GATE (the orchestrator runs it, BEFORE dispatch) — every lane
 #      is dual-reviewed by the calibrated evaluator + product-reviewer
 #      (merge-queue.sh gate-input assembles the acceptance bundle; Rule 12: code
@@ -127,6 +131,19 @@ lane_paths() {   # branch -> changed paths (merge-base..branch)
   git -C "$CODE" diff --name-only "$base..$br"
 }
 
+# Obvious build/cache artifacts that should never ride a lane commit (the spec
+# invariant: lanes commit SOURCES only). An ADVISORY, never a refusal — a
+# heuristic match must not block a clean land, but the orchestrator should see
+# it (UAT-F2: both fan-out agents staged __pycache__ from a test run and had to
+# back it out by hand). Echoes one advisory line if the lane diff carries any.
+ARTIFACTS='(^|/)(__pycache__|node_modules|\.pytest_cache|\.mypy_cache|\.ruff_cache)/|\.py[co]$|(^|/)\.DS_Store$|(^|/)[^/]+\.egg-info/'
+lane_artifact_advisory() {  # $1 = branch
+  local hits
+  hits=$(lane_paths "$1" | grep -E "$ARTIFACTS" || true)
+  [ -n "$hits" ] && printf 'advisory: lane diff carries likely build artifacts (lanes commit sources only) — %s\n' "$(echo "$hits" | tr '\n' ' ')"
+  return 0
+}
+
 # Real dirtiness = uncommitted work EXCLUDING the orchestrator sidecar. Porcelain
 # lines are "XY <path>", so anchor the sidecar match on the path tail, not column 0.
 lane_realdirty() {  # id -> count of non-sidecar porcelain lines
@@ -211,6 +228,7 @@ do_harvest() {  # $1=id
   mkdir -p "$REPORTS/staging"
   cp "$wt/$SIDECAR" "$REPORTS/staging/$id.json"
   rm -f "$wt/$SIDECAR"
+  lane_artifact_advisory "$br"   # non-fatal hygiene warning (UAT-F2)
   echo "harvest=ok lane=$id branch=$br output=$REPORTS/staging/$id.json"
   return 0
 }
@@ -278,7 +296,7 @@ case "$VERB" in
       fi
       if do_harvest "$id"; then OK+=("$id"); fi
     done
-    declare -a LANDED=()
+    declare -a LANDED=() CLEANED=()
     if [ "${#OK[@]}" -gt 0 ]; then
       # Order cheapest-first through the [7.4] queue, then gate + land each.
       ORDER=$(bash "$QUEUE" preview "${OK[@]}" 2>/dev/null | grep '^order=' | cut -d= -f2-)
@@ -313,7 +331,21 @@ case "$VERB" in
         fi
       fi
     fi
-    echo "dispatch: landed=[${LANDED[*]:-}] of $TOTAL lane(s) — harvest-refused=$(( TOTAL - SKIPPED - ${#OK[@]} )), queue-not-landed=$(( ${#OK[@]} - ${#LANDED[@]} )), unknown-skipped=$SKIPPED"
+    # Lane lifecycle is create→harvest→destroy. A landed lane is merged into
+    # integration, so destroy it (no --force — guv-lane refuses a NON-merged lane,
+    # which a landed one never is). Without this the worktrees pile up in
+    # .worktrees/ and the lane/* branches accrue across dispatches (UAT-F5). Done
+    # after assembly: assembly reads the staged sidecars, never the worktrees.
+    if [ "${#LANDED[@]}" -gt 0 ]; then
+      for id in "${LANDED[@]}"; do
+        if bash "$LANE" destroy "$id" >/dev/null 2>&1; then
+          CLEANED+=("$id")
+        else
+          echo "dispatch: lane $id landed but auto-destroy failed — leftover worktree at $CODE/.worktrees/lane-$id (clean up: guv-lane destroy $id)"
+        fi
+      done
+    fi
+    echo "dispatch: landed=[${LANDED[*]:-}] of $TOTAL lane(s) — harvest-refused=$(( TOTAL - SKIPPED - ${#OK[@]} )), queue-not-landed=$(( ${#OK[@]} - ${#LANDED[@]} )), unknown-skipped=$SKIPPED, destroyed=${#CLEANED[@]}"
     ;;
 
   *) die 2 "unknown verb '$VERB' (confine | harvest | assemble | dispatch)" ;;

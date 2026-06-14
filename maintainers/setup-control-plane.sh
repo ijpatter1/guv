@@ -283,8 +283,22 @@ SH
   rm -f "$tmp"
 }
 
+# Ensure the plane ignores the fan-out scratch (.lane-reports/) even on --sync to
+# an EXISTING plane — the create-mode .gitignore write is skipped when one already
+# exists, so a plane scaffolded before this line shipped would never get it
+# (UAT-F4 + eval Minor). Idempotent: append only if absent; never rewrites.
+ensure_lane_reports_ignored() {
+  local gi="$DEST/.gitignore"
+  [ -f "$gi" ] || return 0
+  grep -qxF '.lane-reports/' "$gi" || {
+    printf '.lane-reports/\n' >> "$gi"
+    echo "[setup] added .lane-reports/ to the plane's .gitignore (fan-out scratch)"
+  }
+}
+
 if [ "$MODE" = "sync" ]; then
   write_render_hook
+  ensure_lane_reports_ignored
   echo "[setup] --sync complete. Manifest, CLAUDE.md, docs, and feedback left untouched."
   exit 0
 fi
@@ -350,8 +364,11 @@ mkdir -p "$DEST/docs/sessions"
 # dogfooding record).
 if [ ! -f "$DEST/.gitignore" ]; then
   # status.json is the manual render chain's intermediate file; status.html is
-  # the committed derived artifact, the JSON is not.
-  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\nstatus.json\n' > "$DEST/.gitignore"
+  # the committed derived artifact, the JSON is not. .lane-reports/ is the
+  # fan-out scratch (lane failure reports + collected outputs); it lives in the
+  # CONTROL PLANE (the worktrees live in roots.code, which gets the guv-core
+  # block via the scaffold), so the plane's own gitignore must carry it (UAT-F4).
+  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\nstatus.json\n.lane-reports/\n' > "$DEST/.gitignore"
 fi
 
 # Init the control plane's own git (its own commit stream), if not already a repo.

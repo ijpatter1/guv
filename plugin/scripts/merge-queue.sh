@@ -67,15 +67,23 @@ integ() {
 }
 
 # Resolve a lane id → its branch via guv-lane harvest (the one lookup).
-# Echoes "branch dirty" on success; propagates guv-lane's exit on failure.
+# Echoes "branch dirty" on success; RETURNS 5 on failure (never die) — the die
+# must fire in the MAIN shell, not here: lane_state is always read inside a
+# command substitution, where an internal `exit` would only kill the subshell
+# and the caller would limp on with an empty branch (the UAT-F6 defect class, the
+# same one fixed in lane-dispatch's INTEG). Every caller does
+# `STATE=$(lane_state "$id") || die 5 …` so an unknown id loud-stops (Rule 15).
 lane_state() {
   local id="$1" out rc br dirty
   out=$(bash "$LANE" harvest "$id" 2>/dev/null); rc=$?
-  [ $rc -eq 0 ] || die 5 "no lane for id $id (expected lane/$id-<slug>)"
+  [ $rc -eq 0 ] || return 5
   br=$(printf '%s' "$out" | grep -oE 'branch=[^ ]+' | head -1 | cut -d= -f2-)
   dirty=$(printf '%s' "$out" | grep -oE 'dirty=[^ ]+' | head -1 | cut -d= -f2-)
   printf '%s %s' "$br" "$dirty"
 }
+# Resolve in the main shell so the die propagates (callers must not inline the
+# substitution into a herestring, which swallows the exit status).
+no_lane() { die 5 "no lane for id $1 (expected lane/$1-<slug>)"; }
 
 # files insertions deletions of the lane's own commits (merge-base..branch).
 footprint() {
@@ -109,7 +117,8 @@ case "$VERB" in
   precheck)
     [ $# -eq 1 ] || die 2 "usage: precheck <id>"
     ID="$1"
-    read -r BR DIRTY <<<"$(lane_state "$ID")"
+    STATE=$(lane_state "$ID") || no_lane "$ID"
+    read -r BR DIRTY <<<"$STATE"
     [ "$DIRTY" = "1" ] \
       && die 6 "lane $ID worktree is dirty — commit or discard before queueing (refused before any agent invocation)"
     BASE=$(git -C "$CODE" merge-base "$(integ)" "$BR")
@@ -126,7 +135,8 @@ case "$VERB" in
     [ -f "$REQ" ] || die 4 "no $REQ (cwd must be the control plane)"
     ACC=$(acceptance_block "$ID" "$REQ")
     [ -n "$ACC" ] || die 5 "no deliverable [$ID] in $REQ — acceptance criteria not found"
-    read -r BR DIRTY <<<"$(lane_state "$ID")"
+    STATE=$(lane_state "$ID") || no_lane "$ID"
+    read -r BR DIRTY <<<"$STATE"
     HEAD=$(git -C "$CODE" rev-parse "$BR")
     echo "=== gate-input for [$ID] — evaluator grading bundle ==="
     echo "deliverable: $ID"
@@ -145,7 +155,8 @@ case "$VERB" in
       || die 4 "git merge-tree --write-tree unsupported — preview needs git >= 2.38 (have $(git --version 2>/dev/null))"
     declare -a IDS=() BRS=() FP=() CVI=()
     for id in "$@"; do
-      read -r br dirty <<<"$(lane_state "$id")"
+      state=$(lane_state "$id") || no_lane "$id"
+      read -r br dirty <<<"$state"
       base=$(git -C "$CODE" merge-base "$INTEG" "$br")
       lines=$(git -C "$CODE" diff --numstat "$base..$br" | awk '{i+=($1=="-"?0:$1); d+=($2=="-"?0:$2)} END{print i+d+0}')
       cvi=0
@@ -178,7 +189,8 @@ case "$VERB" in
     [ $# -eq 1 ] || die 2 "usage: land <id>"
     ID="$1"
     INTEG=$(integ)
-    read -r BR DIRTY <<<"$(lane_state "$ID")"
+    STATE=$(lane_state "$ID") || no_lane "$ID"
+    read -r BR DIRTY <<<"$STATE"
     WT="$CODE/.worktrees/lane-$ID"
     [ -d "$WT" ] || die 5 "lane $ID has no worktree at $WT to land from"
     # Rebase onto the post-merge integration head IN THE LANE'S OWN WORKTREE,

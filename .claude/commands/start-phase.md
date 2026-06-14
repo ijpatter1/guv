@@ -153,6 +153,16 @@ commit under `/replan`'s convention (`docs(replan): <verb> [IDs] — <one-line w
 Only a pure-ARCHITECTURE fix with no plan mutation gets the umbrella message
 `docs: fortify Phase N requirements from spec alignment review`.
 
+**Headless / autonomous sessions (user offline) — the draft-and-defer path.**
+`/replan`'s confirm gate (its Step 3) forbids writing any doc before the user
+ratifies, and a headless confirmation can only clear if the prompt already named
+the exact mutation. When neither holds — a finding surfaces here but no one is
+present to confirm it — **do not** block on an unanswerable confirm and **do not**
+auto-apply a gated mutation. Take the Rule-15 designed degradation: draft the
+mutation in full, surface it in the handoff for later ratification, and honor the
+spec's intent directly in this session's deliverable where you can without touching
+plan state. The mutation lands through `/replan` once a person is back.
+
 These updates ensure the identified gaps are captured in the project's permanent
 record — with amendment records naming what changed — not just in the agent's
 session plan. The session plan in Step 7 then works from the fortified docs.

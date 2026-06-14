@@ -5,6 +5,45 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.1.2 — 2026-06-13
+
+Patch release: a backlog-clearing wave of fixes to already-shipped assets, drawn
+from dogfooding/UAT friction not addressed by planned work. No new surface and no
+contract change. The `v0.1.2` tag lands on the default-branch merge commit (PR #19),
+per the merge-before-tag step.
+
+### Fixed
+
+- **bash-guard**: the root-deletion guard was an unanchored substring match that
+  blocked *any* absolute-path `rm -rf` (e.g. a lane agent cleaning a scratch dir
+  under `/private/tmp`). Re-anchored to the filesystem root, a system-directory
+  denylist, and the whole-directory form of scratch-bearing roots (`/home`,
+  `/var`, `/mnt`, `/media`); absolute scratch subpaths are no longer blocked while
+  every catastrophic root stays blocked.
+- **merge-queue**: `lane_state` called `die` inside a command substitution, so an
+  unknown lane id limped on with raw git errors instead of stopping loud; it now
+  returns and the caller stops in the main shell.
+- **lane-dispatch**: `dispatch` now destroys each successfully-landed lane (the
+  lifecycle ends at destroy, no more accumulating worktrees/branches), and
+  `harvest` emits a non-fatal advisory when a lane diff carries build artifacts.
+- **scaffold**: a split project's control-plane `.gitignore` now ignores the
+  fan-out scratch (`.lane-reports/`) on both create and `--sync`; the manifest
+  `commands` schema documents that commands run from the control plane (a split
+  `commands.test` must resolve `roots.code` itself).
+- **test suites**: removed `echo | grep -q` SIGPIPE races that could trip the
+  strict empty-stderr gate, and made the plugin drift-guard fixtures self-heal a
+  leftover instead of failing the battery.
+
+### Changed
+
+- The `evaluator` and `product-reviewer` agents now mandate returning the full
+  report as their final message (not a memory pointer).
+- `RELEASING.md` and the `log-feedback` skill document that issue filing is
+  user-gated (the agent drafts, the user files).
+- `/start-phase` and `/replan` name the headless draft-and-defer path; `/replan`
+  documents how to create a new phase header (the one tracker mutation the engine
+  does not own).
+
 ## 0.1.1 — 2026-06-11
 
 Patch release: review-wave fixes to already-shipped assets. **This is the first

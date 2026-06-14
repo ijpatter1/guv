@@ -101,6 +101,13 @@ Is the feature substantive enough to deliver its intended value, or is it a thin
 
 ## Report Format
 
+**Your final message MUST BE the full report itself — never a pointer to it.** Emit
+the complete report below as your closing message. Updating your project memory is a
+side effect, not the deliverable: a final message that only says "memory updated" or
+points at a file forces the orchestrator to spawn a recovery agent to read it back
+(observed in session-2026-06-10-003). The report is the return value; emit it in
+full, inline, every time.
+
 ```
 ## Product Review — [Phase N, Session Date]
 
