@@ -149,8 +149,8 @@ the entry so a re-run is a no-op — deduped by entry `id`. Non-upstream,
 already-linked, and non-open entries are skipped, untouched.
 
 ```bash
-bash .claude/feedback-submit.sh submit            # draft + write back the markers
-bash .claude/feedback-submit.sh submit --dry-run  # list what would be filed; write nothing
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback-submit.sh" submit            # draft + write back the markers
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback-submit.sh" submit --dry-run  # list what would be filed; write nothing
 ```
 
 What it is and isn't:

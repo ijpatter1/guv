@@ -161,8 +161,19 @@ for d in "$SRC/skills"/*/; do
   fi
   mkdir -p "$OUT/skills/$name"
   for f in "$d"*; do
-    rewrite_paths < "$f" | namespace_refs > "$OUT/skills/$name/$(basename "$f")"
+    if [ -d "$f" ]; then
+      # A bundled subdir (e.g. scripts/, [8.3] single-owner bundle) — copied
+      # byte-identical. The skill body references it via ${CLAUDE_SKILL_DIR}/…,
+      # which resolves in every install mode, so it gets NO path/namespace
+      # rewrite (unlike shared helpers, which become ${CLAUDE_PLUGIN_ROOT}).
+      cp -R "$f" "$OUT/skills/$name/"
+    else
+      rewrite_paths < "$f" | namespace_refs > "$OUT/skills/$name/$(basename "$f")"
+    fi
   done
+  # bundled scripts ship executable (the top plugin pitfall; cp preserves source
+  # mode, but be explicit as the shared-scripts copy is)
+  [ -d "$OUT/skills/$name/scripts" ] && chmod +x "$OUT/skills/$name/scripts"/*.sh
 done
 
 # ── agents, frontmatter hooks: block stripped, references namespaced AND
@@ -271,6 +282,17 @@ for s in "$SCRIPTS"/*.sh; do
   if is_hook "$b"; then cp "$s" "$REC/hooks/$b"; else cp "$s" "$REC/$b"; fi
 done
 chmod +x "$REC"/*.sh "$REC/hooks"/*.sh 2>/dev/null || true
+
+# bundled single-owner scripts ([8.3]) live under skills/<name>/scripts/ in the
+# plugin (resolved via ${CLAUDE_SKILL_DIR}); reconstruct them at the same path so
+# a shipped suite testing a bundled script resolves it from the rebuilt .claude/.
+for sd in "$PLUGIN"/skills/*/scripts/*.sh; do
+  [ -e "$sd" ] || continue
+  sn="$(basename "$(dirname "$(dirname "$sd")")")"
+  mkdir -p "$REC/skills/$sn/scripts"
+  cp "$sd" "$REC/skills/$sn/scripts/$(basename "$sd")"
+  chmod +x "$REC/skills/$sn/scripts/$(basename "$sd")"
+done
 
 # rules ship as plugin assets; some location-relative suites read .claude/rules/
 [ -d "$RULES" ] && cp "$RULES"/*.md "$REC/rules/" 2>/dev/null || true

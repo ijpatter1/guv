@@ -250,7 +250,6 @@ code .
 │   ├── resolve-ready.sh               # Deterministic ready-frontier resolver (DAG tracker)
 │   ├── render-status.sh               # Renders status.json as one self-contained status.html (a view, never a source)
 │   ├── replan.sh                      # /replan's deterministic engine (guards, ordinals, atomic writes)
-│   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
 │   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan)
 │   ├── guv-git.sh                     # Git against roots.code, once (the retired inline incantation)

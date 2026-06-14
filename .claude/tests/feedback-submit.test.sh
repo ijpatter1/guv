@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for .claude/feedback-submit.sh — feedback-transport submit mode ([10.8]).
+# Tests for skills/feedback/scripts/feedback-submit.sh — feedback-transport submit mode ([10.8]).
 # Pure bash + jq, no test runner required. Run: bash .claude/tests/feedback-submit.test.sh
 #
 # These tests verify INTENT, not "runs without crashing" (Rule 8). The submit mode
@@ -21,7 +21,7 @@
 set -u
 
 CLAUDE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SCRIPT="$CLAUDE_DIR/feedback-submit.sh"
+SCRIPT="$CLAUDE_DIR/skills/feedback/scripts/feedback-submit.sh"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -106,8 +106,8 @@ LOG_REL=".claude/feedback/feedback.ndjson"
 
 # ── RED until built ──────────────────────────────────────────────────────────
 [ -f "$SCRIPT" ] \
-  && ok "submit script exists at .claude/feedback-submit.sh" \
-  || no "submit script missing at .claude/feedback-submit.sh"
+  && ok "submit script exists at skills/feedback/scripts/feedback-submit.sh" \
+  || no "submit script missing at skills/feedback/scripts/feedback-submit.sh"
 
 # ── T1 — a submit run drafts an issue per open upstream entry lacking a link ──
 # and writes the draft annotation back so the entry is now linked. Two drainable

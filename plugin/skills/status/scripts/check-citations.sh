@@ -1,5 +1,5 @@
 #!/bin/bash
-# .claude/check-citations.sh
+# check-citations.sh
 # ADVISORY integrity check: flag session-handoff citations whose commit hashes no
 # longer resolve. Always exits 0 — it never blocks anything.
 #
@@ -33,7 +33,7 @@
 #     would false-positive in every handoff citing one — issue #7; an abbreviated
 #     hash with no hex letter is rare enough for an advisory check to tolerate).
 #
-# Usage: bash .claude/check-citations.sh   (run from the control plane / cwd)
+# Usage: bash check-citations.sh   (run from the control plane / cwd)
 
 MANIFEST=".claude/project.json"
 [ -f "$MANIFEST" ] || exit 0

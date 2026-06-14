@@ -1,5 +1,5 @@
 #!/bin/bash
-# .claude/extract-eval-report.sh — surface the FULL eval-parallel report
+# extract-eval-report.sh — surface the FULL eval-parallel report
 # from its on-disk output ([10.5]; feedback id 447210968).
 #
 # The eval-parallel workflow returns
@@ -13,7 +13,7 @@
 # access), so the fix lives here: decode the nested `result` and print the full
 # combined report — summary + both sub-reports, untruncated.
 #
-# Usage: bash .claude/extract-eval-report.sh <path-to-output.json>
+# Usage: bash extract-eval-report.sh <path-to-output.json>
 #   The path is the Task-runtime output file referenced by the run notification.
 # Prints the combined report to stdout. Exit 4 on a missing/unreadable file or
 # unparseable JSON; exit 5 if a required report field is absent (fail loud — a
@@ -24,7 +24,7 @@ set -u
 
 FILE="${1:-}"
 if [ -z "$FILE" ]; then
-  echo "extract-eval-report: usage: bash .claude/extract-eval-report.sh <output.json>" >&2
+  echo "extract-eval-report: usage: bash extract-eval-report.sh <output.json>" >&2
   exit 4
 fi
 if [ ! -f "$FILE" ] || [ ! -r "$FILE" ]; then

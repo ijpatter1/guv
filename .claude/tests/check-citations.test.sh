@@ -1,10 +1,10 @@
 #!/bin/bash
-# Tests for .claude/check-citations.sh — advisory commit-citation integrity check.
+# Tests for .claude/skills/status/scripts/check-citations.sh — advisory commit-citation integrity check.
 # Pure bash + git, no test runner required (this template repo ships no JS suite).
 # Run: bash .claude/tests/check-citations.test.sh
 set -u
 
-SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/check-citations.sh"
+SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/skills/status/scripts/check-citations.sh"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }

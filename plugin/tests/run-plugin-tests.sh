@@ -41,6 +41,17 @@ for s in "$SCRIPTS"/*.sh; do
 done
 chmod +x "$REC"/*.sh "$REC/hooks"/*.sh 2>/dev/null || true
 
+# bundled single-owner scripts ([8.3]) live under skills/<name>/scripts/ in the
+# plugin (resolved via ${CLAUDE_SKILL_DIR}); reconstruct them at the same path so
+# a shipped suite testing a bundled script resolves it from the rebuilt .claude/.
+for sd in "$PLUGIN"/skills/*/scripts/*.sh; do
+  [ -e "$sd" ] || continue
+  sn="$(basename "$(dirname "$(dirname "$sd")")")"
+  mkdir -p "$REC/skills/$sn/scripts"
+  cp "$sd" "$REC/skills/$sn/scripts/$(basename "$sd")"
+  chmod +x "$REC/skills/$sn/scripts/$(basename "$sd")"
+done
+
 # rules ship as plugin assets; some location-relative suites read .claude/rules/
 [ -d "$RULES" ] && cp "$RULES"/*.md "$REC/rules/" 2>/dev/null || true
 

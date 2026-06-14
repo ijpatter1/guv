@@ -122,6 +122,26 @@ for d in "$SRC"/skills/*/; do
 done
 [ "$T4_OK" -eq 1 ] && ok "all harness skills ship in the plugin under their own names"
 
+# T4b — bundled single-owner scripts ([8.3]) ship byte-identical inside their
+# skill's scripts/ (referenced via ${CLAUDE_SKILL_DIR}), and NOT in the shared
+# scripts/ tree. Derived from source: any skills/<name>/scripts/*.sh must land at
+# plugin/skills/<name>/scripts/<file> identical to source, and must be absent
+# from plugin/scripts/ (it is owned, not shared).
+T4B_OK=1
+T4B_SEEN=0
+for sd in "$SRC"/skills/*/scripts/*.sh; do
+  [ -e "$sd" ] || continue
+  T4B_SEEN=$((T4B_SEEN + 1))
+  name="$(basename "$(dirname "$(dirname "$sd")")")"
+  base="$(basename "$sd")"
+  dest="$PLUGIN/skills/$name/scripts/$base"
+  cmp -s "$sd" "$dest" || { no "bundled script $name/$base not shipped byte-identical at skills/$name/scripts/"; T4B_OK=0; }
+  [ -e "$PLUGIN/scripts/$base" ] && { no "bundled script $base leaked into shared scripts/ (must be skill-owned only)"; T4B_OK=0; }
+done
+[ "$T4B_OK" -eq 1 ] && [ "$T4B_SEEN" -gt 0 ] \
+  && ok "all $T4B_SEEN bundled single-owner scripts ship under their skill's scripts/ (and not in shared scripts/)" \
+  || { [ "$T4B_SEEN" -eq 0 ] && no "T4b found no bundled skill scripts to check (expected the [8.3] single-owners)"; }
+
 # T5 — /guv:zen: user-only (disable-model-invocation: true, so it never costs
 # context) and prints ALL FIVE design principles from the spec.
 ZEN="$PLUGIN/skills/zen/SKILL.md"
@@ -311,7 +331,11 @@ CMDS=$(
     done
   } | paste -sd'|' -
 )
-BARE=$(grep -rE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
+# --exclude-dir=scripts: bundled single-owner scripts ([8.3]) ship byte-identical
+# (NOT namespace-rewritten), so a bare /command in them is legitimate when it
+# carries a guv: decoder — exactly the shared-scripts regime (plugin/scripts/ is
+# not scanned here either). T12e enforces the decoder on those bundled scripts.
+BARE=$(grep -rE --exclude-dir=scripts "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
 [ "$BARE" -eq 0 ] \
   && ok "no bare /command references in plugin skills or agents (all /guv:-namespaced)" \
   || no "$BARE bare /command reference(s) remain in plugin skills/agents"
@@ -404,6 +428,9 @@ trap - EXIT
 # the SAME decoder rule to the source that reaches plugin consumers verbatim for
 # slash-command purposes — the FULL byte-identical-shipping surface, both halves:
 #   - .claude helper + hook scripts        -> scripts/ (byte-identical)
+#   - .claude/skills/*/scripts/*.sh        -> skills/<name>/scripts/ (byte-identical;
+#                                             [8.3] single-owner bundle, referenced
+#                                             via ${CLAUDE_SKILL_DIR}, NOT rewritten)
 #   - maintainers/plugin-src/scripts/*.sh  -> scripts/ (byte-identical; authored
 #                                             plugin-only, but lane-editable
 #                                             source — confine T3c permits it)
@@ -412,14 +439,16 @@ trap - EXIT
 #                                             agentType lines, never at /command
 #                                             mentions — so the decoder rule holds)
 # No plugin/ rebuild needed, so it fires the moment any context runs the suite,
-# naming the SOURCE file. Commands/skills/agents source is excluded — the build
+# naming the SOURCE file. SKILL.md/agent prose is excluded — the build
 # namespace-rewrites those in transit, so bare mentions there are fixed on the
-# way in (T12b owns that surface). Reuses $CMDS and $GENERIC_DECODER from
+# way in (T12b owns that surface); bundled skill scripts/ are NOT rewritten, so
+# they ARE scanned here. Reuses $CMDS and $GENERIC_DECODER from
 # T12b/T12d. Runs unconditionally (no plugin/ dependency; tolerates an absent
 # maintainers/), so it is the one plugin-transform check a lane can run.
 t12e_sources() {
   local x
-  for x in "$SRC"/*.sh "$SRC"/hooks/*.sh "$ROOT"/maintainers/plugin-src/scripts/*.sh \
+  for x in "$SRC"/*.sh "$SRC"/hooks/*.sh "$SRC"/skills/*/scripts/*.sh \
+           "$ROOT"/maintainers/plugin-src/scripts/*.sh \
            "$SRC"/rules/guv-*.md "$SRC"/workflows/*.js; do
     [ -e "$x" ] && echo "$x"
   done

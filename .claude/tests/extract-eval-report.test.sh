@@ -26,7 +26,7 @@ set -u
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"          # .claude/
 ROOT="$(cd "$SRC/.." && pwd)"
-SCRIPT="$SRC/extract-eval-report.sh"
+SCRIPT="$SRC/skills/eval/scripts/extract-eval-report.sh"
 SKILL="$SRC/skills/task/SKILL.md"
 EVAL_SKILL="$SRC/skills/eval/SKILL.md"       # the parallel-variant operator note
 HANDOFF="$SRC/skills/handoff/SKILL.md"               # the /handoff parallel-pass note
@@ -62,7 +62,7 @@ jq -n --arg r "$INNER" \
 
 # T1 — the helper exists and is the surface under test. Bail loudly if absent.
 if [ -f "$SCRIPT" ]; then
-  ok "extract-eval-report.sh exists in .claude/"
+  ok "extract-eval-report.sh exists in skills/eval/scripts/"
 else
   no "extraction helper missing: $SCRIPT"
   echo ""; echo "Results: $PASS passed, $FAIL failed"; exit 1

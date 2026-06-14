@@ -1,5 +1,5 @@
 #!/bin/bash
-# .claude/feedback-submit.sh — feedback-transport submit mode ([10.8]).
+# feedback-submit.sh — feedback-transport submit mode ([10.8]).
 #
 # Drains open `routing: upstream` feedback entries from a guv dogfooding control
 # plane into the guv SOURCE repo as issues, replacing the manual copy-paste that
@@ -44,7 +44,7 @@
 # against an unverified tracker) — never a silent drop (Rule 15).
 #
 # Usage:
-#   bash .claude/feedback-submit.sh submit [--dry-run] [--log <path>] [--repo <slug>]
+#   bash feedback-submit.sh submit [--dry-run] [--log <path>] [--repo <slug>]
 #
 #   --dry-run   list what would be filed (the drainable entries + their drafts)
 #               WITHOUT mutating the log. Still probes the tracker — a dry run that
@@ -77,7 +77,7 @@ die() { err "$2"; exit "$1"; }
 # the emitted command or run as a command substitution.
 shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
-[ $# -ge 1 ] || die 2 "usage: bash .claude/feedback-submit.sh submit [--dry-run] [--log path] [--repo slug]"
+[ $# -ge 1 ] || die 2 "usage: bash feedback-submit.sh submit [--dry-run] [--log path] [--repo slug]"
 SUB="$1"; shift
 [ "$SUB" = "submit" ] || die 2 "unknown subcommand '$SUB' (only: submit)"
 

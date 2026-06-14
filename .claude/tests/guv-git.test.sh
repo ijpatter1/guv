@@ -82,8 +82,8 @@ OUT=$( (cd "$P" && bash "$SCRIPT" log --oneline -1) 2>&1 ); RC=$?
 # class as check-citations.sh). Prose explaining roots.code topology without
 # a jq read is legitimate.
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
-INLINE=$(grep -r "jq -r '\.roots\.code" \
-  "$ROOT/.claude/commands" "$ROOT/.claude/skills" "$ROOT/.claude/agents" 2>/dev/null \
+INLINE=$(grep -r --include='*.md' "jq -r '\.roots\.code" \
+  "$ROOT/.claude/skills" "$ROOT/.claude/agents" 2>/dev/null \
   | grep -v 'skills/handoff/SKILL\.md' | wc -l | tr -d ' ')
 [ "$INLINE" -eq 0 ] \
   && ok "no roots.code jq read on the teaching surfaces (handoff's both-roots block pinned as the exception)" \
