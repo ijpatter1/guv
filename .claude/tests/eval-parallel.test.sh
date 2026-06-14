@@ -1,22 +1,22 @@
 #!/bin/bash
-# Tests for .claude/workflows/evaluate-parallel.js — the saved dual-QA workflow
+# Tests for .claude/workflows/eval-parallel.js — the saved dual-QA workflow
 # (Phase 4 D2: both calibrated reviewers concurrently over a commit-range scope).
 # Guards the invariants the workflow promises:
 #   - the script exists in .claude/workflows/ with a literal meta block whose
-#     name matches the filename (that name IS the /evaluate-parallel command)
+#     name matches the filename (that name IS the /eval-parallel command)
 #   - the review stage invokes BOTH calibrated reviewers by name via agentType,
 #     and no other agentType appears (rule 14: ad-hoc reviewers prohibited)
-#   - the combined summary (the /evaluate skill's Step 4 block) is produced
+#   - the combined summary (the /eval skill's Step 4 block) is produced
 #   - the fix loop is explicitly excluded (Step 5 stays conversational —
 #     workflow subagents run in acceptEdits mode, which conflicts with it)
 #   - the script parses as JavaScript (node --check; skipped cleanly when node
 #     is absent — the harness's own runtime deps stay bash + jq + git)
 # Pure bash, no test runner required.
-# Run: bash .claude/tests/evaluate-parallel.test.sh
+# Run: bash .claude/tests/eval-parallel.test.sh
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-WF="$ROOT/.claude/workflows/evaluate-parallel.js"
+WF="$ROOT/.claude/workflows/eval-parallel.js"
 SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — for seamed self-checks
 RMD="${EP_TEST_README:-$ROOT/README.md}"      # self-check seam for the README gate
 DOCROOT="${EP_TEST_DOCROOT:-$ROOT}"           # seam for the plane-shape doc skips (T8c)
@@ -26,7 +26,7 @@ no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 # T1 — workflow script exists. Everything else reads it, so bail loudly if absent.
 if [ -f "$WF" ]; then
-  ok "evaluate-parallel.js exists in .claude/workflows/"
+  ok "eval-parallel.js exists in .claude/workflows/"
 else
   no "workflow script missing: $WF"
   echo ""
@@ -35,33 +35,33 @@ else
 fi
 
 # T2 — meta block: literal export with name matching the filename (the saved
-# name is what registers the /evaluate-parallel command).
+# name is what registers the /eval-parallel command).
 grep -q "^export const meta" "$WF" \
   && ok "meta block exported at top level" \
   || no "script must open with: export const meta = { ... }"
-grep -q "name: 'evaluate-parallel'" "$WF" \
-  && ok "meta.name matches the filename (registers /evaluate-parallel)" \
-  || no "meta.name must be 'evaluate-parallel'"
+grep -q "name: 'eval-parallel'" "$WF" \
+  && ok "meta.name matches the filename (registers /eval-parallel)" \
+  || no "meta.name must be 'eval-parallel'"
 
 # T3 — both calibrated reviewers invoked BY NAME via agentType (rule 14).
 grep -q "agentType: 'evaluator'" "$WF" \
   && ok "review stage spawns the evaluator by name (agentType)" \
   || no "must spawn agentType: 'evaluator'"
-grep -q "agentType: 'product-reviewer'" "$WF" \
-  && ok "review stage spawns the product-reviewer by name (agentType)" \
-  || no "must spawn agentType: 'product-reviewer'"
+grep -q "agentType: 'reviewer'" "$WF" \
+  && ok "review stage spawns the reviewer by name (agentType)" \
+  || no "must spawn agentType: 'reviewer'"
 
 # T4 — no ad-hoc reviewer sneaks in: every agentType in the script (either
 # quote style) is one of the two calibrated agents (the scope-gathering stage
 # uses the default worker, which carries no agentType at all).
-ROGUE=$(grep -oE "agentType: ['\"][^'\"]*['\"]" "$WF" | grep -vE "['\"](evaluator|product-reviewer)['\"]" || true)
+ROGUE=$(grep -oE "agentType: ['\"][^'\"]*['\"]" "$WF" | grep -vE "['\"](evaluator|reviewer)['\"]" || true)
 [ -z "$ROGUE" ] \
   && ok "no ad-hoc reviewer agentType present (rule 14)" \
   || no "unexpected agentType in workflow: $ROGUE"
 
 # T5 — the combined summary block (skill Step 4) is produced by the script.
 grep -q "Evaluation Summary" "$WF" \
-  && ok "combined summary block present (mirrors /evaluate Step 4)" \
+  && ok "combined summary block present (mirrors /eval Step 4)" \
   || no "script must produce the combined Evaluation Summary"
 
 # T6 — the fix loop is excluded and the exclusion is stated, not silent:
@@ -86,9 +86,9 @@ fi
 
 # T8 — ultracode-guidance touchpoints (Phase 4 D3): the README and
 # CLAUDE.template.md carry the planning-/execution-layer guidance, and the
-# /evaluate skill + /handoff command cross-reference the workflow variant.
+# /eval skill + /handoff command cross-reference the workflow variant.
 for doc in README.md CLAUDE.template.md \
-           .claude/skills/evaluate/SKILL.md .claude/commands/handoff.md; do
+           .claude/skills/eval/SKILL.md .claude/commands/handoff.md; do
   target="$DOCROOT/$doc"
   # /init-project replaces README.md with a rendered project README, and a
   # fork may delete it — both are consumer shapes that skip this one guard
@@ -126,9 +126,9 @@ for doc in README.md CLAUDE.template.md \
       continue
     fi
   fi
-  grep -q "evaluate-parallel" "$target" 2>/dev/null \
-    && ok "$doc cross-references /evaluate-parallel" \
-    || no "$doc must cross-reference /evaluate-parallel"
+  grep -q "eval-parallel" "$target" 2>/dev/null \
+    && ok "$doc cross-references /eval-parallel" \
+    || no "$doc must cross-reference /eval-parallel"
 done
 
 # T8b — seamed self-checks for the README gate, both directions (the b0310b2

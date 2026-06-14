@@ -1,8 +1,8 @@
 #!/bin/bash
-# .claude/extract-eval-report.sh — surface the FULL evaluate-parallel report
+# .claude/extract-eval-report.sh — surface the FULL eval-parallel report
 # from its on-disk output ([10.5]; feedback id 447210968).
 #
-# The evaluate-parallel workflow returns
+# The eval-parallel workflow returns
 #   {summary, evaluatorReport, productReviewerReport}
 # but the Task runtime writes its on-disk output as
 #   {summary, agentCount, logs, result}

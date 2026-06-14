@@ -2,7 +2,7 @@
 # Tests for .claude/extract-eval-report.sh and the /task chore classification
 # ([10.5] tooling ergonomics — feedback id 447210968).
 #
-# The bug ([10.5], feedback 447210968): the evaluate-parallel workflow returns
+# The bug ([10.5], feedback 447210968): the eval-parallel workflow returns
 # {summary, evaluatorReport, productReviewerReport}, but the Task runtime writes
 # its on-disk output as {summary, agentCount, logs, result} where `result` is a
 # JSON *STRING* of the workflow's return value. The completion notification then
@@ -28,7 +28,7 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"          # .claude/
 ROOT="$(cd "$SRC/.." && pwd)"
 SCRIPT="$SRC/extract-eval-report.sh"
 SKILL="$SRC/skills/task/SKILL.md"
-EVAL_SKILL="$SRC/skills/evaluate/SKILL.md"       # the parallel-variant operator note
+EVAL_SKILL="$SRC/skills/eval/SKILL.md"       # the parallel-variant operator note
 HANDOFF="$SRC/commands/handoff.md"               # the /handoff parallel-pass note
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
@@ -38,7 +38,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # ── Fixture: the on-disk output the Task runtime writes for an
-# evaluate-parallel run — top-level {summary, agentCount, logs, result} where
+# eval-parallel run — top-level {summary, agentCount, logs, result} where
 # `result` is a JSON STRING of {summary, evaluatorReport, productReviewerReport}.
 # The reports are deliberately long so a truncation regression is visible.
 EVAL_REPORT="EVALUATOR REPORT
@@ -78,8 +78,8 @@ echo "$OUT" | grep -q "EVALUATOR REPORT" \
   && ok "surfaces the evaluator sub-report from the nested result" \
   || no "evaluator sub-report not surfaced from nested result"
 echo "$OUT" | grep -q "PRODUCT-REVIEWER REPORT" \
-  && ok "surfaces the product-reviewer sub-report from the nested result" \
-  || no "product-reviewer sub-report not surfaced from nested result"
+  && ok "surfaces the reviewer sub-report from the nested result" \
+  || no "reviewer sub-report not surfaced from nested result"
 
 # T3 — UNTRUNCATED: the tail markers of BOTH long reports survive. This is the
 # bug the deliverable names — a preview/notification cuts mid-report.
@@ -143,18 +143,18 @@ OUT7b=$(bash "$SCRIPT" "$WORK/nosummary.json" 2>"$WORK/err7b"); RC=$?
 # T7c — the operator's documented path is WIRED to the helper (the deliverable's
 # first clause: extract from the on-disk output "rather than the truncated
 # completion notification"). The parallel-variant note an operator reads after an
-# evaluate-parallel run must name extract-eval-report.sh, else the tool is an
+# eval-parallel run must name extract-eval-report.sh, else the tool is an
 # orphan and the operator hand-decodes the nesting the deliverable set out to
 # retire. (Source uses the `.claude/` path; the plugin build path-rewrites it.)
-# The operator guidance now lives once in the evaluate SKILL — /handoff delegates
-# to /evaluate rather than restating it (it must NOT carry a stale copy of the
-# helper note), so the chain /handoff → /evaluate → helper stays single-sourced.
+# The operator guidance now lives once in the eval SKILL — /handoff delegates
+# to /eval rather than restating it (it must NOT carry a stale copy of the
+# helper note), so the chain /handoff → /eval → helper stays single-sourced.
 grep -q 'extract-eval-report\.sh' "$EVAL_SKILL" \
-  && ok "evaluate SKILL parallel-variant note points at the extraction helper" \
+  && ok "eval SKILL parallel-variant note points at the extraction helper" \
   || no "the parallel-variant note must name extract-eval-report.sh (orphan tool)"
-grep -qi '/evaluate' "$HANDOFF" && ! grep -q 'extract-eval-report\.sh' "$HANDOFF" \
-  && ok "/handoff delegates to /evaluate, doesn't restate the extraction-helper note" \
-  || no "the /handoff parallel-pass note must delegate to /evaluate, not carry a stale extract-eval-report.sh copy"
+grep -qi '/eval' "$HANDOFF" && ! grep -q 'extract-eval-report\.sh' "$HANDOFF" \
+  && ok "/handoff delegates to /eval, doesn't restate the extraction-helper note" \
+  || no "the /handoff parallel-pass note must delegate to /eval, not carry a stale extract-eval-report.sh copy"
 
 # ── /task Step 1 chore classification ──
 

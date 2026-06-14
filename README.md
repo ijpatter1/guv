@@ -40,18 +40,18 @@ Choosing the speed was never its job.
 - `/init-project <spec>` — greenfield: generate phase docs + manifest, render `CLAUDE.md`
 - `/onboard` — adopt an existing repo: detect the stack, infer conventions, render `CLAUDE.md`, no phase ceremony
 - `/task "<description>"` — scoped change: understand → red/green TDD → evaluate → done
-- `/plan-initiative <spec>` — multi-phase initiative on an existing project: archive the prior initiative, generate fresh phase docs with continuous numbering, flip ceremony to `phased`
+- `/plan <spec>` — multi-phase initiative on an existing project: archive the prior initiative, generate fresh phase docs with continuous numbering, flip ceremony to `phased`
 
 **Session workflow** — commands that encode a Planner → Generator → Evaluator loop (phased projects):
 
-- `/start-phase N` — Phase-boundary entry: branch, deep-read, full context + spec-alignment, present a plan (crossing into a phase)
-- `/resume` — Light daily/mid-phase resume: read the resolver's ready-frontier and present the next pick with a plan, no boundary ritual _(name provisional pending [8.2])_
+- `/phase N` — Phase-boundary entry: branch, deep-read, full context + spec-alignment, present a plan (crossing into a phase)
+- `/next` — Light daily/mid-phase resume: read the resolver's ready-frontier and present the next pick with a plan, no boundary ritual
 - `/replan` — Mutate the live plan through the one sanctioned door: classify, confirm, apply atomically with an amendment record
-- `/evaluate` — Trigger independent dual QA review mid-session
+- `/eval` — Trigger independent dual QA review mid-session
 - `/handoff` — End session with full QA + handoff artifact for continuity
 - `/status` — Quick 10-line project orientation
 
-**Dynamic workflows** — Saved workflows in `.claude/workflows/` register as slash commands. The planning layer is the phase docs and the commands; the execution layer is the model, subagents, and — for wide mechanical fan-out — workflows (`.claude/rules/guv-workflows.md`: QA stages invoke the calibrated reviewers by name; ultracode is fan-out-only, dropped back after). Ships with `/evaluate-parallel`: both reviewers concurrently over a commit-range scope, returning both reports plus the combined summary — the fix loop stays conversational, in the main session.
+**Dynamic workflows** — Saved workflows in `.claude/workflows/` register as slash commands. The planning layer is the phase docs and the commands; the execution layer is the model, subagents, and — for wide mechanical fan-out — workflows (`.claude/rules/guv-workflows.md`: QA stages invoke the calibrated reviewers by name; ultracode is fan-out-only, dropped back after). Ships with `/eval-parallel`: both reviewers concurrently over a commit-range scope, returning both reports plus the combined summary — the fix loop stays conversational, in the main session.
 
 **Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/rules/` (`guv-*.md`, loaded natively).
 
@@ -88,7 +88,7 @@ claude
 
 Under a plugin install every harness command carries the `guv:` prefix —
 `/guv:init-project`, `/guv:status`, `/guv:handoff` — and the reviewer agents
-resolve as `guv:evaluator` / `guv:product-reviewer`.
+resolve as `guv:evaluator` / `guv:reviewer`.
 
 **Fallback — template-clone** (unversioned): for forks that customize harness-owned
 files (a plugin's surfaces aren't editable; a clone's are) or environments without
@@ -214,7 +214,7 @@ make sandbox
 Then inside Claude Code:
 
 ```
-/start-phase 1
+/phase 1
 ```
 
 ### 5. Daily workflow
@@ -222,7 +222,7 @@ Then inside Claude Code:
 ```bash
 # Terminal 1: Claude Code (or `make sandbox` for the Docker tier)
 claude
-# /resume   (or /start-phase N when crossing into a new phase)
+# /next   (or /phase N when crossing into a new phase)
 
 # Terminal 2: Dev server on the host
 make dev
@@ -252,7 +252,7 @@ code .
 │   ├── replan.sh                      # /replan's deterministic engine (guards, ordinals, atomic writes)
 │   ├── check-citations.sh             # Advisory: stale commit citations (split topology)
 │   ├── update-readme-status.sh        # Maintains the README STATUS block in place
-│   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan-initiative)
+│   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan)
 │   ├── guv-git.sh                     # Git against roots.code, once (the retired inline incantation)
 │   ├── guv-cmd.sh                     # Manifest command + loud null-skip, once
 │   ├── guv-lane.sh                    # Worktree lane lifecycle (create/harvest/destroy)
@@ -261,13 +261,13 @@ code .
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/
 │   │   ├── evaluator.md               # Technical QA evaluator subagent
-│   │   └── product-reviewer.md        # Product reviewer subagent
+│   │   └── reviewer.md        # Product reviewer subagent
 │   ├── commands/
 │   │   ├── init-project.md            # Greenfield: scaffold + render CLAUDE.md
 │   │   ├── onboard.md                 # Adopt an existing repo (no phase ceremony)
-│   │   ├── plan-initiative.md         # Phased initiative on an existing project
-│   │   ├── start-phase.md             # Phase-boundary entry (full ritual + spec alignment)
-│   │   ├── resume.md                  # Light daily/mid-phase resume (resolver frontier; name provisional → [8.2])
+│   │   ├── plan.md         # Phased initiative on an existing project
+│   │   ├── phase.md             # Phase-boundary entry (full ritual + spec alignment)
+│   │   ├── next.md                  # Light daily/mid-phase resume (resolver frontier)
 │   │   ├── replan.md                  # Plan mutation: the one sanctioned door (engine: replan.sh)
 │   │   ├── handoff.md                 # Session end + dual QA + handoff
 │   │   ├── status.md                  # Quick status check
@@ -278,14 +278,14 @@ code .
 │   │   └── stop-check.sh              # Reminds about evaluation
 │   ├── skills/
 │   │   ├── task/                      # /task — scoped change entry point
-│   │   ├── phase-docs/                # Shared phase-doc templates (init-project + plan-initiative)
-│   │   ├── evaluate/                  # /evaluate — dual QA review
-│   │   ├── log-feedback/              # /log-feedback — record harness friction
+│   │   ├── phase-docs/                # Shared phase-doc templates (init-project + plan)
+│   │   ├── eval/                  # /eval — dual QA review
+│   │   ├── feedback/              # /feedback — record harness friction
 │   │   └── session-management/        # Context continuity conventions
 │   ├── workflows/
-│   │   └── evaluate-parallel.js       # /evaluate-parallel — both reviewers, concurrent
+│   │   └── eval-parallel.js       # /eval-parallel — both reviewers, concurrent
 │   ├── tests/                         # Bash test suites for the harness scripts/skills
-│   └── feedback/                      # Harness-friction log (created on first /log-feedback)
+│   └── feedback/                      # Harness-friction log (created on first /feedback)
 ├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)
 │   ├── DOGFOODING.md                  # How to dogfood the harness via a control-plane split
 │   ├── RELEASING.md                   # Release flow: bump policy, checklist, feedback drain

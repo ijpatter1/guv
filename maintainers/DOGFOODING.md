@@ -160,11 +160,11 @@ unreleased changes, mind which copy you invoke: bare names are the synced projec
 
 The setup script seeds the control plane's manifest with `ceremony: task` — the
 harness's resting state is scoped maintenance, where every improvement is a `/task`.
-When a phased initiative runs against the harness, `/plan-initiative` flips the control
+When a phased initiative runs against the harness, `/plan` flips the control
 plane to `ceremony: phased` and generates the phase docs in the control plane's `docs/`
 (the native-alignment initiative did exactly this on 2026-06-10). There is no revert
 machinery, by design: phased with a fully-✅ tracker is itself a clean resting state —
-`/task` works inside phased projects, and the next `/plan-initiative` picks up from
+`/task` works inside phased projects, and the next `/plan` picks up from
 there; reverting to `task` is a manual, optional act. Nothing about the split changes
 either way.
 

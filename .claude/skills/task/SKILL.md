@@ -25,7 +25,7 @@ A missing project-shape artifact (no `docs/REQUIREMENTS.md`, no phase docs) is a
 change in `$ARGUMENTS` and is legitimate in any ceremony — so it does *not*
 redirect away from an explicit request. It is, however, the door the deterministic
 router (`.claude/route.sh`) selects for **session entry** in a `ceremony=task`
-project, and the door the phased entry commands (`/start-phase`, `/resume`) and
+project, and the door the phased entry commands (`/phase`, `/next`) and
 `/init-project`/`/onboard` redirect *to* when invoked in a scoped project. If you
 landed here at session start with no specific change in mind, that redirect was
 the router doing its job — describe the change and proceed.
@@ -90,7 +90,7 @@ the test.)
 
 **Routing — approve-then-write (no TDD):** classify and confirm as below, then in
 Step 3 follow the **Chore / Maintenance path** — present the concrete change for
-approval, write it once approved, and commit. No failing test, no `/evaluate`
+approval, write it once approved, and commit. No failing test, no `/eval`
 gate (there is no behavior to grade); the human approval is the check. Do not
 force a chore into Bug / Quality / New-capability just to satisfy the TDD loop.
 
@@ -118,7 +118,7 @@ Run git/commits against the **code** repo via the helper (`bash
 3. Make the change
 4. Verify the test passes (run `commands.test` from the manifest)
 5. Run the full test suite to check for regressions
-6. Run `/evaluate` (both reviewers) on the change and fix what they surface
+6. Run `/eval` (both reviewers) on the change and fix what they surface
 7. Commit to the code repo with a conventional message: `git -C "$CODE" commit …` — `fix(scope): …` for a bug, `feat(scope): …` / `refactor(scope): …` otherwise
 8. If a session handoff is in play, note it under **Completed**
 
@@ -136,7 +136,7 @@ No doc updates needed — either the spec already describes the correct behavior
    - Implement the change
    - Run the full test suite
    - Commit the doc updates (control plane) and implementation (code repo) together: `refactor(scope): description` or `feat(scope): description` depending on scope
-3. Run `/evaluate` and address findings. Note in the session handoff under **Completed** with a reference to the doc changes
+3. Run `/eval` and address findings. Note in the session handoff under **Completed** with a reference to the doc changes
 
 ### New Capability Path (phased projects)
 
@@ -146,7 +146,7 @@ No doc updates needed — either the spec already describes the correct behavior
    - Update `docs/ARCHITECTURE.md` if it introduces new components or data flows
    - Present the doc changes to the user for approval before implementing
 2. **Then implement** using the standard red/green TDD workflow
-3. Run `/evaluate` and address findings. Commit with `feat(scope): description`
+3. Run `/eval` and address findings. Commit with `feat(scope): description`
 4. Update `docs/PHASE_STATUS.md` to ✅ when complete
 
 ### Chore / Maintenance Path (phased projects — approve-then-write, no TDD)
@@ -159,7 +159,7 @@ behavior to test:
    plan). No `docs/REQUIREMENTS.md` / `docs/PHASE_STATUS.md` edit: a chore maps
    to no deliverable, so there is no spec to amend and no status marker to move.
 2. **Write it once approved**, then commit with a `chore(scope): description`
-   message (control plane). **No failing test and no `/evaluate` gate** — there
+   message (control plane). **No failing test and no `/eval` gate** — there
    is no behavior to red/green or to grade; the approval is the check.
 3. If a session handoff is in play, note it under **Completed** as a chore (no
    deliverable reference).

@@ -1,6 +1,6 @@
 ---
 name: evaluator
-description: QA evaluator for completed features. Invoke after finishing a feature or work session to get an independent, skeptical assessment of the work. Use @evaluator or /evaluate to trigger.
+description: QA evaluator for completed features. Invoke after finishing a feature or work session to get an independent, skeptical assessment of the work. Use @evaluator or /eval to trigger.
 tools: Read, Glob, Grep, Bash
 model: inherit
 memory: project

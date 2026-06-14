@@ -2,7 +2,7 @@
 
 Maintainer-side mechanics: what a release is, when to bump which version
 component, and the release half of the feedback drain. The consumer-side
-capture/triage process lives in the `log-feedback` skill.
+capture/triage process lives in the `feedback` skill.
 
 ## What a release is
 
@@ -91,7 +91,7 @@ any release existed (no release to graduate on — e.g. the .DS_Store sync fix,
 entry `2026-06-10T20:25:26Z-970732268`), while `graduated` names the release
 that carried the fix to consumers. `routing: local` entries never enter this
 flow — they are project-side adaptations, handled in the consumer's control
-plane (see the `log-feedback` skill).
+plane (see the `feedback` skill).
 
 One class of upstream fix has **no release vehicle**: files the plugin never
 ships (maintainer tooling under `maintainers/`, repo-only docs). A version

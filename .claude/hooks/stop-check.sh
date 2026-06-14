@@ -43,7 +43,7 @@ if [ -d "docs/sessions" ]; then
 fi
 
 if [ -n "$REMINDERS" ]; then
-  jq -n --arg r "${REMINDERS}Before ending, consider: (1) Commit any outstanding work. (2) Run /evaluate (/guv:evaluate under the plugin) for a QA assessment. (3) Run /handoff (/guv:handoff) to generate a session artifact. If you are intentionally ending without these, that is fine — this is a reminder, not a requirement." '{
+  jq -n --arg r "${REMINDERS}Before ending, consider: (1) Commit any outstanding work. (2) Run /eval (/guv:eval under the plugin) for a QA assessment. (3) Run /handoff (/guv:handoff) to generate a session artifact. If you are intentionally ending without these, that is fine — this is a reminder, not a requirement." '{
     decision: "approve",
     reason: "Advisory reminder — not blocking",
     systemMessage: $r

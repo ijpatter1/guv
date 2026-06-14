@@ -21,7 +21,7 @@ bash .claude/route.sh --for onboard
   onboard is the manifest-writing door — see exit 4.)
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
   names the correct door in `door=` — e.g. `door=task` if the repo is already
-  onboarded as a scoped project, or `door=resume`/`door=start-phase` if it
+  onboarded as a scoped project, or `door=next`/`door=phase` if it
   carries a phased plan. Tell the user the routed door and the `reason=`, and
   defer to it.
 - **Exit 2** — the router is unavailable/misinvoked (it is absent, a flag is
@@ -71,7 +71,7 @@ repo's tracker grammar, not a filename guess: if it detects a *live DAG-grammar*
 planned, and onboarding scaffold would clobber that plan. When the proposal is
 `phased`, do **not** scaffold onboard over it: confirm with the user, write the
 manifest with the existing plan adopted, and hand off to the phased doors
-(`/resume` for open work, `/start-phase` at a boundary) instead of continuing the
+(`/next` for open work, `/phase` at a boundary) instead of continuing the
 onboard scaffold steps below. A token-free (LEGACY) tracker or no phase docs at all
 stays `ceremony=onboard` — the unchanged path.
 
@@ -140,9 +140,9 @@ owns that region and no-ops safely when the markers are absent.
 
 Crucially: **do not create `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, or
 `docs/PHASE_STATUS.md`.** Onboard mode has no phase ceremony. From here, scoped work
-runs through `/task`; `/start-phase` and the phased machinery stay dormant (they
+runs through `/task`; `/phase` and the phased machinery stay dormant (they
 no-op when `ceremony != "phased"`). If the project later needs a multi-phase
-initiative, the sanctioned route is `/plan-initiative <spec>` — it generates the
+initiative, the sanctioned route is `/plan <spec>` — it generates the
 phase docs and flips ceremony deliberately, which is different from onboard imposing
 them.
 

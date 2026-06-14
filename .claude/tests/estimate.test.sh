@@ -217,17 +217,17 @@ ERR=$(bash "$SCRIPT" validate "$S" 2>&1 1>/dev/null)
 [ -z "$ERR" ] && ok "stderr-gate: a clean validate is silent on stderr" || no "clean validate leaked to stderr: $ERR"
 
 # ════ T9 — prose contracts: both generators + the mutation door wire estimates ════
-PI="$SRC/commands/plan-initiative.md"
+PI="$SRC/commands/plan.md"
 RP="$SRC/commands/replan.md"
 SHAPE="$SRC/estimate.shape.md"
 
 # Both generators emit estimates for a new plan.
-grep -q 'estimate' "$PI" && ok "plan-initiative.md proposes estimates at plan time" \
-  || no "plan-initiative.md must wire estimate proposal"
-grep -q 'estimate.sh' "$PI" && ok "plan-initiative.md routes estimates through the helper" \
-  || no "plan-initiative.md must reference estimate.sh"
-grep -qi 'ratif\|confirm' "$PI" && ok "plan-initiative.md ratifies estimates in the confirm gate" \
-  || no "plan-initiative.md must ratify in the same confirm gate"
+grep -q 'estimate' "$PI" && ok "plan.md proposes estimates at plan time" \
+  || no "plan.md must wire estimate proposal"
+grep -q 'estimate.sh' "$PI" && ok "plan.md routes estimates through the helper" \
+  || no "plan.md must reference estimate.sh"
+grep -qi 'ratif\|confirm' "$PI" && ok "plan.md ratifies estimates in the confirm gate" \
+  || no "plan.md must ratify in the same confirm gate"
 
 # A /replan insert acquires its estimate inside the same confirmation.
 grep -q 'estimate' "$RP" && ok "replan.md proposes an estimate on insert" \

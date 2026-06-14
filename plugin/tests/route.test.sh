@@ -13,9 +13,9 @@
 # path):
 #   - greenfield (phased, no phase docs)        → init-project
 #   - onboard (ceremony=onboard)                → onboard
-#   - phased mid-phase (open GRAMMAR frontier)  → resume
-#   - phased complete (all ✅, empty frontier)  → start-phase (boundary/next)
-#   - LEGACY tracker (token-free)               → resume
+#   - phased mid-phase (open GRAMMAR frontier)  → next
+#   - phased complete (all ✅, empty frontier)  → phase (boundary/next)
+#   - LEGACY tracker (token-free)               → next
 #   - task ceremony                             → task
 #   - unknown ceremony / malformed tracker      → AMBIGUOUS loud stop (exit 3)
 #   - no manifest (no project here yet)         → PRE-SCAFFOLD (exit 4): the
@@ -104,7 +104,7 @@ run "$OB"
   && ok "onboard ceremony → onboard" \
   || no "onboard ceremony must route to onboard (got door=$(val door "$OUT"))"
 
-# ── 3. phased mid-phase: open GRAMMAR frontier → resume ───────────────────────
+# ── 3. phased mid-phase: open GRAMMAR frontier → next ───────────────────────
 MID=$(mkproj phased-mid); manifest "$MID" phased
 touch "$MID/.scaffolded"
 cat > "$MID/docs/PHASE_STATUS.md" <<'MD'
@@ -118,11 +118,11 @@ MD
 cp "$MID/docs/PHASE_STATUS.md" "$MID/docs/REQUIREMENTS.md"
 run "$MID"
 [ "$RC" -eq 0 ] && ok "phased-mid: exit 0" || no "phased-mid should resolve (rc=$RC; err=$ERR)"
-[ "$(val door "$OUT")" = "resume" ] \
-  && ok "phased mid-phase (open frontier) → resume" \
-  || no "phased mid-phase must route to resume (got door=$(val door "$OUT"))"
+[ "$(val door "$OUT")" = "next" ] \
+  && ok "phased mid-phase (open frontier) → next" \
+  || no "phased mid-phase must route to next (got door=$(val door "$OUT"))"
 
-# ── 4. phased complete: all ✅, empty frontier → start-phase (boundary/next) ──
+# ── 4. phased complete: all ✅, empty frontier → phase (boundary/next) ──
 DONE=$(mkproj phased-complete); manifest "$DONE" phased
 touch "$DONE/.scaffolded"
 cat > "$DONE/docs/PHASE_STATUS.md" <<'MD'
@@ -136,11 +136,11 @@ MD
 cp "$DONE/docs/PHASE_STATUS.md" "$DONE/docs/REQUIREMENTS.md"
 run "$DONE"
 [ "$RC" -eq 0 ] && ok "phased-complete: exit 0" || no "phased-complete should resolve (rc=$RC; err=$ERR)"
-[ "$(val door "$OUT")" = "start-phase" ] \
-  && ok "phased complete (empty frontier) → start-phase (boundary/next decision)" \
-  || no "phased complete must route to start-phase (got door=$(val door "$OUT"))"
+[ "$(val door "$OUT")" = "phase" ] \
+  && ok "phased complete (empty frontier) → phase (boundary/next decision)" \
+  || no "phased complete must route to phase (got door=$(val door "$OUT"))"
 
-# ── 5. LEGACY tracker: token-free → resume (the LEGACY-appropriate door) ──────
+# ── 5. LEGACY tracker: token-free → next (the LEGACY-appropriate door) ──────
 LEG=$(mkproj legacy); manifest "$LEG" phased
 touch "$LEG/.scaffolded"
 cat > "$LEG/docs/PHASE_STATUS.md" <<'MD'
@@ -154,9 +154,9 @@ MD
 cp "$LEG/docs/PHASE_STATUS.md" "$LEG/docs/REQUIREMENTS.md"
 run "$LEG"
 [ "$RC" -eq 0 ] && ok "legacy: exit 0" || no "legacy should resolve (rc=$RC; err=$ERR)"
-[ "$(val door "$OUT")" = "resume" ] \
-  && ok "LEGACY tracker → resume (resolver mode=LEGACY; the resume door presents the first-⬜ pick)" \
-  || no "LEGACY tracker must route to resume (got door=$(val door "$OUT"))"
+[ "$(val door "$OUT")" = "next" ] \
+  && ok "LEGACY tracker → next (resolver mode=LEGACY; the next door presents the first-⬜ pick)" \
+  || no "LEGACY tracker must route to next (got door=$(val door "$OUT"))"
 echo "$OUT" | grep -qi 'legacy' \
   && ok "legacy: the routing reason names the LEGACY mode (so the door knows to present a list, not a graph)" \
   || no "legacy routing should surface mode=LEGACY in its reason"
@@ -175,7 +175,7 @@ run "$TASK"
 #   exit 4 = PRE-SCAFFOLD (no manifest here yet) — NOT a stop. The scaffolding
 #            doors (init-project/onboard) are about to WRITE the manifest this
 #            guard would have read, so they PROCEED; the live-plan doors
-#            (resume/start-phase/task) have nothing to resume and defer to a
+#            (next/phase/task) have nothing to resume and defer to a
 #            scaffolding door. The doors key off the EXIT CODE uniformly, not
 #            prose — so the canonical onboard/init entry is no longer misrouted
 #            into a stop.
@@ -208,12 +208,12 @@ run "$NOMAN" --for init-project
   || no "init-project must proceed on a manifest-less repo (got rc=$RC match=$(val match "$OUT"))"
 
 # 7a'' — under --for, the LIVE-PLAN doors do NOT proceed on a pre-scaffold repo:
-# resume/start-phase/task have nothing to resume; the router surfaces exit 4 so
+# resume/phase/task have nothing to resume; the router surfaces exit 4 so
 # their Step 0 defers to a scaffolding door rather than running off no project.
-run "$NOMAN" --for resume
+run "$NOMAN" --for next
 [ "$RC" -eq 4 ] && [ "$(val match "$OUT")" = "no" ] \
-  && ok "pre-scaffold + --for resume → NOT this door (exit 4, match=no) — defer to a scaffolding door" \
-  || no "resume must not proceed on a pre-scaffold repo (got rc=$RC match=$(val match "$OUT"))"
+  && ok "pre-scaffold + --for next → NOT this door (exit 4, match=no) — defer to a scaffolding door" \
+  || no "next must not proceed on a pre-scaffold repo (got rc=$RC match=$(val match "$OUT"))"
 
 # 7b — unknown ceremony (not in the schema enum) → AMBIGUOUS loud stop (exit 3).
 BADCER=$(mkproj bad-ceremony); manifest "$BADCER" zooglemorph
@@ -253,32 +253,32 @@ echo "$OUT" | grep -qiE 'malformed|tracker' \
   || no "loud stop should name the malformed tracker"
 
 # ── 8. WRONG-DOOR REDIRECT (not error): --for <door> confirms or redirects ───
-# In the mid-phase project the correct door is resume. Asking --for resume
-# CONFIRMS (match=yes); asking --for start-phase REDIRECTS (match=no, names
+# In the mid-phase project the correct door is next. Asking --for next
+# CONFIRMS (match=yes); asking --for phase REDIRECTS (match=no, names
 # resume) WITHOUT erroring (exit 0 — a redirect is a route, not a failure).
-run "$MID" --for resume
+run "$MID" --for next
 [ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
-  && ok "right-door (--for resume in a mid-phase project) confirms (match=yes, exit 0)" \
+  && ok "right-door (--for next in a mid-phase project) confirms (match=yes, exit 0)" \
   || no "the correct door must confirm match=yes exit 0 (got rc=$RC match=$(val match "$OUT"))"
 
-run "$MID" --for start-phase
+run "$MID" --for phase
 [ "$RC" -eq 0 ] \
   && ok "wrong-door redirect does NOT error (exit 0 — a redirect is a route)" \
   || no "a wrong-door invocation must redirect, not error (got rc=$RC)"
 [ "$(val match "$OUT")" = "no" ] \
   && ok "wrong-door: match=no (the invoked door does not apply here)" \
   || no "wrong-door must report match=no (got match=$(val match "$OUT"))"
-[ "$(val door "$OUT")" = "resume" ] \
-  && ok "wrong-door redirect NAMES the correct door (start-phase → resume)" \
-  || no "wrong-door must name the correct door resume (got door=$(val door "$OUT"))"
+[ "$(val door "$OUT")" = "next" ] \
+  && ok "wrong-door redirect NAMES the correct door (phase → next)" \
+  || no "wrong-door must name the correct door next (got door=$(val door "$OUT"))"
 
 # A wrong-door invocation in a NON-phased project also redirects rather than
-# errors: invoking the phased boundary door (start-phase) in a task project is
+# errors: invoking the phased boundary door (phase) in a task project is
 # redirected to task.
-run "$TASK" --for start-phase
+run "$TASK" --for phase
 [ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "task" ] \
-  && ok "wrong-door in a task project: start-phase → redirected to task (no error)" \
-  || no "start-phase in a task project must redirect to task (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+  && ok "wrong-door in a task project: phase → redirected to task (no error)" \
+  || no "phase in a task project must redirect to task (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
 
 # An unknown door name passed to --for is a usage error (exit 2) — the router
 # knows its own door vocabulary; a typo'd door is a caller bug, not a redirect.
@@ -293,9 +293,9 @@ run "$MID" --for not-a-real-door
 # is neither confirm nor redirect: it is the same exit-3 loud stop, with NO door
 # and NO match, and a reason that names the state. The redirect path (exit 0)
 # must not swallow genuine ambiguity into a guessed door.
-run "$MAL" --for resume
+run "$MAL" --for next
 [ "$RC" -eq 3 ] \
-  && ok "--for resume against a MALFORMED-tracker project → loud stop (exit 3), not a redirect" \
+  && ok "--for next against a MALFORMED-tracker project → loud stop (exit 3), not a redirect" \
   || no "--for over an ambiguous state must loud-stop exit 3, not redirect (got rc=$RC, door=$(val door "$OUT"))"
 [ -z "$(val door "$OUT")" ] \
   && ok "loud-stop-under-{-}-for: no door= is emitted (ambiguity is never papered over with a redirect)" \
@@ -319,9 +319,9 @@ run "$MID" --for
 
 # A trailing extra argument after --for <door> is a usage error (the grammar has
 # exactly two positions; an extra is a caller bug, not silently ignored).
-run "$MID" --for resume extra-arg
+run "$MID" --for next extra-arg
 [ "$RC" -eq 2 ] \
-  && ok "--for resume <extra-arg> → usage exit 2 (no trailing positionals)" \
+  && ok "--for next <extra-arg> → usage exit 2 (no trailing positionals)" \
   || no "an extra argument after --for <door> must be a usage error exit 2 (got rc=$RC)"
 
 echo ""

@@ -1,24 +1,24 @@
 #!/bin/bash
-# Tests for [7.2] — the entry split: a light name-neutral resume door
-# (`/resume`) carved out of `/start-phase`, which becomes the phase-boundary
+# Tests for [7.2] — the entry split: a light daily/mid-phase next door
+# (`/next`) carved out of `/phase`, which becomes the phase-boundary
 # command. What this suite pins:
 #   Part A (ships to every plane — code repo AND control planes per [7.7]):
-#     - the resume door exists, calls resolve-ready.sh, and presents the
+#     - the next door exists, calls resolve-ready.sh, and presents the
 #       frontier (serial pick the headline)
-#     - the resume door is LIGHT: no spec-alignment step, no product-reviewer
+#     - the next door is LIGHT: no spec-alignment step, no reviewer
 #       (the defining contrast with the boundary door — acceptance criterion 1)
 #     - both doors no-op in task/onboard ceremony (mode signal, not error)
-#     - the resume door loud-stops on a MALFORMED tracker rather than present
+#     - the next door loud-stops on a MALFORMED tracker rather than present
 #       a plan off a broken frontier (rule 15; resolver exit 5)
-#     - the resume door ships name-neutral: an explicit provisional marker
-#       pending [8.2] (the naming discipline — no chosen verb before 8.2)
-#     - /start-phase is the BOUNDARY door: framed as such, points at the resume
+#     - the next door name is ratified: no provisional marker remains
+#       ([8.2] chose the verb grammar; [8.3] landed the rename)
+#     - /phase is the BOUNDARY door: framed as such, points at the next
 #       door for daily resume, and still performs the full sequence (spec
 #       alignment + /replan routing survive — acceptance criterion 2)
-#     - the session-management skill routes daily/overnight resume to /resume
+#     - the session-management skill routes daily/overnight resume to /next
 #   Part B (template-repo doc surface only — skips in consumer/plane shape):
-#     - README teaches /resume (What's Included bullet + File Structure tree)
-#     - CLAUDE.template.md process-commands bullet names /resume
+#     - README teaches /next (What's Included bullet + File Structure tree)
+#     - CLAUDE.template.md process-commands bullet names /next
 # The plugin byte-parity of the new command is covered by plugin.test.sh's
 # glob-derived T3/T14 — not restated here. Pure bash, no runner required.
 # Run: bash .claude/tests/entry-split.test.sh
@@ -30,82 +30,84 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
-RESUME="$ROOT/.claude/commands/resume.md"
-SP="$ROOT/.claude/commands/start-phase.md"
+RESUME="$ROOT/.claude/commands/next.md"
+SP="$ROOT/.claude/commands/phase.md"
 SM="$ROOT/.claude/skills/session-management/SKILL.md"
 
-# ── Part A — the resume door (ships to every plane) ──────────────────────────
+# ── Part A — the next door (ships to every plane) ──────────────────────────
 if [ -f "$RESUME" ]; then
-  ok "resume door exists (.claude/commands/resume.md)"
+  ok "next door exists (.claude/commands/next.md)"
 
   grep -q 'resolve-ready.sh' "$RESUME" \
-    && ok "resume door calls the resolver (resolve-ready.sh)" \
-    || no "resume door must call resolve-ready.sh — it presents the frontier, not a hand read"
+    && ok "next door calls the resolver (resolve-ready.sh)" \
+    || no "next door must call resolve-ready.sh — it presents the frontier, not a hand read"
 
   grep -qi 'frontier' "$RESUME" && grep -q 'serial' "$RESUME" \
-    && ok "resume door presents the frontier with the serial pick as the headline" \
-    || no "resume door must present the frontier (serial pick the headline)"
+    && ok "next door presents the frontier with the serial pick as the headline" \
+    || no "next door must present the frontier (serial pick the headline)"
 
   grep -qi 'plan' "$RESUME" \
-    && ok "resume door presents a session plan" \
-    || no "resume door must present a plan (acceptance: a mid-phase session reaches a presented plan)"
+    && ok "next door presents a session plan" \
+    || no "next door must present a plan (acceptance: a mid-phase session reaches a presented plan)"
 
   # The defining contrast: the LIGHT door does not re-run spec alignment.
   if grep -iqE '^#+ .*spec.?alignment' "$RESUME"; then
-    no "resume door must NOT carry a spec-alignment step (that is the boundary door's ritual)"
+    no "next door must NOT carry a spec-alignment step (that is the boundary door's ritual)"
   else
-    ok "resume door carries no spec-alignment step (light door, acceptance criterion 1)"
+    ok "next door carries no spec-alignment step (light door, acceptance criterion 1)"
   fi
-  if grep -q 'product-reviewer' "$RESUME"; then
-    no "resume door must NOT invoke the product-reviewer (no spec-alignment pass on the light door)"
+  if grep -q 'reviewer' "$RESUME"; then
+    no "next door must NOT invoke the reviewer (no spec-alignment pass on the light door)"
   else
-    ok "resume door does not invoke the product-reviewer"
+    ok "next door does not invoke the reviewer"
   fi
 
   # No-op in task/onboard ceremony — mode signal, not error.
   grep -q 'ceremony' "$RESUME" && grep -qi 'mode signal' "$RESUME" \
-    && ok "resume door no-ops in task/onboard ceremony (mode signal, not error)" \
-    || no "resume door must treat non-phased ceremony as a mode signal, not an error"
+    && ok "next door no-ops in task/onboard ceremony (mode signal, not error)" \
+    || no "next door must treat non-phased ceremony as a mode signal, not an error"
 
   # Loud stop on a malformed tracker — rule 15, never a plan off a broken frontier.
   grep -qiE 'MALFORMED|exit 5' "$RESUME" \
-    && ok "resume door surfaces a MALFORMED tracker as a loud stop (rule 15)" \
-    || no "resume door must loud-stop on the resolver's MALFORMED/exit-5 path, not present an empty frontier"
+    && ok "next door surfaces a MALFORMED tracker as a loud stop (rule 15)" \
+    || no "next door must loud-stop on the resolver's MALFORMED/exit-5 path, not present an empty frontier"
 
-  # Name-neutral: an explicit provisional marker pending [8.2].
-  grep -qi 'provisional' "$RESUME" && grep -q '8.2' "$RESUME" \
-    && ok "resume door ships name-neutral (provisional name marker pending [8.2])" \
-    || no "resume door must mark its name explicitly provisional pending [8.2] (naming discipline)"
+  # Name ratified at [8.2], rename landed at [8.3]: no provisional marker remains.
+  if grep -qi 'provisional' "$RESUME"; then
+    no "next door must not carry a provisional-name marker — [8.2] ratified the name, [8.3] landed the rename"
+  else
+    ok "next door name is ratified (no provisional marker; [8.2] decided, [8.3] landed)"
+  fi
 else
-  no "resume door missing — .claude/commands/resume.md must exist"
+  no "next door missing — .claude/commands/next.md must exist"
 fi
 
-# ── Part A — the boundary door (/start-phase) ────────────────────────────────
+# ── Part A — the boundary door (/phase) ────────────────────────────────
 if [ -f "$SP" ]; then
   grep -qi 'boundary' "$SP" \
-    && ok "start-phase is framed as the phase-boundary command" \
-    || no "start-phase.md must frame itself as the boundary command (the entry split)"
+    && ok "phase is framed as the phase-boundary command" \
+    || no "phase.md must frame itself as the boundary command (the entry split)"
 
-  grep -q '/resume' "$SP" \
-    && ok "start-phase points at /resume for daily/mid-phase resume" \
-    || no "start-phase.md must point daily resume at the /resume door"
+  grep -q '/next' "$SP" \
+    && ok "phase points at /next for daily/mid-phase resume" \
+    || no "phase.md must point daily resume at the /next door"
 
   # The full sequence survives: spec alignment + /replan routing stay.
-  grep -iqE '^#+ .*spec.?alignment' "$SP" && grep -q 'product-reviewer' "$SP" \
-    && ok "start-phase still performs spec alignment (full sequence intact)" \
-    || no "start-phase.md must keep the spec-alignment step (acceptance criterion 2)"
+  grep -iqE '^#+ .*spec.?alignment' "$SP" && grep -q 'reviewer' "$SP" \
+    && ok "phase still performs spec alignment (full sequence intact)" \
+    || no "phase.md must keep the spec-alignment step (acceptance criterion 2)"
   grep -q '/replan' "$SP" \
-    && ok "start-phase still routes spec-alignment findings through /replan" \
-    || no "start-phase.md must keep routing through /replan"
+    && ok "phase still routes spec-alignment findings through /replan" \
+    || no "phase.md must keep routing through /replan"
 else
-  no "start-phase.md missing"
+  no "phase.md missing"
 fi
 
-# ── Part A — session-management routes daily resume to /resume ───────────────
+# ── Part A — session-management routes daily resume to /next ───────────────
 if [ -f "$SM" ]; then
-  grep -q '/resume' "$SM" \
-    && ok "session-management routes daily/overnight resume to /resume" \
-    || no "session-management SKILL.md must point daily/overnight resume at /resume"
+  grep -q '/next' "$SM" \
+    && ok "session-management routes daily/overnight resume to /next" \
+    || no "session-management SKILL.md must point daily/overnight resume at /next"
 else
   no "session-management SKILL.md missing"
 fi
@@ -119,17 +121,17 @@ MAINT_PROBE="${ES_TEST_MAINTAINERS:-$ROOT/maintainers}"
 if grep -q 'guv-template-readme' "$README_PROBE" 2>/dev/null && [ -d "$MAINT_PROBE" ]; then
   README="$ROOT/README.md"; CT="$ROOT/CLAUDE.template.md"
 
-  grep -qE '^- `/resume' "$README" \
-    && ok "README What's Included carries a /resume bullet" \
-    || no "README What's Included must carry a /resume bullet"
-  grep -q 'resume\.md' "$README" \
-    && ok "README File Structure tree lists resume.md" \
-    || no "README File Structure tree must list resume.md"
+  grep -qE '^- `/next' "$README" \
+    && ok "README What's Included carries a /next bullet" \
+    || no "README What's Included must carry a /next bullet"
+  grep -q 'next\.md' "$README" \
+    && ok "README File Structure tree lists next.md" \
+    || no "README File Structure tree must list next.md"
 
-  if grep '^\- \*\*Process commands:\*\*' "$CT" | grep -q '/resume'; then
-    ok "CLAUDE.template.md process-commands bullet names /resume"
+  if grep '^\- \*\*Process commands:\*\*' "$CT" | grep -q '/next'; then
+    ok "CLAUDE.template.md process-commands bullet names /next"
   else
-    no "CLAUDE.template.md process-commands bullet must name /resume"
+    no "CLAUDE.template.md process-commands bullet must name /next"
   fi
 else
   echo "  - template-repo doc surface not present — skipping (consumer/plane shape)"

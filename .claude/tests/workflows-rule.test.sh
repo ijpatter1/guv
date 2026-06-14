@@ -4,7 +4,7 @@
 # Guards the invariants the rule promises:
 #   - the rule file exists in the natively-loaded rules dir with the guv- prefix
 #     (the acceptance criterion: "rule file loads")
-#   - both calibrated reviewers are named verbatim (evaluator, product-reviewer)
+#   - both calibrated reviewers are named verbatim (evaluator, reviewer)
 #     and ad-hoc reviewer agents are prohibited
 #   - the plan-of-record boundary is stated (workflows execute; phase docs plan)
 #   - the ultracode posture is stated (wide mechanical fan-out, dropped back after)
@@ -38,9 +38,9 @@ fi
 grep -q '`evaluator`' "$RULE" \
   && ok "names the evaluator agent verbatim" \
   || no "rule must name the \`evaluator\` agent verbatim"
-grep -q '`product-reviewer`' "$RULE" \
-  && ok "names the product-reviewer agent verbatim" \
-  || no "rule must name the \`product-reviewer\` agent verbatim"
+grep -q '`reviewer`' "$RULE" \
+  && ok "names the reviewer agent verbatim" \
+  || no "rule must name the \`reviewer\` agent verbatim"
 
 # T3 — ad-hoc reviewers are prohibited, stated as a prohibition (the anchor
 # requires the prohibition verb in the same sentence, not just the term;

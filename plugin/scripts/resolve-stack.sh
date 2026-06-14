@@ -213,7 +213,7 @@ log "Proposed: language=$LANGUAGE packageManager=$PACKAGE_MANAGER guards=[${GUAR
 log "This is a PROPOSAL. Confirm or override before writing .claude/project.json."
 log "roots default to single-repo ('.'); set roots.code for a control-plane split."
 if [ "$CEREMONY" = "phased" ]; then
-  log "ceremony=phased — a live DAG-grammar tracker was detected at $DIR/docs/PHASE_STATUS.md; adopt the existing plan (resume/start-phase), do not impose onboard scaffold."
+  log "ceremony=phased — a live DAG-grammar tracker was detected at $DIR/docs/PHASE_STATUS.md; adopt the existing plan (next/phase), do not impose onboard scaffold."
 elif [ -n "$MALFORMED_TRACKER" ]; then
   log "WARNING: a phase tracker exists at $MALFORMED_TRACKER but is MALFORMED — it carries **[N.M]** IDs yet the resolver cannot parse it (run 'bash .claude/resolve-ready.sh $MALFORMED_TRACKER' to see the offenders). This repo is clearly mid-plan-but-broken, NOT pre-scaffold. ceremony stays 'onboard' so a proposal is still produced, but DO NOT scaffold over it: fix the tracker and re-run, or confirm deliberately that onboarding should clobber the broken plan (rule 15 — refuse-and-report over a silent overwrite)."
 else

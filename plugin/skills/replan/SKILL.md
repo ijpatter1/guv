@@ -102,7 +102,7 @@ before/after wording (for deps changes, show old → new tokens) — and get exp
 approval. **For an insert, the drafted session estimate is ratified in this same
 confirmation** ([9.6]): present it alongside the wording (default 1, balloons flagged),
 so the deliverable *and* its estimate clear one confirm gate, exactly as
-`/guv:plan-initiative` does at plan time. **This is a hard gate: no document is written
+`/guv:plan` does at plan time. **This is a hard gate: no document is written
 before the user confirms.** In headless mode, a prompt that itself specifies the exact
 mutation is the confirmation; anything less specific means **draft and defer** (the
 Rule-15 designed degradation), never guess and never auto-apply: write the full
@@ -177,5 +177,5 @@ forever; the tracker syncs from it; ARCHITECTURE follows where touched:
   a rejected mutation changes nothing) and procedural across the three docs — the
   fixed order, the revert-on-refusal rule, and Step 5's `sync-check` are what hold
   the tri-doc set together. Skipping Step 5 forfeits the detector.
-- Spec-alignment gaps found at session start route here too (`/guv:start-phase` Step 5
+- Spec-alignment gaps found at session start route here too (`/guv:phase` Step 5
   detects and routes; this command mutates).

@@ -3,7 +3,7 @@
 # Phase 5 added the manifest gate: harness ceremony is opt-in, and the manifest
 # is the opt-in signal. Under plugin install the hook rides hooks.json into
 # EVERY repo where the plugin is enabled, so without the gate it would nag
-# non-harness repos and pre-scaffold directories about /evaluate and /handoff.
+# non-harness repos and pre-scaffold directories about /eval and /handoff.
 # Also guards: the loop-prevention exit on stop_hook_active, the
 # uncommitted-changes reminder, and the dual-form command names in the
 # reminder text (bare for template installs, /guv:-prefixed for plugin ones).
@@ -58,7 +58,7 @@ echo "$OUT" | jq -e '.systemMessage' >/dev/null 2>&1 \
 
 # T4 — the reminder names both invocation forms (bare for template installs,
 # /guv: for plugin installs), and stays advisory (decision approve)
-echo "$OUT" | jq -r '.systemMessage' | grep -q '/guv:evaluate' \
+echo "$OUT" | jq -r '.systemMessage' | grep -q '/guv:eval' \
   && echo "$OUT" | jq -r '.systemMessage' | grep -q '/guv:handoff' \
   && ok "reminder names the /guv:-namespaced forms alongside the bare ones" \
   || no "reminder must carry both bare and /guv:-namespaced command forms"

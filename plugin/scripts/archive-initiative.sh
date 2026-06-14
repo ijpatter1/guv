@@ -1,7 +1,7 @@
 #!/bin/bash
 # .claude/archive-initiative.sh
-# The scriptable half of initiative archival, used by /plan-initiative
-# (/guv:plan-initiative under the plugin). The judgment half — spec analysis,
+# The scriptable half of initiative archival, used by /plan
+# (/guv:plan under the plugin). The judgment half — spec analysis,
 # doc generation, lineage wording — stays in the command. Operates on the
 # CONTROL root: run it from ${roots.control}.
 #

@@ -341,7 +341,7 @@ is the code repo at \`roots.code\` (\`$CODE_REL\`).
 - **Commands, roots, ceremony:** \`.claude/project.json\`. \`commands.test\` runs the
   harness's bash suites in the code repo.
 - **Execution at scale:** saved workflows in \`.claude/workflows/\` (e.g.
-  \`/evaluate-parallel\`) — fan-out execution only; QA stages use the calibrated
+  \`/eval-parallel\`) — fan-out execution only; QA stages use the calibrated
   reviewers by name (\`.claude/rules/guv-workflows.md\`).
 - **Where edits go:** improve the harness in the **code repo** ($CODE_REL) — that's
   where product commits land. This control plane holds session artifacts only
@@ -352,7 +352,7 @@ is the code repo at \`roots.code\` (\`$CODE_REL\`).
 ## Project facts
 
 - This is \`ceremony: task\` — scoped changes, no phase docs. Use \`/task\` for work.
-- Log harness friction with \`/log-feedback\`; it stays here, never in the template.
+- Log harness friction with \`/feedback\`; it stays here, never in the template.
 SH
   echo "[setup] wrote control-plane CLAUDE.md"
 fi

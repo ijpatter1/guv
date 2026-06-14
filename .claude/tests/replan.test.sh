@@ -357,11 +357,11 @@ else
   no "commands/replan.md missing"
 fi
 
-SP="$SRC/commands/start-phase.md"
-grep -q "/replan" "$SP" && ok "start-phase.md routes spec-alignment to /replan" || no "start-phase.md Step 5 must route to /replan"
+SP="$SRC/commands/phase.md"
+grep -q "/replan" "$SP" && ok "phase.md routes spec-alignment to /replan" || no "phase.md Step 5 must route to /replan"
 grep -q "update the project docs immediately" "$SP" \
-  && no "start-phase.md still instructs direct doc mutation (Step 5 must be detect-and-route)" \
-  || ok "start-phase.md no longer mutates docs directly"
+  && no "phase.md still instructs direct doc mutation (Step 5 must be detect-and-route)" \
+  || ok "phase.md no longer mutates docs directly"
 
 PD="$SRC/skills/phase-docs/SKILL.md"
 grep -q '\*\*Amendments:\*\*' "$PD" && ok "phase-docs defines the amendment-record format" \

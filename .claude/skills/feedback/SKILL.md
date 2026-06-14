@@ -1,5 +1,5 @@
 ---
-name: log-feedback
+name: feedback
 description: "Record harness friction — broken commands, inapplicable settings, doc drift, manifest gaps, misfiring hooks — to the project feedback log, and list/triage open entries. Use whenever a harness command/skill/hook/setting/doc doesn't fit the task at hand, when the user reports such friction, or at session handoff. Agent-callable mid-session and user-invocable."
 user-invocable: true
 ---
@@ -17,7 +17,7 @@ runs — it is an append-only record. So log freely and early; there is no cost.
 - **Here:** anything about the _harness_ that didn't fit — a command step that errored,
   a setting that didn't apply, a manifest field that couldn't express your project, a
   doc that described something that isn't true, a hook that misfired, awkward ergonomics.
-- **Not here — project code bugs** → route through `/guv:task` (they're about the product,
+- **Not here — project code bugs** → route through `/task` (they're about the product,
   not the harness).
 - **Not here — per-agent learning** (evaluator/reviewer observations) → that's
   `.claude/agent-memory/`, a different artifact with a different lifecycle.
@@ -53,7 +53,7 @@ Fill these fields (\* = required):
 | `ts`\*       | ✓   | ISO-8601 UTC timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`)                                                                                                                                                                                                                                                                                                       |
 | `session`    |     | Latest `docs/sessions/` handoff name, or `n/a`                                                                                                                                                                                                                                                                                                               |
 | `category`\* | ✓   | `broken-command` · `inapplicable-setting` · `doc-drift` · `manifest-gap` · `hook-misfire` · `friction` · `other`                                                                                                                                                                                                                                             |
-| `artifact`   |     | The implicated file+line or command, e.g. `.claude/rules/guv-verification.md:7` or `/guv:start-phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
+| `artifact`   |     | The implicated file+line or command, e.g. `.claude/rules/guv-verification.md:7` or `/phase` (omit if not file-specific)                                                                                                                                                                                                                                      |
 | `summary`\*  | ✓   | One line: what didn't fit                                                                                                                                                                                                                                                                                                                                    |
 | `detail`     |     | Optional longer context — repro, what you expected, what you did instead                                                                                                                                                                                                                                                                                     |
 | `severity`\* | ✓   | `blocker` · `major` · `minor`                                                                                                                                                                                                                                                                                                                                |
@@ -108,7 +108,7 @@ jq -c 'select(.status=="open")' .claude/feedback/feedback.ndjson
 jq -c --arg id "<id>" 'select(.id==$id)' .claude/feedback/feedback.ndjson
 ```
 
-Count open (used by `/guv:status` and `/guv:handoff`). Guard the file's existence first — a
+Count open (used by `/status` and `/handoff`). Guard the file's existence first — a
 missing slurp file makes `jq -s` both print `0` _and_ exit non-zero, so a `|| echo 0`
 fallback double-counts:
 
@@ -127,7 +127,7 @@ Triage an entry — NDJSON is rewritten whole (it's small). Match on the unique 
 `ts`, which can collide), set a terminal status (`resolved`, `wontfix`, or `graduated`),
 and — when graduating — append a provenance note to `detail` naming **what** resolved it,
 so the close is auditable. `NOTE` is optional: leave it `""` for a bare status flip (e.g.
-`wontfix`); supply it when graduating (this is the form `/guv:handoff`'s drain step uses):
+`wontfix`); supply it when graduating (this is the form `/handoff`'s drain step uses):
 
 ```bash
 ID="2026-06-10T12:34:56Z-1234"; NEW="graduated"
@@ -149,8 +149,8 @@ the entry so a re-run is a no-op — deduped by entry `id`. Non-upstream,
 already-linked, and non-open entries are skipped, untouched.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}"/scripts/feedback-submit.sh submit            # draft + write back the markers
-bash "${CLAUDE_PLUGIN_ROOT}"/scripts/feedback-submit.sh submit --dry-run  # list what would be filed; write nothing
+bash .claude/feedback-submit.sh submit            # draft + write back the markers
+bash .claude/feedback-submit.sh submit --dry-run  # list what would be filed; write nothing
 ```
 
 What it is and isn't:
@@ -211,11 +211,11 @@ the general rule is **graduate on the landing event by which this consumer actua
 receives the fix** — a plugin release for a release consumer, a `--sync` (or a merge to
 the default branch) for a developer one — not a release in every case. Without it, fixes
 that ship the way the dogfooding control plane actually consumes the harness never close,
-and the log rots. `/guv:handoff` Step 10 runs this drain every session. (Maintainers: the
+and the log rots. `/handoff` Step 10 runs this drain every session. (Maintainers: the
 release-side mechanics and the no-release-vehicle path are in `maintainers/RELEASING.md`.)
 
-`/guv:handoff` **drains** open entries at session end — Step 10 proposes graduating the
+`/handoff` **drains** open entries at session end — Step 10 proposes graduating the
 ones the session resolved (the close paths above), not merely counting them — and
-`/guv:status` shows the open count, so the pile stays visible rather than forgotten. Triage
+`/status` shows the open count, so the pile stays visible rather than forgotten. Triage
 periodically; mark entries `graduated`/`resolved`/`wontfix` rather than deleting them,
 so the history of what bit and what was done stays intact.

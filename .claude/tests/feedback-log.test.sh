@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for the log-feedback skill's data contract: the NDJSON append, the open-count
+# Tests for the feedback skill's data contract: the NDJSON append, the open-count
 # query, and the triage rewrite all behave and stay valid. Exercises the exact commands
 # the skill documents (no test runner needed). T6–T9 guard the skill TEXT: as of
 # Phase 5 D3 the feedback drain is live, so the Half-B deferral language must be
@@ -13,8 +13,8 @@ no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — the suite cd's away from $0's base
-SKILL_SRC="$ROOT/.claude/skills/log-feedback/SKILL.md"
-SKILL_PLUGIN="$ROOT/plugin/skills/log-feedback/SKILL.md"
+SKILL_SRC="$ROOT/.claude/skills/feedback/SKILL.md"
+SKILL_PLUGIN="$ROOT/plugin/skills/feedback/SKILL.md"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT

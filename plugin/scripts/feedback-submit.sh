@@ -11,7 +11,7 @@
 # marker (and by the real issue URL once the user pastes it back). Non-upstream,
 # already-linked, and non-open entries are skipped, untouched.
 #
-# CRITICAL — issue FILING is user-gated (the `log-feedback` "Closing the loop"
+# CRITICAL — issue FILING is user-gated (the `feedback` "Closing the loop"
 # contract): an agent's `gh issue create` is denied as an outward publish. This is a
 # project CONVENTION, not a hook that intercepts the call — so the enforcement here
 # is that this transport NEVER itself calls `gh issue create`. It builds the
@@ -23,7 +23,7 @@
 # "drafted, awaiting filing". The agent drafts; the person files.
 #
 # (This file ships byte-identical into both install modes; under a plugin install
-# the command name is guv:-namespaced — /log-feedback resolves as /guv:log-feedback.)
+# the command name is guv:-namespaced — /feedback resolves as /guv:feedback.)
 #
 # ACCEPTANCE REINTERPRETATION (consciously ratified, per Rule 7 — surface the
 # conflict, pick the better-tested pattern, say why). REQUIREMENTS [10.8] reads:
@@ -230,7 +230,7 @@ while IFS= read -r id; do
     # Writeback: append a DRAFTED marker to detail so a re-run skips this entry
     # (idempotency by id). The original detail is preserved (append, not replace),
     # matching the provenance-note convention (" | " separator) the triage step uses.
-    NOTE="DRAFTED-$id ($DATE): issue drafted for $REPO by /log-feedback submit — user-gated filing pending"
+    NOTE="DRAFTED-$id ($DATE): issue drafted for $REPO by /feedback submit — user-gated filing pending"
     wb=$(mktemp) || die 4 "could not create a temp file for the writeback"
     jq -c --arg id "$id" --arg note "$NOTE" \
       'if .id==$id then .detail = ((.detail // "") + " | " + $note) else . end' \

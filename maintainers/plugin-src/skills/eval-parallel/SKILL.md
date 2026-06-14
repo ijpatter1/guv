@@ -1,5 +1,5 @@
 ---
-description: "Dual QA review over a commit-range scope — the evaluator and product-reviewer run concurrently; returns both reports plus the combined summary. Use after completing a feature or before handoff, when both calibrated reviewers should run at once. Scope via arguments (e.g. \"last 3 commits\"); default is work since the last handoff."
+description: "Dual QA review over a commit-range scope — the evaluator and reviewer run concurrently; returns both reports plus the combined summary. Use after completing a feature or before handoff, when both calibrated reviewers should run at once. Scope via arguments (e.g. \"last 3 commits\"); default is work since the last handoff."
 ---
 
 # Evaluate (Parallel) — Workflow Launcher
@@ -11,13 +11,13 @@ plugin-shipped script; this skill only starts it and handles the result.
 
 Invoke the **Workflow** tool with:
 
-- `scriptPath`: `${CLAUDE_PLUGIN_ROOT}/workflows/evaluate-parallel.js`
+- `scriptPath`: `${CLAUDE_PLUGIN_ROOT}/workflows/eval-parallel.js`
 - `args`: the scope, passed through verbatim from the user's arguments —
   `"$ARGUMENTS"` if non-empty, otherwise omit `args` entirely (the script
   defaults to everything since the last session handoff).
 
 The run executes in the background: the Scope stage resolves the commit range,
-then both calibrated reviewers — `guv:evaluator` and `guv:product-reviewer`,
+then both calibrated reviewers — `guv:evaluator` and `guv:reviewer`,
 spawned by name per the workflow-verification rule (plugin agents resolve only
 under the namespaced form) — review concurrently.
 

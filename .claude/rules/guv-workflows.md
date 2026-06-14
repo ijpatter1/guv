@@ -10,8 +10,8 @@ standing high-effort mode turns every judgment call into a fleet.
 
 ## 14 — Calibrated reviewers, not ad-hoc ones
 When a workflow includes a review, verification, or QA stage, that stage must invoke
-the `evaluator` and `product-reviewer` subagents by name — under a guv plugin install
-the resolvable names carry the namespace (`guv:evaluator`, `guv:product-reviewer`);
+the `evaluator` and `reviewer` subagents by name — under a guv plugin install
+the resolvable names carry the namespace (`guv:evaluator`, `guv:reviewer`);
 ad-hoc reviewer agents are prohibited. The two are calibrated — scoring anchors,
 read-only enforcement, project memory — and a generated generic verifier has none of
 that: it grades to whatever bar the prompt implies that day. Verification only means

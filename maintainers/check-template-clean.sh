@@ -50,7 +50,7 @@ UAT=$(tracked_under docs/uat/)
 [ -n "$UAT" ] && \
   flag "UAT artifacts tracked in docs/uat/: $(echo "$UAT" | tr '\n' ' ')"
 
-# 7 — archived initiatives (frozen per-project phase docs from /plan-initiative).
+# 7 — archived initiatives (frozen per-project phase docs from /plan).
 INITIATIVES=$(tracked_under docs/initiatives/)
 [ -n "$INITIATIVES" ] && \
   flag "archived initiative docs tracked in docs/initiatives/: $(echo "$INITIATIVES" | tr '\n' ' ')"

@@ -14,11 +14,11 @@
 # (the harness pushes deliverables toward session-sized); anything above 1 is
 # a flagged balloon, surfaced at the plan-time confirm gate. This is a
 # deterministic read/write/validate helper (Rule 12: no judgment, no LLM) —
-# the judgment (proposing the number, ratifying it) lives in /plan-initiative
+# the judgment (proposing the number, ratifying it) lives in /plan
 # and /replan, which call set after the user confirms.
 #
 # (Ships byte-identical into both install modes; under a plugin install the
-# commands are guv:-namespaced — /guv:plan-initiative and /guv:replan.)
+# commands are guv:-namespaced — /guv:plan and /guv:replan.)
 #
 # Usage:
 #   bash .claude/estimate.sh default                     # print the default (1)

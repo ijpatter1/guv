@@ -58,14 +58,14 @@ is_deny "$out" \
 # T1b — the deny reason names the offending agent_type AND the target file, so a
 # regression that dropped or hard-coded the interpolation fails (the "name the
 # offender" bar the resolver/grammar suites set), and the message can guide.
-out=$(feed "$(mk guv:product-reviewer Write /home/proj/docs/REQUIREMENTS.md)")
+out=$(feed "$(mk guv:reviewer Write /home/proj/docs/REQUIREMENTS.md)")
 reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' 2>/dev/null)
-echo "$reason" | grep -qF 'guv:product-reviewer' && echo "$reason" | grep -qF '/home/proj/docs/REQUIREMENTS.md' \
+echo "$reason" | grep -qF 'guv:reviewer' && echo "$reason" | grep -qF '/home/proj/docs/REQUIREMENTS.md' \
   && ok "deny reason interpolates the offending agent_type and file (message names the offender)" \
   || no "deny reason must name the agent_type and the file_path"
 
 # T2 — subagent (bare) Edit to REQUIREMENTS.md -> deny (the Edit tool + 2nd file)
-out=$(feed "$(mk product-reviewer Edit /home/proj/docs/REQUIREMENTS.md)")
+out=$(feed "$(mk reviewer Edit /home/proj/docs/REQUIREMENTS.md)")
 is_deny "$out" \
   && ok "subagent Edit docs/REQUIREMENTS.md -> deny (Edit tool, second tracker)" \
   || no "a subagent Edit to docs/REQUIREMENTS.md must be denied"
@@ -117,7 +117,7 @@ out=$(feed "$(mk evaluator Write /home/proj/src/app.ts)"); rc=$?
 # T8 — scope precision: a sibling doc (ARCHITECTURE.md) is NOT a single-writer
 # file — the spec names only PHASE_STATUS.md and REQUIREMENTS.md, and lane work
 # legitimately edits ARCHITECTURE.md -> allowed
-out=$(feed "$(mk product-reviewer Edit /home/proj/docs/ARCHITECTURE.md)"); rc=$?
+out=$(feed "$(mk reviewer Edit /home/proj/docs/ARCHITECTURE.md)"); rc=$?
 [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
   && ok "subagent Edit docs/ARCHITECTURE.md -> allowed (only the two trackers are guarded)" \
   || no "the hook must not over-block sibling docs; only the two named trackers"

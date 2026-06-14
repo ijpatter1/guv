@@ -22,7 +22,7 @@
 #   --for is how an entry command asks "is this the right door?" A wrong-door
 #   invocation REDIRECTS (match=no, door=<correct>) rather than errors —
 #   redirect is a route, not a failure (exit 0). <door> must be one of the
-#   known doors (init-project|onboard|resume|start-phase|task); a typo is a
+#   known doors (init-project|onboard|next|phase|task); a typo is a
 #   caller bug (exit 2), not a redirect.
 #
 # Output (name=value, one per line — the resolve-ready.sh contract shape):
@@ -40,7 +40,7 @@
 #         this is NOT ambiguity. The scaffolding doors (init-project, onboard)
 #         are about to WRITE the manifest this router would have read, so under
 #         --for they CONFIRM and PROCEED (match=yes, exit 0); the live-plan doors
-#         (resume, start-phase, task) have nothing to resume and see exit 4 so
+#         (next, phase, task) have nothing to resume and see exit 4 so
 #         their Step 0 defers to a scaffolding door. Plain (no --for) emits no
 #         door — which of the two scaffolding doors applies is a content decision
 #         (is there a spec? existing code?), not a state one — but names the
@@ -56,7 +56,7 @@ TRACKER="docs/PHASE_STATUS.md"
 # The closed door vocabulary — the router knows exactly these (the entry split
 # left five; the routing collapse is the function over them). A --for outside
 # this set is a caller typo, not a redirect target.
-KNOWN_DOORS="init-project onboard resume start-phase task"
+KNOWN_DOORS="init-project onboard next phase task"
 
 # The SCAFFOLDING doors — the two that write the manifest into a fresh repo. On
 # the PRE-SCAFFOLD state (no manifest) these PROCEED rather than stop, because
@@ -116,7 +116,7 @@ stop() {
 # prescaffold REASON — the PRE-SCAFFOLD state (no manifest here yet): NOT
 # ambiguity, so NOT exit 3. Under --for, a SCAFFOLDING door (init-project,
 # onboard) CONFIRMS and proceeds (match=yes, exit 0) — it is about to write the
-# manifest; a live-plan door (resume, start-phase, task) gets match=no + exit 4
+# manifest; a live-plan door (next, phase, task) gets match=no + exit 4
 # and defers to a scaffolding door. Plain (no --for) emits no door — the
 # scaffold-door choice is content-driven — and names the scaffolding route in
 # reason= so a person (or the door's Step 0) routes correctly rather than seeing
@@ -202,25 +202,25 @@ esac
 
 MODE=$(echo "$RES" | grep -E '^mode=' | head -1 | sed 's/^mode=//')
 
-# LEGACY tracker → resume is the LEGACY-appropriate door: the resolver returns
-# the first-⬜ serial pick (no deps graph to traverse), and resume presents it
+# LEGACY tracker → next is the LEGACY-appropriate door: the resolver returns
+# the first-⬜ serial pick (no deps graph to traverse), and next presents it
 # as a plain pick and notes the tracker predates the grammar. The reason names
 # the mode so the door degrades to a list, not an invented graph.
 if [ "$MODE" = "LEGACY" ]; then
-  emit resume "ceremony=phased, mode=LEGACY — token-free tracker; resume presents the first-⬜ pick (no DAG to resolve)"
+  emit next "ceremony=phased, mode=LEGACY — token-free tracker; next presents the first-⬜ pick (no DAG to resolve)"
 fi
 
 # GRAMMAR: mid-phase vs. complete is "is there open work?" The frontier is
 # empty exactly when every deliverable is ✅ (or ❌) — nothing in_progress,
-# ready, or blocked. Open work → resume (the daily/mid-phase door). No open
-# work → start-phase (the boundary/next-decision door: cross into the next
+# ready, or blocked. Open work → next (the daily/mid-phase door). No open
+# work → phase (the boundary/next-decision door: cross into the next
 # phase, or the initiative is complete — a deliberate decision, not a resume).
 IN_PROGRESS=$(echo "$RES" | grep -E '^in_progress=' | head -1 | sed 's/^in_progress=//')
 READY=$(echo "$RES" | grep -E '^ready=' | head -1 | sed 's/^ready=//')
 BLOCKED=$(echo "$RES" | grep -E '^blocked=' | head -1 | sed 's/^blocked=//')
 
 if [ -n "$IN_PROGRESS" ] || [ -n "$READY" ] || [ -n "$BLOCKED" ]; then
-  emit resume "ceremony=phased, mode=GRAMMAR, open frontier — mid-phase; resume presents the ready frontier"
+  emit next "ceremony=phased, mode=GRAMMAR, open frontier — mid-phase; next presents the ready frontier"
 else
-  emit start-phase "ceremony=phased, mode=GRAMMAR, empty frontier — every deliverable is ✅; start-phase is the boundary/next-decision door"
+  emit phase "ceremony=phased, mode=GRAMMAR, empty frontier — every deliverable is ✅; phase is the boundary/next-decision door"
 fi

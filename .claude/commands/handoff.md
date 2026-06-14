@@ -1,12 +1,12 @@
 End the current work session by running QA evaluation, generating a structured handoff artifact, and updating the phase tracker.
 
-## Steps 1–2 — Session-Close Review (run `/evaluate`)
+## Steps 1–2 — Session-Close Review (run `/eval`)
 
-The session-close review **is** `/evaluate` — the dual QA review (technical
-`evaluator` + `product-reviewer`) defined once in the `/evaluate` skill
-(`.claude/skills/evaluate/SKILL.md`). **Do not restate its procedure here.** Run
+The session-close review **is** `/eval` — the dual QA review (technical
+`evaluator` + `reviewer`) defined once in the `/eval` skill
+(`.claude/skills/eval/SKILL.md`). **Do not restate its procedure here.** Run
 that one definition — its Steps 1–4 gather context, invoke both reviewers, and
-emit the combined summary; the saved `/evaluate-parallel` workflow runs the same
+emit the combined summary; the saved `/eval-parallel` workflow runs the same
 Steps 1–4 with the two reviewers concurrent. Handoff owns only what is specific to
 session-close: the **skip condition**, the **review target**, and the **verdict
 gates** below — never a second copy of how the reviewers are invoked. (When the
@@ -16,7 +16,7 @@ restatement and its source were two copies, they drifted; the pointer is the fix
 
 Skip this session-close review **only when every commit in the session was already
 dual-reviewed in-band** — i.e. each was carried through `/task` (or an equivalent
-scoped flow) whose Step 3 ran `/evaluate` (both reviewers) on the change before it
+scoped flow) whose Step 3 ran `/eval` (both reviewers) on the change before it
 was committed. In that case the duplicate session-close review buys nothing, so
 skip it — and **disclose the skip**: record in the handoff artifact, under
 **Evaluator Results** / **Product Review Results**, that the session-close review
@@ -25,14 +25,14 @@ in-band pass(es). The skip is **never silent** — a skipped review is always
 disclosed in the record.
 
 The skip is **conditional**. If **any** session commit was *not* dual-reviewed
-in-band (a hand commit, a commit landed outside `/task`/`/evaluate`, or any commit
+in-band (a hand commit, a commit landed outside `/task`/`/eval`, or any commit
 you cannot account to an in-band pass), the skip does not apply — **run the review
 below** over the session scope. When in doubt, do not skip: run it. No review is
 ever dropped silently; either it runs, or its skip is disclosed with the reason.
 
 ### Review target
 
-`/evaluate` scopes to the code repo (`roots.code`); handoff must first decide
+`/eval` scopes to the code repo (`roots.code`); handoff must first decide
 **which repo's commits to review**, because a pre-scaffold session has no code
 history yet (`git -C roots.code log` would error or be empty), and a docs-only
 session in a control-plane split — at any point in the project's life — made no
@@ -54,23 +54,23 @@ The snippet answers "does the code repo have *any* history", not "did *this sess
 commit there" — so after it, check: if `TARGET` is the code repo but this session
 produced no commits in it (docs-only session in a mature split), switch `TARGET` to
 the control plane and review the session's actual commits. If `TARGET` is the
-control plane, tell `/evaluate` it is reviewing control-plane / doc work — a
+control plane, tell `/eval` it is reviewing control-plane / doc work — a
 pre-scaffold session, or a docs-only session in a mature split — not product code,
 so the reviewers judge accordingly rather than reporting "no tests" against
-documentation. Pass `/evaluate` this session's scope (the commits in `$TARGET` and
+documentation. Pass `/eval` this session's scope (the commits in `$TARGET` and
 the phase number from `docs/PHASE_STATUS.md`, skipped if absent — non-phased).
 Present both reviewers' full reports to the user without modification or softening,
-exactly as `/evaluate` does.
+exactly as `/eval` does.
 
 > For a pre-scaffold session — or, in a control-plane split, any session whose
-> commits live only in the control plane — prefer the conversational `/evaluate`
-> over `/evaluate-parallel`: the workflow's default scope targets the code repo and
+> commits live only in the control plane — prefer the conversational `/eval`
+> over `/eval-parallel`: the workflow's default scope targets the code repo and
 > will (loudly) find no commits there. (Single-repo projects are unaffected:
 > `roots.code` is `.`, so every commit is in scope.)
 
 ### Verdict gates (handoff-specific)
 
-These gates are what `/handoff` adds on top of `/evaluate`'s reports — they decide
+These gates are what `/handoff` adds on top of `/eval`'s reports — they decide
 whether the handoff proceeds:
 
 - **Evaluator FAIL:** Stop the handoff here. Fix the critical issues, then invoke `/handoff` again from the top (the evaluator re-runs on the fixed code).
@@ -286,7 +286,7 @@ If the phase is complete, generate a user acceptance testing plan. The UAT plan 
 
 ### Generating the UAT Plan
 
-Invoke the `product-reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
+Invoke the `reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
 
 Use the product reviewer's scenarios to produce the UAT artifact. **Follow the same automation-first hierarchy as `/manual`:**
 
@@ -342,7 +342,7 @@ Note in the handoff artifact under **Next Steps** that UAT is ready to run:
 2. [Next phase planning — if UAT passes]
 ```
 
-The phase is not considered accepted until UAT passes. The next session's `/start-phase` should check for UAT results before starting new phase work.
+The phase is not considered accepted until UAT passes. The next session's `/phase` should check for UAT results before starting new phase work.
 
 ## Step 9 — CLAUDE.md / Manifest Freshness Check
 
@@ -402,7 +402,7 @@ markers by hand.
 
 This is about the **harness**, not the product. Reflect on the session: did any
 command, hook, skill, setting, manifest field, or doc not fit the work — error out,
-not apply, mislead, or force a workaround? If so, capture each via the `log-feedback`
+not apply, mislead, or force a workaround? If so, capture each via the `feedback`
 skill (it appends to `.claude/feedback/feedback.ndjson`; data only, never blocking).
 Logging friction _as it is hit_ mid-session is better, but handoff is the backstop so
 nothing is lost.
@@ -428,7 +428,7 @@ commit:
 - **Interactive:** present the proposed graduations and wait for the user's confirm.
 - **Headless/bypass:** apply them and note each under **Completed** in the handoff.
 
-Apply via the `log-feedback` skill's triage command — flip `status` to `graduated`
+Apply via the `feedback` skill's triage command — flip `status` to `graduated`
 (or `resolved`/`wontfix`) and append a provenance note to `detail` naming what
 resolved it. This is the agent-executable close trigger the sync/dogfooding model
 needs (see the skill's *Closing the loop*). Don't force it: an entry whose fix has
@@ -436,7 +436,7 @@ needs (see the skill's *Closing the loop*). Don't force it: an entry whose fix h
 
 Whatever stays open after the drain: note the count in the handoff artifact under
 **Issues & Technical Debt** (e.g. "3 open harness-feedback entries — triage with the
-`log-feedback` skill"), so the next session sees it. If 0, say nothing.
+`feedback` skill"), so the next session sees it. If 0, say nothing.
 
 ## Step 11 — Summary
 

@@ -17,8 +17,8 @@ secrets/
 *-credentials.json
 # Claude Code: personal overrides, not committed
 .claude/settings.local.json
-# Auto-generated agent memory — the evaluator / product-reviewer write this
-# on the first /evaluate or /handoff (/guv:-namespaced under the plugin).
+# Auto-generated agent memory — the evaluator / reviewer write this
+# on the first /eval or /handoff (/guv:-namespaced under the plugin).
 # Ignored by default so it doesn't sit untracked in every consumer project.
 # A team that wants shared agent memory can force-add it
 # (git add -f .claude/agent-memory/) and remove this line.

@@ -21,7 +21,7 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for init-project
   is a **pre-scaffold** repo where init-project is the manifest-writing door,
   see exit 4.)
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
-  names the correct door in `door=` — e.g. `door=resume`/`door=start-phase` if a
+  names the correct door in `door=` — e.g. `door=next`/`door=phase` if a
   plan already exists (don't re-scaffold over it), `door=onboard` for an
   existing repo, `door=task` for scoped work. Tell the user the routed door and
   the `reason=`, and defer to it.
@@ -130,7 +130,7 @@ installed yet) — not by the stale template default.
 ### Step 3 — Generate docs/REQUIREMENTS.md
 
 Write `docs/REQUIREMENTS.md` following the structure and rules in the **`phase-docs`
-skill** (plugin-shipped — shared with `/guv:plan-initiative`; the
+skill** (plugin-shipped — shared with `/guv:plan`; the
 templates live there, once). This is greenfield: omit the lineage header, number phases
 from 1.
 
@@ -214,4 +214,4 @@ git commit -m "docs: scaffold project from spec"
 git checkout -b phase/1-[phase-name]
 ```
 
-Then they can start their first session with `/guv:start-phase 1`.
+Then they can start their first session with `/guv:phase 1`.

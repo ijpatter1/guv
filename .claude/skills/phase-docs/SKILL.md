@@ -1,12 +1,12 @@
 ---
 name: phase-docs
-description: Shared templates and rules for generating the three phase docs (REQUIREMENTS, ARCHITECTURE, PHASE_STATUS) plus initiative lineage and archival conventions. Referenced by /init-project (greenfield) and /plan-initiative (existing project) so the structures live once. Not a workflow — a reference.
+description: Shared templates and rules for generating the three phase docs (REQUIREMENTS, ARCHITECTURE, PHASE_STATUS) plus initiative lineage and archival conventions. Referenced by /init-project (greenfield) and /plan (existing project) so the structures live once. Not a workflow — a reference.
 user-invocable: false
 ---
 
 # Phase Docs — Shared Structures & Rules
 
-Both generators (`/init-project` for greenfield, `/plan-initiative` for an initiative on
+Both generators (`/init-project` for greenfield, `/plan` for an initiative on
 an existing project) write the same three documents. The structures and sync rules below
 are the single source for both; the commands stay linear and reference this skill instead
 of inlining templates.
@@ -388,7 +388,7 @@ one-line note that it is the immutable source the generated docs derive from.
 ## Initiative lineage & archival
 
 These conventions apply when a project runs more than one phased initiative over its
-life (the `/plan-initiative` path). The three docs have different lifecycles:
+life (the `/plan` path). The three docs have different lifecycles:
 
 | Doc | Describes | Lifecycle |
 | --- | --- | --- |
@@ -416,9 +416,9 @@ life (the `/plan-initiative` path). The three docs have different lifecycles:
 
   One `Phases A–B` line per prior initiative, in order. **A project's first initiative
   (nothing archived yet) still writes the header** — just the "This initiative:" line,
-  no lineage lines — because `/start-phase`'s governing-spec resolution and `/status`'s
+  no lineage lines — because `/phase`'s governing-spec resolution and `/status`'s
   Initiative line both key off it. The **governing spec** named on the "This
-  initiative" line is what `/start-phase`'s spec-alignment check targets — specs
+  initiative" line is what `/phase`'s spec-alignment check targets — specs
   accumulate in `docs/spec/`, and this line is what disambiguates them.
 - **One active initiative at a time:** generators must refuse to start a new initiative
   while the current tracker has incomplete deliverables. Abandonment is explicit:

@@ -21,7 +21,7 @@
 #      never `git add -A`. harvest emits an advisory if it sees such artifacts in
 #      the lane diff (UAT-F2) — a heuristic warning, not a refusal.
 #   2. The Rule-14 GATE (the orchestrator runs it, BEFORE dispatch) — every lane
-#      is dual-reviewed by the calibrated evaluator + product-reviewer
+#      is dual-reviewed by the calibrated evaluator + reviewer
 #      (merge-queue.sh gate-input assembles the acceptance bundle; Rule 12: code
 #      assembles the input, the model grades). Findings are closed IN-LANE. A
 #      lane that has not passed the gate does not get dispatched. The

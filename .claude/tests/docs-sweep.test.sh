@@ -62,7 +62,7 @@ fi
 # T3 — the generator chain: both generators defer to the phase-docs skill,
 # and the skill's templates emit ID'd, token'd deliverables. Together these
 # are "both generators emit the new format" without a second grammar copy.
-for cmd in plan-initiative init-project; do
+for cmd in plan init-project; do
   if grep -q 'phase-docs' "$ROOT/.claude/commands/$cmd.md"; then
     ok "$cmd.md routes doc generation through the phase-docs skill"
   else

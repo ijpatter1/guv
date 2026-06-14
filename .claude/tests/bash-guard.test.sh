@@ -117,7 +117,7 @@ denies_as "echo '✅ done' >> docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
 denies_as "sed -i 's/⬜/✅/' docs/REQUIREMENTS.md" "$PLAIN" "lane-7.5" \
   && ok "subagent sed -i on REQUIREMENTS denied" \
   || no "subagent sed -i on a tracker must be denied"
-denies_as "printf done | tee docs/PHASE_STATUS.md" "$PLAIN" "guv:product-reviewer" \
+denies_as "printf done | tee docs/PHASE_STATUS.md" "$PLAIN" "guv:reviewer" \
   && ok "subagent tee onto PHASE_STATUS denied (guv:-prefixed agent form)" \
   || no "subagent tee onto a tracker must be denied"
 denies_as "cat staged.md > ./docs/REQUIREMENTS.md" "$PLAIN" "Explore" \

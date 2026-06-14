@@ -29,6 +29,6 @@ Present a concise summary:
 - **Human-gated:** _include this line only if any deliverable carries the 🔒 marker_ — "N awaiting manual work (see `docs/manual/`)". The 🔒 marker is **human-gated / awaiting-manual** (a deliverable blocked on out-of-sandbox human or manual work, the kind `/manual` writes to `docs/manual/`); count it as its **own** category — never fold it into the ❌ blocked tally and never count it as ✅ complete. The X-of-Y "complete" count is ✅ only; 🔒 items are open work, reported here.
 - **Next up:** [the recommended next feature from the last handoff]
 - **Citation warnings:** _include this line only if `check-citations.sh` printed something_ — list the flagged artifact(s)/hash(es) it reported. If the script was silent, omit this line entirely.
-- **Open harness feedback:** _include this line only if the count from step 7 is > 0_ — "N open (triage with the `log-feedback` skill)". If 0, omit entirely.
+- **Open harness feedback:** _include this line only if the count from step 7 is > 0_ — "N open (triage with the `feedback` skill)". If 0, omit entirely.
 
 Keep this to 10 lines or fewer. This is a quick orientation, not a deep dive. The citation check is silent in the common case, so it costs no budget unless there's something to report.

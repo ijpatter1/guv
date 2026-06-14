@@ -143,7 +143,7 @@ fi
 # (plugin agents do not support frontmatter hooks — security restriction in the
 # plugin docs) and everything else preserved: name, tools, memory, and the body.
 T6_OK=1
-for a in evaluator product-reviewer; do
+for a in evaluator reviewer; do
   pa="$PLUGIN/agents/$a.md"
   sa="$SRC/agents/$a.md"
   if [ ! -f "$pa" ]; then no "agent $a missing from plugin"; T6_OK=0; continue; fi
@@ -157,7 +157,7 @@ for a in evaluator product-reviewer; do
   # plugin-only project doesn't have) — forward-rewrite the source side,
   # un-namespace the plugin side, and compare
   diff <(awk '/^---$/{n++; next} n>=2' "$sa" | apply_path_rewrite) \
-       <(awk '/^---$/{n++; next} n>=2' "$pa" | sed -E 's|/guv:|/|g; s|@guv:|@|g; s|`guv:(evaluator\|product-reviewer)` subagent|`\1` subagent|g') >/dev/null 2>&1 \
+       <(awk '/^---$/{n++; next} n>=2' "$pa" | sed -E 's|/guv:|/|g; s|@guv:|@|g; s|`guv:(evaluator\|reviewer)` subagent|`\1` subagent|g') >/dev/null 2>&1 \
     || { no "agent $a body differs from source beyond the namespace + path rewrites"; T6_OK=0; }
 done
 [ "$T6_OK" -eq 1 ] && ok "both agents ship hook-free with name/tools/body preserved"
@@ -197,11 +197,11 @@ if [ -f "$READONLY_SH" ]; then
   [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
     && ok "evaluator + read-only command -> allowed" \
     || no "evaluator read-only command must pass"
-  out=$(printf '%s' '{"agent_type":"product-reviewer","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | bash "$READONLY_SH")
+  out=$(printf '%s' '{"agent_type":"reviewer","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | bash "$READONLY_SH")
   echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
     && echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -q '^Product reviewer is read-only\. Blocked write-pattern command:' \
-    && ok "product-reviewer + write-pattern command -> deny with verbatim message" \
-    || no "product-reviewer write-pattern must be denied with the verbatim message"
+    && ok "reviewer + write-pattern command -> deny with verbatim message" \
+    || no "reviewer write-pattern must be denied with the verbatim message"
   out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo x > /tmp/f"}}' | bash "$READONLY_SH"); rc=$?
   [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
     && ok "main thread (no agent_type) -> guard stands aside (bash-guard owns it)" \
@@ -216,10 +216,10 @@ if [ -f "$READONLY_SH" ]; then
   echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
     && ok "guv:evaluator (namespaced plugin form) + write-pattern -> deny" \
     || no "guv:evaluator write-pattern must be denied (plugin agents resolve namespaced)"
-  out=$(printf '%s' '{"agent_type":"guv:product-reviewer","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | bash "$READONLY_SH")
+  out=$(printf '%s' '{"agent_type":"guv:reviewer","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | bash "$READONLY_SH")
   echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
-    && ok "guv:product-reviewer (namespaced plugin form) + write-pattern -> deny" \
-    || no "guv:product-reviewer write-pattern must be denied (plugin agents resolve namespaced)"
+    && ok "guv:reviewer (namespaced plugin form) + write-pattern -> deny" \
+    || no "guv:reviewer write-pattern must be denied (plugin agents resolve namespaced)"
 else
   no "reviewer-readonly.sh missing: $READONLY_SH"
 fi
@@ -254,23 +254,23 @@ done
 # NAMESPACED reviewers — plugin agents resolve only as guv:<name> (verified
 # live 2026-06-11); bare names would fail for plugin-only consumers. Apart from
 # that rewrite the script is byte-identical to the saved workflow.
-WF="$PLUGIN/workflows/evaluate-parallel.js"
+WF="$PLUGIN/workflows/eval-parallel.js"
 if [ -f "$WF" ]; then
-  grep -q "agentType: 'guv:evaluator'" "$WF" && grep -q "agentType: 'guv:product-reviewer'" "$WF" \
-    && ! grep -qE "agentType: '(evaluator|product-reviewer)'" "$WF" \
-    && ok "plugin workflow spawns the namespaced reviewers (guv:evaluator, guv:product-reviewer)" \
+  grep -q "agentType: 'guv:evaluator'" "$WF" && grep -q "agentType: 'guv:reviewer'" "$WF" \
+    && ! grep -qE "agentType: '(evaluator|reviewer)'" "$WF" \
+    && ok "plugin workflow spawns the namespaced reviewers (guv:evaluator, guv:reviewer)" \
     || no "plugin workflow must use guv:-namespaced agentType (bare names don't resolve from the plugin)"
-  diff <(sed "s/agentType: 'guv:/agentType: '/g" "$WF") "$SRC/workflows/evaluate-parallel.js" >/dev/null 2>&1 \
+  diff <(sed "s/agentType: 'guv:/agentType: '/g" "$WF") "$SRC/workflows/eval-parallel.js" >/dev/null 2>&1 \
     && ok "workflow asset identical to the saved workflow modulo agentType namespacing" \
     || no "plugin workflow differs from source beyond the agentType rewrite"
 else
-  no "plugin/workflows/evaluate-parallel.js missing"
+  no "plugin/workflows/eval-parallel.js missing"
 fi
-EP="$PLUGIN/skills/evaluate-parallel/SKILL.md"
-if [ -f "$EP" ] && grep -q 'scriptPath' "$EP" && grep -q 'CLAUDE_PLUGIN_ROOT.*workflows/evaluate-parallel\.js' "$EP"; then
-  ok "evaluate-parallel skill fronts the asset via scriptPath + \${CLAUDE_PLUGIN_ROOT}"
+EP="$PLUGIN/skills/eval-parallel/SKILL.md"
+if [ -f "$EP" ] && grep -q 'scriptPath' "$EP" && grep -q 'CLAUDE_PLUGIN_ROOT.*workflows/eval-parallel\.js' "$EP"; then
+  ok "eval-parallel skill fronts the asset via scriptPath + \${CLAUDE_PLUGIN_ROOT}"
 else
-  no "skills/evaluate-parallel/SKILL.md must invoke the Workflow tool with the plugin-root scriptPath"
+  no "skills/eval-parallel/SKILL.md must invoke the Workflow tool with the plugin-root scriptPath"
 fi
 
 # T12 — no stale project-relative script invocations survive inside plugin
@@ -310,7 +310,7 @@ BARE=$(grep -rE "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills
 [ "$BARE" -eq 0 ] \
   && ok "no bare /command references in plugin skills or agents (all /guv:-namespaced)" \
   || no "$BARE bare /command reference(s) remain in plugin skills/agents"
-SPAWN=$(grep -rE '`(evaluator|product-reviewer)` subagent|@(evaluator|product-reviewer)([^-]|$)' "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
+SPAWN=$(grep -rE '`(evaluator|reviewer)` subagent|@(evaluator|reviewer)([^-]|$)' "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
 [ "$SPAWN" -eq 0 ] \
   && ok "no bare reviewer-spawn references in plugin skills or agents" \
   || no "$SPAWN bare reviewer-spawn reference(s) remain"
@@ -395,7 +395,7 @@ trap - EXIT
 # the rebuild; lane-dispatch confine even refuses a lane that touches plugin/).
 # So a new script's bare /command with no guv: decoder slips every rebuild-free
 # in-lane check and surfaces only at the join battery — exactly how [9.6]'s
-# estimate.sh missed its /plan-initiative + /replan decoders. This lint applies
+# estimate.sh missed its /plan + /replan decoders. This lint applies
 # the SAME decoder rule to the source that reaches plugin consumers verbatim for
 # slash-command purposes — the FULL byte-identical-shipping surface, both halves:
 #   - .claude helper + hook scripts        -> scripts/ (byte-identical)
@@ -511,11 +511,11 @@ if [ -f "$BUILD" ]; then
   # and false-fail overlapping runs (feedback 2026-06-12T04:35:14Z-143815213).
   [ -e "$FIX2" ] && { echo "  - cleaning a stale adjacency fixture (prior crashed run): $FIX2"; rm -f "$FIX2"; }
   trap 'rm -f "$FIX2"' EXIT
-  printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /evaluate too.\n' > "$FIX2"
+  printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /eval too.\n' > "$FIX2"
   TMP3=$(mktemp -d)
   if bash "$BUILD" --out "$TMP3/plugin" >/dev/null 2>&1 \
      && grep -q '/guv:task /guv:handoff' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md" \
-     && grep -q '/guv:status /guv:evaluate' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
+     && grep -q '/guv:status /guv:eval' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
     ok "adjacent /command mentions both rewritten (double-pass verified end-to-end)"
   else
     no "adjacent /command mentions must both be namespaced by the double-pass"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for .claude/archive-initiative.sh — the scriptable half of initiative
-# archival (used by /plan-initiative; the judgment half lives in the command).
+# archival (used by /plan; the judgment half lives in the command).
 # Pure bash + git, no test runner required (this template repo ships no JS suite).
 # Run: bash .claude/tests/archive-initiative.test.sh
 set -u

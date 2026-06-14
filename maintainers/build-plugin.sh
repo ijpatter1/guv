@@ -4,7 +4,7 @@
 # The committed plugin/ directory is GENERATED, never hand-edited. The single
 # source of truth stays in .claude/ (commands, skills, agents, hooks, rules,
 # helper scripts, the saved workflow); plugin-only files (manifest, the
-# reviewer-readonly guard, the zen and evaluate-parallel skills) are authored in
+# reviewer-readonly guard, the zen and eval-parallel skills) are authored in
 # maintainers/plugin-src/ and copied verbatim. The plugin hooks.json is DERIVED
 # from .claude/settings.json (one source — a hook wired in project mode can't
 # silently miss plugin mode; the [9.2] dead-hook class), not authored: see the
@@ -67,8 +67,8 @@ rewrite_paths() {
 # can actually invoke. Plugin skills and agents resolve ONLY as guv:<name>
 # (verified live 2026-06-11), so bare /command mentions and reviewer-spawn
 # instructions are dead pointers in a plugin-only project.
-#   - slash commands: longest name first so /evaluate-parallel is consumed
-#     before /evaluate; the preceding-char guard [^[:alnum:].:-] keeps path
+#   - slash commands: longest name first so /eval-parallel is consumed
+#     before /eval; the preceding-char guard [^[:alnum:].:-] keeps path
 #     segments (docs/manual/task-*.md) and already-namespaced (/guv:task)
 #     mentions untouched
 #   - agent spawns: the "`<name>` subagent" instruction phrasing and the
@@ -77,8 +77,8 @@ rewrite_paths() {
 # Every name that registers as /<name> for consumers — commands, skills, and
 # saved workflows — DERIVED from the source tree (a hand-maintained copy of
 # this list is exactly the drift this build exists to prevent; plugin.test.sh
-# derives its detector the same way). Longest first so /evaluate-parallel is
-# consumed before /evaluate.
+# derives its detector the same way). Longest first so /eval-parallel is
+# consumed before /eval.
 slash_names() {
   {
     for f in "$SRC/commands"/*.md; do basename "$f" .md; done
@@ -91,19 +91,19 @@ slash_names() {
 
 _namespace_pass() {
   local args=(-E
-    -e 's|the saved `/evaluate-parallel` workflow|the `/evaluate-parallel` skill|g'
-    -e 's|\(`\.claude/workflows/evaluate-parallel\.js`\)|(launching the plugin-shipped workflow)|g'
+    -e 's|the saved `/eval-parallel` workflow|the `/eval-parallel` skill|g'
+    -e 's|\(`\.claude/workflows/eval-parallel\.js`\)|(launching the plugin-shipped workflow)|g'
     -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g'
-    -e 's|\(`\.claude/skills/evaluate/SKILL\.md`\)|(plugin-shipped)|g')
+    -e 's|\(`\.claude/skills/eval/SKILL\.md`\)|(plugin-shipped)|g')
   local n
   while IFS= read -r n; do
     # '#' delimiter: the pattern itself needs both '/' and the ERE '|'
     args+=(-e "s#(^|[^[:alnum:].:-])/$n(\$|[^[:alnum:]:_-])#\\1/guv:$n\\2#g")
   done < <(slash_names)
   args+=(-e 's|`evaluator` subagent|`guv:evaluator` subagent|g'
-    -e 's|`product-reviewer` subagent|`guv:product-reviewer` subagent|g'
+    -e 's|`reviewer` subagent|`guv:reviewer` subagent|g'
     -e 's|@evaluator|@guv:evaluator|g'
-    -e 's|@product-reviewer|@guv:product-reviewer|g')
+    -e 's|@reviewer|@guv:reviewer|g')
   sed "${args[@]}"
 }
 
@@ -185,7 +185,7 @@ done
 # path-rewritten ──
 # hooks: is dropped from the line "hooks:" through the last indented line of
 # its block; every other frontmatter key and the body pass through with the
-# namespace rewrite (descriptions and bodies mention /evaluate, /handoff,
+# namespace rewrite (descriptions and bodies mention /eval, /handoff,
 # @evaluator — dead pointers in their bare forms under plugin install) and
 # the script-path rewrite ([7.1] routed agent procedures through the
 # .claude/guv-*.sh helpers — dead paths in a plugin-only project without it).
@@ -351,9 +351,9 @@ cp "$ROOT/docs/REQUIREMENTS.md" "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/PHASE_S
 
 # ── workflow asset: reviewers namespaced ──
 # Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the
-# plugin copy of the workflow spawns guv:evaluator / guv:product-reviewer;
+# plugin copy of the workflow spawns guv:evaluator / guv:reviewer;
 # the project copy keeps bare names for .claude/agents/ consumers.
-sed "s/agentType: 'evaluator'/agentType: 'guv:evaluator'/; s/agentType: 'product-reviewer'/agentType: 'guv:product-reviewer'/" \
-  "$SRC/workflows/evaluate-parallel.js" > "$OUT/workflows/evaluate-parallel.js"
+sed "s/agentType: 'evaluator'/agentType: 'guv:evaluator'/; s/agentType: 'reviewer'/agentType: 'guv:reviewer'/" \
+  "$SRC/workflows/eval-parallel.js" > "$OUT/workflows/eval-parallel.js"
 
 echo "Built plugin at $OUT"

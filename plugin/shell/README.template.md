@@ -54,6 +54,6 @@ control plane.]
 ## Contributing
 
 [Optional — trim for a public artifact.] Developed with the Claude Code harness in
-`.claude/`: start a session with `/start-phase`, make scoped changes with `/task`, end
+`.claude/`: start a session with `/phase`, make scoped changes with `/task`, end
 with `/handoff` — each namespaced `/guv:<name>` when the harness is installed as the
 guv plugin. Conventions live in `CLAUDE.md` and `.claude/rules/`.

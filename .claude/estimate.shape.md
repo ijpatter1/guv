@@ -64,7 +64,7 @@ plan itself — the planner is already reading the wording and acceptance
 criteria, so it proposes a per-deliverable estimate (default 1, balloons
 called out) and the person ratifies them alongside the plan:
 
-- **`/plan-initiative`** proposes an estimate per generated deliverable and
+- **`/plan`** proposes an estimate per generated deliverable and
   records the ratified set with `estimate.sh set` after the plan's confirm.
 - **`/replan` insert** acquires the new deliverable's estimate **inside the
   same confirmation** that approves the insert, then `set`s it — the tracker

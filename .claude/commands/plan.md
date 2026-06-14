@@ -134,7 +134,7 @@ outside the schema's declared set (compare `jq -r 'keys[]'` output against the
 `properties` of `.claude/project.schema.json`, the same check the resolver's tests
 use). There is no
 revert machinery: "phased with a fully-✅ tracker" is a clean resting state (`/task`
-works inside phased projects, and the next `/plan-initiative` picks up from there).
+works inside phased projects, and the next `/plan` picks up from there).
 Reverting to `task` for a maintenance-only project is a manual, optional act.
 
 ## After Generation
@@ -150,5 +150,5 @@ Present a summary:
 - **Ceremony:** already phased / flipped task → phased (announced)
 
 Suggest the user review the docs, commit them to the control plane, then start with
-`/start-phase A`. Verify `/status` reports phase progress correctly before ending the
+`/phase A`. Verify `/status` reports phase progress correctly before ending the
 session that ran this command.

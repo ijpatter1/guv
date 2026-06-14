@@ -1,5 +1,5 @@
 ---
-name: evaluate
+name: eval
 description: "Run a dual QA review — technical evaluator + product reviewer — on recent work. Use when a feature is complete, before handoff, or when the user wants a quality check on what's been built."
 user-invocable: true
 ---
@@ -12,7 +12,7 @@ Run an independent quality assessment of recent work using both the technical ev
 
 - After completing a feature (self-check before moving on)
 - When the user asks for a review, gut-check, or quality assessment
-- Automatically as part of `/guv:handoff` (Step 1 and Step 2)
+- Automatically as part of `/handoff` (Step 1 and Step 2)
 - When you're uncertain whether work meets the bar
 
 ## Input
@@ -29,7 +29,7 @@ Run git against the **code** repo (`roots.code` from `.claude/project.json`; a n
 
 ```bash
 # Recent commits
-bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh log --oneline -10
+bash .claude/guv-git.sh log --oneline -10
 
 # Determine scope — commits since last handoff or last evaluation
 # Look for the most recent session artifact for a reference point
@@ -38,7 +38,7 @@ ls -t docs/sessions/session-*.md 2>/dev/null | head -1
 
 ```bash
 # Full diff for the evaluation scope
-bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh diff HEAD~N  # where N = number of commits in scope
+bash .claude/guv-git.sh diff HEAD~N  # where N = number of commits in scope
 ```
 
 ```bash
@@ -55,7 +55,7 @@ Build a context summary:
 
 ## Step 2 — Invoke the Technical Evaluator
 
-Invoke the `guv:evaluator` subagent using the Agent tool with a prompt like:
+Invoke the `evaluator` subagent using the Agent tool with a prompt like:
 
 "Evaluate the following work from Phase [N]. Commits: [list]. Changed files: [list]. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration."
 
@@ -63,7 +63,7 @@ Present the evaluator's full report without modification or softening.
 
 ## Step 3 — Invoke the Product Reviewer
 
-Invoke the `guv:product-reviewer` subagent using the Agent tool with a prompt like:
+Invoke the `reviewer` subagent using the Agent tool with a prompt like:
 
 "Review the following work from Phase [N] for product quality. Commits: [list]. Changed files: [list]. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth."
 
@@ -105,7 +105,7 @@ Action:  [fix and re-evaluate | proceed ✓]
 
 **The loop terminates when:**
 
-- Both reviewers return no issues → proceed to the next feature or to `/guv:handoff`
+- Both reviewers return no issues → proceed to the next feature or to `/handoff`
 - The user explicitly defers specific issues (e.g., "skip the minor formatting issues for now") → proceed, but note deferred issues in the session handoff under Issues & Technical Debt with the reason for deferral
 
 **Do not:**
@@ -119,8 +119,8 @@ Action:  [fix and re-evaluate | proceed ✓]
 
 ## Notes
 
-- **Parallel variant:** the `/guv:evaluate-parallel` skill (launching the plugin-shipped workflow) runs Steps 1–4 with both reviewers concurrent and returns both reports plus the combined summary. The run's completion notification truncates long reports, and the on-disk output nests the combined result under a JSON-string `result` field — so to read both sub-reports whole, run `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/extract-eval-report.sh <output.json>` against the task-output file the notification names; it decodes the nesting, prints the full untruncated report, and fails loud on a half review. Step 5 — the fix loop — stays here, conversational: apply fixes in the main session, then re-run for the next pass.
+- **Parallel variant:** the saved `/eval-parallel` workflow (`.claude/workflows/eval-parallel.js`) runs Steps 1–4 with both reviewers concurrent and returns both reports plus the combined summary. The run's completion notification truncates long reports, and the on-disk output nests the combined result under a JSON-string `result` field — so to read both sub-reports whole, run `bash .claude/extract-eval-report.sh <output.json>` against the task-output file the notification names; it decodes the nesting, prints the full untruncated report, and fails loud on a half review. Step 5 — the fix loop — stays here, conversational: apply fixes in the main session, then re-run for the next pass.
 - Both reviewers are read-only. They inspect the code and report findings. They do not modify files.
-- If this is invoked as part of `/guv:handoff` and either reviewer returns critical issues, the handoff stops. Fix the issues and re-run `/guv:handoff`.
+- If this is invoked as part of `/handoff` and either reviewer returns critical issues, the handoff stops. Fix the issues and re-run `/handoff`.
 - Do not editorialize or soften either report. Present them as-is. The user needs honest assessment, not reassurance.
 - The iterative loop is the default behavior. The agent should expect multiple passes — a first evaluation rarely comes back clean, and that's normal. The goal is zero debt at the feature boundary, not forward progress at the cost of quality.

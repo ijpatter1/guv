@@ -1,15 +1,12 @@
----
-description: "Phase-boundary entry for Phase $ARGUMENTS: branch into the phase, deep-read it, run the full context-loading and spec-alignment sequence, and present a plan — the ritual for *crossing into* a phase."
----
-
+Phase-boundary entry for Phase $ARGUMENTS: branch into the phase, deep-read it, run the full context-loading and spec-alignment sequence, and present a plan — the ritual for *crossing into* a phase.
 
 This is the **boundary** door. Reach for it when you're entering a phase (or
 returning after a long gap away): it performs the full sequence below, including
 the spec-alignment check. For everyday **mid-phase resume**, where you already
-have the context, use the light `/guv:resume` door instead — it reads the resolver's
+have the context, use the light `/next` door instead — it reads the resolver's
 ready-frontier and hands you a plan without the boundary ritual (no spec
 alignment, no deep architecture re-read, no UAT check). Which door applies is no
-longer a judgment call: the deterministic router (`"${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh`, **[8.1]**)
+longer a judgment call: the deterministic router (`.claude/route.sh`, **[8.1]**)
 selects the entry door from manifest + repo state, and Step 0 defers to it — a
 wrong-door invocation is redirected, never errored.
 
@@ -20,7 +17,7 @@ door (the routing collapse — manifest + repo state select the entry, no
 disambiguation; **never** decide the door by reading the tracker yourself):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for start-phase
+bash .claude/route.sh --for phase
 ```
 
 Read its `name=value` output and its exit code (the contract is identical
@@ -29,7 +26,7 @@ across all five entry doors):
 - **`match=yes`** (exit 0) — this *is* the right door for the current state.
   Continue to Step 1.
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
-  names the correct door in `door=` (e.g. `door=resume` mid-phase, `door=task`
+  names the correct door in `door=` (e.g. `door=next` mid-phase, `door=task`
   in a scoped project, `door=init-project` greenfield). Tell the user the
   routed door and the `reason=`, and defer to it — run that door instead of
   this sequence. This is the misroute-impossible guarantee: you land on the
@@ -38,8 +35,8 @@ across all five entry doors):
   ceremony, or a MALFORMED tracker). The router emits no `door=`; surface its
   `reason=` and **stop** (rule 15) — do not proceed off an undetermined state.
 - **Exit 4 (pre-scaffold)** — no manifest here yet: there is no phase to enter.
-  The router returns `match=no` (start-phase does not apply to a fresh repo);
-  tell the user to scaffold first — `/guv:init-project` for a spec, `/guv:onboard` for an
+  The router returns `match=no` (phase does not apply to a fresh repo);
+  tell the user to scaffold first — `/init-project` for a spec, `/onboard` for an
   existing repo — and **stop** rather than enter a phase off no project.
 - **Exit 2** — the router itself is unavailable/misinvoked (it is absent, a flag
   is wrong, or `jq` is missing). Fall back to the mode check below and proceed;
@@ -55,7 +52,7 @@ This command is the **phased** entry point. Read `ceremony` from `.claude/projec
 - If `ceremony` is **`task`** or **`onboard`**, or there are no phase docs in `docs/`
   (no `PHASE_STATUS.md` / `REQUIREMENTS.md`), this project has no phase structure.
   That is a **mode signal, not an error** — don't scaffold phase docs. Tell the user
-  to use `/guv:task "<description>"` for scoped work (or `/guv:onboard` to adopt the repo),
+  to use `/task "<description>"` for scoped work (or `/onboard` to adopt the repo),
   and stop here.
 - If `ceremony` is **`phased`**, continue.
 
@@ -69,12 +66,12 @@ Read `.claude/project.json`. Check whether the project has been scaffolded by ru
 sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" && echo SCAFFOLDED || echo NOT_SCAFFOLDED
 ```
 
-- **If `SCAFFOLDED`:** Before running tools, check readiness if the manifest declares it. `readyCheck` answers "are the tools installed/runnable" — distinct from `scaffoldCheck`'s "does a project exist." If `readyCheck` is present and **fails**, the state is **NOT_INSTALLED**: the project is scaffolded but its dependencies aren't (common on a fresh clone where tools live in `node_modules`/`.venv`). In that case run the declared install command — `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh install` — rather than running tests into spurious failures; note it. (`guv-cmd.sh` skips loudly when `commands.install` is `null`; in that case surface that deps appear missing but no install command is declared.) Then run the project's test command — `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh test` — and record the results: total tests, passing, failing, skipped. A `[guv-cmd] … skipping` line means the project has no test step; note it and move on. If any tests are failing, note them — you must not introduce additional failures during this session.
+- **If `SCAFFOLDED`:** Before running tools, check readiness if the manifest declares it. `readyCheck` answers "are the tools installed/runnable" — distinct from `scaffoldCheck`'s "does a project exist." If `readyCheck` is present and **fails**, the state is **NOT_INSTALLED**: the project is scaffolded but its dependencies aren't (common on a fresh clone where tools live in `node_modules`/`.venv`). In that case run the declared install command — `bash .claude/guv-cmd.sh install` — rather than running tests into spurious failures; note it. (`guv-cmd.sh` skips loudly when `commands.install` is `null`; in that case surface that deps appear missing but no install command is declared.) Then run the project's test command — `bash .claude/guv-cmd.sh test` — and record the results: total tests, passing, failing, skipped. A `[guv-cmd] … skipping` line means the project has no test step; note it and move on. If any tests are failing, note them — you must not introduce additional failures during this session.
 
   ```
   READY=$(jq -r '.readyCheck // empty' .claude/project.json)
   [ -n "$READY" ] && { sh -c "$READY" >/dev/null 2>&1 && echo READY || echo NOT_INSTALLED; } || echo READY
-  # NOT_INSTALLED → run:  bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh install
+  # NOT_INSTALLED → run:  bash .claude/guv-cmd.sh install
   ```
 
 - **If `NOT_SCAFFOLDED`:** The project hasn't been scaffolded yet. This is expected for the very first session of a `phased` project. Skip to Step 2 and note that scaffolding is the first deliverable. See the "Bootstrapping" section in CLAUDE.md for scaffolding requirements.
@@ -107,7 +104,7 @@ If manual tasks exist, read each one and check the **Status** field (in the head
 Inspect the **code** repo's history via the git helper — it targets `roots.code` from the manifest (a no-op for single-repo, where `roots.code` is `"."`):
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-git.sh log --oneline -15
+bash .claude/guv-git.sh log --oneline -15
 ```
 
 Use this to understand what was worked on recently and what state the codebase is in.
@@ -131,13 +128,13 @@ this order:
    ask the user which governs before proceeding.
 3. Also check CLAUDE.md's References section for any referenced spec files.
 
-**If a spec exists:** Invoke the `guv:product-reviewer` subagent with a targeted prompt:
+**If a spec exists:** Invoke the `reviewer` subagent with a targeted prompt:
 
 "Compare the Phase [N] deliverables in docs/REQUIREMENTS.md against the original spec at [path]. For each incomplete deliverable (⬜ or 🔄 in PHASE_STATUS.md) that the agent is about to work on this session, flag anything that was thinned out, oversimplified, or lost in translation from the spec. Don't review the whole project or completed deliverables — just what's in scope for this session. Be specific: quote the spec and quote the requirement side by side where there's a gap."
 
 Review the product reviewer's findings. **This step detects and routes; it does not
 mutate.** If it identifies gaps, close them by routing each finding through
-the `/guv:replan` command's procedure — classify, confirm, apply REQUIREMENTS first
+the `/replan` command's procedure — classify, confirm, apply REQUIREMENTS first
 through the engine, verify:
 
 - **Thin deliverables** (the requirement is a pale summary of a richer spec
@@ -147,24 +144,24 @@ through the engine, verify:
 - **Missing deliverables** (spec functionality with no corresponding requirement)
   route as inserts into the appropriate open phase.
 - Architectural detail the spec describes that `docs/ARCHITECTURE.md` lacks is
-  covered by `/guv:replan`'s apply step where it rides a deliverable mutation; a pure
+  covered by `/replan`'s apply step where it rides a deliverable mutation; a pure
   ARCHITECTURE gap with no deliverable change is a direct doc edit, not a plan
   mutation — fix it in place.
 
-One `/guv:replan` operation per finding, each with its own confirmation and its own
-commit under `/guv:replan`'s convention (`docs(replan): <verb> [IDs] — <one-line why>`).
+One `/replan` operation per finding, each with its own confirmation and its own
+commit under `/replan`'s convention (`docs(replan): <verb> [IDs] — <one-line why>`).
 Only a pure-ARCHITECTURE fix with no plan mutation gets the umbrella message
 `docs: fortify Phase N requirements from spec alignment review`.
 
 **Headless / autonomous sessions (user offline) — the draft-and-defer path.**
-`/guv:replan`'s confirm gate (its Step 3) forbids writing any doc before the user
+`/replan`'s confirm gate (its Step 3) forbids writing any doc before the user
 ratifies, and a headless confirmation can only clear if the prompt already named
 the exact mutation. When neither holds — a finding surfaces here but no one is
 present to confirm it — **do not** block on an unanswerable confirm and **do not**
 auto-apply a gated mutation. Take the Rule-15 designed degradation: draft the
 mutation in full, surface it in the handoff for later ratification, and honor the
 spec's intent directly in this session's deliverable where you can without touching
-plan state. The mutation lands through `/guv:replan` once a person is back.
+plan state. The mutation lands through `/replan` once a person is back.
 
 These updates ensure the identified gaps are captured in the project's permanent
 record — with amendment records naming what changed — not just in the agent's

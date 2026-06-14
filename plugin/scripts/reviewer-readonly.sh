@@ -1,6 +1,6 @@
 #!/bin/bash
 # Plugin-level PreToolUse guard: read-only enforcement for the two calibrated
-# reviewer agents (evaluator, product-reviewer).
+# reviewer agents (evaluator, reviewer).
 #
 # Why this exists: plugin-shipped agents cannot carry frontmatter hooks (the
 # plugin docs exclude hooks/mcpServers/permissionMode from plugin agents for
@@ -27,7 +27,7 @@ case "$AGENT" in
       jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $CMD" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
     fi
     ;;
-  product-reviewer|guv:product-reviewer)
+  reviewer|guv:reviewer)
     if echo "$CMD" | grep -qE '(^|\|)\s*(rm|mv|cp|chmod|chown|git\s+(push|commit|merge|rebase|checkout)|npm\s+(publish|install)|npx|node\s+-e|pip|python)'; then
       jq -n --arg r "Product reviewer is read-only. Blocked write-pattern command: $CMD" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
     fi

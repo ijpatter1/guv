@@ -69,11 +69,11 @@ Just run `bash .claude/guv-git.sh log --oneline -10` and the project's test comm
 
 ### Overnight / Next Day
 
-Use `/resume` — the light daily-resume door: it resolves the ready-frontier and presents the next pick with a plan, no boundary ritual. Read the latest session artifact carefully, especially Session Notes and Issues. (Reach for `/start-phase N` only when you're *crossing into a new phase*, not for a same-context resume.)
+Use `/next` — the light daily-driver door: it resolves the ready-frontier and presents the next pick with a plan, no boundary ritual. Read the latest session artifact carefully, especially Session Notes and Issues. (Reach for `/phase N` only when you're *crossing into a new phase*, not for a same-context resume.)
 
 ### After Multiple Days Away
 
-Use `/start-phase N` (the boundary door — a long gap warrants its full deep-read) and also read the 2-3 most recent session artifacts, not just the latest. Check `bash .claude/guv-git.sh log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`bash .claude/guv-cmd.sh test` / `bash .claude/guv-cmd.sh build` — each skips loudly when null) to confirm the codebase is healthy.
+Use `/phase N` (the boundary door — a long gap warrants its full deep-read) and also read the 2-3 most recent session artifacts, not just the latest. Check `bash .claude/guv-git.sh log --oneline -30` for a broader view of recent progress. Run the project's test and build commands (`bash .claude/guv-cmd.sh test` / `bash .claude/guv-cmd.sh build` — each skips loudly when null) to confirm the codebase is healthy.
 
 ### After a Phase Transition
 
@@ -88,7 +88,7 @@ When starting a new phase:
 
 ## Initiative Boundaries
 
-A project can run multiple phased initiatives over its life (`/plan-initiative`). Session
+A project can run multiple phased initiatives over its life (`/plan`). Session
 continuity crosses those boundaries; these conventions keep it intact:
 
 - **Archive layout:** a finished initiative's REQUIREMENTS + PHASE_STATUS pair freezes in

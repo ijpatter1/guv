@@ -38,7 +38,7 @@
 #                      ROOT is the transitive blocking ID (the deepest
 #                      unsatisfied dep that is itself ready, in progress,
 #                      or ❌)
-#   serial=…           serial resume: first 🔄, else first ready. In LEGACY
+#   serial=…           serial pick: first 🔄, else first ready. In LEGACY
 #                      mode this is line *text* (no IDs exist) — the first
 #                      🔄's, else the first ⬜'s (finish before start) —
 #                      and ready=, in_progress=, and blocked= are all
@@ -131,7 +131,7 @@ die5() { echo "status=MALFORMED — $1" >&2; exit 5; }
 
 # A tracker with no deliverable bullets at all is not resolvable — fail loud
 # (archive-initiative.sh exits 5 on the same shape; a corrupt tracker must
-# not read as "nothing to do" to the resume door).
+# not read as "nothing to do" to the next door).
 [ -n "$LINES" ] || die5 "$TRACKER has no recognizable deliverable bullets"
 
 # ── LEGACY: token-free trackers keep today's semantics exactly (same gate as

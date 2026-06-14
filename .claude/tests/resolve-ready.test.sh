@@ -5,7 +5,7 @@
 # ready=/blocked= span ALL phases — every open ⬜ is either ready or blocked;
 # deps are the only ordering and phase= demotes to reporting (first phase
 # with open work) — in_progress= unscoped (in-flight work is finished first
-# wherever it sits), serial resume = first 🔄 else first ready, exit 5
+# wherever it sits), serial pick = first 🔄 else first ready, exit 5
 # naming offenders on unknown ID / duplicate ID / cycle / missing token /
 # bullet-free tracker (a forward cross-phase dep is an ordinary edge — the
 # MALFORMED rule repealed with the phase barrier whose lint companion it
@@ -235,7 +235,7 @@ OUT=$(bash "$SCRIPT" "$(fx notoken)" 2>&1); RC=$?
   && ok "missing token: exit 5, offending line named" \
   || no "missing token should exit 5 naming the line (rc=$RC: $OUT)"
 
-# T9 — LEGACY (token-free): first ⬜ in document order as the serial resume,
+# T9 — LEGACY (token-free): first ⬜ in document order as the serial pick,
 # parallel set explicitly empty; a 🔄 wins serial per today's semantics.
 cat > "$(fx legacy)" <<'MD'
 ## Phase 4 — Build
@@ -361,7 +361,7 @@ OUT=$(bash "$SCRIPT" "$(fx widephase)" 2>&1); RC=$?
 
 # T9g — a tracker with headers but zero deliverable bullets is MALFORMED
 # (exit 5), matching archive-initiative.sh — a corrupt tracker must not read
-# as "nothing to do" to the resume door.
+# as "nothing to do" to the next door.
 printf '# Tracker\n## Phase 6 — Build\nno bullets here\n' > "$(fx empty)"
 OUT=$(bash "$SCRIPT" "$(fx empty)" 2>&1); RC=$?
 [ "$RC" -eq 5 ] && echo "$OUT" | grep -q "MALFORMED" \

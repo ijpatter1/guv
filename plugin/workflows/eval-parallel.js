@@ -1,14 +1,14 @@
 export const meta = {
-  name: 'evaluate-parallel',
-  description: 'Dual QA review over a commit-range scope — the evaluator and product-reviewer run concurrently; returns both reports plus the combined summary',
+  name: 'eval-parallel',
+  description: 'Dual QA review over a commit-range scope — the evaluator and reviewer run concurrently; returns both reports plus the combined summary',
   whenToUse: 'After completing a feature or before handoff, when both calibrated reviewers should run at once. Scope via args (e.g. "last 3 commits"); default is work since the last handoff. The fix loop stays conversational — apply fixes in the main session, then re-run.',
   phases: [
     { title: 'Scope', detail: 'commit range, changed files, current phase' },
-    { title: 'Review', detail: 'evaluator + product-reviewer, concurrent, by name' },
+    { title: 'Review', detail: 'evaluator + reviewer, concurrent, by name' },
   ],
 }
 
-// Mirrors the /evaluate skill's Steps 1-4. Step 5 — the fix loop — is deliberately
+// Mirrors the /eval skill's Steps 1-4. Step 5 — the fix loop — is deliberately
 // NOT in this workflow: workflow subagents always run in acceptEdits mode, which
 // conflicts with the conversational fix-and-re-evaluate gate. Fix in the main
 // session, then re-run this workflow for the next pass.
@@ -50,7 +50,7 @@ const REPORT_SCHEMA = {
 phase('Scope')
 const scopeHint = typeof args === 'string' && args.trim() ? args.trim() : null
 const scope = await agent(
-  `Gather the evaluation scope for a dual QA review (this mirrors the /evaluate skill's Step 1).
+  `Gather the evaluation scope for a dual QA review (this mirrors the /eval skill's Step 1).
 ${scopeHint
     ? `The user scoped the evaluation: "${scopeHint}". Resolve that to concrete commits.`
     : 'No explicit scope was given: evaluate all work since the latest session handoff (the most recent file in docs/sessions/).'}
@@ -61,7 +61,7 @@ Collect: the phase, the commits in scope (oldest first), the files changed acros
   { label: 'scope', phase: 'Scope', schema: SCOPE_SCHEMA }
 )
 if (!scope || !scope.commits.length) {
-  return { error: 'No commits in scope — nothing to evaluate. Commit the work first, or scope explicitly (e.g. /evaluate-parallel last 3 commits — /guv:evaluate-parallel under the plugin).' }
+  return { error: 'No commits in scope — nothing to evaluate. Commit the work first, or scope explicitly (e.g. /eval-parallel last 3 commits — /guv:eval-parallel under the plugin).' }
 }
 log(`Scope: ${scope.scopeDescription} (${scope.commits.length} commits, ${scope.filesChanged.length} files)`)
 // Belt and braces for the prompt templates below: the schema asks for the phase
@@ -85,11 +85,11 @@ Your final structured output must carry the FULL report — do not stash finding
 const [tech, product] = await parallel([
   () => agent(
     `Evaluate the following work${fromPhase}. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration.\n\n${context}`,
-    { label: 'evaluator', phase: 'Review', agentType: 'evaluator', schema: REPORT_SCHEMA }
+    { label: 'evaluator', phase: 'Review', agentType: 'guv:evaluator', schema: REPORT_SCHEMA }
   ),
   () => agent(
     `Review the following work${fromPhase} for product quality. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth.\n\n${context}`,
-    { label: 'product-reviewer', phase: 'Review', agentType: 'product-reviewer', schema: REPORT_SCHEMA }
+    { label: 'reviewer', phase: 'Review', agentType: 'guv:reviewer', schema: REPORT_SCHEMA }
   ),
 ])
 
@@ -111,7 +111,7 @@ const critical = tech.criticalCount + product.criticalCount
 const major = tech.majorCount + product.majorCount
 const minor = tech.minorCount + product.minorCount
 const action = critical + major + minor > 0
-  ? 'fix and re-evaluate — conversationally, in the main session (/evaluate Step 5; /guv:evaluate under the plugin), then re-run this workflow'
+  ? 'fix and re-evaluate — conversationally, in the main session (/eval Step 5; /guv:eval under the plugin), then re-run this workflow'
   : 'proceed ✓'
 const summary = [
   '═══ Evaluation Summary (parallel) ═══',

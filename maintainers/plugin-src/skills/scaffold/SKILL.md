@@ -1,5 +1,5 @@
 ---
-description: "Scaffold the harness project shell into the current directory — templates, manifest schema, settings, rules, .gitignore, optional Docker tier — replacing the template-clone step. Use on a fresh or existing repo before /guv:init-project, /guv:onboard, or /guv:plan-initiative; safe to re-run after a plugin update to refresh harness-owned files."
+description: "Scaffold the harness project shell into the current directory — templates, manifest schema, settings, rules, .gitignore, optional Docker tier — replacing the template-clone step. Use on a fresh or existing repo before /guv:init-project, /guv:onboard, or /guv:plan; safe to re-run after a plugin update to refresh harness-owned files."
 ---
 
 # Scaffold — Project Shell from the Plugin
@@ -67,7 +67,7 @@ The entry commands work unchanged on top of the deployed shell:
   phase docs, rendered `CLAUDE.md` (from the deployed `CLAUDE.template.md`)
 - **Existing codebase:** `/guv:onboard` — infers conventions, finalizes the
   manifest, renders `CLAUDE.md` without imposing phase structure
-- **New initiative on an existing project:** `/guv:plan-initiative <spec>`
+- **New initiative on an existing project:** `/guv:plan <spec>`
 
 Tell the user which applies to their situation and stop — scaffolding ends
 here; project setup belongs to those commands.
