@@ -1,4 +1,9 @@
-Phase-boundary entry for Phase $ARGUMENTS: branch into the phase, deep-read it, run the full context-loading and spec-alignment sequence, and present a plan — the ritual for *crossing into* a phase.
+---
+name: phase
+description: "Phase-boundary entry for Phase $ARGUMENTS: branch into the phase, deep-read it, run the full context-loading and spec-alignment sequence, and present a plan — the ritual for *crossing into* a phase."
+user-invocable: true
+---
+
 
 This is the **boundary** door. Reach for it when you're entering a phase (or
 returning after a long gap away): it performs the full sequence below, including

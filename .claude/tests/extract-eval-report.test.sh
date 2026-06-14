@@ -29,7 +29,7 @@ ROOT="$(cd "$SRC/.." && pwd)"
 SCRIPT="$SRC/extract-eval-report.sh"
 SKILL="$SRC/skills/task/SKILL.md"
 EVAL_SKILL="$SRC/skills/eval/SKILL.md"       # the parallel-variant operator note
-HANDOFF="$SRC/commands/handoff.md"               # the /handoff parallel-pass note
+HANDOFF="$SRC/skills/handoff/SKILL.md"               # the /handoff parallel-pass note
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }

@@ -30,13 +30,13 @@ PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
-RESUME="$ROOT/.claude/commands/next.md"
-SP="$ROOT/.claude/commands/phase.md"
+RESUME="$ROOT/.claude/skills/next/SKILL.md"
+SP="$ROOT/.claude/skills/phase/SKILL.md"
 SM="$ROOT/.claude/skills/session-management/SKILL.md"
 
 # ── Part A — the next door (ships to every plane) ──────────────────────────
 if [ -f "$RESUME" ]; then
-  ok "next door exists (.claude/commands/next.md)"
+  ok "next door exists (.claude/skills/next/SKILL.md)"
 
   grep -q 'resolve-ready.sh' "$RESUME" \
     && ok "next door calls the resolver (resolve-ready.sh)" \
@@ -79,7 +79,7 @@ if [ -f "$RESUME" ]; then
     ok "next door name is ratified (no provisional marker; [8.2] decided, [8.3] landed)"
   fi
 else
-  no "next door missing — .claude/commands/next.md must exist"
+  no "next door missing — .claude/skills/next/SKILL.md must exist"
 fi
 
 # ── Part A — the boundary door (/phase) ────────────────────────────────
@@ -124,9 +124,9 @@ if grep -q 'guv-template-readme' "$README_PROBE" 2>/dev/null && [ -d "$MAINT_PRO
   grep -qE '^- `/next' "$README" \
     && ok "README What's Included carries a /next bullet" \
     || no "README What's Included must carry a /next bullet"
-  grep -q 'next\.md' "$README" \
-    && ok "README File Structure tree lists next.md" \
-    || no "README File Structure tree must list next.md"
+  grep -qE '├── next/' "$README" \
+    && ok "README File Structure tree lists the next skill" \
+    || no "README File Structure tree must list the next skill (skills/next/)"
 
   if grep '^\- \*\*Process commands:\*\*' "$CT" | grep -q '/next'; then
     ok "CLAUDE.template.md process-commands bullet names /next"

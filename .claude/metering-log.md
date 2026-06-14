@@ -83,7 +83,7 @@ degrades the meter's resolution, never blocks the line.
 
 ## Wiring
 
-`.claude/commands/handoff.md` invokes the writer at session-close (after the
+`.claude/skills/handoff/SKILL.md` invokes the writer at session-close (after the
 handoff artifact is generated and the suite has run), passing the deliverable
 ID(s) the session served — or none, to record `session-scalar`. That is the only
 production caller; the writer is otherwise standalone and testable.

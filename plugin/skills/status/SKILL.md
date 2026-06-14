@@ -1,5 +1,7 @@
 ---
+name: status
 description: "Give a quick status overview of the project without the full session initialization."
+user-invocable: true
 ---
 
 

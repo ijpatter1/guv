@@ -1,4 +1,9 @@
-End the current work session by running QA evaluation, generating a structured handoff artifact, and updating the phase tracker.
+---
+name: handoff
+description: "End the current work session by running QA evaluation, generating a structured handoff artifact, and updating the phase tracker."
+user-invocable: true
+---
+
 
 ## Steps 1–2 — Session-Close Review (run `/eval`)
 

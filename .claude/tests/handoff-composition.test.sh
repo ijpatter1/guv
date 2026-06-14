@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for .claude/commands/handoff.md — command-composition hygiene ([10.4]).
+# Tests for .claude/skills/handoff/SKILL.md — command-composition hygiene ([10.4]).
 # Guards the invariants the deliverable promises:
 #   - /handoff REFERENCES /eval's procedure by pointer, not by inlining its
 #     steps — killing the drift class where the restatement diverges from its
@@ -21,7 +21,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-HANDOFF="$ROOT/.claude/commands/handoff.md"
+HANDOFF="$ROOT/.claude/skills/handoff/SKILL.md"
 EVALUATE="$ROOT/.claude/skills/eval/SKILL.md"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }

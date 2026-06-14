@@ -95,16 +95,22 @@ done
   && ok "component dirs are at the plugin root, not inside .claude-plugin/" \
   || no "component dirs found inside .claude-plugin/"
 
-# T3 — every harness command ships as a namespaced skill: skills/<name>/SKILL.md
-# with a description in frontmatter (the folder name becomes /guv:<name>).
+# T3 — every source skill (incl. the former commands flattened into skills/ at
+# [8.3]) carries name + description frontmatter and ships under its own name
+# (the folder name becomes /guv:<name>). The flatten gave the former commands
+# real frontmatter; this guards that none ships without it.
 T3_OK=1
-for c in "$SRC"/commands/*.md; do
-  name="$(basename "$c" .md)"
+for d in "$SRC"/skills/*/; do
+  name="$(basename "$d")"
+  src="$d/SKILL.md"
   s="$PLUGIN/skills/$name/SKILL.md"
-  if [ ! -f "$s" ]; then no "command $name not packaged as skills/$name/SKILL.md"; T3_OK=0; continue; fi
-  awk '/^---$/{n++} n==1' "$s" | grep -q '^description:' || { no "skills/$name/SKILL.md lacks description frontmatter"; T3_OK=0; }
+  if [ ! -f "$src" ]; then no "source skill $name has no SKILL.md"; T3_OK=0; continue; fi
+  fm="$(awk '/^---$/{n++} n==1' "$src")"
+  echo "$fm" | grep -q '^name:'        || { no "skills/$name/SKILL.md lacks name frontmatter"; T3_OK=0; }
+  echo "$fm" | grep -q '^description:' || { no "skills/$name/SKILL.md lacks description frontmatter"; T3_OK=0; }
+  [ -f "$s" ] || { no "skill $name not packaged at skills/$name/SKILL.md"; T3_OK=0; }
 done
-[ "$T3_OK" -eq 1 ] && ok "all commands ship as skills/<name>/SKILL.md with description frontmatter"
+[ "$T3_OK" -eq 1 ] && ok "every source skill (incl. flattened former commands) ships with name + description frontmatter"
 
 # T4 — every harness skill ships under the same name (body content preserved:
 # the part after the source frontmatter appears verbatim in the plugin copy,
@@ -298,7 +304,6 @@ STALE=$(grep -rE "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" "$PLUGIN/skills" "$PLUGI
 # (maintainers/ deleted), where the detector is just slightly narrower.
 CMDS=$(
   {
-    for f in "$SRC/commands"/*.md; do basename "$f" .md; done
     for d in "$SRC/skills"/*/; do basename "$d"; done
     for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
     for d in "$ROOT/maintainers/plugin-src/skills"/*/; do
@@ -504,13 +509,15 @@ if [ -f "$BUILD" ]; then
   # between two adjacent /commands, so a single sed pass misses the second —
   # the double-pass exists for exactly this. Fixture command exercises it
   # end-to-end through a real build.
-  FIX2="$SRC/commands/zzadjacency-fixture.md"
+  FIX2DIR="$SRC/skills/zzadjacency-fixture"
+  FIX2="$FIX2DIR/SKILL.md"
   # A pre-existing fixture is a leftover from a crashed run (the path is a known
-  # zz-throwaway, never a real command) — clean it and proceed, never hard-fail
+  # zz-throwaway, never a real skill) — clean it and proceed, never hard-fail
   # the battery. Hard-failing here is what let one crashed run poison the next
   # and false-fail overlapping runs (feedback 2026-06-12T04:35:14Z-143815213).
-  [ -e "$FIX2" ] && { echo "  - cleaning a stale adjacency fixture (prior crashed run): $FIX2"; rm -f "$FIX2"; }
-  trap 'rm -f "$FIX2"' EXIT
+  [ -e "$FIX2DIR" ] && { echo "  - cleaning a stale adjacency fixture (prior crashed run): $FIX2DIR"; rm -rf "$FIX2DIR"; }
+  trap 'rm -rf "$FIX2DIR"' EXIT
+  mkdir -p "$FIX2DIR"
   printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /eval too.\n' > "$FIX2"
   TMP3=$(mktemp -d)
   if bash "$BUILD" --out "$TMP3/plugin" >/dev/null 2>&1 \
@@ -520,22 +527,24 @@ if [ -f "$BUILD" ]; then
   else
     no "adjacent /command mentions must both be namespaced by the double-pass"
   fi
-  rm -rf "$TMP3" "$FIX2"
+  rm -rf "$TMP3" "$FIX2DIR"
   trap - EXIT
 
   # T15c — glob-derived helper registry ([7.1]): a helper dropped into
   # .claude/ ships and gets path-rewritten with ZERO enumeration-list edits.
-  # Fixture: a throwaway helper plus a command mentioning it; rebuild; the
+  # Fixture: a throwaway helper plus a skill mentioning it; rebuild; the
   # helper must land in scripts/ byte-identical AND the mention must be
   # rewritten to ${CLAUDE_PLUGIN_ROOT}. Red until the HELPERS list and
   # rewrite_paths derive from the source tree.
   FIX3="$SRC/zzregistry-fixture.sh"
-  FIX3CMD="$SRC/commands/zzregistry-fixture-cmd.md"
+  FIX3DIR="$SRC/skills/zzregistry-fixture-cmd"
+  FIX3CMD="$FIX3DIR/SKILL.md"
   # Leftovers from a crashed run → clean and proceed (throwaway paths), never
   # hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
-  { [ -e "$FIX3" ] || [ -e "$FIX3CMD" ]; } && { echo "  - cleaning stale registry fixtures (prior crashed run)"; rm -f "$FIX3" "$FIX3CMD"; }
-  trap 'rm -f "$FIX3" "$FIX3CMD"' EXIT
+  { [ -e "$FIX3" ] || [ -e "$FIX3DIR" ]; } && { echo "  - cleaning stale registry fixtures (prior crashed run)"; rm -rf "$FIX3" "$FIX3DIR"; }
+  trap 'rm -rf "$FIX3" "$FIX3DIR"' EXIT
   printf '#!/bin/bash\necho zzregistry-fixture\n' > "$FIX3"
+  mkdir -p "$FIX3DIR"
   printf 'Registry fixture.\n\nRun `bash .claude/zzregistry-fixture.sh` to exercise the registry.\n' > "$FIX3CMD"
   TMP4=$(mktemp -d)
   if bash "$BUILD" --out "$TMP4/plugin" >/dev/null 2>&1 \
@@ -545,7 +554,7 @@ if [ -f "$BUILD" ]; then
   else
     no "a dropped-in helper must ship in scripts/ and be path-rewritten without touching any list"
   fi
-  rm -rf "$TMP4" "$FIX3" "$FIX3CMD"
+  rm -rf "$TMP4" "$FIX3" "$FIX3DIR"
   trap - EXIT
 
   # T16 — consumer-fork resilience: with the build script absent, the whole

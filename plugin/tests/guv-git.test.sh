@@ -84,7 +84,7 @@ OUT=$( (cd "$P" && bash "$SCRIPT" log --oneline -1) 2>&1 ); RC=$?
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
 INLINE=$(grep -r "jq -r '\.roots\.code" \
   "$ROOT/.claude/commands" "$ROOT/.claude/skills" "$ROOT/.claude/agents" 2>/dev/null \
-  | grep -v 'commands/handoff\.md' | wc -l | tr -d ' ')
+  | grep -v 'skills/handoff/SKILL\.md' | wc -l | tr -d ' ')
 [ "$INLINE" -eq 0 ] \
   && ok "no roots.code jq read on the teaching surfaces (handoff's both-roots block pinned as the exception)" \
   || no "$INLINE roots.code jq read(s) remain on teaching surfaces (route through guv-git.sh)"

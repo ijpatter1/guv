@@ -1,5 +1,7 @@
 ---
+name: phase
 description: "Phase-boundary entry for Phase $ARGUMENTS: branch into the phase, deep-read it, run the full context-loading and spec-alignment sequence, and present a plan — the ritual for *crossing into* a phase."
+user-invocable: true
 ---
 
 

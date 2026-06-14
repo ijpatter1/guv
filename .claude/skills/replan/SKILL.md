@@ -1,4 +1,9 @@
-Mutate the live plan through the one sanctioned door: classify the change, confirm it with the user, then apply it atomically across the three phase docs with an amendment record. $ARGUMENTS describes the change being requested.
+---
+name: replan
+description: "Mutate the live plan through the one sanctioned door: classify the change, confirm it with the user, then apply it atomically across the three phase docs with an amendment record. $ARGUMENTS describes the change being requested."
+user-invocable: true
+---
+
 
 ## Step 0 — Preconditions
 

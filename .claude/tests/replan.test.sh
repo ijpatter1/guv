@@ -340,7 +340,7 @@ for var in ID_RE DEPS_RE; do
 done
 
 # ════ T10 — prose contracts: the command shell and its routing ════
-CMD="$SRC/commands/replan.md"
+CMD="$SRC/skills/replan/SKILL.md"
 if [ -f "$CMD" ]; then
   ok "replan.md exists"
   ALL7=1
@@ -354,10 +354,10 @@ if [ -f "$CMD" ]; then
   grep -qi "completed phase" "$CMD" && ok "replan.md states completed phases refuse" || no "replan.md must state the completed-phase refusal"
   grep -q "sync-check" "$CMD" && ok "replan.md verifies verbatim sync" || no "replan.md must run sync-check"
 else
-  no "commands/replan.md missing"
+  no "skills/replan/SKILL.md missing"
 fi
 
-SP="$SRC/commands/phase.md"
+SP="$SRC/skills/phase/SKILL.md"
 grep -q "/replan" "$SP" && ok "phase.md routes spec-alignment to /replan" || no "phase.md Step 5 must route to /replan"
 grep -q "update the project docs immediately" "$SP" \
   && no "phase.md still instructs direct doc mutation (Step 5 must be detect-and-route)" \

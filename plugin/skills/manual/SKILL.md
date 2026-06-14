@@ -1,5 +1,7 @@
 ---
+name: manual
 description: "Generate an actionable artifact for work that must be performed outside the sandbox."
+user-invocable: true
 ---
 
 

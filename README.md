@@ -100,7 +100,7 @@ if you haven't customized harness-owned files. In order:
 
 1. Install the plugin (marketplace add + install, as above).
 2. Delete the copied surfaces the plugin now supplies at runtime, so the two
-   copies don't double-load: `.claude/commands/`, `.claude/skills/`,
+   copies don't double-load: `.claude/skills/`,
    `.claude/agents/`, `.claude/hooks/`, the loose helper scripts
    (`resolve-stack.sh` and friends), and harness-shipped workflows. If you've
    added files of your own inside those directories (a custom skill or agent),
@@ -261,27 +261,26 @@ code .
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/
 │   │   ├── evaluator.md               # Technical QA evaluator subagent
-│   │   └── reviewer.md        # Product reviewer subagent
-│   ├── commands/
-│   │   ├── init-project.md            # Greenfield: scaffold + render CLAUDE.md
-│   │   ├── onboard.md                 # Adopt an existing repo (no phase ceremony)
-│   │   ├── plan.md         # Phased initiative on an existing project
-│   │   ├── phase.md             # Phase-boundary entry (full ritual + spec alignment)
-│   │   ├── next.md                  # Light daily/mid-phase resume (resolver frontier)
-│   │   ├── replan.md                  # Plan mutation: the one sanctioned door (engine: replan.sh)
-│   │   ├── handoff.md                 # Session end + dual QA + handoff
-│   │   ├── status.md                  # Quick status check
-│   │   └── manual.md                  # Out-of-sandbox task artifacts
+│   │   └── reviewer.md                 # Product reviewer subagent
 │   ├── hooks/
-│   │   ├── bash-guard.sh              # Blocks dangerous commands (universal + opt-in guards)
-│   │   ├── auto-format.sh             # Formats on write (formatter from manifest)
-│   │   └── stop-check.sh              # Reminds about evaluation
-│   ├── skills/
-│   │   ├── task/                      # /task — scoped change entry point
-│   │   ├── phase-docs/                # Shared phase-doc templates (init-project + plan)
-│   │   ├── eval/                  # /eval — dual QA review
-│   │   ├── feedback/              # /feedback — record harness friction
-│   │   └── session-management/        # Context continuity conventions
+│   │   ├── bash-guard.sh               # Blocks dangerous commands (universal + opt-in guards)
+│   │   ├── auto-format.sh              # Formats on write (formatter from manifest)
+│   │   └── stop-check.sh               # Reminds about evaluation
+│   ├── skills/                         # All process verbs are skills (commands flattened in at [8.3])
+│   │   ├── task/                       # /task — scoped change entry point
+│   │   ├── next/                       # /next — light daily/mid-phase re-entry (resolver frontier)
+│   │   ├── phase/                      # /phase — phase-boundary entry (full ritual + spec alignment)
+│   │   ├── plan/                       # /plan — phased initiative on an existing project
+│   │   ├── init-project/               # /init-project — greenfield: scaffold + render CLAUDE.md
+│   │   ├── onboard/                    # /onboard — adopt an existing repo (no phase ceremony)
+│   │   ├── replan/                     # /replan — plan mutation: the one sanctioned door (engine: replan.sh)
+│   │   ├── eval/                       # /eval — dual QA review
+│   │   ├── feedback/                   # /feedback — record harness friction
+│   │   ├── handoff/                    # /handoff — session end + dual QA + handoff
+│   │   ├── status/                     # /status — quick status check
+│   │   ├── manual/                     # /manual — out-of-sandbox task artifacts
+│   │   ├── phase-docs/                 # Shared phase-doc templates (init-project + plan)
+│   │   └── session-management/         # Context continuity conventions
 │   ├── workflows/
 │   │   └── eval-parallel.js       # /eval-parallel — both reviewers, concurrent
 │   ├── tests/                         # Bash test suites for the harness scripts/skills

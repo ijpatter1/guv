@@ -1,4 +1,9 @@
-Adopt an existing repository — infer its stack and conventions, write the manifest, and render a live `CLAUDE.md`, without imposing greenfield phase structure.
+---
+name: onboard
+description: "Adopt an existing repository — infer its stack and conventions, write the manifest, and render a live `CLAUDE.md`, without imposing greenfield phase structure."
+user-invocable: true
+---
+
 
 Use this for code that **already exists**. Unlike `/init-project` (greenfield, full
 phased plan), `/onboard` reads what's there and records it. It does not scaffold new

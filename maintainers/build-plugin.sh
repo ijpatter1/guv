@@ -2,7 +2,7 @@
 # Build the Governor (guv) plugin from the harness sources — Phase 5 D1.
 #
 # The committed plugin/ directory is GENERATED, never hand-edited. The single
-# source of truth stays in .claude/ (commands, skills, agents, hooks, rules,
+# source of truth stays in .claude/ (skills, agents, hooks, rules,
 # helper scripts, the saved workflow); plugin-only files (manifest, the
 # reviewer-readonly guard, the zen and eval-parallel skills) are authored in
 # maintainers/plugin-src/ and copied verbatim. The plugin hooks.json is DERIVED
@@ -12,10 +12,9 @@
 # diffs against the committed tree.
 #
 # Transforms applied to derived files:
-#   - commands/<name>.md  -> skills/<name>/SKILL.md, gaining a frontmatter
-#     description (the command's first line — every command opens with a
-#     one-sentence summary)
-#   - skills/<name>/      -> skills/<name>/ unchanged in structure
+#   - skills/<name>/      -> skills/<name>/ unchanged in structure (the former
+#     commands/ were flattened into skills/ at [8.3]; the build no longer
+#     derives skills from a commands/ dir)
 #   - both of the above get the script-path rewrite: project-relative helper
 #     invocations (bash .claude/<script>.sh and bare .claude/<script>.sh
 #     mentions) become "${CLAUDE_PLUGIN_ROOT}"/scripts/<script>.sh
@@ -81,7 +80,6 @@ rewrite_paths() {
 # consumed before /eval.
 slash_names() {
   {
-    for f in "$SRC/commands"/*.md; do basename "$f" .md; done
     for d in "$SRC/skills"/*/; do basename "$d"; done
     for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
     # plugin-only skills (zen, scaffold, …) register as /guv:<name> too
@@ -150,25 +148,11 @@ for d in "$PSRC/skills"/*/; do
   cp "$d"SKILL.md "$OUT/skills/$name/SKILL.md"
 done
 
-# ── commands -> namespaced skills ──
-# Authored plugin-src skills were copied first; a derived name colliding with
-# one would silently clobber it — fail loud instead.
-for c in "$SRC/commands"/*.md; do
-  name="$(basename "$c" .md)"
-  if [ -e "$OUT/skills/$name/SKILL.md" ]; then
-    echo "build-plugin: derived command '$name' collides with an authored plugin-src skill" >&2
-    exit 1
-  fi
-  mkdir -p "$OUT/skills/$name"
-  # the description ships to plugin consumers too — namespace it like the body
-  desc="$(head -1 "$c" | namespace_refs | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  {
-    printf -- '---\ndescription: "%s"\n---\n\n' "$desc"
-    tail -n +2 "$c" | rewrite_paths | namespace_refs
-  } > "$OUT/skills/$name/SKILL.md"
-done
-
 # ── harness skills, path- and namespace-rewritten ──
+# Includes the flattened former commands (next, phase, plan, handoff, …): at
+# [8.3] commands/ was flattened into skills/, so they ship through this one loop
+# like any other skill. Authored plugin-src skills were copied first; the
+# collision check below fails loud if a harness skill name shadows one.
 for d in "$SRC/skills"/*/; do
   name="$(basename "$d")"
   if [ -e "$OUT/skills/$name/SKILL.md" ]; then

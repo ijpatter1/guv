@@ -1,4 +1,9 @@
-Scaffold the project documentation from a PRD or spec document.
+---
+name: init-project
+description: "Scaffold the project documentation from a PRD or spec document."
+user-invocable: true
+---
+
 
 ## Step 0 — Routing Guard
 

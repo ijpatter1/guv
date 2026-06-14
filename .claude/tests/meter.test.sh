@@ -272,7 +272,7 @@ if [ -n "$SHAPEDOC" ]; then
 fi
 
 # T12 — handoff.md wires the writer into the session-close path.
-HANDOFF="$ROOT/.claude/commands/handoff.md"
+HANDOFF="$ROOT/.claude/skills/handoff/SKILL.md"
 grep -qE 'meter\.sh' "$HANDOFF" \
   && ok "handoff.md invokes the metering writer at session-close" \
   || no "handoff.md does not wire in meter.sh"

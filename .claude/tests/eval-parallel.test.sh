@@ -88,7 +88,7 @@ fi
 # CLAUDE.template.md carry the planning-/execution-layer guidance, and the
 # /eval skill + /handoff command cross-reference the workflow variant.
 for doc in README.md CLAUDE.template.md \
-           .claude/skills/eval/SKILL.md .claude/commands/handoff.md; do
+           .claude/skills/eval/SKILL.md .claude/skills/handoff/SKILL.md; do
   target="$DOCROOT/$doc"
   # /init-project replaces README.md with a rendered project README, and a
   # fork may delete it — both are consumer shapes that skip this one guard

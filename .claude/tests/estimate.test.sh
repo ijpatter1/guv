@@ -217,8 +217,8 @@ ERR=$(bash "$SCRIPT" validate "$S" 2>&1 1>/dev/null)
 [ -z "$ERR" ] && ok "stderr-gate: a clean validate is silent on stderr" || no "clean validate leaked to stderr: $ERR"
 
 # ════ T9 — prose contracts: both generators + the mutation door wire estimates ════
-PI="$SRC/commands/plan.md"
-RP="$SRC/commands/replan.md"
+PI="$SRC/skills/plan/SKILL.md"
+RP="$SRC/skills/replan/SKILL.md"
 SHAPE="$SRC/estimate.shape.md"
 
 # Both generators emit estimates for a new plan.

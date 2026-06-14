@@ -34,7 +34,7 @@ append() { # $1 category  $2 summary  $3 severity  $4 routing  [$5 id-suffix]
     --arg ts "$TS" \
     --arg session "${SESSION:-n/a}" \
     --arg category "$1" \
-    --arg artifact ".claude/commands/handoff.md:7" \
+    --arg artifact ".claude/skills/handoff/SKILL.md:7" \
     --arg summary "$2" \
     --arg detail "context" \
     --arg severity "$3" \
@@ -187,7 +187,7 @@ done
 # entries this session resolved and frame that as closing the loop — the
 # agent-executable close trigger for the sync model. Both the command source and
 # its plugin-skill copy; anchors are slash-command-free (rewrite-stable).
-HANDOFF_SRC="$ROOT/.claude/commands/handoff.md"
+HANDOFF_SRC="$ROOT/.claude/skills/handoff/SKILL.md"
 HANDOFF_COPIES=("$HANDOFF_SRC")
 if [ -d "${FEEDBACK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
   HANDOFF_COPIES+=("$ROOT/plugin/skills/handoff/SKILL.md")

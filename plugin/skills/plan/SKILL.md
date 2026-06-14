@@ -1,5 +1,7 @@
 ---
+name: plan
 description: "Generate a phased plan from a spec against an ALREADY-EXISTING project."
+user-invocable: true
 ---
 
 

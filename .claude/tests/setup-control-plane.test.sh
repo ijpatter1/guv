@@ -32,10 +32,10 @@ trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures + setup.log kept 
 make_harness() {
   local h="$WORK/harness"
   rm -rf "$h"
-  mkdir -p "$h/maintainers" "$h/.claude/commands" "$h/.claude/skills/task" "$h/.claude/hooks"
+  mkdir -p "$h/maintainers" "$h/.claude/skills/status" "$h/.claude/skills/task" "$h/.claude/hooks"
   cp "$REAL_SCRIPT" "$h/maintainers/"
   echo "# task" > "$h/.claude/skills/task/SKILL.md"
-  echo "# cmd" > "$h/.claude/commands/status.md"
+  echo "# cmd" > "$h/.claude/skills/status/SKILL.md"
   echo "hook" > "$h/.claude/hooks/guard.sh"
   mkdir -p "$h/.claude/rules" "$h/.claude/workflows/dir-wf"
   printf 'guv rule body v1\n' > "$h/.claude/rules/guv-core.md"
@@ -44,7 +44,7 @@ make_harness() {
   echo "archive" > "$h/.claude/archive-initiative.sh"
   echo "resolver" > "$h/.claude/resolve-ready.sh"
   echo '{}' > "$h/.claude/settings.json"
-  touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/commands/.DS_Store"
+  touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/skills/status/.DS_Store"
   echo "$h"
 }
 run_setup() { ( bash "$1/maintainers/setup-control-plane.sh" "$2" ${3:-} ) >> "$WORK/setup.log" 2>&1; }
@@ -445,7 +445,7 @@ fi
 H=$(make_harness)
 DH="$WORK/widget"; rm -rf "$DH" "$WORK/widget-guv"; mv "$H" "$DH"
 OUT_DEF=$( cd "$WORK" && bash "$DH/maintainers/setup-control-plane.sh" 2>&1 )
-if [ -d "$WORK/widget-guv/.claude/commands" ]; then
+if [ -d "$WORK/widget-guv/.claude/skills" ]; then
   ok "no-arg create defaults to sibling <project>-guv (widget → widget-guv)"
 else
   no "no-arg create must default to sibling <project>-guv"
@@ -465,9 +465,9 @@ else
   no "--sync <dir> (flag first) must refuse loud, not default with a false announcement"
 fi
 # Sole-arg --sync targets the same constructed default.
-echo "# cmd v2" > "$DH/.claude/commands/status.md"
+echo "# cmd v2" > "$DH/.claude/skills/status/SKILL.md"
 ( cd "$WORK" && bash "$DH/maintainers/setup-control-plane.sh" --sync ) >> "$WORK/setup.log" 2>&1
-if grep -q "cmd v2" "$WORK/widget-guv/.claude/commands/status.md" 2>/dev/null; then
+if grep -q "cmd v2" "$WORK/widget-guv/.claude/skills/status/SKILL.md" 2>/dev/null; then
   ok "sole-arg --sync syncs the defaulted <project>-guv plane"
 else
   no "--sync without a dir must sync the default <project>-guv plane"

@@ -13,8 +13,8 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SKILL="$ROOT/skills/phase-docs/SKILL.md"
-STATUS="$ROOT/commands/status.md"
-HANDOFF="$ROOT/commands/handoff.md"
+STATUS="$ROOT/skills/status/SKILL.md"
+HANDOFF="$ROOT/skills/handoff/SKILL.md"
 RESOLVER="$ROOT/resolve-ready.sh"
 REPLAN="$ROOT/replan.sh"
 ARCHIVE="$ROOT/archive-initiative.sh"

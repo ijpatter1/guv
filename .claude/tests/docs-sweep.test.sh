@@ -45,10 +45,10 @@ if grep -q '^- `/replan' "$ROOT/README.md"; then
 else
   no "README What's Included must carry a /replan bullet"
 fi
-if grep -q 'replan\.md' "$ROOT/README.md"; then
-  ok "README File Structure tree lists replan.md"
+if grep -qE '├── replan/' "$ROOT/README.md"; then
+  ok "README File Structure tree lists the replan skill"
 else
-  no "README File Structure tree must list replan.md"
+  no "README File Structure tree must list the replan skill (skills/replan/)"
 fi
 
 # T2 — CLAUDE.template.md process-commands bullet names /replan (the bullet
@@ -63,7 +63,7 @@ fi
 # and the skill's templates emit ID'd, token'd deliverables. Together these
 # are "both generators emit the new format" without a second grammar copy.
 for cmd in plan init-project; do
-  if grep -q 'phase-docs' "$ROOT/.claude/commands/$cmd.md"; then
+  if grep -q 'phase-docs' "$ROOT/.claude/skills/$cmd/SKILL.md"; then
     ok "$cmd.md routes doc generation through the phase-docs skill"
   else
     no "$cmd.md must route doc generation through the phase-docs skill"

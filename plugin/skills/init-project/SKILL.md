@@ -1,5 +1,7 @@
 ---
+name: init-project
 description: "Scaffold the project documentation from a PRD or spec document."
+user-invocable: true
 ---
 
 
