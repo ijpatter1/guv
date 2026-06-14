@@ -172,8 +172,9 @@ for d in "$SRC/skills"/*/; do
     fi
   done
   # bundled scripts ship executable (the top plugin pitfall; cp preserves source
-  # mode, but be explicit as the shared-scripts copy is)
-  [ -d "$OUT/skills/$name/scripts" ] && chmod +x "$OUT/skills/$name/scripts"/*.sh
+  # mode, but be explicit as the shared-scripts copy is). Per-file so an empty
+  # scripts/ never leaves an unexpanded glob for chmod to choke on (stderr-gate).
+  for bs in "$OUT/skills/$name/scripts"/*.sh; do [ -e "$bs" ] && chmod +x "$bs"; done
 done
 
 # ── agents, frontmatter hooks: block stripped, references namespaced AND
