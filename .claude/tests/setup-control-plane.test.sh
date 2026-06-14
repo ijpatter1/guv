@@ -199,7 +199,7 @@ D="$WORK/control4"
 run_setup "$H" "$D"
 echo "sentinel-claude-md" > "$D/CLAUDE.md"
 echo '{"name":"sentinel-manifest"}' > "$D/.claude/project.json"
-echo "# sentinel-runner" > "$D/.claude/run-harness-tests.sh"
+echo "# sentinel-runner" > "$D/.claude/run-core-tests.sh"
 echo "edited-again" > "$H/.claude/rules/guv-core.md"
 run_setup "$H" "$D"
 grep -q "edited-again" "$D/.claude/rules/guv-core.md" 2>/dev/null \
@@ -209,8 +209,8 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   && grep -q "sentinel-manifest" "$D/.claude/project.json" 2>/dev/null \
   && ok "create re-run: existing manifest/CLAUDE.md not clobbered" \
   || no "create re-run must not clobber the manifest or CLAUDE.md"
-if ! grep -q "sentinel-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null \
-  && grep -q '\[stderr\]' "$D/.claude/run-harness-tests.sh" 2>/dev/null; then
+if ! grep -q "sentinel-runner" "$D/.claude/run-core-tests.sh" 2>/dev/null \
+  && grep -q '\[stderr\]' "$D/.claude/run-core-tests.sh" 2>/dev/null; then
   ok "create re-run: drifted runner refreshed (harness-owned, no consumer state)"
 else
   no "create re-run should refresh the generated runner — it is harness-owned"
@@ -225,11 +225,11 @@ D="$WORK/control-runner"
 mkdir -p "$H/.claude/tests"
 printf '#!/bin/bash\necho "  ok"\nexit 0\n' > "$H/.claude/tests/clean.test.sh"
 run_setup "$H" "$D"
-( cd "$D" && bash .claude/run-harness-tests.sh ) >/dev/null 2>&1 \
+( cd "$D" && bash .claude/run-core-tests.sh ) >/dev/null 2>&1 \
   && ok "runner: clean passing suite -> run passes" \
   || no "runner: a clean passing suite should pass the run"
 printf '#!/bin/bash\necho "  ok"\necho "boom: parse error" >&2\nexit 0\n' > "$H/.claude/tests/noisy.test.sh"
-OUT=$( cd "$D" && bash .claude/run-harness-tests.sh 2>&1 )
+OUT=$( cd "$D" && bash .claude/run-core-tests.sh 2>&1 )
 RC=$?
 if [ "$RC" -ne 0 ] && echo "$OUT" | grep -q '\[stderr\]'; then
   ok "runner: passing suite with stderr output fails the run and surfaces it"
@@ -259,25 +259,25 @@ D="$WORK/control5"
 run_setup "$H" "$D"
 # Fresh create is where chmod is load-bearing: cp from mktemp yields a
 # non-executable mode, so this fails if the chmod line is dropped.
-[ -x "$D/.claude/run-harness-tests.sh" ] \
+[ -x "$D/.claude/run-core-tests.sh" ] \
   && ok "create: freshly generated runner is executable" \
   || no "create: freshly generated runner must be executable (cp from mktemp is not)"
-echo "# stale-runner" > "$D/.claude/run-harness-tests.sh"
+echo "# stale-runner" > "$D/.claude/run-core-tests.sh"
 OUT=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
-if grep -q '\[stderr\]' "$D/.claude/run-harness-tests.sh" 2>/dev/null \
-  && ! grep -q "stale-runner" "$D/.claude/run-harness-tests.sh" 2>/dev/null; then
+if grep -q '\[stderr\]' "$D/.claude/run-core-tests.sh" 2>/dev/null \
+  && ! grep -q "stale-runner" "$D/.claude/run-core-tests.sh" 2>/dev/null; then
   ok "sync: drifted runner refreshed to the generator's content"
 else
   no "sync must refresh the generated runner (create-only leaves drift in place)"
 fi
-[ -x "$D/.claude/run-harness-tests.sh" ] \
+[ -x "$D/.claude/run-core-tests.sh" ] \
   && ok "sync: refreshed runner stays executable" \
   || no "sync: refreshed runner lost its executable bit"
-echo "$OUT" | grep -q "refreshed .claude/run-harness-tests.sh" \
+echo "$OUT" | grep -q "refreshed .claude/run-core-tests.sh" \
   && ok "sync: runner refresh announced (not rewritten silently)" \
   || no "sync must announce the runner refresh"
 OUT2=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
-echo "$OUT2" | grep -q "refreshed .claude/run-harness-tests.sh" \
+echo "$OUT2" | grep -q "refreshed .claude/run-core-tests.sh" \
   && no "sync: refresh notice should not repeat when the runner is already current" \
   || ok "sync: refresh notice fires only on change, silent when current"
 
@@ -288,7 +288,7 @@ H=$(make_harness)
 D="$WORK/consumer-clone"
 mkdir -p "$D/.claude"
 run_setup "$H" "$D" --sync
-[ ! -e "$D/.claude/run-harness-tests.sh" ] \
+[ ! -e "$D/.claude/run-core-tests.sh" ] \
   && ok "sync: no runner planted where none existed (consumer-project shape)" \
   || no "sync must not inject the dogfooding runner into a consumer project"
 
@@ -317,9 +317,9 @@ if [ -f "$DOG" ]; then
   grep -q 'plan' "$DOG" \
     && ok "DOGFOODING: ceremony flip acknowledged (seeded task, initiative flips it)" \
     || no "DOGFOODING must reflect that /plan can flip the control plane to phased"
-  flat "$DOG" | grep -qi 'replaces harness-owned surfaces[^.]*wholesale' \
+  flat "$DOG" | grep -qi 'replaces core-owned surfaces[^.]*wholesale' \
     && ok "DOGFOODING: fallback bullet carries the wholesale-replacement caveat" \
-    || no "DOGFOODING must warn that --sync replaces harness-owned surfaces wholesale (the fact, not the word, same-sentence)"
+    || no "DOGFOODING must warn that --sync replaces core-owned surfaces wholesale (the fact, not the word, same-sentence)"
   if flat "$DOG" | grep -q 'pinned to the template repo'; then
     no "DOGFOODING: stale single-pin CI phrasing survives ('pinned to the template repo')"
   else
@@ -357,7 +357,7 @@ if [ -f "$RM" ] && ! grep -q 'guv-template-readme' "$RM"; then
   # detector's literal) drifted, and skipping would silently disable the guards
   # in the canonical repo. Fail loud instead. (The probe literal also lives in
   # eval-parallel.test.sh's README gate — keep the two in step.)
-  if flat "$RM" | grep -qi 'replaces harness-owned surfaces'; then
+  if flat "$RM" | grep -qi 'replaces core-owned surfaces'; then
     no "README carries template content but no guv-template-readme marker — marker/detector drift"
   else
     echo "  - README.md is a rendered project README, not the template's — disposition guards skip"
@@ -380,10 +380,10 @@ elif [ -f "$RM" ]; then
     && ok "README: migration keeps guv-* rules (plugin cannot supply rules at runtime)" \
     || no "README migration must tell clones to KEEP .claude/rules/guv-*.md"
   # The customized-fork branch must be honest about what --sync does: copy_core
-  # replaces harness-owned surfaces wholesale, which reverts exactly the edits
+  # replaces core-owned surfaces wholesale, which reverts exactly the edits
   # the fallback audience is invited to make.
-  flat "$RM" | grep -qi 'replaces harness-owned surfaces[^.]*wholesale' \
-    && ok "README: customized forks warned that --sync replaces harness-owned surfaces wholesale" \
+  flat "$RM" | grep -qi 'replaces core-owned surfaces[^.]*wholesale' \
+    && ok "README: customized forks warned that --sync replaces core-owned surfaces wholesale" \
     || no "README must warn customized forks that --sync reverts harness-owned edits"
 else
   echo "  - README.md absent (fork) — disposition guards skip"
@@ -429,7 +429,7 @@ if [ -z "${SCP_TEST_INNER:-}" ]; then
   # separately by this suite's running wholesale guard, whose pattern is a
   # superstring of the probe literal.
   FAKE4="$WORK/drifted-readme.md"
-  printf '# readme\n--sync replaces harness-owned surfaces wholesale.\n' > "$FAKE4"
+  printf '# readme\n--sync replaces core-owned surfaces wholesale.\n' > "$FAKE4"
   INNER4=$(SCP_TEST_INNER=1 SCP_TEST_README="$FAKE4" bash "$SELF" 2>&1)
   if [ $? -ne 0 ] && echo "$INNER4" | grep -q "marker/detector drift"; then
     ok "marker-less template content fails loud (drift-probe self-check)"

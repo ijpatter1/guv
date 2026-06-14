@@ -185,7 +185,7 @@ The drain is live: the distribution channel is the versioned guv plugin, and ent
 close through its release flow (maintainer-side mechanics — see the maintainer note at
 the end of this section; a consumer fork that deleted `maintainers/` needs none of it).
 
-- **`upstream`** entries → an issue or PR against the harness repo, citing the entry
+- **`upstream`** entries → an issue or PR against the guv repo, citing the entry
   id. The entry stays `open` while the fix is in flight and flips to `graduated`
   **on the release that ships the fix** — the release checklist's drain step does
   the flip and closes the issue naming the release. Use `resolved` only for friction

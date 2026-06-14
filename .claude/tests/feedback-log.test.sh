@@ -148,9 +148,9 @@ for copy in "${COPIES[@]}"; do
   # Multi-word phrase guards grep a whitespace-flattened copy — an innocent
   # reflow must not break them (the class swept in Phase 5 D4).
   COPY_FLAT=$(tr '\n' ' ' < "$copy" 2>/dev/null | tr -s ' ')
-  echo "$COPY_FLAT" | grep -q 'issue or PR against the harness repo' \
+  echo "$COPY_FLAT" | grep -q 'issue or PR against the guv repo' \
     && ok "drain step 1 (issues/PRs) in $label" \
-    || no "$label must document: upstream entries become an issue or PR against the harness repo"
+    || no "$label must document: upstream entries become an issue or PR against the guv repo"
   echo "$COPY_FLAT" | grep -q 'on the release that ships the fix' \
     && ok "drain step 2 (graduated on release) in $label" \
     || no "$label must document: graduated flips on the release that ships the fix"

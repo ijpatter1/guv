@@ -43,7 +43,7 @@ machine-readable knows or cares what the directory is called.
     │   ├── (core copied from the harness — commands, skills, agents, hooks, tests,
     │   │   guv-* rules, workflows, scripts, schema, settings)  ← refreshed by --sync
     │   ├── project.json             #   dogfooding manifest: roots.code → the harness
-    │   ├── run-harness-tests.sh     #   commands.test → runs the harness's bash suites
+    │   ├── run-core-tests.sh     #   commands.test → runs the harness's bash suites
     │   │                            #   (generated; harness-owned — --sync refreshes it too)
     │   └── feedback/feedback.ndjson #   harness friction lives HERE, not in the template
     ├── CLAUDE.md                    #   "you are improving the harness at roots.code"
@@ -81,9 +81,9 @@ So the loop is: edit in the harness repo → run its tests there → `--sync` in
 control plane → exercise the changed harness from a control-plane session → commit the
 harness change in the harness repo, and any session artifacts in the control plane.
 
-What `--sync` refreshes is ownership-scoped, not tree-wide: harness-owned surfaces
+What `--sync` refreshes is ownership-scoped, not tree-wide: core-owned surfaces
 (commands, skills, agents, hooks, tests, `guv-*` rules, harness-shipped workflows,
-scripts, schema, settings — and the generated `run-harness-tests.sh`, which carries no
+scripts, schema, settings — and the generated `run-core-tests.sh`, which carries no
 consumer state) are replaced; consumer-owned state (the manifest, `CLAUDE.md`,
 unprefixed rules, consumer-saved workflows, docs, feedback) is never touched.
 `setup-control-plane.test.sh` enforces both halves.
@@ -134,7 +134,7 @@ decided by audience:
 - **Consumers, template-clone fallback:** kept and supported — for forks that customize
   harness-owned files (the plugin's surfaces aren't editable; a clone's are) or
   environments that can't install plugins. `--sync` remains their update path, with
-  the documented caveat that it replaces harness-owned surfaces **wholesale** (see
+  the documented caveat that it replaces core-owned surfaces **wholesale** (see
   the ownership-scoped list above — only unprefixed rules and consumer-saved
   workflows are protected): a fork that has edited those surfaces re-applies its
   edits after a sync or updates selectively, and the README says so. The README's

@@ -32,7 +32,7 @@
 # real session launches). resolve-ready.sh is invoked by the router and lives
 # beside it — fixtures symlink the real .claude scripts so the router resolves
 # its sibling. stderr is captured on every invocation: this suite runs under
-# the empty-stderr gate (run-harness-tests.sh fails any suite that writes to
+# the empty-stderr gate (run-core-tests.sh fails any suite that writes to
 # stderr), so a router that loud-stops must do so via its OWN stdout contract
 # (door=/reason=) and reserve stderr for genuine usage/IO errors the gate
 # should catch.

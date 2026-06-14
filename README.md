@@ -116,8 +116,8 @@ if you haven't customized harness-owned files. In order:
    nothing taking over. Your manifest (and its schema file), docs, feedback log,
    unprefixed rules, and consumer-saved workflows are consumer-owned and stay.
 
-If you **have** customized harness-owned surfaces, keep the clone — but update
-deliberately: `--sync` replaces harness-owned surfaces **wholesale** (commands,
+If you **have** customized core-owned surfaces, keep the clone — but update
+deliberately: `--sync` replaces core-owned surfaces **wholesale** (commands,
 skills, agents, hooks, settings, helper scripts — only unprefixed rules files and
 consumer-saved workflows are ownership-protected), so a blind sync reverts exactly
 the customizations this path exists for. Re-apply your edits after a sync, pull

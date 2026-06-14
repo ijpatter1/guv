@@ -88,8 +88,8 @@ MD
 [ -f "$HOOK" ] && ok "create: post-commit hook installed" \
   || no "create mode must install .git/hooks/post-commit"
 [ -x "$HOOK" ] && ok "create: hook is executable" || no "hook must be executable"
-grep -q 'Harness-owned' "$HOOK" 2>/dev/null \
-  && ok "create: hook carries the Harness-owned marker" \
+grep -q 'Core-owned' "$HOOK" 2>/dev/null \
+  && ok "create: hook carries the Core-owned marker" \
   || no "hook must be marked harness-owned (ownership convention)"
 grep -q 'setup-control-plane.sh' "$HOOK" 2>/dev/null \
   && ok "create: hook names its generator" \
@@ -293,9 +293,9 @@ rm -f "$CP/status.json"
 
 # ── T8 — sync semantics mirror the runner: refresh-if-present (announced),
 # never created fresh on --sync (the template-clone consumer protection).
-echo "#!/bin/bash" > "$HOOK"; echo "# Harness-owned (drifted fixture)" >> "$HOOK"
+echo "#!/bin/bash" > "$HOOK"; echo "# Core-owned (drifted fixture)" >> "$HOOK"
 bash "$H/maintainers/setup-control-plane.sh" "$CP" --sync > "$WORK/sync1.log" 2>&1
-grep -q 'Harness-owned' "$HOOK" && grep -q 'post-commit' "$WORK/sync1.log" \
+grep -q 'Core-owned' "$HOOK" && grep -q 'post-commit' "$WORK/sync1.log" \
   && grep -qi 'refreshed' "$WORK/sync1.log" \
   && ok "sync: drifted harness-owned hook refreshed, announced" \
   || no "--sync must refresh a drifted harness-owned hook and say so"
