@@ -122,6 +122,29 @@ echo "$FW_DEFAULT" | grep -q 'registry.npmjs.org' \
   && ok "guv's .claude/project.json declares language:shell" \
   || no "guv's .claude/project.json must declare language:shell (got $(jq -r '.language' "$MANIFEST"))"
 
+# T4b — truthfulness end to end: the deliverable is "manifest language
+# truthfulness", and a manifest that declares `shell` while sibling fields still
+# invoke npm against a repo with no package.json is the exact vestige the
+# deliverable names. guv has no package.json (it is a bash/jq/git project), so an
+# npm package manager, npm-invoking commands, a package.json scaffoldCheck, a
+# node_modules readyCheck, or an npm-publish guard would each be untruthful.
+# Pin them so a half-revert (language fixed, vestiges restored) fails loudly.
+[ ! -f "$ROOT/package.json" ] \
+  && ok "guv has no package.json (a bash/jq/git project — npm fields would be vestigial)" \
+  || no "guv unexpectedly has a package.json — re-evaluate the truthfulness assertions below"
+[ "$(jq -r '.packageManager' "$MANIFEST")" = "null" ] \
+  && ok "guv's packageManager is null (no package manager applies)" \
+  || no "guv's packageManager must be null on a shell project (got $(jq -r '.packageManager' "$MANIFEST"))"
+VEST=$(jq -r '[.commands.build, .commands.lint, .commands.format, .commands.dev,
+               .commands.install, .scaffoldCheck, .readyCheck] | map(select(. != null)) | .[]' "$MANIFEST" \
+        | grep -iwE 'npm|npx|package\.json|node_modules' || true)
+[ -z "$VEST" ] \
+  && ok "guv's manifest carries no npm/package.json/node_modules vestige in its commands or checks" \
+  || no "guv's manifest still carries npm vestiges against a repo with no package.json: $VEST"
+jq -e '(.guards // []) | index("npm-publish") == null' "$MANIFEST" >/dev/null \
+  && ok "guv's guards do not include npm-publish (no npm publish in a shell project)" \
+  || no "guv's guards must not include npm-publish on a shell project"
+
 # ── T5 — guv's commands.test is the bash runner, no npm ────────────────────
 # Acceptance: "commands.test runs the bash suite with no npm invocation".
 TESTCMD=$(jq -r '.commands.test' "$MANIFEST")
@@ -131,6 +154,16 @@ echo "$TESTCMD" | grep -qE '\.claude/tests/\*\.test\.sh' \
 echo "$TESTCMD" | grep -qiw 'npm' \
   && no "guv's commands.test must not invoke npm (got: $TESTCMD)" \
   || ok "guv's commands.test invokes no npm"
+# T5b — the stderr-capture gate must survive in commands.test. The whole point of
+# replacing `npm test` was to match the runner CI uses (template-clean.yml), which
+# fails a suite that writes to stderr — a vacuous guard that slipped two review
+# gates is exactly what that gate exists to catch. A regression that kept the glob
+# but dropped `2>"$err"` / `[ -s "$err" ]` would pass the checks above and silently
+# lose the stderr firewall; assert both halves of the mechanism are present.
+echo "$TESTCMD" | grep -qE '2>"\$err"' \
+  && echo "$TESTCMD" | grep -qE '\[ -s "\$err" \]' \
+  && ok "guv's commands.test keeps the stderr-capture gate (2>\$err + [ -s \$err ])" \
+  || no "guv's commands.test must keep the stderr-capture gate (got: $TESTCMD)"
 
 # ── T6 — the manifest setup-control-plane.sh generates reads shell, not node ─
 # Acceptance: "the manifest setup-control-plane.sh generates ... read shell".

@@ -2,34 +2,28 @@
   "$schema": "./project.schema.json",
   "name": "claude-code-sandbox",
   "language": "shell",
-  "packageManager": "npm",
+  "packageManager": null,
   "roots": {
     "control": ".",
     "code": "."
   },
   "commands": {
     "test": "fail=0; for t in .claude/tests/*.test.sh; do err=$(mktemp); bash \"$t\" 2>\"$err\" || fail=1; [ -s \"$err\" ] && { echo \"[stderr] $(basename \"$t\")\"; cat \"$err\"; fail=1; }; rm -f \"$err\"; done; exit $fail",
-    "build": "npm run build",
-    "lint": "npm run lint",
-    "format": "npx prettier --write",
-    "dev": "npm run dev",
-    "install": "npm install"
+    "build": null,
+    "lint": null,
+    "format": null,
+    "dev": null,
+    "install": null
   },
-  "scaffoldCheck": "test -f package.json",
-  "readyCheck": "test -d node_modules",
+  "scaffoldCheck": "test -d .claude",
+  "readyCheck": null,
   "formatExtensions": [
-    "js",
-    "jsx",
-    "ts",
-    "tsx",
-    "json",
-    "css",
-    "scss",
     "md",
-    "html",
+    "json",
+    "sh",
     "yml",
     "yaml"
   ],
-  "guards": ["npm-publish"],
+  "guards": [],
   "ceremony": "task"
 }
