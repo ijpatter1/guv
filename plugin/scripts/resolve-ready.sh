@@ -22,14 +22,8 @@
 #
 # Output (name=value, one per line):
 #   mode=GRAMMAR|LEGACY
-#   phase=N            first phase with open work (⬜, 🔄, or 🔒) — reporting
-#                      only, never gates dispatch ([7.6]); GRAMMAR only.
-#                      A 🔒 (human-gated, [10.1]) item is open work: it is
-#                      recognized (status="human_gated" in --json), counts
-#                      toward the open phase, and is a valid dep target —
-#                      never silently dropped — but is open-but-non-dispatchable
-#                      (never in ready=/blocked=; the full frontier semantics
-#                      for 🔒 are a deliberate follow-on).
+#   phase=N            first phase with open work (⬜ or 🔄) — reporting
+#                      only, never gates dispatch ([7.6]); GRAMMAR only
 #   in_progress=…      🔄 IDs, document order (finish before starting new work)
 #   ready=…            every ⬜ whose deps are all ✅ — document order,
 #                      across ALL phases (deps are the only ordering; the
@@ -95,22 +89,12 @@ if [ "$JSON" -eq 1 ] && ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Marker → status word for the JSON surface (it never carries emoji).
-# 🔒 is human-gated ([10.1]): open work blocked on out-of-sandbox manual work
-# (tracked in docs/manual/), distinct from a dependency-blocked ❌. It is
-# RECOGNIZED here so a 🔒 line is never silently dropped from the parse, the
-# JSON, or the counts — it surfaces as status="human_gated" and as a valid dep
-# target. The ready-vs-blocked frontier SEMANTICS for 🔒 (is a human-gated item
-# dispatchable? a distinct frontier bucket?) are a deliberate follow-on, not
-# decided here: a 🔒 item is treated as open-but-non-dispatchable — never in
-# ready=, never in blocked=, visible in deliverables[] and the open-phase
-# reckoning.
 status_word() {
   case "$1" in
     ✅) printf 'done' ;;
     🔄) printf 'in_progress' ;;
     ⬜) printf 'todo' ;;
     ❌) printf 'descoped' ;;
-    🔒) printf 'human_gated' ;;
   esac
 }
 
@@ -118,14 +102,9 @@ status_word() {
 
 ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
 DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
-LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*$ID_RE"
+LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*$ID_RE"
 
-# Published-surface version of the status.json shape ([10.1]). Bumped only on a
-# breaking shape or grammar change — the negotiation surface for external
-# consumers; documented identically in the phase-docs skill's status.json shape.
-CONTRACT_VERSION=1
-
-LINES=$(grep -E '^\s*-\s*(✅|🔄|⬜|❌|🔒)' "$TRACKER")
+LINES=$(grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$TRACKER")
 
 die5() { echo "status=MALFORMED — $1" >&2; exit 5; }
 
@@ -144,17 +123,15 @@ if ! echo "$LINES" | grep -qE "$LEAD_RE" \
     # Document order, EMPTY deps (LEGACY has no edges — degrade, don't
     # invent), null ids/phase, text carried for the renderer's plain list.
     dj=$(echo "$LINES" | while IFS= read -r l; do
-      m=$(printf '%s\n' "$l" | grep -oE '✅|🔄|⬜|❌|🔒' | head -1)
-      txt=$(printf '%s\n' "$l" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*//')
+      m=$(printf '%s\n' "$l" | grep -oE '✅|🔄|⬜|❌' | head -1)
+      txt=$(printf '%s\n' "$l" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*//')
       jq -cn --arg st "$(status_word "$m")" --arg text "$txt" \
         '{id:null, phase:null, status:$st, deps:[], text:$text}'
     done)
     printf '%s\n' "$dj" | jq -s \
-      --argjson contract_version "$CONTRACT_VERSION" \
       --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg serial "$serial" \
-      '{contract_version:$contract_version, generated:$generated, mode:"LEGACY",
-        phase:null, phases:[], deliverables:.,
+      '{generated:$generated, mode:"LEGACY", phase:null, phases:[], deliverables:.,
         frontier:{in_progress:[], ready:[], blocked:[],
                   serial:(if $serial=="" then null else $serial end)}}'
   else
@@ -187,11 +164,11 @@ $dups"
 ids=""
 while IFS= read -r l; do
   id=$(printf '%s\n' "$l" | grep -oE "$LEAD_RE" | grep -oE '[0-9]+\.[0-9]+')
-  marker=$(printf '%s\n' "$l" | grep -oE '✅|🔄|⬜|❌|🔒' | head -1)
+  marker=$(printf '%s\n' "$l" | grep -oE '✅|🔄|⬜|❌' | head -1)
   deps=$(printf '%s\n' "$l" | grep -oE '`?\[deps:[^]]*\]`?' | tail -1 \
          | sed -E 's/^`?\[deps: //; s/\]`?$//; s/,/ /g')
   [ "$deps" = "none" ] && deps=""
-  txt=$(printf '%s\n' "$l" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*//')
+  txt=$(printf '%s\n' "$l" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*//')
   v=${id//./_}
   eval "marker_$v=\$marker"
   eval "deps_$v=\$deps"
@@ -237,29 +214,25 @@ done
 remaining=$(echo "$remaining" | sed -E 's/^ +//; s/ +$//')
 [ -n "$remaining" ] && die5 "dependency cycle among (or depending on a cycle): $remaining"
 
-# ── Frontier: phase = first phase with open work (⬜, 🔄, or 🔒) — reporting
-# only; ready/blocked span all phases. 🔒 is open (human-gated) work, so a phase
-# whose only open item is 🔒 is NOT skipped as complete — it keeps the phase
-# open, mirroring the status/handoff tallies ([10.1]). ──
+# ── Frontier: phase = first phase with open work (⬜ or 🔄) — reporting
+# only; ready/blocked span all phases ──
 phase=""
 for id in $ids; do
   m=$(marker_of "$id")
-  if [ "$m" = "⬜" ] || [ "$m" = "🔄" ] || [ "$m" = "🔒" ]; then phase=${id%%.*}; break; fi
+  if [ "$m" = "⬜" ] || [ "$m" = "🔄" ]; then phase=${id%%.*}; break; fi
 done
 
 satisfied() { [ "$(marker_of "$1")" = "✅" ]; }
 
 # Transitive root blocker: first unsatisfied dep, followed down until it is
-# itself dispatchable (ready), in progress, ❌ (descoped/blocked — the spec's
-# "a ❌ prior-phase item propagates blockage"), or 🔒 (human-gated — a person
-# gates it, so it is terminal for the dependent, named as the root rather than
-# recursed past).
+# itself dispatchable (ready), in progress, or ❌ (descoped/blocked — the
+# spec's "a ❌ prior-phase item propagates blockage").
 root_blocker() {
   local id="$1" d
   for d in $(deps_of "$id"); do
     satisfied "$d" && continue
     case "$(marker_of "$d")" in
-      🔄|❌|🔒) printf '%s' "$d"; return ;;
+      🔄|❌) printf '%s' "$d"; return ;;
     esac
     local inner
     inner=$(root_blocker "$d")
@@ -313,14 +286,13 @@ if [ "$JSON" -eq 1 ]; then
       blocked:$blocked,
       serial:(if $serial=="" then null else $serial end)}')
   printf '%s' "$dj" | jq -s \
-    --argjson contract_version "$CONTRACT_VERSION" \
     --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson phase "${phase:-null}" \
     --argjson phases "$(jq -cn --arg p "$plist" \
       '$p | if .=="" then [] else split(" ") end | map(tonumber)')" \
     --argjson frontier "$frontier" \
-    '{contract_version:$contract_version, generated:$generated, mode:"GRAMMAR",
-      phase:$phase, phases:$phases, deliverables:., frontier:$frontier}'
+    '{generated:$generated, mode:"GRAMMAR", phase:$phase, phases:$phases,
+      deliverables:., frontier:$frontier}'
 else
   echo "mode=GRAMMAR"
   echo "phase=$phase"

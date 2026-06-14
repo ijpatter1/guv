@@ -138,15 +138,7 @@ _Goal: [Copy from REQUIREMENTS.md]_
 Rules (the verbatim-sync contract):
 
 - Every deliverable line must be copied verbatim from REQUIREMENTS.md
-- All items start as ⬜ (markers: ✅ complete · 🔄 in progress · ⬜ not started · ❌ blocked · 🔒 human-gated)
-  - **🔒 human-gated / awaiting-manual** is the fifth marker: a deliverable blocked
-    on out-of-sandbox human or manual work — the kind `/guv:manual` writes to
-    `docs/manual/` — rather than on a dependency. It is *not* ❌ (no descope, the
-    work is real and pending) and *not* ⬜/blocked (no in-graph dep gates it; the
-    gate is a person). The marker-counting skills (`status`, `handoff`) count 🔒 as
-    human-gated, a category of its own, never folded into the dependency-blocked
-    tally. Pair a 🔒 line with the `docs/manual/` artifact that carries the manual
-    step (a tracker-local annotation after the deps token, like any completion note).
+- All items start as ⬜ (markers: ✅ complete · 🔄 in progress · ⬜ not started · ❌ blocked)
 - Do not add, remove, or reword any deliverables — the tracker and REQUIREMENTS must
   match exactly, forever; wording changes happen in REQUIREMENTS first and sync here
 - The ID and deps token are part of the wording and sync verbatim with it.
@@ -175,19 +167,6 @@ MALFORMED. Because annotations follow the token, tooling validates the **last**
 deps-shaped construct on each line as the deliverable's own — a deps-token
 example quoted in the wording must precede the real token, where it is
 tolerated and ignored.
-
-The canonical regex is the shared `DEPS_RE` defined identically in the three
-enforcing scripts — `resolve-ready.sh`, `replan.sh`, and
-`archive-initiative.sh` — which are this token's **source of truth**; the
-prose above is the human-readable gloss, the regex is the law:
-
-```
-DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
-```
-
-Quoted here verbatim so the grammar is documented where it is taught, not only
-where it is enforced; `grammar-surface.test.sh` guards this copy byte-identical
-against the scripts' `DEPS_RE` (a doc-drift fails loud rather than rotting silently).
 
 **Semantics:**
 
@@ -265,8 +244,8 @@ split, lane dispatch, status render) program against.
 
 - **Output**, name=value, one per line:
   - `mode=GRAMMAR|LEGACY`
-  - `phase=N` — the first phase with open work (⬜, 🔄, or 🔒) — reporting
-    only, never gates dispatch ([7.6]); GRAMMAR only
+  - `phase=N` — the first phase with open work (⬜ or 🔄) — reporting only,
+    never gates dispatch ([7.6]); GRAMMAR only
   - `in_progress=` — 🔄 IDs in document order (finish before starting new
     work, wherever the in-flight item sits)
   - `ready=` — every ⬜ whose deps are all ✅ — document order, across ALL
@@ -274,18 +253,8 @@ split, lane dispatch, status render) program against.
     gating dispatch; phases remain the unit of narrative, review, and UAT)
   - `blocked=` — every open ⬜ with an unsatisfied dep, as `ID:ROOT`, where
     ROOT is the transitive blocking ID (the deepest unsatisfied dep that is
-    itself ready, in progress, ❌, or 🔒 — each propagates blockage)
+    itself ready, in progress, or ❌ — a ❌ propagates blockage)
   - `serial=` — first 🔄, else first ready item
-- **🔒 human-gated ([10.1]):** the resolver RECOGNIZES the fifth marker — a 🔒
-  line is parsed, surfaces in `--json` as `status="human_gated"`, counts as open
-  work in `phase=`, and is a valid dep target (a ⬜ depending on a 🔒 ID is
-  `blocked` with the 🔒 named as ROOT, not a MALFORMED crash) — so a 🔒
-  deliverable is never silently dropped. It is **open-but-non-dispatchable**:
-  never listed in `ready=` (a person gates it, not a dep) and never the subject
-  of `blocked=`. The full ready-vs-blocked frontier semantics for 🔒 (a distinct
-  frontier bucket? a `serial=` posture?) are a **deliberate follow-on** — this
-  contract fixes only that 🔒 is visible, never vanishing from the parse, JSON,
-  or counts.
 - **Exit codes:** 0 resolved (a complete tracker resolves to an empty
   frontier — a resting state, not an error) · 2 usage (unknown argument,
   or `--json` without jq) · 4 no tracker · 5 on any
@@ -301,8 +270,8 @@ split, lane dispatch, status render) program against.
   tail) — no jq needed for the name=value output (`--json` adds jq); runs on
   stock macOS bash 3.2. The parse (lead-position IDs,
   last-construct deps token, comma-space separator) is the same grammar
-  `archive-initiative.sh` enforces — one dialect, with the shared deps-token
-  regex guarded identical to the skill's quoted copy by `grammar-surface.test.sh`.
+  `archive-initiative.sh` enforces — one dialect, with the shared ID/token
+  regexes guarded identical by the resolver's suite.
 
 ### status.json shape
 
@@ -312,18 +281,10 @@ surface** alongside the tracker grammar and the manifest schema (the A-001
 one-parser decision): the resolver is the grammar's only implementation, and
 every other reader of plan state — the status renderer first, external tools
 later — consumes this JSON and never parses the tracker. Changing the shape
-pays contract cost.
-
-**Contract version ([10.1]):** the shape carries a `contract_version` integer
-(currently `1`) as its leading field — the single negotiation surface a
-breaking change has with external consumers. It is the published surface's
-version marker, the same number documented in the JSON example below and
-emitted by `resolve-ready.sh --json`; the tracker grammar and the status.json
-shape version together (one parser, one version). A semantic-only change (like
-[7.6]'s frontier widening) does **not** bump it — only a breaking shape or
-grammar change does, at which point the bump is the consumer's signal to
-re-read. The downstream manifest contract change (the multi-repo `roots.code`
-map) takes the first bump on this marker.
+pays contract cost; the versioning question is deliberately parked as harness
+feedback (the `grammar-version` entry in the harness project's own feedback
+ledger — not shipped with the template) and drains on evidence: act when an
+external consumer or a breaking shape change actually appears, not before.
 
 [7.6] changed frontier *semantics* with the shape structurally unchanged:
 `ready`/`blocked` widened from current-phase to all phases, and `phase`
@@ -341,10 +302,6 @@ documented shape, never re-derive it.
 
 ```json
 {
-  "contract_version": 1,                    // published-surface version ([10.1]);
-                                            //   bump only on a breaking shape or
-                                            //   grammar change — the negotiation
-                                            //   surface for external consumers
   "generated": "2026-06-12T14:57:21Z",      // ISO-8601 UTC stamp
   "mode": "GRAMMAR",                        // or "LEGACY"
   "phase": 6,                               // first open phase (reporting only);
@@ -354,7 +311,6 @@ documented shape, never re-derive it.
     { "id": "6.4",                          // null in LEGACY (no IDs exist)
       "phase": 6,                           // null in LEGACY
       "status": "done",                     // done | in_progress | todo | descoped
-                                            //   | human_gated (🔒, [10.1])
       "deps": ["6.1", "6.3"],               // always [] in LEGACY — empty edges,
                                             //   never invented from document order
       "text": "wording after the marker, verbatim (deps token included)" }

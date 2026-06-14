@@ -177,6 +177,6 @@ Before choosing a format, ask:
 
 1. Make scripts executable: `chmod +x docs/manual/task-*.sh`
 2. Note the task in the handoff artifact under **Blocked** or **In Progress** with a reference to the task file
-3. If the task blocks a phase deliverable, mark it 🔒 in PHASE_STATUS.md (the human-gated / awaiting-manual marker, tracked in `docs/manual/`) with a reference to the task card. Use 🔒, **not** ❌ — ❌ is dependency-blocked (a phase edge gates it); a deliverable waiting on this out-of-sandbox manual artifact is human-gated, the exact case 🔒 exists to distinguish. `status` and `handoff` report 🔒 as its own category (open work, awaiting `docs/manual/`), never folded into the blocked tally.
+3. If the task blocks a phase deliverable, mark it as ❌ in PHASE_STATUS.md with a reference to the task card
 4. Continue working on other deliverables that aren't blocked by this task
 5. Tell the user: "Created `docs/manual/task-YYYY-MM-DD-NNN.sh` — run it when you're ready"
