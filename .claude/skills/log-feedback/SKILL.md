@@ -138,6 +138,35 @@ tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" --arg note "$NOTE" \
   "$f" > "$tmp" && mv "$tmp" "$f" || rm -f "$tmp"
 ```
 
+## Mode 3 — Submit (drain `upstream` entries to the source tracker)
+
+`submit` mode replaces the manual copy-paste a consumer does today: it drains the
+open `routing: upstream` entries into the guv **source** repo as issues. For each
+open upstream entry that has **no upstream link yet** it drafts an issue (title +
+body), emits the exact `gh issue create` command for **you** to run, and writes a
+draft marker back onto the entry so a re-run is a no-op — deduped by entry `id`.
+Non-upstream, already-linked, and non-open entries are skipped, untouched.
+
+```bash
+bash .claude/feedback-submit.sh submit            # draft + write back the markers
+bash .claude/feedback-submit.sh submit --dry-run  # list what would be filed; write nothing
+```
+
+What it is and isn't:
+
+- **Issue filing is user-gated** (see "Closing the loop" below) — the permission
+  classifier denies an agent's `gh issue create`. So `submit` **never files**: it
+  builds the draft/dedupe/writeback machinery and prints the `gh issue create`
+  command for you to run; you file, and the draft marker already makes the re-run a
+  no-op. The agent drafts; the person files.
+- **Idempotent.** Re-running drafts nothing for entries already linked or already
+  drafted (matched by `id` via the writeback marker) — a second run is a no-op.
+- **Degrades loudly.** The tracker reachability is probed first (a single `gh repo
+  view` against `roots.code`'s repo); if it's unreachable the run exits non-zero
+  with a message and writes **nothing** — no entry is dropped silently (Rule 15).
+- **`--dry-run`** lists the drainable entries and their drafts without touching the
+  log; it still probes the tracker, so a dry run can't claim success offline.
+
 ## Closing the loop
 
 The drain is live: the distribution channel is the versioned guv plugin, and entries
