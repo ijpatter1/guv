@@ -25,7 +25,7 @@
     },
     "language": {
       "type": "string",
-      "description": "Primary language. Drives the sandbox base image and the per-language firewall registry set.",
+      "description": "Primary language. Drives the sandbox base image and the per-language firewall registry set. 'shell' is for bash/jq/git projects with no language runtime: it maps to the plain Debian-slim base image and adds no language-specific registry to the firewall (only the always-on Anthropic + GitHub core).",
       "enum": [
         "node",
         "python",
@@ -34,7 +34,8 @@
         "ruby",
         "jvm",
         "dotnet",
-        "elixir"
+        "elixir",
+        "shell"
       ]
     },
     "packageManager": {
@@ -142,8 +143,8 @@
         "threshold": {
           "type": "integer",
           "minimum": 1,
-          "default": 120000,
-          "description": "Context occupancy, in tokens, at which the meter takes the designed degradation (write the handoff, signal finalize). Measured as the latest assistant turn's input + cache-read + cache-creation tokens. An absolute token count, not a percentage: the context-window size drifts per model, so the person tunes this to their model's calm-handoff point. Absent → the shipped default (120000), which the occupancy-meter.sh hook mirrors."
+          "default": 150000,
+          "description": "Context occupancy, in tokens, at which the meter takes the designed degradation (write the handoff, signal finalize). Measured as the latest assistant turn's input + cache-read + cache-creation tokens. An absolute token count the person may set to override the default. Absent → the shipped default, which [10.6] makes context-window aware: occupancy-meter.sh derives it from the model the transcript reports (3/4 of that model's context window — 750000 for a 1M-window model, 150000 for the standard 200000 window), so a large-window model no longer meters every turn. With no model signal the hook falls back to the documented 150000 (3/4 of the standard 200000 window) mirrored here."
         }
       }
     }

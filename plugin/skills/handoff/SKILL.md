@@ -3,11 +3,43 @@ description: "End the current work session by running QA evaluation, generating 
 ---
 
 
-> Steps 1 and 2 can run as one concurrent pass via the `/guv:evaluate-parallel` skill — it mirrors the `/guv:evaluate` skill's Steps 1–4 and returns both reports plus the combined summary. The verdict gates below still apply to its results; any fix loop stays conversational, in the main session. For a pre-scaffold session — or, in a control-plane split, any session whose commits live only in the control plane — keep the conversational Steps 1–2: the workflow's default scope targets the code repo and will (loudly) find no commits there. (Single-repo projects are unaffected: `roots.code` is `.`, so every commit is in scope.)
+## Steps 1–2 — Session-Close Review (run `/guv:evaluate`)
 
-## Step 1 — Invoke the Evaluator
+The session-close review **is** `/guv:evaluate` — the dual QA review (technical
+`evaluator` + `product-reviewer`) defined once in the `/guv:evaluate` skill
+(`.claude/skills/evaluate/SKILL.md`). **Do not restate its procedure here.** Run
+that one definition — its Steps 1–4 gather context, invoke both reviewers, and
+emit the combined summary; the `/guv:evaluate-parallel` skill runs the same
+Steps 1–4 with the two reviewers concurrent. Handoff owns only what is specific to
+session-close: the **skip condition**, the **review target**, and the **verdict
+gates** below — never a second copy of how the reviewers are invoked. (When the
+restatement and its source were two copies, they drifted; the pointer is the fix.)
 
-Before anything else, invoke the `guv:evaluator` subagent using the Agent tool. First decide **which repo's commits to evaluate**. Normally it's the code repo, but a pre-scaffold session has no code history yet (`git -C roots.code log` would error or be empty), and a docs-only session in a control-plane split — at any point in the project's life — made no code commits *this session* even though the code repo has history. Pick the target:
+### Skip condition — review cost is paid once
+
+Skip this session-close review **only when every commit in the session was already
+dual-reviewed in-band** — i.e. each was carried through `/guv:task` (or an equivalent
+scoped flow) whose Step 3 ran `/guv:evaluate` (both reviewers) on the change before it
+was committed. In that case the duplicate session-close review buys nothing, so
+skip it — and **disclose the skip**: record in the handoff artifact, under
+**Evaluator Results** / **Product Review Results**, that the session-close review
+was skipped because all session commits were dual-reviewed in-band, naming the
+in-band pass(es). The skip is **never silent** — a skipped review is always
+disclosed in the record.
+
+The skip is **conditional**. If **any** session commit was *not* dual-reviewed
+in-band (a hand commit, a commit landed outside `/guv:task`/`/guv:evaluate`, or any commit
+you cannot account to an in-band pass), the skip does not apply — **run the review
+below** over the session scope. When in doubt, do not skip: run it. No review is
+ever dropped silently; either it runs, or its skip is disclosed with the reason.
+
+### Review target
+
+`/guv:evaluate` scopes to the code repo (`roots.code`); handoff must first decide
+**which repo's commits to review**, because a pre-scaffold session has no code
+history yet (`git -C roots.code log` would error or be empty), and a docs-only
+session in a control-plane split — at any point in the project's life — made no
+code commits *this session* even though the code repo has history. Pick the target:
 
 ```
 CODE=$(jq -r '.roots.code' .claude/project.json)
@@ -15,39 +47,39 @@ CONTROL=$(jq -r '.roots.control' .claude/project.json)
 # Use the code repo only if it's scaffolded AND a git repo with commits; else the control plane.
 if sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" 2>/dev/null \
    && git -C "$CODE" rev-parse --verify HEAD >/dev/null 2>&1; then
-  TARGET="$CODE"   # evaluate product commits
+  TARGET="$CODE"   # review product commits
 else
-  TARGET="$CONTROL"   # pre-scaffold / docs-only: evaluate control-plane session commits
+  TARGET="$CONTROL"   # pre-scaffold / docs-only: review control-plane session commits
 fi
 ```
 
-The snippet answers "does the code repo have *any* history", not "did *this session* commit there" — so after it, check: if `TARGET` is the code repo but this session produced no commits in it (docs-only session in a mature split), switch `TARGET` to the control plane and evaluate the session's actual commits.
+The snippet answers "does the code repo have *any* history", not "did *this session*
+commit there" — so after it, check: if `TARGET` is the code repo but this session
+produced no commits in it (docs-only session in a mature split), switch `TARGET` to
+the control plane and review the session's actual commits. If `TARGET` is the
+control plane, tell `/guv:evaluate` it is reviewing control-plane / doc work — a
+pre-scaffold session, or a docs-only session in a mature split — not product code,
+so the reviewers judge accordingly rather than reporting "no tests" against
+documentation. Pass `/guv:evaluate` this session's scope (the commits in `$TARGET` and
+the phase number from `docs/PHASE_STATUS.md`, skipped if absent — non-phased).
+Present both reviewers' full reports to the user without modification or softening,
+exactly as `/guv:evaluate` does.
 
-Then gather (a no-op for single-repo, where both roots are `"."`):
+> For a pre-scaffold session — or, in a control-plane split, any session whose
+> commits live only in the control plane — prefer the conversational `/guv:evaluate`
+> over `/guv:evaluate-parallel`: the workflow's default scope targets the code repo and
+> will (loudly) find no commits there. (Single-repo projects are unaffected:
+> `roots.code` is `.`, so every commit is in scope.)
 
-1. Run `git -C "$TARGET" log --oneline -10` to identify this session's commits
-2. Run `git -C "$TARGET" diff HEAD~N` (where N = number of session commits) to get the full diff
-3. Read `docs/PHASE_STATUS.md` for the current phase number (skip if absent — non-phased)
+### Verdict gates (handoff-specific)
 
-If `TARGET` is the control plane, tell the evaluator it's reviewing control-plane / doc work — a pre-scaffold session, or a docs-only session in a mature split — not product code, so it judges accordingly rather than reporting "no tests" against documentation.
+These gates are what `/guv:handoff` adds on top of `/guv:evaluate`'s reports — they decide
+whether the handoff proceeds:
 
-Then pass a prompt like: "Evaluate the following work from Phase [N]. Commits this session: [list]. The diff covers these files: [list changed files]. Run your full evaluation procedure."
-
-Present the evaluator's full report to the user without modification or softening.
-
-- **If FAIL:** Stop the handoff here. Fix the critical issues identified by the evaluator, then invoke `/guv:handoff` again from the top (the evaluator will re-run on the fixed code).
-- **If PASS WITH ISSUES:** Note the issues but continue with Step 2.
-- **If PASS:** Continue with Step 2.
-
-## Step 2 — Invoke the Product Reviewer
-
-Invoke the `guv:product-reviewer` subagent using the Agent tool. Pass a prompt like: "Review the following work from Phase [N] for product quality. Commits this session: [list]. Changed files: [list]. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md."
-
-Present the product reviewer's full report to the user without modification or softening.
-
-- **If NEEDS WORK with Critical issues:** Stop the handoff. Address critical product issues, then invoke `/guv:handoff` again.
-- **If NEEDS WORK with Major/Minor issues only:** Note the issues but continue with Step 3. Issues will be captured in the handoff artifact.
-- **If PASS:** Continue with Step 3.
+- **Evaluator FAIL:** Stop the handoff here. Fix the critical issues, then invoke `/guv:handoff` again from the top (the evaluator re-runs on the fixed code).
+- **Product reviewer NEEDS WORK with Critical issues:** Stop the handoff. Address the critical product issues, then invoke `/guv:handoff` again.
+- **PASS WITH ISSUES / NEEDS WORK with Major/Minor only:** Note the issues but continue. They are captured in the handoff artifact.
+- **Both PASS:** Continue with Step 3.
 
 ## Step 3 — Final Test Run
 
@@ -241,7 +273,17 @@ Otherwise update `docs/PHASE_STATUS.md` to reflect the current state of the phas
 ## Step 8 — Phase Completion: Generate UAT Plan
 
 **Phased projects only — and conditional within them.** If `ceremony` is not
-`phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, or ❌, skip to Step 9.
+`phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, ❌, or 🔒, skip to Step 9.
+
+The 🔒 marker is **human-gated / awaiting-manual** — a deliverable blocked on
+out-of-sandbox human or manual work (the kind `/guv:manual` writes to
+`docs/manual/`), not on a dependency. When you tally markers (phase-completion
+here, and the progress count in Step 11), count 🔒 as its **own** category:
+it is open work, so a 🔒 item keeps the phase incomplete, but it is **not** ❌
+blocked (no dep gates it — a person does) and **not** ✅ complete. Report it
+distinctly — "N human-gated (awaiting `docs/manual/`)" — under **Blocked** in
+the handoff artifact with the manual artifact named, never silently folded into
+the dependency-blocked count.
 
 If the phase is complete, generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage (the evaluator handles that) or spec alignment (the product reviewer handles that), but real-world workflows from start to finish.
 

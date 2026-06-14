@@ -17,6 +17,7 @@ BASE_IMAGE      ?= $(shell case "$(LANGUAGE)" in \
 	jvm)    echo eclipse-temurin:21-jdk-jammy ;; \
 	dotnet) echo mcr.microsoft.com/dotnet/sdk:8.0 ;; \
 	elixir) echo elixir:1.16-slim ;; \
+	shell)  echo debian:bookworm-slim ;; \
 	*)      echo node:20-slim ;; \
 	esac)
 # ═══════════════════════════════════════════════════════════

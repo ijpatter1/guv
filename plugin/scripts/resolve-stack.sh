@@ -142,6 +142,40 @@ else
   exit 2
 fi
 
+# ── Ceremony: adopt an already-phased repo, don't impose onboard over it ([10.7]).
+# An existing repo that already carries a live phase plan is not pre-scaffold —
+# onboarding scaffold over it would clobber the plan. Detection keys on the
+# tracker GRAMMAR, not a filename guess: resolve-ready.sh reports mode=GRAMMAR
+# only for a DAG-grammar tracker (a LEGACY token-free tracker, or none at all,
+# stays onboard — the unchanged path). The resolver is the single grammar oracle
+# (never re-parse the tracker here); if it is absent we degrade to onboard.
+#
+# The resolver's EXIT CODE separates "no live plan" from "broken live plan":
+# exit 4 (no tracker) and a LEGACY/GRAMMAR success (exit 0) are clean signals;
+# exit 5 is a MALFORMED tracker — **[N.M]** IDs present but a token broken, i.e.
+# clearly mid-plan-but-broken. A no-manifest repo never reaches route.sh's
+# exit-5 loud stop (route.sh keys on an existing manifest; pre-scaffold defers to
+# onboard), so onboard is the only layer that sees this state. We do NOT silently
+# scaffold over it: ceremony stays the schema-valid `onboard` default, but a loud
+# stderr warning names the broken-but-planned tracker so the operator confirms
+# deliberately rather than clobbering a plan the resolver could not read
+# (rule 15 — a designed loud stop, mirroring route.sh's MALFORMED refusal).
+CEREMONY="onboard"
+MALFORMED_TRACKER=""
+RESOLVER="$(cd "$(dirname "$0")" && pwd)/resolve-ready.sh"
+if [ -f "$RESOLVER" ]; then
+  # The resolver exits non-zero for no-tracker (4) and MALFORMED (5); capture its
+  # code without tripping `set -e` (the && true / || RRC=$? guard keeps the line's
+  # own status 0 while RRC carries the resolver's exit).
+  RRC=0
+  RES=$(bash "$RESOLVER" "$DIR/docs/PHASE_STATUS.md" 2>/dev/null) && true || RRC=$?
+  if [ "$RRC" -eq 0 ] && printf '%s\n' "$RES" | grep -qx 'mode=GRAMMAR'; then
+    CEREMONY="phased"
+  elif [ "$RRC" -eq 5 ]; then
+    MALFORMED_TRACKER="$DIR/docs/PHASE_STATUS.md"
+  fi
+fi
+
 # ── Build the proposed manifest JSON ────────────────────────────────────────
 FMT_JSON=$(printf '%s\n' "${FMT_EXT[@]}" | jq -R . | jq -s .)
 GUARDS_JSON=$(if [ ${#GUARDS[@]} -eq 0 ]; then echo '[]'; else printf '%s\n' "${GUARDS[@]}" | jq -R . | jq -s .; fi)
@@ -160,6 +194,7 @@ jq -n \
   --argjson readyCheck "$(jstr "$READY_CHECK")" \
   --argjson formatExtensions "$FMT_JSON" \
   --argjson guards "$GUARDS_JSON" \
+  --arg ceremony "$CEREMONY" \
   '{
     "$schema": "./project.schema.json",
     name: $name,
@@ -171,10 +206,16 @@ jq -n \
     readyCheck: $readyCheck,
     formatExtensions: $formatExtensions,
     guards: $guards,
-    ceremony: "onboard"
+    ceremony: $ceremony
   }'
 
 log "Proposed: language=$LANGUAGE packageManager=$PACKAGE_MANAGER guards=[${GUARDS[*]:-}]"
 log "This is a PROPOSAL. Confirm or override before writing .claude/project.json."
 log "roots default to single-repo ('.'); set roots.code for a control-plane split."
-log "ceremony defaults to 'onboard'; /init-project (/guv:init-project under the plugin) should set it to 'phased'."
+if [ "$CEREMONY" = "phased" ]; then
+  log "ceremony=phased — a live DAG-grammar tracker was detected at $DIR/docs/PHASE_STATUS.md; adopt the existing plan (resume/start-phase), do not impose onboard scaffold."
+elif [ -n "$MALFORMED_TRACKER" ]; then
+  log "WARNING: a phase tracker exists at $MALFORMED_TRACKER but is MALFORMED — it carries **[N.M]** IDs yet the resolver cannot parse it (run 'bash .claude/resolve-ready.sh $MALFORMED_TRACKER' to see the offenders). This repo is clearly mid-plan-but-broken, NOT pre-scaffold. ceremony stays 'onboard' so a proposal is still produced, but DO NOT scaffold over it: fix the tracker and re-run, or confirm deliberately that onboarding should clobber the broken plan (rule 15 — refuse-and-report over a silent overwrite)."
+else
+  log "ceremony defaults to 'onboard'; /init-project (/guv:init-project under the plugin) should set it to 'phased'."
+fi

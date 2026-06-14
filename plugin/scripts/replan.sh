@@ -48,7 +48,7 @@ RESOLVER="$DIR/resolve-ready.sh"
 
 ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
 DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
-LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*$ID_RE"
+LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*$ID_RE"
 VERBS="reorder split merge insert descope abandon deps-amend"
 
 usage() { echo "usage: bash .claude/replan.sh next-ordinal|guard|insert|descope|reword|sync-check … (header comment has the arity)" >&2; exit 2; }
@@ -72,18 +72,24 @@ $out"
 }
 BASH="${BASH:-bash}"
 
-marker_bullets() { grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$1"; }
+# 🔒 (human-gated, [10.1]) is recognized in the marker class alongside the four
+# original markers, the same way the resolver recognizes it: a 🔒 line is a
+# real deliverable bullet — never invisible to the engine, so a 🔒 ID can be a
+# guard/dep target and is never read as "unknown ID".
+marker_bullets() { grep -E '^\s*-\s*(✅|🔄|⬜|❌|🔒)' "$1"; }
 
 phase_exists() { grep -qE "^##+ Phase $2([^0-9]|\$)" "$1"; }
-id_line()      { marker_bullets "$1" | grep -E "^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*\*\*\[$(echo "$2" | sed 's/\./\\./')\]\*\*" | head -1; }
+id_line()      { marker_bullets "$1" | grep -E "^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*\*\*\[$(echo "$2" | sed 's/\./\\./')\]\*\*" | head -1; }
 
 # A phase is completed when it has deliverables and none of them is open
-# (⬜ or 🔄) — all ✅/❌. Completed phases are immutable.
+# (⬜, 🔄, or 🔒) — all ✅/❌. 🔒 is human-gated OPEN work (it counts toward the
+# open phase in the resolver), so a phase still holding a 🔒 is NOT complete and
+# stays mutable. Completed phases are immutable.
 phase_completed() {
   local lines
   lines=$(marker_bullets "$1" | grep -E "\*\*\[$2\.[0-9]+\]\*\*")
   [ -n "$lines" ] || return 1
-  echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄)' && return 1
+  echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄|🔒)' && return 1
   return 0
 }
 
@@ -165,7 +171,7 @@ wording_id() { printf '%s\n' "$1" | grep -oE "^$ID_RE" | grep -oE '[0-9]+\.[0-9]
 # Strip a deliverable line to its wording: drop the '- MARKER ' lead and the
 # annotation zone after the LAST deps-shaped construct (the documented parse).
 line_wording() {
-  printf '%s\n' "$1" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*//' \
+  printf '%s\n' "$1" | sed -E 's/^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*//' \
     | sed -E 's/(.*`\[deps:[^]]*\]`).*/\1/'
 }
 deps_token_of() { printf '%s\n' "$1" | grep -oE '`\[deps:[^]]*\]`' | tail -1 | sed -E 's/^`\[deps: //; s/\]`$//'; }
@@ -201,7 +207,7 @@ case "$cmd" in
     start=$(grep -nE "^##+ Phase $PHASE([^0-9]|\$)" "$T" | head -1 | cut -d: -f1)
     end=$(tail -n "+$(( start + 1 ))" "$T" | grep -n '^## ' | head -1 | cut -d: -f1)
     [ -n "$end" ] && end=$(( start + end - 1 )) || end=$(( $(wc -l < "$T") + 1 ))
-    at=$(sed -n "$start,$(( end - 1 ))p" "$T" | grep -nE '^\s*-\s*(✅|🔄|⬜|❌)' | tail -1 | cut -d: -f1)
+    at=$(sed -n "$start,$(( end - 1 ))p" "$T" | grep -nE '^\s*-\s*(✅|🔄|⬜|❌|🔒)' | tail -1 | cut -d: -f1)
     if [ -n "$at" ]; then
       at=$(( start + at - 1 ))
     else
@@ -228,7 +234,7 @@ case "$cmd" in
       && die6 "[$ID] is ✅ complete; a completed deliverable cannot be descoped"
     WORD="descoped"; [ "$OP" = "abandon" ] && WORD="abandoned"
     at=$(grep -nxF -e "$LINE" "$T" | head -1 | cut -d: -f1)
-    NEW=$(printf '%s\n' "$LINE" | sed -E "s/^([[:space:]]*-[[:space:]]*)(✅|🔄|⬜|❌)/\1❌/")
+    NEW=$(printf '%s\n' "$LINE" | sed -E "s/^([[:space:]]*-[[:space:]]*)(✅|🔄|⬜|❌|🔒)/\1❌/")
     NEW="$NEW ($WORD $(date +%F): $NOTE)"
     mk_tmp "$T"
     { head -n "$(( at - 1 ))" "$TMP"; printf '%s\n' "$NEW"; tail -n "+$(( at + 1 ))" "$TMP"; } > "$TMP.ins"
@@ -252,7 +258,7 @@ case "$cmd" in
     NEW_DEPS=$(deps_token_of "$WORDING")
     # Rebuild the line: lead marker + new wording + untouched annotation zone
     # (everything after the last deps-shaped construct — the documented parse).
-    PRE=$(printf '%s\n' "$LINE" | sed -E "s/^([[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*).*/\1/")
+    PRE=$(printf '%s\n' "$LINE" | sed -E "s/^([[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*).*/\1/")
     ANN="${LINE##*\]\`}"
     at=$(grep -nxF -e "$LINE" "$T" | head -1 | cut -d: -f1)
     # The record must tell what changed: the deps diff when the token moved,

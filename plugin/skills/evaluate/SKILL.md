@@ -119,7 +119,7 @@ Action:  [fix and re-evaluate | proceed ✓]
 
 ## Notes
 
-- **Parallel variant:** the `/guv:evaluate-parallel` skill (launching the plugin-shipped workflow) runs Steps 1–4 with both reviewers concurrent and returns both reports plus the combined summary. Step 5 — the fix loop — stays here, conversational: apply fixes in the main session, then re-run for the next pass.
+- **Parallel variant:** the `/guv:evaluate-parallel` skill (launching the plugin-shipped workflow) runs Steps 1–4 with both reviewers concurrent and returns both reports plus the combined summary. The run's completion notification truncates long reports, and the on-disk output nests the combined result under a JSON-string `result` field — so to read both sub-reports whole, run `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/extract-eval-report.sh <output.json>` against the task-output file the notification names; it decodes the nesting, prints the full untruncated report, and fails loud on a half review. Step 5 — the fix loop — stays here, conversational: apply fixes in the main session, then re-run for the next pass.
 - Both reviewers are read-only. They inspect the code and report findings. They do not modify files.
 - If this is invoked as part of `/guv:handoff` and either reviewer returns critical issues, the handoff stops. Fix the issues and re-run `/guv:handoff`.
 - Do not editorialize or soften either report. Present them as-is. The user needs honest assessment, not reassurance.
