@@ -28,6 +28,8 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"          # .claude/
 ROOT="$(cd "$SRC/.." && pwd)"
 SCRIPT="$SRC/extract-eval-report.sh"
 SKILL="$SRC/skills/task/SKILL.md"
+EVAL_SKILL="$SRC/skills/evaluate/SKILL.md"       # the parallel-variant operator note
+HANDOFF="$SRC/commands/handoff.md"               # the /handoff parallel-pass note
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -123,6 +125,33 @@ bash "$SCRIPT" "$WORK/does-not-exist.json" >/dev/null 2>"$WORK/err7"; RC=$?
 { [ $RC -ne 0 ] && [ -s "$WORK/err7" ]; } \
   && ok "missing output file fails loud" \
   || no "a missing output file must fail loud (rc=$RC)"
+
+# T7b — summary-absence is TOLERATED (asymmetric with the sub-reports): the
+# helper defaults `.summary // ""` and must NOT fail when summary is absent,
+# while it fails loud on a missing sub-report (T6). A nested output with both
+# reports but no `summary` surfaces both reports at exit 0.
+jq -n --arg r "$(jq -n --arg e "$EVAL_REPORT" --arg p "$PROD_REPORT" \
+                   '{evaluatorReport:$e, productReviewerReport:$p}')" \
+      '{agentCount:3, result:$r}' > "$WORK/nosummary.json"
+OUT7b=$(bash "$SCRIPT" "$WORK/nosummary.json" 2>"$WORK/err7b"); RC=$?
+{ [ $RC -eq 0 ] && [ ! -s "$WORK/err7b" ] \
+    && echo "$OUT7b" | grep -q "EVAL-REPORT-TAIL-MARKER" \
+    && echo "$OUT7b" | grep -q "PROD-REPORT-TAIL-MARKER"; } \
+  && ok "absent summary is tolerated (both reports still surface, exit 0)" \
+  || no "summary-absence must be tolerated, not fail (rc=$RC): $(cat "$WORK/err7b")"
+
+# T7c — the operator's documented path is WIRED to the helper (the deliverable's
+# first clause: extract from the on-disk output "rather than the truncated
+# completion notification"). The parallel-variant note an operator reads after an
+# evaluate-parallel run must name extract-eval-report.sh, else the tool is an
+# orphan and the operator hand-decodes the nesting the deliverable set out to
+# retire. (Source uses the `.claude/` path; the plugin build path-rewrites it.)
+grep -q 'extract-eval-report\.sh' "$EVAL_SKILL" \
+  && ok "evaluate SKILL parallel-variant note points at the extraction helper" \
+  || no "the parallel-variant note must name extract-eval-report.sh (orphan tool)"
+grep -q 'extract-eval-report\.sh' "$HANDOFF" \
+  && ok "/handoff parallel-pass note points at the extraction helper" \
+  || no "the /handoff parallel-pass note must name extract-eval-report.sh"
 
 # ── /task Step 1 chore classification ──
 

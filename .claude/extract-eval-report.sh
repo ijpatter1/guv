@@ -17,7 +17,9 @@
 #   The path is the Task-runtime output file referenced by the run notification.
 # Prints the combined report to stdout. Exit 4 on a missing/unreadable file or
 # unparseable JSON; exit 5 if a required report field is absent (fail loud — a
-# half review is never surfaced as a partial; rules 10 and 15).
+# half review is never surfaced as a partial; rules 10 and 15). `summary` is
+# non-essential and tolerated when absent (defaults to ""); the two sub-reports
+# are the must-haves — that asymmetry is deliberate.
 set -u
 
 FILE="${1:-}"
