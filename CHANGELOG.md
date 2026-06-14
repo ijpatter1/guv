@@ -5,6 +5,28 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.2.0 — 2026-06-14
+
+Minor release: the harness-hardening wave — eight additive capabilities groomed
+from the open feedback backlog and built as a single Phase-10 fan-out (built →
+calibrated dual-review → fix-loop → joined through the gated merge queue, full
+battery green at 1089/0). The `v0.2.0` tag lands on the default-branch release
+commit, merge-before-tag.
+
+### Added
+
+- [10.1] Phase-docs grammar surface: the skill now quotes the canonical `DEPS_RE` deps-token regex verbatim (naming resolve-ready.sh / replan.sh / archive-initiative.sh as its source of truth, guarded byte-identical by a new suite), the marker set gains a fifth `🔒` human-gated / awaiting-manual marker (tracked in `docs/manual/`) that the `status` and `handoff` counters report as its own category, and the published contract surface (tracker grammar + status.json shape) carries a `contract_version` marker emitted by `resolve-ready.sh --json`.
+- [10.2] Manifest language truthfulness: `project.schema.json`'s `language` enum gains `shell` (bash/jq/git projects) mapped to the plain `debian:bookworm-slim` base image with no language-specific firewall registry; guv's own manifest and the one `setup-control-plane.sh` generates now read `shell` not `node`, and guv's `commands.test` is the first-class `for t in .claude/tests/*.test.sh` bash runner instead of the inherited `npm test`.
+- [10.3] build-plugin.sh now ships the consumer-meaningful test suites into plugin/tests/ with a layout-reconstructing runner (run-plugin-tests.sh) that rebuilds a .claude/-shaped tree from the flattened scripts/, so the location-relative suites run unmodified in a plugin install; plugin.test.sh asserts the shipped suite runs green in plugin layout.
+- [10.5] Tooling ergonomics: `extract-eval-report.sh` decodes the evaluate-parallel workflow's nested on-disk output and surfaces the full combined report untruncated (feedback 447210968); `/task` Step 1 gains a Chore/Maintenance classification routing control-plane doc-format/migration changes to approve-then-write with no TDD test.
+- [10.7] /onboard detects a live DAG-grammar `docs/PHASE_STATUS.md` in the target repo and proposes `ceremony=phased` (adopting the existing plan) instead of hardcoding `onboard`; a token-free (LEGACY) tracker or no phase docs stays `onboard` unchanged. Detection keys on the tracker grammar via resolve-ready.sh, not a filename guess.
+- [10.8] `/log-feedback` gains a `submit` mode (`.claude/feedback-submit.sh`) that drains open `routing: upstream` feedback entries into the guv source repo as issue drafts — deduped by entry id, with a draft marker written back so a re-run is a no-op. Issue filing stays user-gated (the agent drafts and emits `gh issue create`; the user files); `--dry-run` lists without writing, and the transport degrades loudly if the tracker is unreachable.
+
+### Changed
+
+- [10.4] /handoff references /evaluate's dual-review procedure by pointer instead of inlining its steps (killing the restatement drift class), and the session-close review is skipped — with the skip disclosed — when every session commit was already dual-reviewed in-band via /task + /evaluate; an un-reviewed commit still runs the review.
+- [10.6] Occupancy meter default is now context-window aware: derived from the model the transcript reports (3/4 of its window — 750000 for a 1M-window model, 150000 for the standard 200000 window), with a documented 150000 fallback when no model signal is visible, so a large-context model no longer meters every turn. Explicit `occupancy.threshold` still overrides; silent-below-threshold unchanged.
+
 ## 0.1.2 — 2026-06-13
 
 Patch release: a backlog-clearing wave of fixes to already-shipped assets, drawn
@@ -111,11 +133,3 @@ remains supported as the fallback path.
   predate the tier split — rewrite them to the tier-neutral wording from
   `CLAUDE.template.md`: the isolation tier (native sandbox or Docker) is the
   spatial boundary; the hooks are the semantic layer within it.
-- [10.7] /onboard detects a live DAG-grammar `docs/PHASE_STATUS.md` in the target repo and proposes `ceremony=phased` (adopting the existing plan) instead of hardcoding `onboard`; a token-free (LEGACY) tracker or no phase docs stays `onboard` unchanged. Detection keys on the tracker grammar via resolve-ready.sh, not a filename guess.
-- [10.4] /handoff references /evaluate's dual-review procedure by pointer instead of inlining its steps (killing the restatement drift class), and the session-close review is skipped — with the skip disclosed — when every session commit was already dual-reviewed in-band via /task + /evaluate; an un-reviewed commit still runs the review.
-- [10.2] Manifest language truthfulness: `project.schema.json`'s `language` enum gains `shell` (bash/jq/git projects) mapped to the plain `debian:bookworm-slim` base image with no language-specific firewall registry; guv's own manifest and the one `setup-control-plane.sh` generates now read `shell` not `node`, and guv's `commands.test` is the first-class `for t in .claude/tests/*.test.sh` bash runner instead of the inherited `npm test`.
-- [10.6] Occupancy meter default is now context-window aware: derived from the model the transcript reports (3/4 of its window — 750000 for a 1M-window model, 150000 for the standard 200000 window), with a documented 150000 fallback when no model signal is visible, so a large-context model no longer meters every turn. Explicit `occupancy.threshold` still overrides; silent-below-threshold unchanged.
-- [10.3] build-plugin.sh now ships the consumer-meaningful test suites into plugin/tests/ with a layout-reconstructing runner (run-plugin-tests.sh) that rebuilds a .claude/-shaped tree from the flattened scripts/, so the location-relative suites run unmodified in a plugin install; plugin.test.sh asserts the shipped suite runs green in plugin layout.
-- [10.1] Phase-docs grammar surface: the skill now quotes the canonical `DEPS_RE` deps-token regex verbatim (naming resolve-ready.sh / replan.sh / archive-initiative.sh as its source of truth, guarded byte-identical by a new suite), the marker set gains a fifth `🔒` human-gated / awaiting-manual marker (tracked in `docs/manual/`) that the `status` and `handoff` counters report as its own category, and the published contract surface (tracker grammar + status.json shape) carries a `contract_version` marker emitted by `resolve-ready.sh --json`.
-- [10.8] `/log-feedback` gains a `submit` mode (`.claude/feedback-submit.sh`) that drains open `routing: upstream` feedback entries into the guv source repo as issue drafts — deduped by entry id, with a draft marker written back so a re-run is a no-op. Issue filing stays user-gated (the agent drafts and emits `gh issue create`; the user files); `--dry-run` lists without writing, and the transport degrades loudly if the tracker is unreachable.
-- [10.5] Tooling ergonomics: `extract-eval-report.sh` decodes the evaluate-parallel workflow's nested on-disk output and surfaces the full combined report untruncated (feedback 447210968); `/task` Step 1 gains a Chore/Maintenance classification routing control-plane doc-format/migration changes to approve-then-write with no TDD test.
