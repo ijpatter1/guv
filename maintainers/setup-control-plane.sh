@@ -1,8 +1,8 @@
 #!/bin/bash
 # maintainers/setup-control-plane.sh
-# Scaffold (or --sync) a dogfooding CONTROL PLANE that treats THIS harness repo as
+# Scaffold (or --sync) a dogfooding CONTROL PLANE that treats THIS guv repo as
 # roots.code. The control plane holds every session artifact (rendered CLAUDE.md,
-# handoffs, feedback log), so the harness repo stays clean. See maintainers/DOGFOODING.md.
+# handoffs, feedback log), so the guv repo stays clean. See maintainers/DOGFOODING.md.
 #
 # Usage:
 #   bash maintainers/setup-control-plane.sh [<control-plane-dir>] [--sync]
@@ -12,19 +12,19 @@
 #   is a constructed path offered at creation/sync time only: no script ever
 #   discovers a control plane by name; the manifest is the sole machine pointer.
 #
-#   (no flag)  create the control plane if absent; copy the harness core into it; write
+#   (no flag)  create the control plane if absent; copy the core into it; write
 #              the dogfooding manifest + CLAUDE.md ONLY if they don't exist yet
 #              (so your session artifacts are never clobbered); git init it.
-#   --sync     refresh ONLY the copied harness core (commands/skills/agents/hooks/scripts/
+#   --sync     refresh ONLY the copied core (commands/skills/agents/hooks/scripts/
 #              guv-* rules/workflows/schema/settings) plus the generated test runner —
-#              run-core-tests.sh carries no consumer state, so it is harness-owned and
+#              run-core-tests.sh carries no consumer state, so it is core-owned and
 #              regenerated whenever the generator's copy changes (announced; silent when
 #              current). Leaves the control plane's manifest, CLAUDE.md, docs, and
-#              feedback untouched. Run this after editing the harness.
+#              feedback untouched. Run this after editing guv.
 
 set -u
 
-HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"      # the harness repo (= roots.code)
+GUV_DIR="$(cd "$(dirname "$0")/.." && pwd)"      # the guv repo (= roots.code)
 DEST="${1:-}"
 MODE_ARG="${2:-}"
 
@@ -54,7 +54,7 @@ if [ -n "$MODE_ARG" ] && [ "$MODE_ARG" != "--sync" ]; then
   exit 2
 fi
 if [ -z "$DEST" ]; then
-  DEST="$HARNESS_DIR/../$(basename "$HARNESS_DIR")-guv"
+  DEST="$GUV_DIR/../$(basename "$GUV_DIR")-guv"
   echo "No control-plane dir given — defaulting to $DEST (the <project>-guv convention)"
 fi
 MODE="create"
@@ -71,15 +71,15 @@ fi
 mkdir -p "$DEST/.claude"
 DEST_ABS="$(cd "$DEST" && pwd)"
 
-# Relative path from the control plane back to the harness (for roots.code).
+# Relative path from the control plane back to guv (for roots.code).
 # Falls back to an absolute path if a relative one can't be computed.
 rel_code() {
   python3 -c "import os,sys;print(os.path.relpath(sys.argv[1], sys.argv[2]))" \
-    "$HARNESS_DIR" "$DEST_ABS" 2>/dev/null || echo "$HARNESS_DIR"
+    "$GUV_DIR" "$DEST_ABS" 2>/dev/null || echo "$GUV_DIR"
 }
 CODE_REL="$(rel_code)"
 
-# ── Copy the behavioral core from the harness (always — this is the syncable part) ──
+# ── Copy the behavioral core from guv (always — this is the syncable part) ──
 # Note what is NOT copied: project.json (we write a dogfooding one), docs/, feedback/,
 # agent-memory/, CLAUDE.md — those are control-plane-owned session state.
 copy_core() {
@@ -87,38 +87,38 @@ copy_core() {
   # hand-enumerated registry, found during 6.2 — a new .claude/*.sh helper now
   # reaches every plane on create and --sync by existing).
   for item in commands skills agents hooks tests project.schema.json settings.json \
-              $(cd "$HARNESS_DIR/.claude" && ls *.sh 2>/dev/null); do
-    if [ -e "$HARNESS_DIR/.claude/$item" ]; then
+              $(cd "$GUV_DIR/.claude" && ls *.sh 2>/dev/null); do
+    if [ -e "$GUV_DIR/.claude/$item" ]; then
       rm -rf "$DEST/.claude/$item"
-      cp -R "$HARNESS_DIR/.claude/$item" "$DEST/.claude/$item"
+      cp -R "$GUV_DIR/.claude/$item" "$DEST/.claude/$item"
       # cp -R copies directories wholesale — scrub Finder droppings
       find "$DEST/.claude/$item" -name '.DS_Store' -delete 2>/dev/null
     fi
   done
   # Workflows: never clobber the directory wholesale — the native feature saves
   # USER-authored workflows into .claude/workflows/, so only the entries the
-  # harness itself ships are refreshed (ownership by filename, like rules);
+  # guv itself ships are refreshed (ownership by filename, like rules);
   # consumer-saved workflows are never touched. Two accepted edges until the
-  # plugin namespace (Phase 5) gives harness workflows a real prefix: a workflow
+  # plugin namespace (Phase 5) gives guv workflows a real prefix: a workflow
   # removed upstream lingers until deleted by hand, and a consumer file whose
-  # name collides with a future harness-shipped one is overwritten on sync.
-  if [ -d "$HARNESS_DIR/.claude/workflows" ]; then
+  # name collides with a future guv-shipped one is overwritten on sync.
+  if [ -d "$GUV_DIR/.claude/workflows" ]; then
     mkdir -p "$DEST/.claude/workflows"
-    for f in "$HARNESS_DIR/.claude/workflows/"*; do
+    for f in "$GUV_DIR/.claude/workflows/"*; do
       [ -e "$f" ] || continue
       rm -rf "$DEST/.claude/workflows/$(basename "$f")"
       cp -R "$f" "$DEST/.claude/workflows/"
     done
     find "$DEST/.claude/workflows" -name '.DS_Store' -delete 2>/dev/null
   fi
-  # Rules: ownership is declared by filename — replace harness-owned guv-* only;
+  # Rules: ownership is declared by filename — replace core-owned guv-* only;
   # unprefixed consumer-authored rules are never touched. The superseded single-file
   # RULES.md is removed (leaving it would double-load: once via a consumer CLAUDE.md
   # still carrying the old @import, once natively from .claude/rules/).
-  if [ -d "$HARNESS_DIR/.claude/rules" ]; then
+  if [ -d "$GUV_DIR/.claude/rules" ]; then
     mkdir -p "$DEST/.claude/rules"
     rm -f "$DEST/.claude/rules/guv-"*.md
-    for f in "$HARNESS_DIR/.claude/rules/guv-"*.md; do
+    for f in "$GUV_DIR/.claude/rules/guv-"*.md; do
       [ -e "$f" ] && cp "$f" "$DEST/.claude/rules/"
     done
     if [ -f "$DEST/.claude/RULES.md" ]; then
@@ -128,14 +128,14 @@ copy_core() {
       echo "        still carries an '@.claude/RULES.md' import line, delete that line)"
     fi
   fi
-  echo "[setup] synced harness core → $DEST/.claude/"
+  echo "[setup] synced core → $DEST/.claude/"
 }
 
 copy_core
 
-# run-core-tests.sh: commands.test for the control plane runs the harness's bash
+# run-core-tests.sh: commands.test for the control plane runs the core's bash
 # suites (which live in roots.code, not here). Generated, but NOT create-only: the
-# runner carries no consumer state, so like guv-* rules it is harness-owned and
+# runner carries no consumer state, so like guv-* rules it is core-owned and
 # refreshed in BOTH modes whenever it drifts from the generator (entry
 # 2026-06-11T23:17:51Z-15612590 — create-only meant the D3 stderr-gate fix never
 # reached existing control planes). Announced on change, silent when current.
@@ -150,7 +150,7 @@ write_runner() {
   tmp=$(mktemp)
   cat > "$tmp" <<'SH'
 #!/bin/bash
-# Run the harness's bash test suites from the code repo (roots.code).
+# Run the core's bash test suites from the code repo (roots.code).
 # stderr is captured per suite and ANY output there fails the run: a green
 # summary above a parse error is how a vacuous guard slipped two review gates
 # (session-2026-06-11-003) — the empty-stderr gate is enforced here, not by
@@ -178,7 +178,7 @@ SH
     cp "$tmp" "$target"
   elif ! cmp -s "$tmp" "$target"; then
     cp "$tmp" "$target"
-    echo "[setup] refreshed .claude/run-core-tests.sh (harness-owned — drifted from the generator)"
+    echo "[setup] refreshed .claude/run-core-tests.sh (core-owned — drifted from the generator)"
   fi
   chmod +x "$target"
   rm -f "$tmp"
@@ -188,10 +188,10 @@ write_runner
 # Status-render post-commit hook ([6.7]): a tracker-touching commit regenerates
 # status.html through the sanctioned chain and commits it as a derived artifact.
 # Same ownership semantics as the runner — created in create mode, refreshed in
-# both modes while present and harness-owned, never created fresh on --sync
+# both modes while present and core-owned, never created fresh on --sync
 # (--sync doubles as the template-clone consumer update path, and a project
 # that never had a git hook must not be handed one). A post-commit hook that
-# is NOT harness-owned is never touched: announce and step aside.
+# is NOT core-owned is never touched: announce and step aside.
 write_render_hook() {
   local target="$DEST/.git/hooks/post-commit" tmp
   if [ ! -d "$DEST/.git" ]; then
@@ -213,7 +213,7 @@ write_render_hook() {
     return 0
   fi
   if [ -f "$target" ] && ! grep -q 'Core-owned' "$target"; then
-    echo "[setup] .git/hooks/post-commit exists and is not harness-owned — left untouched (the render hook was not installed)"
+    echo "[setup] .git/hooks/post-commit exists and is not core-owned — left untouched (the render hook was not installed)"
     return 0
   fi
   mkdir -p "$DEST/.git/hooks"
@@ -299,7 +299,7 @@ SH
     echo "[setup] installed status-render post-commit hook (.git/hooks/post-commit)"
   elif ! cmp -s "$tmp" "$target"; then
     cp "$tmp" "$target"
-    echo "[setup] refreshed status-render post-commit hook (harness-owned — drifted from the generator)"
+    echo "[setup] refreshed status-render post-commit hook (core-owned — drifted from the generator)"
   fi
   chmod +x "$target"
   rm -f "$tmp"
@@ -327,11 +327,11 @@ fi
 
 # ── First-time scaffolding (create only what's absent — never clobber session state) ──
 
-# Dogfooding manifest: roots.code points back at the harness; ceremony: task.
+# Dogfooding manifest: roots.code points back at guv; ceremony: task.
 if [ ! -f "$DEST/.claude/project.json" ]; then
   jq -n --arg code "$CODE_REL" '{
     "$schema": "./project.schema.json",
-    name: "harness-dev",
+    name: "guv-dev",
     language: "shell",
     packageManager: null,
     roots: { control: ".", code: $code },
@@ -352,29 +352,29 @@ fi
 # Control-plane CLAUDE.md — context for the dogfooding session.
 if [ ! -f "$DEST/CLAUDE.md" ]; then
   cat > "$DEST/CLAUDE.md" <<SH
-# Harness Dev — Control Plane
+# guv Dev — Control Plane
 
-This is the **control plane** for improving the Claude Code harness. The harness itself
+This is the **control plane** for improving guv. guv itself
 is the code repo at \`roots.code\` (\`$CODE_REL\`).
 
-- **Behavior & conventions:** \`.claude/rules/\` (\`guv-*.md\` harness-owned; add your own unprefixed rules alongside)
+- **Behavior & conventions:** \`.claude/rules/\` (\`guv-*.md\` core-owned; add your own unprefixed rules alongside)
 - **Memory authority:** the manifest and the latest session handoff are authoritative;
   treat auto memory as hints and never let it override either.
 - **Commands, roots, ceremony:** \`.claude/project.json\`. \`commands.test\` runs the
-  harness's bash suites in the code repo.
+  core's bash suites in the code repo.
 - **Execution at scale:** saved workflows in \`.claude/workflows/\` (e.g.
   \`/eval-parallel\`) — fan-out execution only; QA stages use the calibrated
   reviewers by name (\`.claude/rules/guv-workflows.md\`).
-- **Where edits go:** improve the harness in the **code repo** ($CODE_REL) — that's
+- **Where edits go:** improve guv in the **code repo** ($CODE_REL) — that's
   where product commits land. This control plane holds session artifacts only
-  (handoffs in \`docs/sessions/\`, harness friction in \`.claude/feedback/\`).
-- **After editing the harness**, run \`maintainers/setup-control-plane.sh <here> --sync\`
-  from the harness repo to pull your changes in before testing them.
+  (handoffs in \`docs/sessions/\`, guv friction in \`.claude/feedback/\`).
+- **After editing guv**, run \`maintainers/setup-control-plane.sh <here> --sync\`
+  from the guv repo to pull your changes in before testing them.
 
 ## Project facts
 
 - This is \`ceremony: task\` — scoped changes, no phase docs. Use \`/task\` for work.
-- Log harness friction with \`/feedback\`; it stays here, never in the template.
+- Log guv friction with \`/feedback\`; it stays here, never in the template.
 SH
   echo "[setup] wrote control-plane CLAUDE.md"
 fi
@@ -401,6 +401,6 @@ write_render_hook
 
 echo ""
 echo "[setup] Control plane ready at: $DEST_ABS"
-echo "  roots.code → $CODE_REL (the harness)"
+echo "  roots.code → $CODE_REL (guv)"
 echo "  Next:  cd \"$DEST_ABS\" && claude   then  /status"
-echo "  Re-sync after harness edits:  bash maintainers/setup-control-plane.sh \"$DEST\" --sync"
+echo "  Re-sync after guv edits:  bash maintainers/setup-control-plane.sh \"$DEST\" --sync"

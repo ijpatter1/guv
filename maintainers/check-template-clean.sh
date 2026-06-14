@@ -26,7 +26,7 @@ tracked_under() { git ls-files -- "$1" | grep -v "^$1\.gitkeep$"; }
 tracked CLAUDE.md && \
   flag "CLAUDE.md is tracked — only CLAUDE.template.md ships; the rendered file belongs to a project"
 
-# 2 — harness-friction log (belongs in the control plane).
+# 2 — guv-friction log (belongs in the record).
 FEEDBACK=$(tracked_under .claude/feedback/)
 [ -n "$FEEDBACK" ] && \
   flag ".claude/feedback/ content is tracked ($(echo "$FEEDBACK" | tr '\n' ' ')) — feedback lives in the control plane"

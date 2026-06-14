@@ -1,11 +1,11 @@
 #!/bin/bash
-# Deploy the harness project shell into the current directory — the
+# Deploy the guv project shell into the current directory — the
 # deterministic half of /guv:scaffold (Phase 5 D2). Replaces the
 # template-clone step: everything a project needs on disk that the plugin
 # can't provide from its own directory at runtime.
 #
 # Ownership semantics mirror copy_core:
-#   - harness-owned, REFRESHED every run: CLAUDE.template.md,
+#   - core-owned, REFRESHED every run: CLAUDE.template.md,
 #     README.template.md, .claude/project.schema.json,
 #     .claude/settings.sandbox-example.json, .claude/rules/guv-*.md
 #     (re-running after a plugin update is the shell's update channel)
@@ -24,7 +24,7 @@ set -euo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SHELL_DIR="$PLUGIN_ROOT/shell"
 RULES_DIR="$PLUGIN_ROOT/rules"
-GI_MARKER="guv-harness-gitignore"
+GI_MARKER="guv-gitignore"
 
 DOCKER=0
 while [ $# -gt 0 ]; do
@@ -36,7 +36,7 @@ done
 
 created=(); refreshed=(); kept=()
 
-# refresh_file <src> <dst> — harness-owned: always overwritten
+# refresh_file <src> <dst> — core-owned: always overwritten
 refresh_file() {
   if [ -e "$2" ]; then refreshed+=("$2"); else created+=("$2"); fi
   mkdir -p "$(dirname "$2")"
@@ -54,7 +54,7 @@ keep_file() {
 mkdir -p .claude/rules docs/sessions
 [ -f docs/sessions/.gitkeep ] || : > docs/sessions/.gitkeep
 
-# ── harness-owned: templates, schema, sandbox-settings example, rules ──
+# ── core-owned: templates, schema, sandbox-settings example, rules ──
 refresh_file "$SHELL_DIR/CLAUDE.template.md" "CLAUDE.template.md"
 refresh_file "$SHELL_DIR/README.template.md" "README.template.md"
 refresh_file "$SHELL_DIR/project.schema.json" ".claude/project.schema.json"

@@ -215,6 +215,10 @@ maintainers/render-smoke.js
 maintainers/plugin-src/skills/eval-parallel/SKILL.md
 maintainers/plugin-src/skills/scaffold/SKILL.md
 maintainers/plugin-src/skills/zen/SKILL.md
+maintainers/setup-control-plane.sh
+maintainers/plugin-src/scripts/scaffold-shell.sh
+maintainers/build-plugin.sh
+maintainers/check-template-clean.sh
 "
 for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"

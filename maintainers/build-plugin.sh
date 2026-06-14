@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the Governor (guv) plugin from the harness sources — Phase 5 D1.
+# Build the Governor (guv) plugin from source — Phase 5 D1.
 #
 # The committed plugin/ directory is GENERATED, never hand-edited. The single
 # source of truth stays in .claude/ (skills, agents, hooks, rules,
@@ -148,11 +148,11 @@ for d in "$PSRC/skills"/*/; do
   cp "$d"SKILL.md "$OUT/skills/$name/SKILL.md"
 done
 
-# ── harness skills, path- and namespace-rewritten ──
+# ── core skills, path- and namespace-rewritten ──
 # Includes the flattened former commands (next, phase, plan, handoff, …): at
 # [8.3] commands/ was flattened into skills/, so they ship through this one loop
 # like any other skill. Authored plugin-src skills were copied first; the
-# collision check below fails loud if a harness skill name shadows one.
+# collision check below fails loud if a core skill name shadows one.
 for d in "$SRC/skills"/*/; do
   name="$(basename "$d")"
   if [ -e "$OUT/skills/$name/SKILL.md" ]; then

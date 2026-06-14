@@ -25,7 +25,7 @@ WORK=$(mktemp -d)
 # Keep fixtures + setup.log around on failure — they ARE the diagnostics.
 trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures + setup.log kept at $WORK)"' EXIT
 
-# A fixture harness with the real script in place (HARNESS_DIR is derived from
+# A fixture harness with the real script in place (GUV_DIR is derived from
 # the script's own location, so it must live at <fixture>/maintainers/).
 # Finder droppings are planted at the item root and one nested level deep —
 # the nested one is what distinguishes a recursive scrub from a naive rm.
@@ -175,7 +175,7 @@ grep -q "removed superseded .claude/RULES.md" "$WORK/sync.out" \
   && ok "sync: deletion announced (where customizations belong, import-line edit)" \
   || no "sync must announce the RULES.md removal, not delete silently"
 OUT2=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
-echo "$OUT2" | grep -q "synced harness core" || no "second sync should still complete"
+echo "$OUT2" | grep -q "synced core" || no "second sync should still complete"
 echo "$OUT2" | grep -q "removed superseded" \
   && no "sync: deletion notice should not repeat once the file is gone" \
   || ok "sync: deletion notice fires once, silent thereafter"
