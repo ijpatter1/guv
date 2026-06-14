@@ -104,6 +104,11 @@ ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
 DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
 LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌)[[:space:]]*$ID_RE"
 
+# Published-surface version of the status.json shape ([10.1]). Bumped only on a
+# breaking shape or grammar change — the negotiation surface for external
+# consumers; documented identically in the phase-docs skill's status.json shape.
+CONTRACT_VERSION=1
+
 LINES=$(grep -E '^\s*-\s*(✅|🔄|⬜|❌)' "$TRACKER")
 
 die5() { echo "status=MALFORMED — $1" >&2; exit 5; }
@@ -129,9 +134,11 @@ if ! echo "$LINES" | grep -qE "$LEAD_RE" \
         '{id:null, phase:null, status:$st, deps:[], text:$text}'
     done)
     printf '%s\n' "$dj" | jq -s \
+      --argjson contract_version "$CONTRACT_VERSION" \
       --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg serial "$serial" \
-      '{generated:$generated, mode:"LEGACY", phase:null, phases:[], deliverables:.,
+      '{contract_version:$contract_version, generated:$generated, mode:"LEGACY",
+        phase:null, phases:[], deliverables:.,
         frontier:{in_progress:[], ready:[], blocked:[],
                   serial:(if $serial=="" then null else $serial end)}}'
   else
@@ -286,13 +293,14 @@ if [ "$JSON" -eq 1 ]; then
       blocked:$blocked,
       serial:(if $serial=="" then null else $serial end)}')
   printf '%s' "$dj" | jq -s \
+    --argjson contract_version "$CONTRACT_VERSION" \
     --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson phase "${phase:-null}" \
     --argjson phases "$(jq -cn --arg p "$plist" \
       '$p | if .=="" then [] else split(" ") end | map(tonumber)')" \
     --argjson frontier "$frontier" \
-    '{generated:$generated, mode:"GRAMMAR", phase:$phase, phases:$phases,
-      deliverables:., frontier:$frontier}'
+    '{contract_version:$contract_version, generated:$generated, mode:"GRAMMAR",
+      phase:$phase, phases:$phases, deliverables:., frontier:$frontier}'
 else
   echo "mode=GRAMMAR"
   echo "phase=$phase"

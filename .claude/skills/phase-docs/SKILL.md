@@ -138,7 +138,15 @@ _Goal: [Copy from REQUIREMENTS.md]_
 Rules (the verbatim-sync contract):
 
 - Every deliverable line must be copied verbatim from REQUIREMENTS.md
-- All items start as ⬜ (markers: ✅ complete · 🔄 in progress · ⬜ not started · ❌ blocked)
+- All items start as ⬜ (markers: ✅ complete · 🔄 in progress · ⬜ not started · ❌ blocked · 🔒 human-gated)
+  - **🔒 human-gated / awaiting-manual** is the fifth marker: a deliverable blocked
+    on out-of-sandbox human or manual work — the kind `/manual` writes to
+    `docs/manual/` — rather than on a dependency. It is *not* ❌ (no descope, the
+    work is real and pending) and *not* ⬜/blocked (no in-graph dep gates it; the
+    gate is a person). The marker-counting skills (`status`, `handoff`) count 🔒 as
+    human-gated, a category of its own, never folded into the dependency-blocked
+    tally. Pair a 🔒 line with the `docs/manual/` artifact that carries the manual
+    step (a tracker-local annotation after the deps token, like any completion note).
 - Do not add, remove, or reword any deliverables — the tracker and REQUIREMENTS must
   match exactly, forever; wording changes happen in REQUIREMENTS first and sync here
 - The ID and deps token are part of the wording and sync verbatim with it.
@@ -167,6 +175,19 @@ MALFORMED. Because annotations follow the token, tooling validates the **last**
 deps-shaped construct on each line as the deliverable's own — a deps-token
 example quoted in the wording must precede the real token, where it is
 tolerated and ignored.
+
+The canonical regex is the shared `DEPS_RE` defined identically in the three
+enforcing scripts — `resolve-ready.sh`, `replan.sh`, and
+`archive-initiative.sh` — which are this token's **source of truth**; the
+prose above is the human-readable gloss, the regex is the law:
+
+```
+DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
+```
+
+Quoted here verbatim so the grammar is documented where it is taught, not only
+where it is enforced; the resolver's suite guards this copy byte-identical
+against the scripts' (a doc-drift fails loud rather than rotting silently).
 
 **Semantics:**
 
@@ -281,10 +302,18 @@ surface** alongside the tracker grammar and the manifest schema (the A-001
 one-parser decision): the resolver is the grammar's only implementation, and
 every other reader of plan state — the status renderer first, external tools
 later — consumes this JSON and never parses the tracker. Changing the shape
-pays contract cost; the versioning question is deliberately parked as harness
-feedback (the `grammar-version` entry in the harness project's own feedback
-ledger — not shipped with the template) and drains on evidence: act when an
-external consumer or a breaking shape change actually appears, not before.
+pays contract cost.
+
+**Contract version ([10.1]):** the shape carries a `contract_version` integer
+(currently `1`) as its leading field — the single negotiation surface a
+breaking change has with external consumers. It is the published surface's
+version marker, the same number documented in the JSON example below and
+emitted by `resolve-ready.sh --json`; the tracker grammar and the status.json
+shape version together (one parser, one version). A semantic-only change (like
+[7.6]'s frontier widening) does **not** bump it — only a breaking shape or
+grammar change does, at which point the bump is the consumer's signal to
+re-read. The downstream manifest contract change (the multi-repo `roots.code`
+map) takes the first bump on this marker.
 
 [7.6] changed frontier *semantics* with the shape structurally unchanged:
 `ready`/`blocked` widened from current-phase to all phases, and `phase`
@@ -302,6 +331,10 @@ documented shape, never re-derive it.
 
 ```json
 {
+  "contract_version": 1,                    // published-surface version ([10.1]);
+                                            //   bump only on a breaking shape or
+                                            //   grammar change — the negotiation
+                                            //   surface for external consumers
   "generated": "2026-06-12T14:57:21Z",      // ISO-8601 UTC stamp
   "mode": "GRAMMAR",                        // or "LEGACY"
   "phase": 6,                               // first open phase (reporting only);
