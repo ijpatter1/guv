@@ -374,3 +374,20 @@ This environment encodes three key patterns:
 2. **Test-first anchoring** (from [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/)) — Every session starts by running the test suite. Every feature uses red/green TDD. Tests are the regression safety net across phases.
 
 3. **Structured handoffs** (from both sources) — Session artifacts carry enough context for a clean restart, avoiding the quality degradation that comes from context window growth and compaction.
+
+## Verifying a plugin install ([10.3])
+
+The guv plugin ships its consumer-meaningful test suites alongside a
+layout-reconstructing runner, so you can verify an install actually resolves
+and exercises the plugin's own script bytes (not a source checkout). From the
+plugin install directory:
+
+```bash
+bash tests/run-plugin-tests.sh
+```
+
+The runner rebuilds a `.claude/`-shaped tree from the flattened `scripts/`
+(scripts at the top level, hooks recovered into `hooks/` from `hooks.json`, the
+shipped suites in `tests/`) and runs every shipped suite against it. A green run
+means the location-relative harness suites resolve and pass in plugin layout; a
+suite that cannot find its script turns the run red and names the offender.
