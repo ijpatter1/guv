@@ -675,15 +675,19 @@ if [ -d "$PLUGIN/tests" ]; then
   [ "$T18_LEAK" -eq 0 ] && ok "no named maintainer-only suite in committed plugin/tests/"
   RUNNER="$PLUGIN/tests/run-plugin-tests.sh"
   if [ -x "$RUNNER" ]; then
-    if bash "$RUNNER" >/dev/null 2>"$ROOT/.t18-runner.err"; then
+    # stderr captured to a temp file (mktemp, never $ROOT) — writing into the
+    # git-tracked repo root would dirty the working tree on a crash between the
+    # run and the cleanup. Matches the elif mktemp branch and the runner heredoc.
+    T18_ERR=$(mktemp)
+    if bash "$RUNNER" >/dev/null 2>"$T18_ERR"; then
       ok "run-plugin-tests.sh runs the shipped suite green in plugin layout (committed tree)"
     else
       no "the shipped suite must run green via run-plugin-tests.sh (a suite can't resolve its scripts in plugin layout?)"
     fi
-    [ -s "$ROOT/.t18-runner.err" ] \
-      && no "run-plugin-tests.sh emitted to stderr: $(head -c 200 "$ROOT/.t18-runner.err")" \
+    [ -s "$T18_ERR" ] \
+      && no "run-plugin-tests.sh emitted to stderr: $(head -c 200 "$T18_ERR")" \
       || ok "run-plugin-tests.sh reconstruction is stderr-clean (committed tree)"
-    rm -f "$ROOT/.t18-runner.err"
+    rm -f "$T18_ERR"
   else
     no "plugin/tests/run-plugin-tests.sh must ship executable"
   fi

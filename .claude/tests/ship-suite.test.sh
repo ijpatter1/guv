@@ -179,4 +179,45 @@ PLANTED
   fi
 fi
 
+# T7b — PARTITION drift guard: the reconstruction must place a HOOK in hooks/ and a
+# HELPER at the top level, specifically. T7 only proves an unresolvable script
+# propagates red; it does NOT prove the hook-vs-helper split that IS the
+# reconstruction (a hook misclassified as a top-level helper, or vice-versa, would
+# silently break every suite that reads the wrong path). Plant a fixture that
+# self-locates a known hook (bash-guard.sh — referenced by hooks.json) at
+# ../hooks/ and a known helper (resolve-ready.sh — not referenced) at ../, and
+# assert each is where the partition must put it and NOT on the other side. A
+# misclassification turns the runner red and names this fixture.
+if [ -f "$RUNNER" ]; then
+  PPLANT="$PTESTS/zz-ship-partition-fixture.test.sh"
+  trap 'rm -rf "$TMP"; rm -f "$PLANT" "$PPLANT"' EXIT
+  cat > "$PPLANT" <<'PPLANTED'
+#!/bin/bash
+# Planted partition probe: asserts the reconstruction's hook/helper split.
+set -u
+REC="$(cd "$(dirname "$0")/.." && pwd)"
+PASS=0; FAIL=0
+chk() { if eval "$1"; then echo "  ✓ $2"; PASS=$((PASS+1)); else echo "  ✗ $2"; FAIL=$((FAIL+1)); fi; }
+# a hook (hooks.json-referenced) reconstructs into hooks/, never top-level
+chk '[ -f "$REC/hooks/bash-guard.sh" ]'   'hook bash-guard.sh placed in hooks/'
+chk '[ ! -f "$REC/bash-guard.sh" ]'        'hook bash-guard.sh NOT at top level'
+# a helper (not hooks.json-referenced) reconstructs at top level, never hooks/
+chk '[ -f "$REC/resolve-ready.sh" ]'       'helper resolve-ready.sh placed at top level'
+chk '[ ! -f "$REC/hooks/resolve-ready.sh" ]' 'helper resolve-ready.sh NOT in hooks/'
+echo ""
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
+PPLANTED
+  PPLANT_OUT=$(bash "$RUNNER" 2>/dev/null); PPRC=$?
+  rm -f "$PPLANT"
+  # the partition is CORRECT, so this fixture must PASS inside the runner (rc=0).
+  # That green is the proof: bash-guard.sh landed in hooks/, resolve-ready.sh at
+  # top level — the split the runner claims it makes, verified against the bytes.
+  if [ "$PPRC" -eq 0 ]; then
+    ok "reconstruction places hooks in hooks/ and helpers at top level (partition verified)"
+  else
+    no "reconstruction partition is wrong: a hook landed top-level or a helper landed in hooks/ (rc=$PPRC): $(printf '%s' "$PPLANT_OUT" | grep -E '✗|partition' | head -3 | tr '\n' ' ')"
+  fi
+fi
+
 finish
