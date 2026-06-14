@@ -1,19 +1,26 @@
 #!/bin/bash
 # .claude/feedback-submit.sh — feedback-transport submit mode ([10.8]).
 #
-# Drains open `routing: upstream` feedback entries from this control plane into the
-# guv SOURCE repo as issues, replacing the manual copy-paste a consumer does today.
-# For each open upstream entry that has no upstream link yet it DRAFTS an issue
-# (title + body) and writes a draft annotation back onto the entry, so a re-run is
-# idempotent — deduped by entry id via that writeback marker. Non-upstream,
+# Drains open `routing: upstream` feedback entries from a guv dogfooding control
+# plane into the guv SOURCE repo as issues, replacing the manual copy-paste that
+# drain does today. (Its home is the dogfooding plane, where `roots.code` IS the
+# harness source — see the AUDIENCE note at the tracker-resolution step; any other
+# target is reached with `--repo`.) For each open upstream entry that has no upstream
+# link yet it DRAFTS an issue (title + body) and writes a draft annotation back onto
+# the entry, so a re-run is idempotent — deduped by entry id via that writeback
+# marker (and by the real issue URL once the user pastes it back). Non-upstream,
 # already-linked, and non-open entries are skipped, untouched.
 #
 # CRITICAL — issue FILING is user-gated (the `log-feedback` "Closing the loop"
-# contract): the permission classifier denies an agent's `gh issue create` as an
-# outward publish. So this transport NEVER calls `gh issue create`. It builds the
-# draft/dedupe/writeback machinery and EMITS the exact `gh issue create` command for
-# the USER to run; the user files, and pastes the resulting URL back (or the draft
-# marker already makes the re-run a no-op). The agent drafts; the person files.
+# contract): an agent's `gh issue create` is denied as an outward publish. This is a
+# project CONVENTION, not a hook that intercepts the call — so the enforcement here
+# is that this transport NEVER itself calls `gh issue create`. It builds the
+# draft/dedupe/writeback machinery and EMITS the exact `gh issue create` command —
+# with the drafted body inline as a copy-pasteable `--body-file -` heredoc — for the
+# USER to run. The user files, then pastes the resulting issue URL back into the
+# entry's detail (the documented end-state; the dedupe matches that real URL too).
+# Until then the DRAFTED-<id> marker keeps the re-run a no-op AND visibly reads
+# "drafted, awaiting filing". The agent drafts; the person files.
 #
 # The only tracker call this script makes is `gh repo view` against the guv source
 # repo — for reachability and slug resolution. If the tracker is unreachable it
@@ -71,17 +78,30 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 \
 
 # --- resolve the tracker slug (owner/name) -----------------------------------
 # Explicit --repo wins. Otherwise resolve from the code repo's clone (roots.code):
-# `gh repo view` reads the remote and reports nameWithOwner. The code repo is the
-# local guv source checkout; its GitHub repo is the issue tracker. A missing
-# roots.code means single-repo — the code repo IS this repo.
+# `gh repo view` reads the remote and reports nameWithOwner.
+#
+# AUDIENCE — this transport's home is a guv DOGFOODING control plane, where
+# `roots.code` IS the harness source checkout (see maintainers/DOGFOODING.md:
+# `roots.code` → ijpatter1/guv), so its GitHub repo is the right upstream tracker.
+# That is the only context where the resolved default is correct. A plain plugin
+# *consumer* (whose `roots.code` is their OWN product, not the guv upstream) has no
+# manifest field naming the harness source — so for them the resolved default would
+# be their own tracker, the wrong target. Two things keep that from being a silent
+# misfire: (1) the resolved slug is ANNOUNCED ("…to draft against <REPO>") before any
+# draft is emitted or written, so the operator sees the target every run; and (2)
+# `--repo <owner/name>` is the explicit override to point the drain anywhere else.
+# A consumer who wants the guv upstream passes `--repo` (or runs this from a plane
+# whose `roots.code` is the harness).
 CODE=$(jq -r '.roots.code // "."' "$MANIFEST")
 { [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
 
 # Resolve the slug by running `gh repo view` INSIDE the code-repo clone (it reads
 # the clone's remote). gh's -R takes an OWNER/REPO slug, never a local path, so a
 # `cd` into the clone is the correct way to address "the repo this clone points at".
+REPO_FROM_CODE=0
 if [ -z "$REPO" ]; then
   REPO=$( cd "$CODE" 2>/dev/null && "$GH" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null )
+  [ -n "$REPO" ] && REPO_FROM_CODE=1
 fi
 
 # --- tracker reachability probe (loud degrade on failure) --------------------
@@ -129,6 +149,12 @@ fi
 COUNT=$(printf '%s\n' "$DRAIN_IDS" | grep -c .)
 MODE_LABEL="submit"; [ "$DRY_RUN" = "1" ] && MODE_LABEL="DRY-RUN"
 echo "[feedback-submit] $MODE_LABEL: $COUNT upstream entr$([ "$COUNT" = "1" ] && echo "y" || echo "ies") to draft against $REPO"
+# Name how the target was chosen so a wrong tracker can never go unnoticed: a slug
+# resolved from roots.code is only the right upstream in a dogfooding plane — call
+# it out, with the --repo override, so a consumer fork sees it before drafting.
+if [ "$REPO_FROM_CODE" = "1" ]; then
+  echo "[feedback-submit]   (target resolved from roots.code; pass --repo <owner/name> to drain elsewhere)"
+fi
 
 DATE=$(date -u +%Y-%m-%d)
 
@@ -152,14 +178,25 @@ while IFS= read -r id; do
   # Issue draft: title from the summary; body carries the entry id (so the filed
   # issue cites it, per the drain contract), the artifact, severity, and detail.
   TITLE="[feedback] $SUMMARY"
-  BODY=$(printf 'Drained from control-plane feedback entry \`%s\`.\n\nArtifact: %s\nSeverity: %s\n\n%s\n\n_Cite this entry id when closing: %s_' \
+  BODY=$(printf 'Drained from control-plane feedback entry `%s`.\n\nArtifact: %s\nSeverity: %s\n\n%s\n\n_Cite this entry id when closing: %s_' \
     "$id" "$ARTIFACT" "$SEVERITY" "$DETAIL" "$id")
 
   echo ""
   echo "  • entry $id — would file: $TITLE"
   # The exact command for the USER to run (issue filing is user-gated; the agent
-  # NEVER runs this). Body is passed via stdin to avoid shell-quoting hazards.
-  echo "    To file (user-gated): gh issue create -R \"$REPO\" --title \"$TITLE\" --body-file -"
+  # NEVER runs this). The body is delivered INLINE as a quoted-delimiter heredoc
+  # piped to `--body-file -`: the whole block is one copy-pasteable unit that runs
+  # VERBATIM — so it is emitted flush-left (no cosmetic indent, which a literal
+  # `<<'…'` heredoc would carry into the body and which would stop the closing
+  # delimiter from matching). The `'GUV-FEEDBACK-BODY'` quoting means the
+  # multi-line body reaches gh literally (no shell expansion, no per-line quoting
+  # hazard). So the issue the user files carries the FULL drafted body — never an
+  # empty issue, never a hung stdin read.
+  echo "    To file (user-gated), copy-paste this whole block:"
+  echo ""
+  echo "gh issue create -R \"$REPO\" --title \"$TITLE\" --body-file - <<'GUV-FEEDBACK-BODY'"
+  printf '%s\n' "$BODY"
+  echo "GUV-FEEDBACK-BODY"
 
   if [ "$DRY_RUN" != "1" ]; then
     # Writeback: append a DRAFTED marker to detail so a re-run skips this entry
@@ -178,6 +215,11 @@ if [ "$DRY_RUN" = "1" ]; then
   echo "[feedback-submit] DRY-RUN complete: $COUNT would be drafted; nothing filed, log untouched."
 else
   mv "$tmp" "$LOG"
-  echo "[feedback-submit] drafted $COUNT entr$([ "$COUNT" = "1" ] && echo "y" || echo "ies"); writeback recorded. Run the emitted 'gh issue create' commands to file (user-gated)."
+  echo "[feedback-submit] drafted $COUNT entr$([ "$COUNT" = "1" ] && echo "y" || echo "ies"); writeback recorded."
+  echo "[feedback-submit] Next: run each emitted block above to file (user-gated), then close the loop —"
+  echo "[feedback-submit]   paste the issue URL gh prints back into that entry's detail"
+  echo "[feedback-submit]   (e.g. ' | Issue: https://github.com/$REPO/issues/N'). The DRAFTED-<id>"
+  echo "[feedback-submit]   marker means 'drafted, awaiting filing' until you do — that is how a draft"
+  echo "[feedback-submit]   you never filed stays visible instead of looking linked."
 fi
 exit 0

@@ -50,7 +50,37 @@ cat > "$STUB_DIR/gh-unreachable" <<'EOF'
 echo "could not connect to api.github.com" >&2
 exit 1
 EOF
-chmod +x "$STUB_DIR/gh-reachable" "$STUB_DIR/gh-unreachable"
+# A `gh` stub that plays the USER filing the drafted issue: it services `repo view`
+# like gh-reachable, and on `issue create ... --body-file -` it captures the title
+# (from --title) and the body (from stdin) to $GH_FILER_OUT so a test can assert the
+# emitted block actually delivers the drafted body. This stub is used ONLY to run the
+# emitted block in T10 — the submit script itself is still tested against gh-reachable
+# (which exits 99 on any non-repo-view call), so the no-`issue create`-invocation
+# contract (T6) is untouched.
+cat > "$STUB_DIR/gh-filer" <<'EOF'
+#!/bin/bash
+if [ "$1 $2" = "repo view" ]; then
+  if [ "$3" = "--json" ]; then echo "ijpatter1/guv"; fi
+  exit 0
+fi
+if [ "$1 $2" = "issue create" ]; then
+  title=""; bodyfile=""
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title)     title="$2"; shift 2 ;;
+      --body-file) bodyfile="$2"; shift 2 ;;
+      -R)          shift 2 ;;
+      *)           shift ;;
+    esac
+  done
+  { echo "TITLE: $title"; echo "--- BODY ---"; [ "$bodyfile" = "-" ] && cat; } > "$GH_FILER_OUT"
+  echo "https://github.com/ijpatter1/guv/issues/123"
+  exit 0
+fi
+echo "gh-filer: unexpected call: $*" >&2; exit 99
+EOF
+chmod +x "$STUB_DIR/gh-reachable" "$STUB_DIR/gh-unreachable" "$STUB_DIR/gh-filer"
 
 # A project root with a control-plane feedback log and a manifest pointing at a
 # code repo whose remote is the guv source. Echoes the project dir.
@@ -230,6 +260,67 @@ OUT9=$( cd "$P9" && GUV_GH="$STUB_DIR/gh-reachable" bash "$SCRIPT" submit 2>"$WO
 [ $RC9 -eq 0 ] \
   && ok "missing feedback log -> clean no-op exit 0" \
   || no "missing log should be a no-op, not an error (rc=$RC9, err=$(cat "$WORK/t9.err"))"
+
+# ── T10 — the emitted block DELIVERS the drafted body (the drafting contract) ──
+# The whole value of "agent drafts, user files" is that the user copy-pastes the
+# emitted block and the FILED issue carries the full body — the entry id, the detail,
+# the cite-on-close footer. A regression where the body is computed but never piped
+# (a dead $BODY) would emit a command that files an empty issue. This test runs the
+# emitted block exactly as a user would (gh -> the filer stub via PATH) and asserts
+# the captured title AND body. It is the guard that the body actually reaches gh.
+P10=$(make_project); LOG10="$P10/$LOG_REL"
+add_entry "$LOG10" "body1" "upstream" "open" "the detail text that must reach the issue body"
+OUT10=$( cd "$P10" && GUV_GH="$STUB_DIR/gh-reachable" bash "$SCRIPT" submit ) 2>"$WORK/t10.err"
+# Extract the emitted heredoc block (the `gh issue create` line through its closing
+# delimiter) verbatim from the run output — this is precisely what a user copy-pastes.
+BLOCK=$(printf '%s\n' "$OUT10" | awk '
+  /^gh issue create / {f=1}
+  f {print}
+  f && /^GUV-FEEDBACK-BODY$/ {exit}')
+[ -n "$BLOCK" ] \
+  && ok "submit emits a runnable 'gh issue create' heredoc block" \
+  || no "submit must emit a copy-pasteable gh issue create block (out=$OUT10)"
+# Run the block as the user would: put a `gh` on PATH that IS the filer stub (a copy
+# named `gh`), so the literal `gh issue create …` in the emitted block resolves to it.
+# The stub records the title and the stdin body. The block must carry the body so the
+# filed issue is not empty.
+FILER_OUT="$WORK/filer.out"
+GHDIR="$WORK/ghbin"; mkdir -p "$GHDIR"; cp "$STUB_DIR/gh-filer" "$GHDIR/gh"; chmod +x "$GHDIR/gh"
+printf '%s\n' "$BLOCK" > "$WORK/t10-block.sh"
+( cd "$P10" && PATH="$GHDIR:$PATH" GH_FILER_OUT="$FILER_OUT" bash "$WORK/t10-block.sh" ) \
+  >/dev/null 2>"$WORK/t10b.err"
+if [ -s "$FILER_OUT" ]; then
+  grep -q "TITLE: \[feedback\]" "$FILER_OUT" \
+    && ok "the filed issue carries the drafted title" \
+    || no "emitted block must file with the drafted title (filer=$(cat "$FILER_OUT"))"
+  # The body is the dead-code guard: it MUST be non-empty and carry the entry id +
+  # detail + the cite-on-close footer. An empty body here is exactly the Critical.
+  BODY_CAP=$(awk '/^--- BODY ---$/{f=1;next} f' "$FILER_OUT")
+  [ -n "$BODY_CAP" ] \
+    && ok "the emitted block pipes a NON-EMPTY body to gh (not the dead-\$BODY defect)" \
+    || no "emitted block produced an EMPTY issue body — the drafted body never reached gh"
+  printf '%s' "$BODY_CAP" | grep -qF "body1" \
+    && printf '%s' "$BODY_CAP" | grep -qF "the detail text that must reach the issue body" \
+    && printf '%s' "$BODY_CAP" | grep -qiF "cite this entry id" \
+    && ok "the delivered body carries the entry id, the detail, and the cite-on-close footer" \
+    || no "the delivered body must carry id+detail+cite footer (body=$BODY_CAP)"
+else
+  no "running the emitted block recorded nothing — the user's copy-paste does not work (err=$(cat "$WORK/t10b.err"))"
+fi
+
+# ── T11 — a real issue-URL writeback also dedupes (the closed-loop end-state) ──
+# After the user files and pastes the real issue URL back into detail, a re-run must
+# skip that entry on the URL (not only the DRAFTED marker) — the documented end-state
+# the acceptance bar names. Proves the dedupe matches the live issue link too.
+P11=$(make_project); LOG11="$P11/$LOG_REL"
+add_entry "$LOG11" "url1" "upstream" "open" "filed and linked | Issue: https://github.com/ijpatter1/guv/issues/77"
+BEFORE11=$(cat "$LOG11")
+OUT11=$( cd "$P11" && GUV_GH="$STUB_DIR/gh-reachable" bash "$SCRIPT" submit ) 2>"$WORK/t11.err"; RC11=$?
+AFTER11=$(cat "$LOG11")
+[ $RC11 -eq 0 ] && [ "$BEFORE11" = "$AFTER11" ] \
+  && ! echo "$OUT11" | grep -q "url1" \
+  && ok "an entry carrying the real issue URL is skipped (loop closed, byte-identical)" \
+  || no "a real-URL-linked entry must be deduped, not re-drafted (rc=$RC11, out=$OUT11)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

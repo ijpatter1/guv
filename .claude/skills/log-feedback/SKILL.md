@@ -143,9 +143,10 @@ tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" --arg note "$NOTE" \
 `submit` mode replaces the manual copy-paste a consumer does today: it drains the
 open `routing: upstream` entries into the guv **source** repo as issues. For each
 open upstream entry that has **no upstream link yet** it drafts an issue (title +
-body), emits the exact `gh issue create` command for **you** to run, and writes a
-draft marker back onto the entry so a re-run is a no-op — deduped by entry `id`.
-Non-upstream, already-linked, and non-open entries are skipped, untouched.
+body), emits the exact `gh issue create` command — **with the drafted body inline as
+a copy-pasteable heredoc** — for **you** to run, and writes a draft marker back onto
+the entry so a re-run is a no-op — deduped by entry `id`. Non-upstream,
+already-linked, and non-open entries are skipped, untouched.
 
 ```bash
 bash .claude/feedback-submit.sh submit            # draft + write back the markers
@@ -155,12 +156,23 @@ bash .claude/feedback-submit.sh submit --dry-run  # list what would be filed; wr
 What it is and isn't:
 
 - **Issue filing is user-gated** (see "Closing the loop" below) — the permission
-  classifier denies an agent's `gh issue create`. So `submit` **never files**: it
-  builds the draft/dedupe/writeback machinery and prints the `gh issue create`
-  command for you to run; you file, and the draft marker already makes the re-run a
-  no-op. The agent drafts; the person files.
-- **Idempotent.** Re-running drafts nothing for entries already linked or already
-  drafted (matched by `id` via the writeback marker) — a second run is a no-op.
+  classifier denies an agent's `gh issue create` *as an enforced convention* (it is
+  the project's user-gated contract, not a hook that intercepts the call). So
+  `submit` **never files**: it builds the draft/dedupe/writeback machinery and prints
+  the complete `gh issue create … --body-file - <<'GUV-FEEDBACK-BODY' … ` block —
+  body and all — for you to run as one copy-paste. You file; the agent drafts.
+- **Close the loop after you file — paste the real URL back.** The draft marker
+  (`DRAFTED-<id>`) means "drafted, awaiting filing", *not* "filed". After you run the
+  emitted block and `gh` prints the new issue URL, **paste that URL into the entry's
+  `detail`** (e.g. append ` | Issue: https://github.com/<owner>/<repo>/issues/N`).
+  That is the documented end-state the acceptance bar names — the entry now carries
+  the *real* upstream link, and `submit` keeps skipping it on the right basis (the
+  dedupe matches the live issue URL too, not only the draft marker). An entry that was
+  drafted but **never filed** still reads `DRAFTED-<id>` with no issue URL, so you can
+  see at a glance which drafts are still owed a filing.
+- **Idempotent.** Re-running drafts nothing for entries already linked (a real issue
+  URL in `detail`) or already drafted (the `DRAFTED-<id>` marker), matched by `id` —
+  a second run is a no-op.
 - **Degrades loudly.** The tracker reachability is probed first (a single `gh repo
   view` against `roots.code`'s repo); if it's unreachable the run exits non-zero
   with a message and writes **nothing** — no entry is dropped silently (Rule 15).
