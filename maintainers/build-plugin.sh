@@ -93,7 +93,8 @@ _namespace_pass() {
   local args=(-E
     -e 's|the saved `/evaluate-parallel` workflow|the `/evaluate-parallel` skill|g'
     -e 's|\(`\.claude/workflows/evaluate-parallel\.js`\)|(launching the plugin-shipped workflow)|g'
-    -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g')
+    -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g'
+    -e 's|\(`\.claude/skills/evaluate/SKILL\.md`\)|(plugin-shipped)|g')
   local n
   while IFS= read -r n; do
     # '#' delimiter: the pattern itself needs both '/' and the ERE '|'

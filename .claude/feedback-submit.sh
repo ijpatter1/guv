@@ -22,6 +22,9 @@
 # Until then the DRAFTED-<id> marker keeps the re-run a no-op AND visibly reads
 # "drafted, awaiting filing". The agent drafts; the person files.
 #
+# (This file ships byte-identical into both install modes; under a plugin install
+# the command name is guv:-namespaced — /log-feedback resolves as /guv:log-feedback.)
+#
 # ACCEPTANCE REINTERPRETATION (consciously ratified, per Rule 7 — surface the
 # conflict, pick the better-tested pattern, say why). REQUIREMENTS [10.8] reads:
 # "a submit run files an issue per open upstream entry lacking a link and records

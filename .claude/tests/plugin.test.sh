@@ -331,8 +331,15 @@ DEAD=$(grep -rE '\.claude/(skills|workflows|commands)/' "$PLUGIN/skills" "$PLUGI
 # consumers verbatim (shipped scripts, the workflow) may keep bare /command
 # mentions — but each bare-mentioned NAME needs its own guv:<name> decoder in
 # the same file. The scan is the whole tree inverted (everything outside the
-# T12b-covered skills/ and agents/), so a new file type can never sit outside
-# the guard the way an enumerated surface list could.
+# T12b-covered skills/ and agents/, plus the shipped tests/ — see below), so a
+# new file type can never sit outside the guard the way an enumerated surface
+# list could.
+# plugin/tests/ is excluded: the shipped consumer suites are TEST content, not
+# command documentation — they reference command names in assertions/fixtures
+# (e.g. grepping for a /replan amendment record), which is not a dead pointer a
+# consumer would try to invoke. A decoder comment has no place in a test suite;
+# the suites ship byte-identical to their .claude/tests/ sources (ship-suite
+# guard), so spraying decoders there would also break that byte-identity.
 # NOTE bash 3.2 (macOS /bin/bash) cannot parse comments containing
 # apostrophes inside a <(...) substitution — pass 5 found this guard
 # erroring and passing vacuously for exactly that reason. Keep substitutions
@@ -355,7 +362,7 @@ t12d_violations() {
         printf '%s:%s\n' "$f" "$n"
       fi
     done
-  done < <(find "$PLUGIN" -type f -not -path "$PLUGIN/skills/*" -not -path "$PLUGIN/agents/*")
+  done < <(find "$PLUGIN" -type f -not -path "$PLUGIN/skills/*" -not -path "$PLUGIN/agents/*" -not -path "$PLUGIN/tests/*")
   printf 'SCANNED:%s\n' "$scanned"
 }
 T12D_OUT=$(t12d_violations)

@@ -7,7 +7,7 @@ description: "End the current work session by running QA evaluation, generating 
 
 The session-close review **is** `/guv:evaluate` — the dual QA review (technical
 `evaluator` + `product-reviewer`) defined once in the `/guv:evaluate` skill
-(`.claude/skills/evaluate/SKILL.md`). **Do not restate its procedure here.** Run
+(plugin-shipped). **Do not restate its procedure here.** Run
 that one definition — its Steps 1–4 gather context, invoke both reviewers, and
 emit the combined summary; the `/guv:evaluate-parallel` skill runs the same
 Steps 1–4 with the two reviewers concurrent. Handoff owns only what is specific to

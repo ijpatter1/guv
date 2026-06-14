@@ -146,12 +146,15 @@ OUT7b=$(bash "$SCRIPT" "$WORK/nosummary.json" 2>"$WORK/err7b"); RC=$?
 # evaluate-parallel run must name extract-eval-report.sh, else the tool is an
 # orphan and the operator hand-decodes the nesting the deliverable set out to
 # retire. (Source uses the `.claude/` path; the plugin build path-rewrites it.)
+# The operator guidance now lives once in the evaluate SKILL — /handoff delegates
+# to /evaluate rather than restating it (it must NOT carry a stale copy of the
+# helper note), so the chain /handoff → /evaluate → helper stays single-sourced.
 grep -q 'extract-eval-report\.sh' "$EVAL_SKILL" \
   && ok "evaluate SKILL parallel-variant note points at the extraction helper" \
   || no "the parallel-variant note must name extract-eval-report.sh (orphan tool)"
-grep -q 'extract-eval-report\.sh' "$HANDOFF" \
-  && ok "/handoff parallel-pass note points at the extraction helper" \
-  || no "the /handoff parallel-pass note must name extract-eval-report.sh"
+grep -qi '/evaluate' "$HANDOFF" && ! grep -q 'extract-eval-report\.sh' "$HANDOFF" \
+  && ok "/handoff delegates to /evaluate, doesn't restate the extraction-helper note" \
+  || no "the /handoff parallel-pass note must delegate to /evaluate, not carry a stale extract-eval-report.sh copy"
 
 # ── /task Step 1 chore classification ──
 
