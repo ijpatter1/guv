@@ -34,8 +34,8 @@
 # normal path instead of the boundary (feedback occdefault). The calibrated default
 # is CONTEXT-WINDOW AWARE: where the hook can see the model (the transcript's latest
 # assistant turn carries message.model), it derives the window from that model id —
-# the [1m] marker / known 1M models → a 1,000,000-token window, every other / unknown
-# model → the standard 200,000-token Claude window — and sets the default to
+# the [1m] marker → a 1,000,000-token window, every other model id (carrying no [1m]
+# marker) → the standard 200,000-token Claude window — and sets the default to
 # CALM_FRACTION (3/4) of that window: the calm-handoff point with headroom to flush a
 # handoff before the wall, not so eager it fires constantly. With no model signal the
 # default is the DOCUMENTED window-relative fallback below (3/4 of the standard
@@ -62,8 +62,8 @@ set -u
 
 # Window-relative default calibration ([10.6]). The default threshold is CALM_FRACTION
 # of the model's context window. Context windows are inferred from the model id the
-# transcript reports; the 1M marker / known 1M models get the wide window, everything
-# else the standard window.
+# transcript reports; only the [1m] marker selects the wide window, every other model
+# id (no [1m] marker) the standard window.
 CALM_FRACTION_NUM=3        # 3/4 of the window = the calm-handoff default
 CALM_FRACTION_DEN=4
 STANDARD_WINDOW=200000     # the standard Claude context window (documented fallback)
@@ -116,13 +116,15 @@ esac
 # ── Derive the window-relative default from the model ([10.6]) ──
 # Where the model id is visible, size its context window and set the default to
 # CALM_FRACTION of it; otherwise keep the documented DEFAULT_THRESHOLD fallback. This
-# is a deterministic id→window map, not a guess: the [1m] marker or a known 1M model
-# gets the wide window, every other model the standard one.
+# is a deterministic id→window map, not a guess: ONLY the [1m] marker selects the wide
+# window; every other model id (no [1m] marker) maps to the standard window. There is
+# no id-list recognition — an unmarked id always takes the standard window, so the
+# default never silently widens past what the marker proves.
 DERIVED_DEFAULT="$DEFAULT_THRESHOLD"
 case "$MODEL" in
   '')      : ;;                                  # no model signal → documented fallback
   *'[1m]'*) WINDOW=$WIDE_WINDOW ;;               # the 1M-context marker
-  *)       WINDOW=$STANDARD_WINDOW ;;            # known/unknown model → standard window
+  *)       WINDOW=$STANDARD_WINDOW ;;            # any other id (no [1m] marker) → standard window
 esac
 if [ -n "$MODEL" ]; then
   DERIVED_DEFAULT=$((WINDOW * CALM_FRACTION_NUM / CALM_FRACTION_DEN))

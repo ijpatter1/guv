@@ -114,6 +114,18 @@ OUT=$(feed "$P"); ART=$(artifact "$P")
   && ok "the same 160000 occupancy stays silent on a 1M-window model (window derivation is the cause)" \
   || no "a 1M-window model at 160000 (~16%) must stay silent — the window must drive the difference"
 
+# C2d — the map is MARKER-ONLY, not id-list recognition. A model id that carries no
+# [1m] marker takes the STANDARD window even if its name might suggest a big model:
+# the same 160000 occupancy that stays silent on a [1m]-marked id (C2c) DOES degrade
+# on an unmarked id, because unmarked → standard 200k window → 150000 default. This
+# pins the honest map the header documents (only [1m] widens the window) and would
+# fail if the case ever silently grew id-list recognition without proving the width.
+P=$(mk_project 160000 "" "claude-opus-4-8")
+OUT=$(feed "$P"); ART=$(artifact "$P")
+[ -n "$ART" ] \
+  && ok "an unmarked model id (no [1m]) takes the STANDARD window and degrades at 160000 — the map is marker-only, not id-list recognition" \
+  || no "an unmarked id must map to the standard window (160000 ~80% of 200k must trip); the map must not silently widen without the [1m] marker (art='$ART')"
+
 # C2b — the same small-window model well below its calm point stays silent: 40000
 # tokens (~20% of a 200k window) is nowhere near the wall.
 P=$(mk_project 40000 "" "claude-sonnet-4-5")
