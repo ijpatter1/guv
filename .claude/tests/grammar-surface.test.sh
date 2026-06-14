@@ -156,6 +156,61 @@ if command -v jq >/dev/null 2>&1; then
   else
     no "four-marker frontier must be unaffected (ready should be [6.3])"
   fi
+
+  # ── 9. The fifth 🔒 marker must NOT silently drop out of the resolver — the
+  # parser this edit promotes to the grammar's source of truth has to make a
+  # 🔒 line VISIBLE, never vanish from the parse / JSON / counts (Rule 10,
+  # fail loud). This is the regression guard for the silent-drop the gate
+  # found: before 🔒 joined the marker class, a 🔒 line was excluded from
+  # $LINES entirely — invisible to deliverables[], absent from the open-phase
+  # reckoning, and a ⬜ depending on it exit-5'd MALFORMED ("ID does not
+  # exist"). The fixture: 6.1 ✅ → 6.2 🔒 (depends on 6.1) → 6.3 ⬜ (depends
+  # on the 🔒). We pin three things: (a) 6.2 is present and surfaces as
+  # status="human_gated"; (b) the phase reckoning still treats the 🔒 phase as
+  # open; (c) the downstream ⬜ on the 🔒 ID RESOLVES (blocked, root named)
+  # instead of crashing, proving 🔒 is a valid dep target.
+  cat > "$WORK/locked.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Build
+
+- ✅ **[6.1]** A `[deps: none]`
+- 🔒 **[6.2]** Manual deploy `[deps: 6.1]`
+- ⬜ **[6.3]** C `[deps: 6.2]`
+MD
+  L=$(bash "$RESOLVER" "$WORK/locked.md" --json 2>/dev/null); RCL=$?
+  if [ "$RCL" -eq 0 ] \
+     && echo "$L" | jq -e '[.deliverables[].id] == ["6.1","6.2","6.3"]' >/dev/null 2>&1; then
+    ok "🔒 line is VISIBLE in deliverables[] — not silently dropped from the parse"
+  else
+    no "the 🔒-marked deliverable must appear in deliverables[] (rc=$RCL got $(echo "$L" | jq -c '[.deliverables[].id]' 2>/dev/null))"
+  fi
+  if echo "$L" | jq -e '(.deliverables[] | select(.id=="6.2") | .status) == "human_gated"' >/dev/null 2>&1; then
+    ok "🔒 surfaces as status=human_gated (its own category, not done/todo/descoped)"
+  else
+    no "🔒 must map to a distinct human_gated status (got $(echo "$L" | jq -c '.deliverables[]|select(.id=="6.2")|.status' 2>/dev/null))"
+  fi
+  # 🔒 is open work → the phase stays open (not skipped as complete).
+  if echo "$L" | jq -e '.phase == 6' >/dev/null 2>&1; then
+    ok "a 🔒-only-open phase is counted open (phase=6), not skipped as complete"
+  else
+    no "🔒 is open work; the phase must stay open (got $(echo "$L" | jq -c '.phase' 2>/dev/null))"
+  fi
+  # 🔒 is open-but-non-dispatchable: never in ready=, and a dep on it resolves
+  # (blocked with the 🔒 named) rather than exit-5 MALFORMED.
+  if echo "$L" | jq -e '.frontier.ready == [] and (.frontier.blocked[]? | select(.id=="6.3") | .blocked_by == "6.2")' >/dev/null 2>&1; then
+    ok "a ⬜ depending on the 🔒 ID RESOLVES — blocked, 🔒 named as root (no MALFORMED crash)"
+  else
+    no "a dep on a 🔒 ID must resolve as blocked-by the 🔒, not crash (frontier=$(echo "$L" | jq -c '.frontier' 2>/dev/null))"
+  fi
+  # And the non-JSON path agrees — the 🔒 dep target is recognized there too
+  # (this is the path that exit-5'd before: 6.2 was never in $ids).
+  NV=$(bash "$RESOLVER" "$WORK/locked.md" 2>/dev/null); RCN=$?
+  if [ "$RCN" -eq 0 ] && printf '%s\n' "$NV" | grep -q '^blocked=6.3:6.2$'; then
+    ok "name=value path also resolves the 🔒 dep (blocked=6.3:6.2), not exit-5"
+  else
+    no "name=value path must resolve the 🔒 dep target without crashing (rc=$RCN)"
+  fi
 else
   no "jq is required for the status.json contract-version assertions"
 fi

@@ -241,7 +241,17 @@ Otherwise update `docs/PHASE_STATUS.md` to reflect the current state of the phas
 ## Step 8 — Phase Completion: Generate UAT Plan
 
 **Phased projects only — and conditional within them.** If `ceremony` is not
-`phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, or ❌, skip to Step 9.
+`phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, ❌, or 🔒, skip to Step 9.
+
+The 🔒 marker is **human-gated / awaiting-manual** — a deliverable blocked on
+out-of-sandbox human or manual work (the kind `/guv:manual` writes to
+`docs/manual/`), not on a dependency. When you tally markers (phase-completion
+here, and the progress count in Step 11), count 🔒 as its **own** category:
+it is open work, so a 🔒 item keeps the phase incomplete, but it is **not** ❌
+blocked (no dep gates it — a person does) and **not** ✅ complete. Report it
+distinctly — "N human-gated (awaiting `docs/manual/`)" — under **Blocked** in
+the handoff artifact with the manual artifact named, never silently folded into
+the dependency-blocked count.
 
 If the phase is complete, generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage (the evaluator handles that) or spec alignment (the product reviewer handles that), but real-world workflows from start to finish.
 

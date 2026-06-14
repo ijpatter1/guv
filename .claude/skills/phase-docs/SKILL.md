@@ -186,8 +186,8 @@ DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
 ```
 
 Quoted here verbatim so the grammar is documented where it is taught, not only
-where it is enforced; the resolver's suite guards this copy byte-identical
-against the scripts' (a doc-drift fails loud rather than rotting silently).
+where it is enforced; `grammar-surface.test.sh` guards this copy byte-identical
+against the scripts' `DEPS_RE` (a doc-drift fails loud rather than rotting silently).
 
 **Semantics:**
 
@@ -265,8 +265,8 @@ split, lane dispatch, status render) program against.
 
 - **Output**, name=value, one per line:
   - `mode=GRAMMAR|LEGACY`
-  - `phase=N` — the first phase with open work (⬜ or 🔄) — reporting only,
-    never gates dispatch ([7.6]); GRAMMAR only
+  - `phase=N` — the first phase with open work (⬜, 🔄, or 🔒) — reporting
+    only, never gates dispatch ([7.6]); GRAMMAR only
   - `in_progress=` — 🔄 IDs in document order (finish before starting new
     work, wherever the in-flight item sits)
   - `ready=` — every ⬜ whose deps are all ✅ — document order, across ALL
@@ -274,8 +274,18 @@ split, lane dispatch, status render) program against.
     gating dispatch; phases remain the unit of narrative, review, and UAT)
   - `blocked=` — every open ⬜ with an unsatisfied dep, as `ID:ROOT`, where
     ROOT is the transitive blocking ID (the deepest unsatisfied dep that is
-    itself ready, in progress, or ❌ — a ❌ propagates blockage)
+    itself ready, in progress, ❌, or 🔒 — each propagates blockage)
   - `serial=` — first 🔄, else first ready item
+- **🔒 human-gated ([10.1]):** the resolver RECOGNIZES the fifth marker — a 🔒
+  line is parsed, surfaces in `--json` as `status="human_gated"`, counts as open
+  work in `phase=`, and is a valid dep target (a ⬜ depending on a 🔒 ID is
+  `blocked` with the 🔒 named as ROOT, not a MALFORMED crash) — so a 🔒
+  deliverable is never silently dropped. It is **open-but-non-dispatchable**:
+  never listed in `ready=` (a person gates it, not a dep) and never the subject
+  of `blocked=`. The full ready-vs-blocked frontier semantics for 🔒 (a distinct
+  frontier bucket? a `serial=` posture?) are a **deliberate follow-on** — this
+  contract fixes only that 🔒 is visible, never vanishing from the parse, JSON,
+  or counts.
 - **Exit codes:** 0 resolved (a complete tracker resolves to an empty
   frontier — a resting state, not an error) · 2 usage (unknown argument,
   or `--json` without jq) · 4 no tracker · 5 on any
@@ -291,8 +301,8 @@ split, lane dispatch, status render) program against.
   tail) — no jq needed for the name=value output (`--json` adds jq); runs on
   stock macOS bash 3.2. The parse (lead-position IDs,
   last-construct deps token, comma-space separator) is the same grammar
-  `archive-initiative.sh` enforces — one dialect, with the shared ID/token
-  regexes guarded identical by the resolver's suite.
+  `archive-initiative.sh` enforces — one dialect, with the shared deps-token
+  regex guarded identical to the skill's quoted copy by `grammar-surface.test.sh`.
 
 ### status.json shape
 
@@ -344,6 +354,7 @@ documented shape, never re-derive it.
     { "id": "6.4",                          // null in LEGACY (no IDs exist)
       "phase": 6,                           // null in LEGACY
       "status": "done",                     // done | in_progress | todo | descoped
+                                            //   | human_gated (🔒, [10.1])
       "deps": ["6.1", "6.3"],               // always [] in LEGACY — empty edges,
                                             //   never invented from document order
       "text": "wording after the marker, verbatim (deps token included)" }
