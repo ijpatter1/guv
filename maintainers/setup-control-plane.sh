@@ -220,17 +220,19 @@ write_render_hook() {
   tmp=$(mktemp)
   cat > "$tmp" <<'SH'
 #!/bin/bash
-# .git/hooks/post-commit — status-view regeneration ([6.7] of the plan-as-data
-# spec). When a commit touches docs/PHASE_STATUS.md — the render is a pure
-# function of the tracker, so other docs cannot change it — regenerate
-# status.html through the sanctioned chain (resolve-ready.sh --json ->
-# render-status.sh) and commit it as a derived artifact. The follow-up render
-# commit touches only status.html, so the trigger check below is also the
-# recursion break. Convenience, NEVER a dependency: every failure rung
-# degrades to a loud notice and a clean exit, and the manual render always
-# works without this hook:
+# .git/hooks/post-commit — status-view regeneration ([6.7]; README status block
+# added at [8.3] §3.3). When a commit touches docs/PHASE_STATUS.md — the views are
+# a pure function of the tracker, so other docs cannot change them — regenerate the
+# derived status views through the sanctioned chain and commit them: status.html
+# (resolve-ready.sh --json -> render-status.sh) and the README status block
+# (status-line.sh -> update-readme-status.sh, when present; a no-op without the
+# markers). The follow-up render commit touches status.html + README.md, neither
+# of which is the tracker, so the trigger check below is still the recursion break.
+# Convenience, NEVER a dependency: every failure rung degrades to a loud notice and
+# a clean exit, and the manual render always works without this hook:
 #   bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > status.json
 #   bash .claude/render-status.sh status.json > status.html
+#   bash .claude/status-line.sh status.json | bash .claude/update-readme-status.sh README.md
 # Harness-owned: written by setup-control-plane.sh (create; refreshed on
 # --sync while present) — local edits will be overwritten; improve the
 # generator instead.
@@ -255,11 +257,29 @@ if bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json > "$TMP_JSON" 2>"$E
    && bash .claude/render-status.sh "$TMP_JSON" > "$TMP_HTML" 2>>"$ERR"; then
   # The recording rung is guarded too: an ignored target, an index lock, or
   # a failed commit must never hide behind a success banner.
-  if mv "$TMP_HTML" status.html 2>>"$ERR" \
-     && chmod 644 status.html 2>>"$ERR" \
-     && git add status.html 2>>"$ERR" \
-     && git commit -q -m "chore(render): regenerate status.html (post-commit hook)" -- status.html 2>>"$ERR"; then
-    echo "[render-hook] status.html regenerated and committed — push to publish"
+  if mv "$TMP_HTML" status.html 2>>"$ERR" && chmod 644 status.html 2>>"$ERR"; then
+    # README status block — secondary to status.html and best-effort: refresh it
+    # from the SAME resolver JSON when the composer + updater + a README exist
+    # (a no-op without the STATUS markers), then record the derived views together.
+    # The pathspec is kept explicit per branch (no $PATHS variable): a bare commit
+    # could sweep up a user's partial-commit leftovers, and an assignment naming
+    # status.html is not one of the recording forms the view-acceptance check allows.
+    MSG="chore(render): regenerate status views (post-commit hook)"
+    if [ -f .claude/status-line.sh ] && [ -f .claude/update-readme-status.sh ] && [ -f README.md ]; then
+      bash .claude/status-line.sh "$TMP_JSON" 2>>"$ERR" \
+        | bash .claude/update-readme-status.sh README.md 2>>"$ERR"
+      git add status.html README.md 2>>"$ERR" \
+        && git commit -q -m "$MSG" -- status.html README.md 2>>"$ERR"
+    else
+      git add status.html 2>>"$ERR" \
+        && git commit -q -m "$MSG" -- status.html 2>>"$ERR"
+    fi
+    if [ $? -eq 0 ]; then
+      echo "[render-hook] status views regenerated and committed — push to publish"
+    else
+      echo "[render-hook] render succeeded but recording FAILED — not committed:"
+      cat "$ERR"
+    fi
   else
     echo "[render-hook] render succeeded but recording FAILED — status.html NOT committed:"
     cat "$ERR"

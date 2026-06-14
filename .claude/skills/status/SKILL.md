@@ -14,13 +14,7 @@ user-invocable: true
 5. List the most recent file in `docs/sessions/` and read its **Next Steps** section (if no session files exist, note "no prior sessions")
 6. Run `bash "${CLAUDE_SKILL_DIR}/scripts/check-citations.sh"` — an advisory check that flags session-handoff citations whose commit hashes no longer resolve in the code repo. It self-limits to a control-plane split (`roots.code != roots.control`) and is silent otherwise. Capture its output.
 7. Count open harness-feedback entries: `f=.claude/feedback/feedback.ndjson; [ -f "$f" ] && jq -s '[.[] | select(.status=="open")] | length' "$f" || echo 0`.
-8. **Refresh the README status block** from the state just gathered. `/handoff` keeps it current at session end, but a session that skips handoff (common in `task`/`onboard` mode, or an interrupted one) would leave it stale — `/status` is run often in every mode, so refreshing here bounds staleness. Compose the same one-line status you'll report below (phased: `**Phase N — [name]** · X/Y deliverables`; otherwise the non-phase line) and pipe it to the updater:
-
-   ```bash
-   printf '%s\n' "<the status line>" | bash .claude/update-readme-status.sh README.md
-   ```
-
-   This is **idempotent and silent**: it derives from the same `docs/PHASE_STATUS.md` you just read (never a second source of truth), rewrites only the marked block, no-ops when the README has no markers, and produces **no git diff when the status is already current**. Don't announce it.
+8. **README status block — no hand-invoke needed.** In `phased` projects the block is refreshed automatically by the §3.3 render hooks — the native PostToolUse hook when a tracker edit lands, and the control plane's git post-commit hook on every tracker commit — both deriving the line from the resolver (`status-line.sh`, never a second source of truth). `/status` only reads state here; there is nothing to write. (In `task`/`onboard` mode there is no tracker to derive from, and a consumer README normally carries no STATUS markers, so there is nothing to refresh.)
 
 ## Report
 

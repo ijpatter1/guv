@@ -4,7 +4,8 @@
 # plane's .git/hooks/, the schema-validated `views` manifest entry, and the
 # publishing docs. The contract, per the A-001 insert:
 #   - a commit touching the tracker yields a fresh committed render; the
-#     follow-up render commit touches only the render target, so the trigger
+#     follow-up render commit touches the derived views (status.html + the
+#     README status block, [8.3] §3.3) — neither is the tracker, so the trigger
 #     check is itself the recursion break
 #   - the hook is convenience, NEVER a dependency: jq absent, chain absent,
 #     resolver refusal, detached HEAD — every rung degrades to a loud notice
@@ -48,13 +49,22 @@ trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' 
 H="$WORK/harness"
 mkdir -p "$H/maintainers" "$H/.claude/commands" "$H/.claude/skills" "$H/.claude/hooks"
 cp "$REAL_SCRIPT" "$H/maintainers/"
-cp "$CLAUDE_DIR/resolve-ready.sh" "$CLAUDE_DIR/render-status.sh" "$H/.claude/"
+# The full render chain, so the installed hook exercises the real machinery —
+# status.html (resolve-ready -> render-status) AND the README block (status-line
+# -> update-readme-status, the [8.3] §3.3 addition). setup copies these into the
+# fixture plane by the *.sh glob.
+cp "$CLAUDE_DIR/resolve-ready.sh" "$CLAUDE_DIR/render-status.sh" \
+   "$CLAUDE_DIR/status-line.sh" "$CLAUDE_DIR/update-readme-status.sh" "$H/.claude/"
 cp "$CLAUDE_DIR/project.schema.json" "$H/.claude/" 2>/dev/null || true
 
 CP="$WORK/cp"
 bash "$H/maintainers/setup-control-plane.sh" "$CP" > "$WORK/setup.log" 2>&1 \
   || { echo "  ✗ SETUP: control-plane create failed: $(cat "$WORK/setup.log")"; exit 1; }
 git -C "$CP" config user.email t@t && git -C "$CP" config user.name t
+
+# A README carrying the STATUS markers, so the post-commit hook's README-block
+# refresh ([8.3] §3.3) has a block to update (it no-ops without the markers).
+printf '# Fixture\n\n<!-- STATUS:START -->\nplaceholder\n<!-- STATUS:END -->\n' > "$CP/README.md"
 
 HOOK="$CP/.git/hooks/post-commit"
 
@@ -96,8 +106,8 @@ grep -qi 'post-commit' "$WORK/setup.log" \
 cp "$HOOK" "$WORK/generated-hook" 2>/dev/null
 
 # ── T2 — the acceptance: a commit touching the tracker yields a fresh,
-# COMMITTED render, and the follow-up commit breaks recursion by touching
-# only the render target.
+# COMMITTED render, and the follow-up commit breaks recursion by touching only
+# the derived views (status.html + the README block), never the tracker.
 tracker "⬜"
 ( cd "$CP" && git add -A && git commit -qm "docs: tracker" ) > "$WORK/c1.log" 2>&1
 [ -f "$CP/status.html" ] && ok "regen: tracker commit yields a fresh render" \
@@ -108,13 +118,22 @@ N=$(git -C "$CP" rev-list --count HEAD 2>/dev/null)
 LAST=$(git -C "$CP" log -1 --pretty=%s)
 echo "$LAST" | grep -q 'render' \
   && ok "regen: HEAD is the render commit" || no "HEAD must be the render commit (got: $LAST)"
-[ "$(git -C "$CP" diff-tree --no-commit-id --name-only -r HEAD)" = "status.html" ] \
-  && ok "regen: render commit touches only the render target" \
-  || no "render commit must touch status.html alone"
+TOUCHED="$(git -C "$CP" diff-tree --no-commit-id --name-only -r HEAD | sort | tr '\n' ' ')"
+[ "$TOUCHED" = "README.md status.html " ] \
+  && ok "regen: render commit touches the derived views only (status.html + README block)" \
+  || no "render commit must touch status.html + README.md alone (got: $TOUCHED)"
 ISLAND=$(sed -n 2>/dev/null '/id="status-data"/{n;p;}' "$CP/status.html" | sed 's|<\\/|</|g')
 [ "$(echo "$ISLAND" | jq -r '.frontier.ready | join(" ")')" = "1.2" ] \
   && ok "regen: rendered frontier matches the fixture tracker (ready=1.2)" \
   || no "render must be of the committed tracker (expected ready=1.2)"
+# The README status block is refreshed from the same resolver state (1 of 2 done),
+# replacing the placeholder — the §3.3 README-refresh half of the post-commit hook.
+grep -q '\*\*Phase 1\*\* · 1/2 deliverables' "$CP/README.md" \
+  && ok "regen: README status block refreshed from resolver state (Phase 1 · 1/2)" \
+  || no "the README status block must be refreshed by the render hook"
+grep -q 'placeholder' "$CP/README.md" \
+  && no "regen: the README placeholder must be replaced (found 'placeholder')" \
+  || ok "regen: README placeholder replaced by the live status line"
 
 # ── T3 — a commit not touching the tracker leaves the render alone.
 cp "$CP/status.html" "$WORK/before.html" 2>/dev/null
@@ -143,7 +162,7 @@ ISLAND=$(sed -n 2>/dev/null '/id="status-data"/{n;p;}' "$CP/status.html" | sed '
 # is right — the documented matrix genuinely differs there, and a red suite
 # beats a silent skip on a machine where the docs are wrong.)
 ( cd "$CP" && git revert --no-edit HEAD~1 ) > "$WORK/t4b.log" 2>&1
-[ "$(git -C "$CP" log -1 --pretty=%s)" = "chore(render): regenerate status.html (post-commit hook)" ] \
+[ "$(git -C "$CP" log -1 --pretty=%s)" = "chore(render): regenerate status views (post-commit hook)" ] \
   && git -C "$CP" log -2 --pretty=%s | grep -q '^Revert' \
   && ok "sequencer: revert of a tracker commit fires the hook (render atop the Revert)" \
   || no "a revert landing tracker changes must regenerate (got: $(git -C "$CP" log -2 --pretty=%s | tr '\n' ' '))"

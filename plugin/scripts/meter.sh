@@ -53,6 +53,16 @@
 # depends on Spike C. dollars is ALWAYS null on this rung: pricing tables drift
 # and the spec forbids a guessed conversion.
 #
+# NOT A SessionEnd HOOK ([8.3] §3.3 — "AUTOMATE (caveated), verify at [8.3]").
+# Verified and resolved to KEEP MODEL-TRIGGERED (the handoff invokes it at Step 6b):
+# a SessionEnd hook has no agent input, so it could not pass --deliverables — every
+# entry would record `session-scalar`, losing the per-deliverable attribution [9.1]
+# was designed around; and the suite-runtime artifact (.last-suite-runtime, written
+# by handoff Step 3) is absent unless that session ran the suite, so suite_runtime_s
+# would usually be null. SessionEnd is also not guaranteed to fire (crash / wall).
+# The other two §3.3 scripts (session-open dispatch, status render) ARE hooks; this
+# one stays where the deliverable context lives — the session-close handoff.
+#
 # Exit: 0 wrote an entry · 2 usage · 4 no/corrupt manifest (cwd must be the
 #       project root). A degraded harvest is exit 0 — it is a designed path, not
 #       a failure.
