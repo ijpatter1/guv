@@ -188,13 +188,13 @@ if [ -z "${DS_TEST_INNER:-}" ]; then
 fi
 
 # T9 — vocabulary retirement guard ([8.3] stage 5). On the surfaces the sweep has
-# reached, the retired noun "harness" (every guv sense: core / guv / the product
-# category / record) is gone. Runtime-sense files — meter.sh, metering-log.md,
-# stop-check.sh, where "harness" means the Claude Code platform itself — are
-# deliberately NOT listed here; that sense is kept. "control plane" gets no
-# grep-guard: its product-category sense is load-bearing and kept (pinned in
-# release.test.sh), so retiring only the docs-directory sense is judgment-verified
-# per file, not assertable by a blanket grep. The list grows as the sweep lands.
+# reached, the retired noun "harness" is gone — every sense: the installed
+# machinery → core, the product → guv, and the evidence-deriving runtime sense
+# (meter.sh / metering-log.md "harness-derived/-measured/-written") → guv, since
+# guv's machinery (not the agent) derives it. "control plane" gets no grep-guard:
+# its product-category sense is load-bearing and kept (pinned in release.test.sh),
+# so retiring only the docs-directory sense is judgment-verified per file, not
+# assertable by a blanket grep. The list grows as the sweep lands.
 SWEPT_HARNESS_FREE="
 .claude/rules/guv-codebase-respect.md
 .claude/rules/guv-context-and-llm-use.md
@@ -233,6 +233,11 @@ maintainers/DOGFOODING.md
 .claude/tests/guv-lane.test.sh
 .claude/tests/feedback-log.test.sh
 .claude/tests/entry-split.test.sh
+.claude/meter.sh
+.claude/metering-log.md
+.claude/hooks/stop-check.sh
+.claude/tests/meter.test.sh
+.claude/tests/stop-check.test.sh
 "
 for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"

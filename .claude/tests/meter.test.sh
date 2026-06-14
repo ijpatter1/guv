@@ -3,12 +3,12 @@
 # Pure bash + jq, no test runner required. Run: bash .claude/tests/meter.test.sh
 #
 # These tests verify INTENT, not "runs without crashing" (Rule 8): the metering
-# log is RAW EVIDENCE — every field is harness- or git-derived, never agent-
+# log is RAW EVIDENCE — every field is guv- or git-derived, never agent-
 # reported; no derived/aggregate field is computed (that is [9.5] downstream);
 # attribution is the deliverable ID when one applies, session-scalar otherwise;
 # the mechanical performance fields (deterministic-op wall-clock AND suite
 # runtime) are never agent-written numbers — op_wallclock_s is script-measured,
-# suite_runtime_s is script-measured (--run-suite) or read from the harness
+# suite_runtime_s is script-measured (--run-suite) or read from the guv
 # artifact, with NO flag or agent input able to set either; and the log is
 # append-only — no code path rewrites it.
 set -u
@@ -24,7 +24,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # A minimal project root: a manifest (single-repo) and a docs/sessions/ dir so
-# the writer can derive the harness session id the way siblings resolve state.
+# the writer can derive the session id the way siblings resolve state.
 make_project() {  # echoes the project dir
   local p="$WORK/proj.$RANDOM"
   rm -rf "$p"
@@ -50,16 +50,16 @@ LINES=$( [ -f "$LOG" ] && wc -l < "$LOG" | tr -d ' ' || echo 0 )
   && ok "one session -> exactly one valid JSON line (rc=$RC, lines=$LINES)" \
   || no "expected one valid NDJSON line (rc=$RC, lines=$LINES, err=$(cat "$WORK/t1.err"))"
 
-# T2 — the entry carries the required harness/git-derived fields.
+# T2 — the entry carries the required guv/git-derived fields.
 ENTRY=$( [ -f "$LOG" ] && tail -1 "$LOG" || echo '{}' )
 for f in ts session deliverable_ids model tokens dollars perf; do
   echo "$ENTRY" | jq -e "has(\"$f\")" >/dev/null 2>&1 \
     && ok "field present: $f" \
     || no "required field missing: $f (entry=$ENTRY)"
 done
-# timestamp is a real UTC instant (harness-derived via date -u), not an agent string
+# timestamp is a real UTC instant (guv-derived via date -u), not an agent string
 echo "$ENTRY" | jq -re '.ts' 2>/dev/null | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
-  && ok "ts is an ISO-8601 UTC instant (harness-derived)" \
+  && ok "ts is an ISO-8601 UTC instant (guv-derived)" \
   || no "ts is not a UTC instant: $(echo "$ENTRY" | jq -c '.ts')"
 # session id follows the docs/sessions/ convention, derived not supplied
 echo "$ENTRY" | jq -re '.session' 2>/dev/null | grep -qE '^session-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3}$' \
@@ -91,7 +91,7 @@ tail -1 "$LOG4b" | jq -e '.deliverable_ids == ["session-scalar"]' >/dev/null 2>&
   && ok "empty --deliverables -> session-scalar (never a blank id)" \
   || no "empty deliverables must map to session-scalar, got $(tail -1 "$LOG4b" | jq -c '.deliverable_ids')"
 
-# T5 — the mechanical performance field is present, harness-derived, numeric.
+# T5 — the mechanical performance field is present, guv-derived, numeric.
 # op_wallclock_s is the deterministic-operation wall-clock the script measures
 # of its OWN session-close work — the genuinely mechanical perf field the
 # acceptance requires. It must be a number the script produced, not a value any
@@ -111,7 +111,7 @@ grep -nE -- '--op[-_]?wallclock|--op[-_]?wall[-_]?clock|--op-time|--wallclock' "
   || ok "no CLI flag sets op_wallclock_s — the perf field is script-measured only (no agent value)"
 
 # T5c — suite_runtime_s is MECHANICAL ONLY: NO flag or agent input may set it.
-# The defining invariant of [9.1] is "every field harness/git-derived, never
+# The defining invariant of [9.1] is "every field guv/git-derived, never
 # agent-reported", and suite_runtime_s is a perf field the acceptance scrutinizes.
 # A --suite-runtime <number> path would let an agent inject the value (e.g.
 # --suite-runtime 9.999), breaking the no-agent-I/O contract. Asserted on the
@@ -121,19 +121,19 @@ grep -nE -- '--op[-_]?wallclock|--op[-_]?wall[-_]?clock|--op-time|--wallclock' "
 grep -nE -- '--suite[-_]?runtime|--suite[-_]?time|--runtime[[:space:]]' "$SCRIPT" 2>/dev/null \
   | grep -vE '^[[:space:]]*[0-9]+:[[:space:]]*#' >/dev/null 2>&1 \
   && no "writer exposes a flag to set suite_runtime_s — that perf field must be mechanical only (no agent value)" \
-  || ok "no CLI flag sets suite_runtime_s — mechanical only (--run-suite or the harness artifact, never agent input)"
+  || ok "no CLI flag sets suite_runtime_s — mechanical only (--run-suite or the guv artifact, never agent input)"
 
 # T5d — POSITIVE: the mechanical artifact source produces a measured value. The
 # session-close path writes the suite wall-clock to .claude/metering/.last-suite-
-# runtime; the writer READS it (mechanical, harness-written, not a CLI arg) into
+# runtime; the writer READS it (mechanical, guv-written, not a CLI arg) into
 # perf.suite_runtime_s. This proves the field is actually populated in production,
 # not permanently null.
 P5d=$(make_project); LOG5d="$P5d/.claude/metering/metering.ndjson"
 mkdir -p "$P5d/.claude/metering"
-printf '2.500\n' > "$P5d/.claude/metering/.last-suite-runtime"   # the harness-written artifact
+printf '2.500\n' > "$P5d/.claude/metering/.last-suite-runtime"   # the guv-written artifact
 ( cd "$P5d" && bash "$SCRIPT" capture --deliverables "9.1" ) >/dev/null 2>"$WORK/t5d.err"
 tail -1 "$LOG5d" | jq -e '.perf.suite_runtime_s == 2.5' >/dev/null 2>&1 \
-  && ok "suite_runtime_s read from the harness artifact (mechanical, == 2.5)" \
+  && ok "suite_runtime_s read from the guv artifact (mechanical, == 2.5)" \
   || no "expected suite_runtime_s == 2.5 from the artifact, got $(tail -1 "$LOG5d" | jq -c '.perf.suite_runtime_s') (err=$(cat "$WORK/t5d.err"))"
 # a non-numeric artifact is never trusted into the log -> null (never an agent string)
 P5dx=$(make_project); LOG5dx="$P5dx/.claude/metering/metering.ndjson"
@@ -204,7 +204,7 @@ grep -nE '>>[[:space:]]*"?\$\{?'"$LOGVAR" "$SCRIPT" >/dev/null 2>&1 \
   && ok "writer appends with >> (the only sanctioned write to the log)" \
   || no "writer source has no append (>>) to the log — it cannot be append-only-by-construction"
 
-# T7c — no OTHER harness code path rewrites the metering log (grep across the
+# T7c — no OTHER guv code path rewrites the metering log (grep across the
 # whole .claude tree, excluding this writer and its tests/doc). The only file
 # allowed to write the log is meter.sh.
 OTHERWRITERS=$(grep -rlnE 'metering\.ndjson|metering/metering' \
@@ -213,7 +213,7 @@ OTHERWRITERS=$(grep -rlnE 'metering\.ndjson|metering/metering' \
   "$ROOT/.claude/lane-dispatch.sh" 2>/dev/null \
   | xargs grep -lE '[^>]>[[:space:]]*.*metering|sed -i.*metering|rm .*metering' 2>/dev/null || true)
 [ -z "$OTHERWRITERS" ] \
-  && ok "no other harness path truncates/edits/removes the metering log" \
+  && ok "no other guv path truncates/edits/removes the metering log" \
   || no "these paths appear to rewrite the metering log: $OTHERWRITERS"
 
 # T8 — Spike C rung is recorded so a reader knows the entry's resolution. When

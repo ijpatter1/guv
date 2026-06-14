@@ -15,8 +15,8 @@ if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
   exit 0
 fi
 
-# Harness ceremony is opt-in: the manifest is the opt-in signal. Without it (a
-# non-harness repo where the guv plugin happens to be enabled, or a
+# guv ceremony is opt-in: the manifest is the opt-in signal. Without it (a
+# repo that isn't a guv project where the guv plugin happens to be enabled, or a
 # pre-scaffold directory) there is no ceremony to remind about — stand aside.
 if [ ! -f ".claude/project.json" ]; then
   exit 0

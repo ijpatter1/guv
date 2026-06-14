@@ -1,9 +1,9 @@
 #!/bin/bash
 # Tests for .claude/hooks/stop-check.sh — the advisory Stop hook.
-# Phase 5 added the manifest gate: harness ceremony is opt-in, and the manifest
+# Phase 5 added the manifest gate: guv ceremony is opt-in, and the manifest
 # is the opt-in signal. Under plugin install the hook rides hooks.json into
 # EVERY repo where the plugin is enabled, so without the gate it would nag
-# non-harness repos and pre-scaffold directories about /eval and /handoff.
+# repos that aren't guv projects and pre-scaffold directories about /eval and /handoff.
 # Also guards: the loop-prevention exit on stop_hook_active, the
 # uncommitted-changes reminder, and the dual-form command names in the
 # reminder text (bare for template installs, /guv:-prefixed for plugin ones).

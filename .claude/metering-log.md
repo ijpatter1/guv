@@ -3,7 +3,7 @@
 The metering log is the meter's **raw evidence**: one append-only NDJSON line per
 session-close, written by `.claude/meter.sh`. It lives in the control plane at
 `.claude/metering/metering.ndjson` (resolved relative to the project root the way
-every harness script resolves state — never a hardcoded path).
+every guv script resolves state — never a hardcoded path).
 
 This shape joins the tracker grammar, the manifest schema, and `status.json` as
 **published contract surface**. The downstream consumer is the [9.5] cost-and-
@@ -17,11 +17,11 @@ cost-per-X fields appear here (those are *meaning*, computed downstream).
   log. The only write primitive against it is `>>` (append). A second capture
   appends a line and leaves every prior line byte-identical. The suite
   grep-asserts this on the writer and across the `.claude` tree.
-- **No agent I/O — every field is harness- or git-derived.** There is no flag to
+- **No agent I/O — every field is guv- or git-derived.** There is no flag to
   set token counts, dollars, the operation wall-clock, the suite runtime, or any
   value. Tokens are harvested from the runtime transcript; the op wall-clock is
   measured by the writer; the suite runtime is measured by the writer (`--run-suite`)
-  or read from the harness-written artifact `.claude/metering/.last-suite-runtime`,
+  or read from the guv-written artifact `.claude/metering/.last-suite-runtime`,
   never a CLI argument; the timestamp and session id are derived. "Measure exhaust,
   never steam."
 - **Raw evidence only.** No derived/aggregate field appears. Aggregation is the
@@ -35,8 +35,8 @@ are explicit nulls, never omissions).
 | field             | type            | source / meaning                                                                                 |
 |-------------------|-----------------|--------------------------------------------------------------------------------------------------|
 | `schema`          | string          | shape version — `guv.meter.v1`. Bumped if the shape changes (grammar-version discipline).         |
-| `ts`              | string          | ISO-8601 UTC instant of the capture (`date -u`). Harness-derived.                                |
-| `session`         | string          | harness session id, `session-YYYY-MM-DD-NNN`, derived from the newest `docs/sessions/session-*.md`. |
+| `ts`              | string          | ISO-8601 UTC instant of the capture (`date -u`). guv-derived.                                |
+| `session`         | string          | session id, `session-YYYY-MM-DD-NNN`, derived from the newest `docs/sessions/session-*.md`. |
 | `session_derived` | bool            | `true` when `session` came from a real session artifact; `false` on the date-fallback degradation. |
 | `runtime_session` | string \| null  | the Claude Code runtime session id (`CLAUDE_CODE_SESSION_ID`) — the transcript harvest key; null if absent. |
 | `deliverable_ids` | array<string>   | the deliverable ID(s) this session served, e.g. `["9.1"]` or `["9.1","9.4"]`; `["session-scalar"]` when no single ID applies. |
@@ -46,7 +46,7 @@ are explicit nulls, never omissions).
 | `spike_c_rung`    | string          | the harvest rung this entry achieved (see below): `"B"` when tokens were harvested, `"degraded"` when not. |
 | `perf`            | object          | mechanical performance fields the boundary affords (see below).                                  |
 | `perf.op_wallclock_s` | number      | wall-clock seconds of the writer's own **deterministic session-close operations** — harvest + assemble + append. The genuinely mechanical perf field, **measured by the script**, never an agent value. |
-| `perf.suite_runtime_s` | number \| null | test-suite wall-clock — **mechanical only**, never an agent value. Either the writer times the suite itself (`--run-suite`), or it READS the harness artifact `.claude/metering/.last-suite-runtime` (a number the session-close path writes mechanically when it runs the suite in handoff Step 3). No CLI flag or agent input can set it. `null` when neither source is present (artifact absent/unreadable/non-numeric — the designed degradation). Never an agent estimate. |
+| `perf.suite_runtime_s` | number \| null | test-suite wall-clock — **mechanical only**, never an agent value. Either the writer times the suite itself (`--run-suite`), or it READS the guv artifact `.claude/metering/.last-suite-runtime` (a number the session-close path writes mechanically when it runs the suite in handoff Step 3). No CLI flag or agent input can set it. `null` when neither source is present (artifact absent/unreadable/non-numeric — the designed degradation). Never an agent estimate. |
 
 ## Spike C — harvestability (the rung taken)
 
@@ -90,6 +90,6 @@ production caller; the writer is otherwise standalone and testable.
 
 The suite runtime is wired mechanically: handoff **Step 3** times its existing
 suite run and writes the measured seconds to `.claude/metering/.last-suite-runtime`
-(a harness write, no agent number), and **Step 6b**'s `meter.sh capture` READS
+(a guv write, no agent number), and **Step 6b**'s `meter.sh capture` READS
 that artifact to populate `perf.suite_runtime_s`. Step 6b reports no numbers to
-the writer; the artifact, like every other field, is harness-measured or null.
+the writer; the artifact, like every other field, is guv-measured or null.

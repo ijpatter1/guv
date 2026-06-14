@@ -3,7 +3,7 @@
 #
 # Appends ONE NDJSON line per session-close to an append-only metering log in
 # the control plane (.claude/metering/metering.ndjson). The log is RAW EVIDENCE:
-# every field is harness- or git-derived, NEVER agent-reported (no agent I/O),
+# every field is guv- or git-derived, NEVER agent-reported (no agent I/O),
 # and NOTHING is derived/aggregated here — totals, rates, and cost-per-X are
 # computed downstream by the [9.5] emitter, which is the only consumer surface.
 # The raw log stays raw.
@@ -17,7 +17,7 @@
 #   --deliverables  the deliverable ID(s) this session served. Absent or empty
 #                   -> "session-scalar" (the attribution for a session with no
 #                   single applicable ID). A comma list attributes to each ID.
-#   --session       override the harness session id (default: derived from the
+#   --session       override the session id (default: derived from the
 #                   newest docs/sessions/session-*.md — the same state siblings
 #                   read).
 #   --run-suite     time a real run of the manifest test suite (guv-cmd test)
@@ -29,7 +29,7 @@
 #   --log           override the log path (tests; default is root-relative).
 #
 # perf.suite_runtime_s — MECHANICAL ONLY, never an agent value. Two sources, both
-# harness-measured: (1) --run-suite, where THIS SCRIPT times the suite; or (2) the
+# guv-measured: (1) --run-suite, where THIS SCRIPT times the suite; or (2) the
 # artifact .claude/metering/.last-suite-runtime (resolved beside the log), a single
 # number the session-close path writes mechanically when it runs the suite in
 # Step 3. The writer READS that artifact — it is never a CLI argument or agent
@@ -38,7 +38,7 @@
 #
 # There is deliberately NO flag to set token counts, dollars, the operation
 # wall-clock, or the suite runtime: those are harvested or measured by this
-# script (or read from the harness artifact), never reported by a caller. That
+# script (or read from the guv artifact), never reported by a caller. That
 # is the "measure exhaust, never steam — no agent I/O" contract.
 #
 # Spike C (harvestability) — rung taken: B (session-scalar token attribution),
@@ -102,7 +102,7 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 \
 [ -n "$LOG" ] || LOG=".claude/metering/metering.ndjson"
 # The mechanical suite-runtime artifact lives beside the log (same metering dir),
 # so an overridden --log in tests carries its artifact with it. This is a file
-# the harness writes (handoff Step 3); the writer only ever READS it.
+# guv writes (handoff Step 3); the writer only ever READS it.
 SUITE_ARTIFACT="$(dirname "$LOG")/.last-suite-runtime"
 
 # --- a hi-res monotone-ish clock in seconds (bash + coreutils only) -----------
@@ -119,7 +119,7 @@ now_s() {
 START=$(now_s)   # the deterministic-op wall-clock starts HERE and is measured
                  # at append time — the genuinely mechanical perf field.
 
-# --- harness session id: newest docs/sessions/session-*.md (derived, not given)
+# --- session id: newest docs/sessions/session-*.md (derived, not given)
 if [ -z "$SESSION" ]; then
   SESSION=$(ls docs/sessions/session-*.md 2>/dev/null \
     | sed -E 's#.*/(session-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3})\.md#\1#' \
@@ -197,7 +197,7 @@ if [ "$RUN_SUITE" = "1" ]; then
   SE=$(now_s)
   SUITE_RUNTIME=$(awk -v a="$ST" -v b="$SE" 'BEGIN{ d=b-a; if (d<0) d=0; printf "%.3f", d }')
 elif [ -r "$SUITE_ARTIFACT" ]; then
-  # Read the harness-written artifact (mechanical). Take the first whitespace-
+  # Read the guv-written artifact (mechanical). Take the first whitespace-
   # trimmed token; accept it only if it is a number, else degrade to null —
   # never trust a non-number, and never an agent string, into the log.
   ART=$(tr -d '[:space:]' < "$SUITE_ARTIFACT" 2>/dev/null)
@@ -206,7 +206,7 @@ elif [ -r "$SUITE_ARTIFACT" ]; then
   fi
 fi
 
-# --- timestamp (harness-derived UTC instant) ----------------------------------
+# --- timestamp (guv-derived UTC instant) ----------------------------------
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # --- the deterministic-operation wall-clock: measured NOW, at append time -----
