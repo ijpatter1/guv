@@ -1,24 +1,24 @@
 ---
 name: feedback
-description: "Record harness friction — broken commands, inapplicable settings, doc drift, manifest gaps, misfiring hooks — to the project feedback log, and list/triage open entries. Use whenever a harness command/skill/hook/setting/doc doesn't fit the task at hand, when the user reports such friction, or at session handoff. Agent-callable mid-session and user-invocable."
+description: "Record guv friction — broken commands, inapplicable settings, doc drift, manifest gaps, misfiring hooks — to the project feedback log, and list/triage open entries. Use whenever a guv command/skill/hook/setting/doc doesn't fit the task at hand, when the user reports such friction, or at session handoff. Agent-callable mid-session and user-invocable."
 user-invocable: true
 ---
 
-# Feedback — Harness Friction Capture
+# Feedback — guv Friction Capture
 
-Capture friction with the **harness itself** so it can be triaged later into upstream
-fixes versus local adaptations. This is the evidence base for improving the harness.
+Capture friction with **guv itself** so it can be triaged later into upstream
+fixes versus local adaptations. This is the evidence base for improving guv.
 
 **It is data, not behavior.** Logging an entry changes nothing about how the session
 runs — it is an append-only record. So log freely and early; there is no cost.
 
 **What belongs here vs. not:**
 
-- **Here:** anything about the _harness_ that didn't fit — a command step that errored,
+- **Here:** anything about _guv_ that didn't fit — a command step that errored,
   a setting that didn't apply, a manifest field that couldn't express your project, a
   doc that described something that isn't true, a hook that misfired, awkward ergonomics.
 - **Not here — project code bugs** → route through `/task` (they're about the product,
-  not the harness).
+  not guv).
 - **Not here — per-agent learning** (evaluator/reviewer observations) → that's
   `.claude/agent-memory/`, a different artifact with a different lifecycle.
 
@@ -26,7 +26,7 @@ runs — it is an append-only record. So log freely and early; there is no cost.
 
 `.claude/feedback/feedback.ndjson` — one JSON object per line (NDJSON), so concurrent
 sessions append without merge conflicts and the log is `jq`-queryable. This file is
-**consumer-owned**: commit it (it's shared team knowledge), and note that a harness
+**consumer-owned**: commit it (it's shared team knowledge), and note that a guv
 update never touches it — it sits outside the upstream-owned core.
 
 ## Input
@@ -200,17 +200,17 @@ the end of this section; a consumer fork that deleted `maintainers/` needs none 
   friction isn't worth adapting around, `wontfix`.
 - **`unsure`** → review and reclassify at triage; routing decides which drain applies.
 
-**Dogfooding / `--sync` consumers.** A control plane that *develops* the harness
+**Dogfooding / `--sync` consumers.** A control plane that *develops* guv
 consumes it via `setup-control-plane.sh --sync` from the code repo, not via versioned
 plugin releases — so an `upstream` fix reaches it the moment the fix lands in the
-harness **source** and is synced in, with no release event to graduate on. For such a
+guv **source** and is synced in, with no release event to graduate on. For such a
 consumer the entry **graduates when its fix lands in source and reaches the plane via
 `--sync`**, the triage note naming the resolving deliverable or commit. This is the
 developer-side close trigger, distinct from the external-consumer release drain above:
 the general rule is **graduate on the landing event by which this consumer actually
 receives the fix** — a plugin release for a release consumer, a `--sync` (or a merge to
 the default branch) for a developer one — not a release in every case. Without it, fixes
-that ship the way the dogfooding control plane actually consumes the harness never close,
+that ship the way the dogfooding control plane actually consumes guv never close,
 and the log rots. `/handoff` Step 10 runs this drain every session. (Maintainers: the
 release-side mechanics and the no-release-vehicle path are in `maintainers/RELEASING.md`.)
 

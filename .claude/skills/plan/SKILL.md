@@ -27,7 +27,7 @@ before generating.
 
 ## Step 0 — Preconditions
 
-Read `.claude/project.json`. If it doesn't exist, this project isn't harness-governed
+Read `.claude/project.json`. If it doesn't exist, this project isn't guv-governed
 yet — stop and direct the user to `/init-project` (greenfield) or `/onboard` (adopt).
 Confirm it parses (`jq empty .claude/project.json`) — the "before" half of the D3
 validation contract — and note `roots.control` (docs go there) and the current
@@ -68,7 +68,7 @@ Extract and present a summary for the user to confirm — identity, phases, deli
   Dependencies & Risk Notes.
 - **Session estimates** ([9.6]): you are reading every deliverable's wording and
   acceptance here anyway, so propose a session estimate per deliverable in the same
-  breath. The harness pushes deliverables toward session-sized, so the **default is
+  breath. guv pushes deliverables toward session-sized, so the **default is
   1** — propose 1 unless the scope genuinely reads as multi-session, and **flag any
   balloon** (estimate > 1) explicitly so the user sees it. Estimates are
   interpretation, not plan state: they go in the **sidecar**, never in a deliverable

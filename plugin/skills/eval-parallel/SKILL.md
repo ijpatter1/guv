@@ -4,7 +4,7 @@ description: "Dual QA review over a commit-range scope — the evaluator and rev
 
 # Evaluate (Parallel) — Workflow Launcher
 
-Launch the harness's saved dual-review workflow. The orchestration lives in the
+Launch guv's saved dual-review workflow. The orchestration lives in the
 plugin-shipped script; this skill only starts it and handles the result.
 
 ## Step 1 — Launch

@@ -206,6 +206,15 @@ SWEPT_HARNESS_FREE="
 .claude/estimate.shape.md
 .claude/skills/replan/SKILL.md
 maintainers/render-smoke.js
+.claude/skills/feedback/SKILL.md
+.claude/skills/handoff/SKILL.md
+.claude/skills/init-project/SKILL.md
+.claude/skills/onboard/SKILL.md
+.claude/skills/plan/SKILL.md
+.claude/skills/status/SKILL.md
+maintainers/plugin-src/skills/eval-parallel/SKILL.md
+maintainers/plugin-src/skills/scaffold/SKILL.md
+maintainers/plugin-src/skills/zen/SKILL.md
 "
 for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"

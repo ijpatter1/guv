@@ -41,10 +41,10 @@ bash .claude/route.sh --for onboard
   returns `match=yes`, so the exit-0 branch above already covers it — you are
   about to write the manifest this guard would have read. **Proceed.**
 
-> **`/onboard` supersedes Claude Code's native `/init` in harness projects.** `/init`
+> **`/onboard` supersedes Claude Code's native `/init` in guv projects.** `/init`
 > inlines commands and stack facts into `CLAUDE.md`, which violates the manifest
 > contract (commands live in `.claude/project.json` and are never restated). Run this
-> command instead; don't run `/init` in a harness-governed repo.
+> command instead; don't run `/init` in a guv-governed repo.
 
 ## Input
 
@@ -126,13 +126,13 @@ Claude Code auto-loads it):
 An existing repo almost always has its own `README.md` — that is the project's, and it
 must be respected (the "Match the codebase's conventions" rule). Decide by what's present:
 
-- **The repo's README is the harness template README** (e.g. it still says "Claude Code
+- **The repo's README is the guv template README** (e.g. it still says "Claude Code
   Development Environment" — common when someone copied this template without rendering):
   render `README.template.md` → `README.md` as `/init-project` does, describing what's
   already there, and replace the greenfield line with a one-time status note (below).
 - **The repo has its own real project README:** leave its prose alone. Optionally, with
   the user's ok, insert the `<!-- STATUS:START/END -->` marker block near the top (with a
-  one-line "developed with the Claude Code harness" note). Never overwrite the file.
+  one-line "developed with guv" note). Never overwrite the file.
 - **No README at all:** render `README.template.md` → `README.md` in full.
 
 In an onboarded repo the status block is a **one-time snapshot, not a live view**:
@@ -141,7 +141,7 @@ derive the block from `docs/PHASE_STATUS.md` — never fire here, and nothing ke
 current. If you write the block, populate it once and leave it:
 
 ```bash
-printf '%s\n' "_Adopted with the Claude Code harness._" \
+printf '%s\n' "_Adopted with guv._" \
   | bash .claude/update-readme-status.sh README.md
 ```
 

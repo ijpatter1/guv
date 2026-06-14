@@ -176,7 +176,7 @@ Rules:
 
 ### Step 7 — Render the project README
 
-The template ships a harness-facing `README.md` (about the harness itself). Replace it
+The template ships a guv-facing `README.md` (about guv itself). Replace it
 with a **project** README rendered from `README.template.md`:
 
 1. Read `README.template.md`.
@@ -187,7 +187,7 @@ with a **project** README rendered from `README.template.md`:
 3. **Keep the `<!-- STATUS:START/END -->` markers verbatim** — do not hand-write phase
    numbers between them.
 4. Strip the leading `<!-- TEMPLATE … -->` comment block.
-5. Write the result to `${roots.control}/README.md` (overwriting the harness README).
+5. Write the result to `${roots.control}/README.md` (overwriting the guv README).
 6. Populate the initial status block — derive it with the same composer the §3.3
    render hooks use, so the seed matches the line they will regenerate (phase +
    completed/total; the resolver carries no phase name, so the line is leaner than a

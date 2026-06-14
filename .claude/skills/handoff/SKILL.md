@@ -102,7 +102,7 @@ awk -v a="$S" -v b="$E" 'BEGIN{ d=b-a; if (d<0) d=0; printf "%.3f\n", d }' \
 
 The `awk` writes the *measured* elapsed seconds — not a number you supply. If the
 suite step is null-skipped, the artifact still records the (near-zero) elapsed
-wrapper time; Step 6b reads whatever the harness measured, or `null` if the
+wrapper time; Step 6b reads whatever guv measured, or `null` if the
 artifact is absent.
 
 A `[guv-cmd] commands.test is null — skipping` line means the project has no test step — note that and skip this step cleanly. If any tests are failing, note them explicitly in the handoff. Do not leave the session with unexplained test failures.
@@ -246,7 +246,7 @@ Pass the deliverable ID(s) this session served — comma-separated for several.
 For a session with no single applicable ID (docs sweep, planning, multi-area
 work), omit `--deliverables` entirely and the writer records `session-scalar`.
 **Report no numbers to the writer:** token counts, dollars, the operation
-wall-clock, and the suite runtime are harvested, measured, or read from a harness
+wall-clock, and the suite runtime are harvested, measured, or read from a guv
 artifact by the writer itself, never agent-supplied (the "measure exhaust, never
 steam — no agent I/O" contract). There is no `--suite-runtime` flag — the writer
 READS the suite runtime from `.claude/metering/.last-suite-runtime`, the artifact
@@ -397,9 +397,9 @@ the `<!-- STATUS:START/END -->` markers by hand** — the block is a view of
 there is no tracker to derive from, and a consumer README normally carries no
 markers, so there is nothing to refresh.)
 
-## Step 10 — Harness Feedback
+## Step 10 — guv Feedback
 
-This is about the **harness**, not the product. Reflect on the session: did any
+This is about **guv**, not the product. Reflect on the session: did any
 command, hook, skill, setting, manifest field, or doc not fit the work — error out,
 not apply, mislead, or force a workaround? If so, capture each via the `feedback`
 skill (it appends to `.claude/feedback/feedback.ndjson`; data only, never blocking).
@@ -418,8 +418,8 @@ f=.claude/feedback/feedback.ndjson
 **Drain, don't just count — close the loop for what this session resolved.** The log
 only stays useful if entries close when their friction is gone; the surface step alone
 lets fixes pile up `open` forever (acute in a dogfooding control plane, which consumes
-the harness via `--sync` and so never hits the release-keyed drain). Review the open
-entries against this session's work, and for each whose fix **landed in the harness
+guv via `--sync` and so never hits the release-keyed drain). Review the open
+entries against this session's work, and for each whose fix **landed in the guv
 source this session** — or is already live in-plane via `--sync`, or whose friction is
 otherwise resolved — **propose graduating** it, naming the resolving deliverable or
 commit:
@@ -434,7 +434,7 @@ needs (see the skill's *Closing the loop*). Don't force it: an entry whose fix h
 **not** landed stays `open` — graduate only what's genuinely resolved.
 
 Whatever stays open after the drain: note the count in the handoff artifact under
-**Issues & Technical Debt** (e.g. "3 open harness-feedback entries — triage with the
+**Issues & Technical Debt** (e.g. "3 open guv-feedback entries — triage with the
 `feedback` skill"), so the next session sees it. If 0, say nothing.
 
 ## Step 11 — Summary
@@ -444,5 +444,5 @@ After writing the handoff artifact and updating the phase status, present a brie
 - What was accomplished this session (1-3 sentences)
 - Current overall phase progress (e.g., "Phase 1: 6 of 9 deliverables complete")
 - If UAT was generated: "Phase N UAT plan ready at `docs/uat/phase-N-uat.sh` — run before starting Phase N+1"
-- Any open harness-feedback count (from Step 10), if > 0
+- Any open guv-feedback count (from Step 10), if > 0
 - The recommended starting point for the next session

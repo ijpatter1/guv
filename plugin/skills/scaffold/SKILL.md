@@ -1,10 +1,10 @@
 ---
-description: "Scaffold the harness project shell into the current directory — templates, manifest schema, settings, rules, .gitignore, optional Docker tier — replacing the template-clone step. Use on a fresh or existing repo before /guv:init-project, /guv:onboard, or /guv:plan; safe to re-run after a plugin update to refresh harness-owned files."
+description: "Scaffold the guv project shell into the current directory — templates, manifest schema, settings, rules, .gitignore, optional Docker tier — replacing the template-clone step. Use on a fresh or existing repo before /guv:init-project, /guv:onboard, or /guv:plan; safe to re-run after a plugin update to refresh core-owned files."
 ---
 
 # Scaffold — Project Shell from the Plugin
 
-Deploy everything a harness-governed project needs on disk. The plugin carries
+Deploy everything a guv-governed project needs on disk. The plugin carries
 the durable core (skills, agents, hooks, scripts) in its own directory; this
 skill lays down the **project shell** — the files that must live in the
 project: doc templates, the manifest schema, permission settings, the rules
@@ -16,7 +16,7 @@ files, `.gitignore`, and (opt-in) the Docker isolation tier.
   (recommended) or proceed without.
 - If `.claude/project.json` already exists, this project is already
   scaffolded: say so, and note that re-running is still useful — it refreshes
-  the harness-owned files (templates, schema, rules) after a plugin update
+  the core-owned files (templates, schema, rules) after a plugin update
   while leaving everything consumer-owned untouched. Skip Step 2 (the manifest
   exists; don't propose a new one).
 
@@ -33,7 +33,7 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/scaffold-shell.sh --docker   # + Docker tie
 ```
 
 The script reports created / refreshed / kept files — relay that summary.
-Ownership is enforced by the script: harness-owned files refresh on re-run;
+Ownership is enforced by the script: core-owned files refresh on re-run;
 `.claude/settings.json`, `.gitignore` content, and Docker-tier files are
 consumer-owned after first deploy; the manifest, `CLAUDE.md`, and `docs/` are
 never written by it.

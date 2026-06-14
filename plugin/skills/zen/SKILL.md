@@ -1,5 +1,5 @@
 ---
-description: "Print the Zen of Governor — the harness's design principles."
+description: "Print the Zen of Governor — guv's design principles."
 disable-model-invocation: true
 ---
 
