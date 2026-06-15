@@ -1,7 +1,7 @@
-# guv-harness-gitignore — marker: the /guv:scaffold deploy appends its block only when this line is absent
+# guv-gitignore — marker: the /guv:scaffold deploy appends its block only when this line is absent
 
 # ─────────────────────────────────────────────
-# guv harness core — the entries every harness-governed project needs.
+# guv core — the entries every guv-governed project needs.
 # /guv:scaffold appends exactly this block (markers included) to a
 # pre-existing .gitignore; keep it self-contained and stack-agnostic.
 # ─────────────────────────────────────────────

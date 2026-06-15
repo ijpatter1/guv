@@ -5,7 +5,7 @@
      skips on this marker (it survives headline rewording; remove it only if
      you mean to disable those guards). -->
 
-A governor is a device that sits on a powerful engine and keeps it from running away — restraint built into the mechanism. That is what this harness adds to autonomous Claude Code sessions: a machine-readable project manifest, ceremony tiers, calibrated QA reviewers, deterministic safety hooks, a committed team-visible session record, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
+A governor is a device that sits on a powerful engine and keeps it from running away — restraint built into the mechanism. That is what guv adds to autonomous Claude Code sessions: a machine-readable project manifest, ceremony tiers, calibrated QA reviewers, deterministic safety hooks, a committed team-visible session record, and two-tier sandboxed isolation — native sandbox by default, Docker opt-in.
 
 Installs as the versioned **guv plugin** from this repo's marketplace; cloning the repo as a template remains the fallback path.
 
@@ -32,6 +32,24 @@ not come back.
 
 The name says the rest. Watt's governor held an engine at the speed a person chose.
 Choosing the speed was never its job.
+
+## Vocabulary
+
+Claude Code is the platform — the runtime where the work happens. That work is
+the data plane, and it is the model's.
+
+guv is a control plane for Claude Code: it decides what may run, holds what
+counts as good, and records what happened. guv governs the work and never
+touches it.
+
+The core is the installed machinery — the manifest, rules, hooks, resolver,
+skills, and reviewers. Sync replaces the core.
+
+The record is the governed state — plans, sessions, the cost ledger, the
+calibration record. Sync never touches the record.
+
+A project's guv, named <project>-guv, is one project's instance: the core plus
+the record. guv-guv is the instance where the governed project is guv itself.
 
 ## What's Included
 
@@ -73,7 +91,7 @@ Choosing the speed was never its job.
 
 ## Quick Start
 
-### 1. Install the harness
+### 1. Install guv
 
 **Default — the guv plugin** (versioned; updates ride releases, see `CHANGELOG.md`):
 
@@ -86,23 +104,23 @@ claude
 /guv:scaffold   # deploys the project shell: manifest scaffolding, rules, docs skeletons, .gitignore block
 ```
 
-Under a plugin install every harness command carries the `guv:` prefix —
+Under a plugin install every guv command carries the `guv:` prefix —
 `/guv:init-project`, `/guv:status`, `/guv:handoff` — and the reviewer agents
 resolve as `guv:evaluator` / `guv:reviewer`.
 
-**Fallback — template-clone** (unversioned): for forks that customize harness-owned
+**Fallback — template-clone** (unversioned): for forks that customize core-owned
 files (a plugin's surfaces aren't editable; a clone's are) or environments without
 plugin support. Updates arrive via `maintainers/setup-control-plane.sh --sync` —
 supported indefinitely, though new surface ships plugin-first.
 
 **Already on a template clone?** The decided disposition: **migrate to the plugin**
-if you haven't customized harness-owned files. In order:
+if you haven't customized core-owned files. In order:
 
 1. Install the plugin (marketplace add + install, as above).
 2. Delete the copied surfaces the plugin now supplies at runtime, so the two
    copies don't double-load: `.claude/skills/`,
    `.claude/agents/`, `.claude/hooks/`, the loose helper scripts
-   (`resolve-stack.sh` and friends), and harness-shipped workflows. If you've
+   (`resolve-stack.sh` and friends), and guv-shipped workflows. If you've
    added files of your own inside those directories (a custom skill or agent),
    move them aside first — the directories have no ownership convention, so
    the deletion takes everything.
@@ -149,7 +167,7 @@ This reads your spec and generates the project-specific artifacts:
 
 - `.claude/project.json` — the manifest: language, package manager, commands, roots, ceremony
 - `CLAUDE.md` — **rendered from `CLAUDE.template.md`**, holding only the facts Claude can't infer (behavioral rules load natively from `.claude/rules/`; it points at the manifest for commands)
-- `README.md` — **rendered from `README.template.md`** into a _project_-facing README (with a status block `/handoff` keeps current), replacing this harness README
+- `README.md` — **rendered from `README.template.md`** into a _project_-facing README (with a status block `/handoff` keeps current), replacing this guv README
 - `docs/REQUIREMENTS.md` — phases and deliverables extracted from your spec
 - `docs/ARCHITECTURE.md` — Phase 1 detailed architecture, later phases stubbed
 - `docs/PHASE_STATUS.md` — deliverable tracker matching REQUIREMENTS.md
@@ -169,7 +187,7 @@ public on non-Enterprise plans.
 
 For an existing codebase, run `/onboard` instead — it detects the stack, infers the repo's conventions, writes the manifest, and renders `CLAUDE.md` **without** imposing phase structure.
 
-> **Don't run Claude Code's native `/init` in a harness-governed repo.** `/init` inlines commands into `CLAUDE.md`, violating the manifest contract (`.claude/project.json` owns commands; `CLAUDE.md` never restates them). `/onboard` is the harness's equivalent and supersedes it.
+> **Don't run Claude Code's native `/init` in a guv-governed repo.** `/init` inlines commands into `CLAUDE.md`, violating the manifest contract (`.claude/project.json` owns commands; `CLAUDE.md` never restates them). `/onboard` is guv's equivalent and supersedes it.
 
 Review the generated files, adjust anything that needs it, then commit and start building.
 
@@ -178,7 +196,7 @@ Review the generated files, adjust anything that needs it, then commit and start
 **Manual alternative** — render the template by hand:
 
 - **Copy** `CLAUDE.template.md` to `CLAUDE.md` (leave the template in place — it's the reusable source), then in the copy fill the project identity and the "Project facts Claude can't infer" section (for greenfield, keep "Bootstrapping") and strip the leading `<!-- TEMPLATE … -->` comment. Leave the manifest pointers as-is (rules load natively from `.claude/rules/`).
-- **Copy** `README.template.md` to `README.md` (overwriting this harness README), fill the `[bracketed]` placeholders, keep the `<!-- STATUS:START/END -->` markers, and strip the `<!-- TEMPLATE … -->` comment.
+- **Copy** `README.template.md` to `README.md` (overwriting this guv README), fill the `[bracketed]` placeholders, keep the `<!-- STATUS:START/END -->` markers, and strip the `<!-- TEMPLATE … -->` comment.
 - Edit `.claude/project.json` to declare your stack, commands, `roots`, `guards`, and `ceremony`.
 - For phased projects, define `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_STATUS.md`.
 
@@ -245,7 +263,7 @@ code .
 ├── .claude/
 │   ├── project.json                   # MANIFEST — single source of truth (stack/commands/roots/ceremony)
 │   ├── project.schema.json            # Manifest schema (validation + self-docs)
-│   ├── rules/                         # Behavioral core (guv-*.md harness-owned; unprefixed = yours)
+│   ├── rules/                         # Behavioral core (guv-*.md core-owned; unprefixed = yours)
 │   ├── resolve-stack.sh               # Detect-to-propose stack manifest (onboard/init)
 │   ├── resolve-ready.sh               # Deterministic ready-frontier resolver (DAG tracker)
 │   ├── render-status.sh               # Renders status.json as one self-contained status.html (a view, never a source)
@@ -274,7 +292,7 @@ code .
 │   │   ├── onboard/                    # /onboard — adopt an existing repo (no phase ceremony)
 │   │   ├── replan/                     # /replan — plan mutation: the one sanctioned door (engine: replan.sh)
 │   │   ├── eval/                       # /eval — dual QA review
-│   │   ├── feedback/                   # /feedback — record harness friction
+│   │   ├── feedback/                   # /feedback — record guv friction
 │   │   ├── handoff/                    # /handoff — session end + dual QA + handoff
 │   │   ├── status/                     # /status — quick status check
 │   │   ├── manual/                     # /manual — out-of-sandbox task artifacts
@@ -282,10 +300,10 @@ code .
 │   │   └── session-management/         # Context continuity conventions
 │   ├── workflows/
 │   │   └── eval-parallel.js       # /eval-parallel — both reviewers, concurrent
-│   ├── tests/                         # Bash test suites for the harness scripts/skills
-│   └── feedback/                      # Harness-friction log (created on first /feedback)
-├── maintainers/                       # Maintainer-only — developing the harness (consumers can delete)
-│   ├── DOGFOODING.md                  # How to dogfood the harness via a control-plane split
+│   ├── tests/                         # Bash test suites for the guv scripts/skills
+│   └── feedback/                      # guv-friction log (created on first /feedback)
+├── maintainers/                       # Maintainer-only — developing guv (consumers can delete)
+│   ├── DOGFOODING.md                  # How to dogfood guv via a control-plane split
 │   ├── RELEASING.md                   # Release flow: bump policy, checklist, feedback drain
 │   ├── setup-control-plane.sh         # Scaffold/sync a dogfooding control plane (also the
 │   │                                  #   template-clone fallback's --sync update path)
@@ -387,5 +405,5 @@ bash tests/run-plugin-tests.sh
 The runner rebuilds a `.claude/`-shaped tree from the flattened `scripts/`
 (scripts at the top level, hooks recovered into `hooks/` from `hooks.json`, the
 shipped suites in `tests/`) and runs every shipped suite against it. A green run
-means the location-relative harness suites resolve and pass in plugin layout; a
+means the location-relative guv suites resolve and pass in plugin layout; a
 suite that cannot find its script turns the run red and names the offender.

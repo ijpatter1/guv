@@ -1,6 +1,6 @@
 # Maintainer CI for the TEMPLATE repo only — two checks:
 #   template-clean  — no project-shell artifacts tracked (maintainers/check-template-clean.sh)
-#   harness-tests   — all bash suites in .claude/tests/
+#   core-tests   — all bash suites in .claude/tests/
 #
 # Both jobs are pinned to the canonical template repo, so this workflow is inert
 # (skipped, not red) in forks and "Use this template" copies. Consumers can also
@@ -28,7 +28,7 @@ jobs:
       - name: Template carries no project-shell artifacts
         run: bash maintainers/check-template-clean.sh
 
-  harness-tests:
+  core-tests:
     if: github.repository == 'ijpatter1/guv'
     runs-on: ubuntu-latest
     steps:

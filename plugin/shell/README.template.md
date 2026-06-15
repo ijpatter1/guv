@@ -4,10 +4,10 @@
     /init-project — greenfield: render this whole file, filling placeholders.
     /onboard      — existing repo: do NOT clobber an existing README. If one
                     exists, only inject/update the STATUS block (and optionally a
-                    one-line "developed with this harness" note). Render this in
+                    one-line "developed with guv" note). Render this in
                     full only when the repo has no README at all.
 
-  This describes the PROJECT, not the harness. When rendering:
+  This describes the PROJECT, not guv. When rendering:
     1. Fill every [bracketed] placeholder.
     2. Keep the STATUS:START / STATUS:END marker lines verbatim — the handoff
        command (/handoff, or /guv:handoff under the plugin) regenerates the
@@ -53,7 +53,7 @@ control plane.]
 
 ## Contributing
 
-[Optional — trim for a public artifact.] Developed with the Claude Code harness in
+[Optional — trim for a public artifact.] Developed with guv in
 `.claude/`: start a session with `/phase`, make scoped changes with `/task`, end
-with `/handoff` — each namespaced `/guv:<name>` when the harness is installed as the
+with `/handoff` — each namespaced `/guv:<name>` when guv is installed as the
 guv plugin. Conventions live in `CLAUDE.md` and `.claude/rules/`.

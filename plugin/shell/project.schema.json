@@ -62,7 +62,7 @@
     },
     "commands": {
       "type": "object",
-      "description": "Project commands. Any value may be null, meaning 'this project has no such step.' Consumers MUST skip cleanly on null — never error, never substitute a default. All commands run with cwd = the control plane (the dir holding .claude/), NOT roots.code. In a split project (roots.code != '.') a command that calls code-repo-relative paths must cd into or resolve roots.code itself — it is not invoked from there (UAT-F1: a hand-written 'bash ../code/run_tests.sh' fails to import the package because cwd is the plane). The harness's own run-core-tests.sh reads roots.code and invokes each suite by its roots.code-prefixed path; a hand-written commands.test must likewise resolve roots.code rather than assume cwd.",
+      "description": "Project commands. Any value may be null, meaning 'this project has no such step.' Consumers MUST skip cleanly on null — never error, never substitute a default. All commands run with cwd = the control plane (the dir holding .claude/), NOT roots.code. In a split project (roots.code != '.') a command that calls code-repo-relative paths must cd into or resolve roots.code itself — it is not invoked from there (UAT-F1: a hand-written 'bash ../code/run_tests.sh' fails to import the package because cwd is the plane). guv's own run-core-tests.sh reads roots.code and invokes each suite by its roots.code-prefixed path; a hand-written commands.test must likewise resolve roots.code rather than assume cwd.",
       "additionalProperties": false,
       "properties": {
         "test": {

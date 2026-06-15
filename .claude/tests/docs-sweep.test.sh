@@ -238,6 +238,12 @@ maintainers/DOGFOODING.md
 .claude/hooks/stop-check.sh
 .claude/tests/meter.test.sh
 .claude/tests/stop-check.test.sh
+README.template.md
+CLAUDE.template.md
+.claude/project.schema.json
+.gitignore
+.github/workflows/template-clean.yml
+maintainers/plugin-src/plugin.json
 "
 for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"
@@ -249,6 +255,39 @@ for rel in $SWEPT_HARNESS_FREE; do
     ok "vocabulary: $rel free of 'harness'"
   fi
 done
+
+# T10 — whole-tree backstop ([8.3] stage 5). "harness" is retired everywhere; the
+# only permitted occurrences are this guard itself (the grep pattern above),
+# CHANGELOG.md (release history), and the README's two Anthropic-citation lines
+# (an external article title + URL). Anything else is a sweep miss or a regression.
+BACKSTOP=$(cd "$ROOT" && git grep -Il -i harness -- ':!plugin/' ':!.claude/tests/docs-sweep.test.sh' ':!CHANGELOG.md' ':!README.md' 2>/dev/null)
+if [ -z "$BACKSTOP" ]; then
+  ok "whole-tree backstop: no retired 'harness' outside the allowlist"
+else
+  no "retired 'harness' survives in: $(echo "$BACKSTOP" | tr '\n' ' ')"
+fi
+# README.md: 'harness' permitted ONLY on the Anthropic-citation lines.
+README_BAD=$(grep -in harness "$ROOT/README.md" 2>/dev/null | grep -vi anthropic)
+if [ -z "$README_BAD" ]; then
+  ok "README 'harness' confined to the Anthropic citations"
+else
+  no "non-citation 'harness' in README.md: $README_BAD"
+fi
+# plugin/ is generated from swept source, so it must be fully harness-free.
+PLUGIN_BAD=$(cd "$ROOT" && git grep -Il -i harness -- 'plugin/' 2>/dev/null)
+if [ -z "$PLUGIN_BAD" ]; then
+  ok "plugin/ is fully harness-free"
+else
+  no "harness shipped in plugin/: $(echo "$PLUGIN_BAD" | tr '\n' ' ')"
+fi
+# Appendix B (the ratified §1 Vocabulary) is placed verbatim in the README.
+if grep -q '^## Vocabulary' "$ROOT/README.md" \
+   && grep -q 'guv is a control plane for Claude Code' "$ROOT/README.md" \
+   && grep -q 'Sync replaces the core' "$ROOT/README.md"; then
+  ok "README carries the ratified Vocabulary block (Appendix B placed)"
+else
+  no "README must carry the ## Vocabulary block (Appendix B)"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
