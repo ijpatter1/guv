@@ -50,12 +50,12 @@
       "properties": {
         "control": {
           "type": "string",
-          "description": "Control-plane root (where Claude Code launches). Docs and session artifacts live under ${control}/docs. Usually '.'.",
+          "description": "Control-plane root (where Claude Code launches). Docs and session artifacts live under ${control}/docs. '.' in single-repo (the current scaffold default); the control-plane directory in a split.",
           "minLength": 1
         },
         "code": {
           "type": "string",
-          "description": "Code repo root, relative to cwd. Code writes target ${code}/…; code-repo git runs as `git -C ${code}`. Equals '.' for single-repo.",
+          "description": "Code repo root, relative to cwd. Code writes target ${code}/…; code-repo git runs as `git -C ${code}`. '.' in single-repo; a relative path to the sibling product repo in a split.",
           "minLength": 1
         }
       }
