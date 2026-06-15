@@ -56,6 +56,10 @@ make_fixture() {  # echoes the project dir
 
 - ✅ **[10.1]** Human-gated marker `[deps: none]`
 - ⬜ **[10.9]** Build fan-out `[deps: 10.1]`
+
+## Phase 11 — Lanes
+
+- ✅ **[11.7]** A deliverable that LANDED via a lane merge `[deps: none]`
 MD
 
   # The raw metering log — RAW EVIDENCE, exactly the meter.sh shape. Sums below
@@ -80,6 +84,7 @@ MD
     git init -q
     git config user.email t@t; git config user.name t
     git config commit.gpgsign false
+    INTEG=""
     # 9.1: two commits, 2h apart. footprint: file a (3 lines), file b (1 line).
     printf 'l1\nl2\nl3\n' > a.txt
     git add a.txt
@@ -110,6 +115,30 @@ MD
     git add leak.txt
     GIT_AUTHOR_DATE='2026-06-14T09:00:00 +0000' GIT_COMMITTER_DATE='2026-06-14T09:00:00 +0000' \
       git commit -q -m 'fix([8.3]): replan addendum' -m 'Follows up the work in [9.1]; see that lane for context.'
+    # 11.7: a deliverable that LANDED via a real lane MERGE COMMIT. lane_lifetime_s
+    # must derive from the LANE-BOUNDARY signal git records — the first lane commit
+    # → the merge that landed the lane — NOT from cycle time. We build it so the
+    # two LEGITIMATELY DIFFER:
+    #   - two work commits 1h apart (06-15T09:00 → 10:00) → cycle_time_s == 3600
+    #   - the lane MERGE lands 2h AFTER the last work commit (06-15T12:00), so
+    #     lane_lifetime_s = merge − first work commit = 09:00→12:00 = 10800 ≠ 3600.
+    # A lane_lifetime_s that secretly carried cycle time would read 3600 here; an
+    # honest lane-boundary derivation reads 10800. The work-commit metrics
+    # (commits/cycle/footprint) must EXCLUDE the merge commit (it is the boundary,
+    # not the work): commits == 2, not 3.
+    INTEG=$(git rev-parse --abbrev-ref HEAD)   # the integration branch (main/master)
+    git checkout -q -b lane/11.7-merged-lane
+    printf 'm1\nm2\n' > m.txt
+    git add m.txt
+    GIT_AUTHOR_DATE='2026-06-15T09:00:00 +0000' GIT_COMMITTER_DATE='2026-06-15T09:00:00 +0000' \
+      git commit -q -m 'feat([11.7]): begin the merged lane'
+    printf 'n1\n' > n.txt
+    git add n.txt
+    GIT_AUTHOR_DATE='2026-06-15T10:00:00 +0000' GIT_COMMITTER_DATE='2026-06-15T10:00:00 +0000' \
+      git commit -q -m 'feat([11.7]): finish the merged lane'
+    git checkout -q "$INTEG"
+    GIT_AUTHOR_DATE='2026-06-15T12:00:00 +0000' GIT_COMMITTER_DATE='2026-06-15T12:00:00 +0000' \
+      git merge --no-ff -q -m 'Merge lane/11.7-merged-lane: land [11.7]' lane/11.7-merged-lane
   ) >/dev/null 2>&1
   echo "$p"
 }
@@ -251,14 +280,49 @@ jq -e '.perf.by_phase["9"].wall_clock_s == 82800' "$OUT" >/dev/null 2>&1 \
   && ok "perf.by_phase[9].wall_clock_s == 82800 (23h across 9.1→9.5, joined via resolver map)" \
   || no "phase-9 wall-clock wrong: $(jq -c '.perf.by_phase["9"].wall_clock_s' "$OUT")"
 
-# ─── T9 — PERF: lane lifetime field is present and git-derived ───────────────
-# Lane lifetime = the span a deliverable's lane branch was live. With no merge
-# data in this single-branch fixture it degrades to the commit span (== cycle
-# time) — but the FIELD must exist and be a number/null, never absent or agent-set.
+# ─── T9 — PERF: lane lifetime is a GENUINE, INDEPENDENT lane-boundary signal ─
+# lane_lifetime_s = the span the deliverable's LANE was live: first lane commit →
+# the MERGE commit that landed the lane (the lane-boundary signal git records).
+# It is NOT a cycle_time_s alias and NOT a silent degradation to it. Where no
+# landing merge exists in history, the honest value is null (absence), never the
+# cycle-time value dressed up as a fallback. The FIELD is always present and
+# number-or-null, never absent or agent-set.
 jq -e '.perf.by_deliverable["9.1"] | has("lane_lifetime_s")' "$OUT" >/dev/null 2>&1 \
   && jq -e '.perf.by_deliverable["9.1"].lane_lifetime_s | (type == "number" or . == null)' "$OUT" >/dev/null 2>&1 \
   && ok "perf.by_deliverable[9.1].lane_lifetime_s present, number-or-null (git-derived)" \
   || no "lane_lifetime_s must be present and number-or-null: $(jq -c '.perf.by_deliverable["9.1"].lane_lifetime_s' "$OUT")"
+
+# T9a — THE ANTI-ALIAS INVARIANT (the heart of this re-gate). 11.7 landed via a
+# real --no-ff lane merge: its lane was live 09:00→12:00 (merge) = 10800s, while
+# its work commits span only 09:00→10:00 = 3600s. An honest lane-boundary
+# derivation reads 10800; a `lane=$cycle` alias reads 3600. So lane_lifetime_s
+# and cycle_time_s must LEGITIMATELY DIFFER for 11.7 — they are NOT the same field.
+jq -e '.perf.by_deliverable["11.7"].cycle_time_s == 3600' "$OUT" >/dev/null 2>&1 \
+  && ok "perf.by_deliverable[11.7].cycle_time_s == 3600 (work commits 09:00→10:00, merge excluded)" \
+  || no "11.7 cycle time wrong: $(jq -c '.perf.by_deliverable["11.7"].cycle_time_s' "$OUT") (expected 3600)"
+jq -e '.perf.by_deliverable["11.7"].lane_lifetime_s == 10800' "$OUT" >/dev/null 2>&1 \
+  && ok "perf.by_deliverable[11.7].lane_lifetime_s == 10800 (first lane commit → landing MERGE, git-derived)" \
+  || no "11.7 lane lifetime is not the merge-boundary span: $(jq -c '.perf.by_deliverable["11.7"].lane_lifetime_s' "$OUT") (expected 10800; 3600 would mean it is a cycle_time_s alias)"
+jq -e '.perf.by_deliverable["11.7"].lane_lifetime_s != .perf.by_deliverable["11.7"].cycle_time_s' "$OUT" >/dev/null 2>&1 \
+  && ok "anti-alias: 11.7 lane_lifetime_s (10800) ≠ cycle_time_s (3600) — a distinct, git-derived signal" \
+  || no "11.7 lane_lifetime_s is aliased to cycle_time_s (both $(jq -c '.perf.by_deliverable["11.7"].cycle_time_s' "$OUT")) — the [9.5] re-gate defect"
+# The landing MERGE is the lane BOUNDARY, not work: it must NOT inflate the
+# work-commit metrics. 11.7 has TWO work commits; the merge is the third commit
+# carrying [11.7] in its subject but must be excluded from commits/cycle.
+jq -e '.perf.by_deliverable["11.7"].commits == 2' "$OUT" >/dev/null 2>&1 \
+  && ok "perf.by_deliverable[11.7].commits == 2 (the landing merge is the boundary, not a work commit)" \
+  || no "11.7 commits counted the landing merge: $(jq -c '.perf.by_deliverable["11.7"].commits' "$OUT") (expected 2)"
+
+# T9b — HONEST ABSENCE, NOT AN ALIAS. The single-branch deliverables (9.1, 9.5,
+# 10.1) never landed via a merge commit — there is NO lane-boundary signal for
+# them. The honest value is null (absence), NOT a copy of their cycle time. 9.1's
+# cycle time is 7200; if lane_lifetime_s read 7200 it would be the alias defect.
+jq -e '.perf.by_deliverable["9.1"].lane_lifetime_s == null' "$OUT" >/dev/null 2>&1 \
+  && ok "9.1 lane_lifetime_s is null — no landing merge ⇒ honest absence, not a cycle_time_s (7200) alias" \
+  || no "9.1 lane_lifetime_s should be null (no merge boundary), got $(jq -c '.perf.by_deliverable["9.1"].lane_lifetime_s' "$OUT"); 7200 would be the cycle-time alias defect"
+jq -e '.perf.by_deliverable["9.5"].lane_lifetime_s == null' "$OUT" >/dev/null 2>&1 \
+  && ok "9.5 lane_lifetime_s is null — no landing merge (single commit), honest absence" \
+  || no "9.5 lane_lifetime_s should be null, got $(jq -c '.perf.by_deliverable["9.5"].lane_lifetime_s' "$OUT")"
 
 # ─── T10 — NO INSTRUMENTATION: derive, don't instrument (grep-asserted) ──────
 # The emitter must read git history; it must NOT add any timer/instrument/probe

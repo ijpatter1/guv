@@ -23,7 +23,9 @@
 #          there is no timer, no probe, no instrument hook, and NO CLI flag that
 #          injects a metric. Every number comes from `git log` over existing
 #          history, retroactively — cycle time, footprint, commits-per-
-#          deliverable, lane lifetime (by-deliverable), and phase wall-clock
+#          deliverable, lane lifetime (by-deliverable; the first lane commit → the
+#          landing-MERGE author date, a genuine lane-boundary signal, NULL when the
+#          lane fast-forwarded — never a cycle-time alias), and phase wall-clock
 #          (by-phase). A deliverable's commits are those whose SUBJECT carries
 #          its bracketed [N.M] ID — the convention git already records.
 #          Attribution is subject-scoped, NOT full-message: a commit that only
@@ -216,10 +218,14 @@ COST_ROLLUP=$(jq -cn \
 # brackets stay literal, so [9.1] never matches [9.15]), then a post-filter on
 # the subject field (%s) drops any commit that only carries [N.M] in its BODY.
 # So a body cross-reference to another lane never leaks into the metrics.
-# cycle time = last author date − first; footprint
-# = distinct files touched + insertions, from --numstat; commits = count; lane
-# lifetime = the commit span (degrades to cycle time without merge metadata).
-# The phase wall-clock joins git with the deliverable→phase map: a phase's span
+# cycle time = last author date − first work commit; footprint
+# = distinct files touched + insertions, from --numstat; commits = count of WORK
+# commits (--no-merges). lane lifetime = first work commit → the author date of
+# the MERGE that LANDED the lane (the lane-boundary signal git records), via
+# lane_merge_epoch(); it is a GENUINE, INDEPENDENT signal — distinct from cycle
+# time — and is NULL (honest absence) when the lane fast-forwarded with no merge,
+# NEVER a cycle_time alias. The phase wall-clock joins git with the
+# deliverable→phase map: a phase's span
 # is min→max author date across the commits of ALL its member deliverables —
 # membership comes from the map, never from re-splitting the ID.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -237,18 +243,37 @@ IDS=$(jq -rn \
 HAVE_GIT=0
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 && HAVE_GIT=1
 
-# subject_commits <id> — the commit hashes whose SUBJECT literally carries the
-# bracketed [id]. Attribution is SUBJECT-scoped, NOT full-message: `git log
+# subject_commits <id> — the WORK commit hashes whose SUBJECT literally carries
+# the bracketed [id]. Attribution is SUBJECT-scoped, NOT full-message: `git log
 # --grep` matches the entire message (subject + body), so a commit that merely
 # MENTIONS [id] in its body prose — a cross-reference to another lane — would be
 # miscredited. We narrow with --grep (a cheap superset), then post-filter each
 # candidate on its subject field (%s) with a literal grep -F, so a body-only
 # mention never counts. -F keeps the brackets literal: [9.1] never matches
-# [9.15]. Emits one hash per line (empty when none), newest-first.
+# [9.15]. --no-merges drops the landing MERGE commit: that commit is the lane
+# BOUNDARY (consumed by lane_merge_epoch below for lane_lifetime_s), not work —
+# counting it would inflate commits/cycle_time/footprint with the merge. Emits
+# one hash per line (empty when none), newest-first.
 subject_commits() {
   local sid="$1"
-  git log --grep="[$sid]" -F --pretty=$'%H\t%s' 2>/dev/null \
+  git log --no-merges --grep="[$sid]" -F --pretty=$'%H\t%s' 2>/dev/null \
     | awk -F'\t' -v id="[$sid]" 'index($2, id) { print $1 }'
+}
+
+# lane_merge_epoch <id> — the author epoch of the MERGE commit that LANDED this
+# deliverable's lane, or empty if none. This is the genuine lane-BOUNDARY signal
+# git records: a lane lands as a --min-parents=2 merge whose SUBJECT names the
+# lane (`Merge lane/<id>-…: land [id]`) or otherwise carries [id]. Subject-scoped
+# exactly like subject_commits (a body cross-reference never counts), and merges-
+# only (--min-parents=2), so it is DISJOINT from the work-commit set above: the
+# merge boundary and the work commits are different commits. When a deliverable's
+# lane fast-forwarded (the merge-queue's default land path) there is NO merge
+# commit — this emits empty, and lane_lifetime_s is an HONEST null, never a
+# cycle_time_s alias. Newest merge wins if a lane somehow landed twice.
+lane_merge_epoch() {
+  local sid="$1"
+  git log --min-parents=2 --grep="[$sid]" -F --pretty=$'%H\t%at\t%s' 2>/dev/null \
+    | awk -F'\t' -v id="[$sid]" 'index($3, id) { print $2; exit }'
 }
 
 # Build perf.by_deliverable as a jq object, assembling one id at a time. For
@@ -267,7 +292,14 @@ for id in $IDS; do
       mn=$(printf '%s\n' "$epochs" | sort -n | head -1)
       mx=$(printf '%s\n' "$epochs" | sort -n | tail -1)
       cycle=$((mx - mn))
-      lane="$cycle"   # commit span — degrades to cycle time absent merge data
+      # lane lifetime: first WORK commit → the MERGE that LANDED the lane (the
+      # lane-boundary signal git records). A genuine, INDEPENDENT signal — NOT a
+      # cycle_time alias. When the lane fast-forwarded (no merge commit) there is
+      # no boundary signal: emit null (honest absence), never the cycle value.
+      merge_at=$(lane_merge_epoch "$id")
+      if [ -n "$merge_at" ]; then
+        lane=$((merge_at - mn))
+      fi
       # footprint: distinct files touched + total insertions, from --numstat over
       # the SAME subject-scoped hash set. --numstat lines are
       # "added<TAB>deleted<TAB>path"; binary files show "-".
