@@ -359,7 +359,22 @@ case "$SUB" in
         '[ .[] | select((.schema // "") | startswith("guv.meter"))
                | select($since == "" or (.ts // "") >= $since)
                | .session ] | unique | length' "$LOG" 2>/dev/null)
-      OBS=$(observed_rate); ACTUAL_RATE="${OBS##*	}"
+      # actual per-session burn, bounded the SAME way as actual_sessions: the mean
+      # total token burn over POST-BANK sessions only. The forecast's envelope was
+      # set against the work it COVERS (remaining work from bank time forward), so
+      # the rate comparison is like-for-like only over post-bank burn — pre-bank
+      # sessions were spent on already-done work and were never in scope. We do NOT
+      # touch observed_rate() (the live projection blend reads the full history); we
+      # bound the GRADE's comparison alone. An empty BANK_TS degrades to whole-log,
+      # matching the actual_sessions bound. (Same burn definition as observed_rate:
+      # the four token classes summed; only harvested-token entries are samples.)
+      ACTUAL_RATE=$(jq -rs --arg since "$BANK_TS" '
+        [ .[] | select((.schema // "") | startswith("guv.meter"))
+              | select($since == "" or (.ts // "") >= $since)
+              | (.tokens // null) | select(. != null)
+              | ((.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0)) ] as $b
+        | ($b | length) as $n
+        | if $n == 0 then 0 else ($b | add) / $n | floor end' "$LOG" 2>/dev/null)
     else
       ACTUAL_SESSIONS=0; ACTUAL_RATE=0
     fi

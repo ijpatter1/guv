@@ -433,6 +433,44 @@ echo "$PBGRADE" | jq -e '.quantity_error.actual_sessions == 1' >/dev/null 2>&1 \
   || no "actual_sessions must be bounded to post-bank sessions (got: $(echo "$PBGRADE" | jq -c '.quantity_error'))"
 
 # ════════════════════════════════════════════════════════════════════════════
+# T_POSTBANK_RATE — rate_error's actual tokens/session is post-bank-bounded too
+# ════════════════════════════════════════════════════════════════════════════
+# The rate layer is the symmetric analog of T_POSTBANK's quantity bound: a
+# forecast's envelope was set against the burn of the work it COVERS (remaining
+# work from bank time forward), so the grade must compare it against the actual
+# per-session burn over POST-BANK sessions only. Pre-bank sessions were spent on
+# already-done work at whatever rate then prevailed and were never in the
+# forecast's scope — folding them into actual_tokens_per_session mixes two
+# regimes and misstates the rate miss. observed_rate() (the LIVE projection
+# blend) legitimately reads the whole log; only the GRADE's comparison is bounded.
+# Here: pre-bank sessions burn LOW and post-bank sessions burn HIGH, at distinct
+# rates, so a whole-log mean and a post-bank mean are unambiguously different —
+# the grade must report the post-bank burn, not the whole-log average.
+PBR=$(mk_instance)
+bash "$PBR/.claude/estimate.sh" set 9.7 2 "$PBR/docs/estimates.json" >/dev/null 2>&1
+PBR_CALIB="$PBR/.claude/metering/calibration.ndjson"
+PBR_BANK_TS="2026-06-10T00:00:00Z"
+jq -cn --arg ts "$PBR_BANK_TS" \
+  '{kind:"forecast", banked_at:$ts, schema:"guv.projection.v1", generated:$ts,
+    range:{low_tokens:20000, high_tokens:300000, denomination:"tokens"},
+    basis:{claim:"structural", n:0, observed_weight:0, observed_mean_tokens_per_session:0},
+    scope:{claim:"guv-mediated cost to complete (remaining work, not total)"},
+    spine:{quantity:{remaining_sessions:2, default_estimate_ids:[]},
+           unit_rate:{floor_tokens:10000, ceiling_tokens:150000, blended_tokens:10000}}}' \
+  > "$PBR_CALIB"
+# TWO sessions BEFORE the bank at a LOW burn (3000 tokens each, already-spent)…
+add_landing_at "$PBR" 9.1 3000 "session-2026-06-05-001" "2026-06-05T00:00:00Z"
+add_landing_at "$PBR" 9.1 3000 "session-2026-06-08-001" "2026-06-08T00:00:00Z"
+# …and ONE session AFTER the bank at a HIGH burn (90000 tokens, the in-scope work).
+add_landing_at "$PBR" 9.7 90000 "session-2026-06-12-001" "2026-06-12T00:00:00Z"
+PBRGRADE=$( cd "$PBR" && bash .claude/projection.sh grade 2>/dev/null )
+# Whole-log mean = (3000+3000+90000)/3 = 32000; post-bank mean = 90000.
+# The bound must report the post-bank burn (90000), not the whole-log average (32000).
+echo "$PBRGRADE" | jq -e '.rate_error.actual_tokens_per_session == 90000' >/dev/null 2>&1 \
+  && ok "POST-BANK: rate_error actual tokens/session counts only POST-BANK burn (90000, not the whole-log 32000)" \
+  || no "rate_error.actual_tokens_per_session must be bounded to post-bank sessions (got: $(echo "$PBRGRADE" | jq -c '.rate_error'))"
+
+# ════════════════════════════════════════════════════════════════════════════
 # T7 — DEPS-AMEND FOLLOWS BY RECOMPUTATION: change remaining work, projection reflects it
 # ════════════════════════════════════════════════════════════════════════════
 # A /replan-style change to remaining work (here: a deps-amend that adds a new

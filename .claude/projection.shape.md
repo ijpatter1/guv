@@ -122,7 +122,12 @@ close, **grading** compares the banked forecast against the outcome and emits
   time forward, so the actual count is bounded to post-bank sessions to keep the
   comparison like-for-like).
 - **rate error** — `envelope_tokens` (the forecast's floor) vs
-  `actual_tokens_per_session` (the observed mean).
+  `actual_tokens_per_session` (the mean per-session burn over the **post-bank**
+  sessions — the same like-for-like bound as the quantity layer: the envelope was
+  set against the work the forecast covers, so the rate is compared only against
+  post-bank burn). The grade's bound is symmetric with `actual_sessions`; only the
+  GRADE comparison is bounded — the live projection blend reads the full observed
+  history.
 
 The grade is banked back (`kind:"grade"`) so the **local** calibration record
 learns from the close.
