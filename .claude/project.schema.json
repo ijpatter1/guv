@@ -77,7 +77,7 @@
                   },
                   "commands": {
                     "type": "object",
-                    "description": "Per-repo command overrides. Any field absent here falls back to the top-level commands (the primary's defaults), so single-repo manifests are byte-identical. Same null-means-skip semantics as the top-level commands.",
+                    "description": "Per-repo command overrides. Any field absent here falls back to the top-level commands (the primary's defaults), so single-repo manifests are byte-identical. Same null-means-skip semantics as the top-level commands. Forward-declared as part of the [11.2] named-map contract: the consumer — guv-cmd.sh's per-repo selector (cmd <name> [<repo>]) — lands in [11.3], so this field validates but has no reader until then.",
                     "additionalProperties": false,
                     "properties": {
                       "test":    { "type": ["string", "null"] },
