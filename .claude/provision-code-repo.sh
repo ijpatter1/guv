@@ -42,7 +42,7 @@ done
 
 [ -d "$DEST" ] || { echo "provision: no directory at '$DEST'" >&2; exit 4; }
 
-did=()
+did=(); wrote=()
 
 # ── manifest: DEPLOY-ONCE (never clobber an existing one) ──
 MANIFEST="$DEST/.claude/project.json"
@@ -60,6 +60,7 @@ else
     formatExtensions: [], guards: [], ceremony: "task"
   }' > "$MANIFEST"
   did+=("manifest .claude/project.json (ceremony=task)")
+  wrote+=(".claude/project.json")
   [ -n "$TEST_CMD" ] || echo "provision: NOTE commands.test is null — set it (or re-run with --test '<cmd>') so 'guv-cmd test' runs the repo's tests"
 fi
 
@@ -81,11 +82,27 @@ gi_block() {
 if [ ! -f "$GI" ]; then
   gi_block > "$GI"
   did+=(".gitignore (guv-core block)")
+  wrote+=(".gitignore")
 elif ! grep -qe "$GI_MARKER" -e "$GI_MARKER_LEGACY" "$GI"; then
   { printf '\n'; gi_block; } >> "$GI"
   did+=(".gitignore (guv-core block appended)")
+  wrote+=(".gitignore")
 else
   echo "provision: .gitignore already carries the guv-core block — kept (no duplicate)"
+fi
+
+# Commit the provisioning so lane worktrees (checkouts of HEAD) inherit it: an
+# untracked manifest satisfies a working-tree check but is ABSENT from every new
+# worktree, so a lane builder can't route work there (caught in the [10.10] e2e).
+# Commit ONLY what provision wrote — never the consumer's other work; own git identity
+# so it works in a repo with no user.* config; no-op when nothing was written.
+if [ ${#wrote[@]} -gt 0 ] && git -C "$DEST" rev-parse --git-dir >/dev/null 2>&1; then
+  git -C "$DEST" add -- "${wrote[@]}" 2>/dev/null
+  if ! git -C "$DEST" diff --cached --quiet 2>/dev/null; then
+    git -C "$DEST" -c user.email=guv@local -c user.name=guv \
+      commit -qm "chore: provision as a guv lane target ([10.10])" 2>/dev/null \
+      && echo "provision: committed the guv-core (lane worktrees inherit it)"
+  fi
 fi
 
 [ ${#did[@]} -gt 0 ] && printf 'provision: wrote %s\n' "${did[@]}"

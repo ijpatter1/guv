@@ -86,6 +86,18 @@ else
   echo "  - canonical gitignore template absent ($TMPL) — drift guard skips (plugin/fork shape)"
 fi
 
+# T7 — the provisioned core is COMMITTED, so a lane worktree (a checkout of HEAD)
+# inherits it. An untracked manifest passes a working-tree check but is ABSENT from
+# every new worktree — a lane builder then can't route work there (the [10.10] e2e bug).
+git -C "$R2" ls-files --error-unmatch .claude/project.json >/dev/null 2>&1 \
+  && ok "provisioned manifest is committed (tracked)" \
+  || no "manifest must be committed so worktrees inherit it"
+git -C "$R2" worktree add -q "$WORK/wt" HEAD 2>/dev/null
+{ [ -f "$WORK/wt/.claude/project.json" ] && [ -f "$WORK/wt/.gitignore" ]; } \
+  && ok "a worktree of the provisioned repo carries the guv-core (lane builders can route)" \
+  || no "worktree must inherit the provisioned guv-core"
+git -C "$R2" worktree remove --force "$WORK/wt" 2>/dev/null
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

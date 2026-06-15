@@ -63,8 +63,11 @@ case "$VERB" in
     # The code repo must be a provisioned guv lane target before a lane is created:
     # without a manifest a lane builder cannot route its scoped work in the worktree
     # ([10.10]). Loud-stop, never auto-provision — the setup step stays explicit (Rule 15).
-    [ -f "$CODE/.claude/project.json" ] \
-      || die4 "code repo at roots.code ($CODE) is not a provisioned guv lane target (no .claude/project.json) — run: bash .claude/provision-code-repo.sh \"$CODE\""
+    # Check the manifest is TRACKED (not merely present): a worktree is a checkout of
+    # HEAD, so an untracked manifest is absent from every lane — the invariant is
+    # "committed", which provision-code-repo.sh guarantees.
+    git -C "$CODE" ls-files --error-unmatch .claude/project.json >/dev/null 2>&1 \
+      || die4 "code repo at roots.code ($CODE) is not a provisioned guv lane target (no committed .claude/project.json) — run: bash .claude/provision-code-repo.sh \"$CODE\""
     BR="lane/$ID-$SLUG"
     [ -e "$CODE/$WT" ] && die6 "lane $ID already exists at $WT"
     git -C "$CODE" show-ref --verify --quiet "refs/heads/$BR" \
