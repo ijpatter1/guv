@@ -24,8 +24,12 @@
 #          injects a metric. Every number comes from `git log` over existing
 #          history, retroactively — cycle time, footprint, commits-per-
 #          deliverable, lane lifetime (by-deliverable), and phase wall-clock
-#          (by-phase). A deliverable's commits are those whose subject carries
+#          (by-phase). A deliverable's commits are those whose SUBJECT carries
 #          its bracketed [N.M] ID — the convention git already records.
+#          Attribution is subject-scoped, NOT full-message: a commit that only
+#          MENTIONS another deliverable's [N.M] in its body prose (a lane
+#          cross-reference) is NEVER credited to that deliverable. See
+#          subject_commits() below for the mechanism.
 #
 # The deliverable→phase map comes from the resolver (resolve-ready.sh --json),
 # NOT from re-splitting the ID string: the emitter knows which phase a
@@ -207,9 +211,12 @@ COST_ROLLUP=$(jq -cn \
 # ─────────────────────────────────────────────────────────────────────────────
 # PERF — DERIVE, DON'T INSTRUMENT. Every field below comes from `git log` over
 # existing history; nothing is measured live, nothing is agent-supplied. A
-# deliverable's commits are those whose subject carries its bracketed [N.M] ID
-# (git log --grep '[N.M]' -F — fixed-string, so the brackets are literal and
-# [9.1] never matches [9.15]). cycle time = last author date − first; footprint
+# deliverable's commits are those whose SUBJECT carries its bracketed [N.M] ID,
+# resolved by subject_commits() — `git log --grep '[N.M]' -F` narrows (the
+# brackets stay literal, so [9.1] never matches [9.15]), then a post-filter on
+# the subject field (%s) drops any commit that only carries [N.M] in its BODY.
+# So a body cross-reference to another lane never leaks into the metrics.
+# cycle time = last author date − first; footprint
 # = distinct files touched + insertions, from --numstat; commits = count; lane
 # lifetime = the commit span (degrades to cycle time without merge metadata).
 # The phase wall-clock joins git with the deliverable→phase map: a phase's span
@@ -230,23 +237,41 @@ IDS=$(jq -rn \
 HAVE_GIT=0
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 && HAVE_GIT=1
 
+# subject_commits <id> — the commit hashes whose SUBJECT literally carries the
+# bracketed [id]. Attribution is SUBJECT-scoped, NOT full-message: `git log
+# --grep` matches the entire message (subject + body), so a commit that merely
+# MENTIONS [id] in its body prose — a cross-reference to another lane — would be
+# miscredited. We narrow with --grep (a cheap superset), then post-filter each
+# candidate on its subject field (%s) with a literal grep -F, so a body-only
+# mention never counts. -F keeps the brackets literal: [9.1] never matches
+# [9.15]. Emits one hash per line (empty when none), newest-first.
+subject_commits() {
+  local sid="$1"
+  git log --grep="[$sid]" -F --pretty=$'%H\t%s' 2>/dev/null \
+    | awk -F'\t' -v id="[$sid]" 'index($2, id) { print $1 }'
+}
+
 # Build perf.by_deliverable as a jq object, assembling one id at a time. For
-# each id we read git ONCE per metric over its [ID] commits.
+# each id we read git ONCE per metric over its [ID] commits — driven by the
+# SUBJECT-scoped hash set above, never by a full-message --grep.
 PERF_BY_DELIV="{}"
 for id in $IDS; do
   commits=0; cycle=0; files=0; insertions=0; lane="null"
   if [ "$HAVE_GIT" -eq 1 ]; then
-    # author-epoch per matching commit, newest-first (git log default order)
-    epochs=$(git log --grep="[$id]" -F --pretty='%at' 2>/dev/null)
-    if [ -n "$epochs" ]; then
+    # the subject-scoped commit hashes for this deliverable (one per line)
+    hashes=$(subject_commits "$id")
+    if [ -n "$hashes" ]; then
+      # author-epoch per matching commit, read from the subject-scoped hash set
+      epochs=$(printf '%s\n' "$hashes" | git log --no-walk --stdin --pretty='%at' 2>/dev/null)
       commits=$(printf '%s\n' "$epochs" | grep -c .)
       mn=$(printf '%s\n' "$epochs" | sort -n | head -1)
       mx=$(printf '%s\n' "$epochs" | sort -n | tail -1)
       cycle=$((mx - mn))
       lane="$cycle"   # commit span — degrades to cycle time absent merge data
-      # footprint: distinct files touched + total insertions, from --numstat.
-      # --numstat lines are "added<TAB>deleted<TAB>path"; binary files show "-".
-      numstat=$(git log --grep="[$id]" -F --numstat --pretty=format: 2>/dev/null)
+      # footprint: distinct files touched + total insertions, from --numstat over
+      # the SAME subject-scoped hash set. --numstat lines are
+      # "added<TAB>deleted<TAB>path"; binary files show "-".
+      numstat=$(printf '%s\n' "$hashes" | git log --no-walk --stdin --numstat --pretty=format: 2>/dev/null)
       insertions=$(printf '%s\n' "$numstat" \
         | awk -F'\t' 'NF==3 && $1 ~ /^[0-9]+$/ { s += $1 } END { print s+0 }')
       files=$(printf '%s\n' "$numstat" \
@@ -282,7 +307,11 @@ for ph in $PHASES; do
   if [ "$HAVE_GIT" -eq 1 ] && [ -n "$members" ]; then
     all_epochs=""
     for mid in $members; do
-      e=$(git log --grep="[$mid]" -F --pretty='%at' 2>/dev/null)
+      # SUBJECT-scoped, exactly as the per-deliverable derivation — a body
+      # cross-reference to a member must not leak into the phase's wall-clock.
+      h=$(subject_commits "$mid")
+      e=""
+      [ -n "$h" ] && e=$(printf '%s\n' "$h" | git log --no-walk --stdin --pretty='%at' 2>/dev/null)
       [ -n "$e" ] && all_epochs="$all_epochs
 $e"
     done

@@ -99,6 +99,17 @@ MD
     git add d.txt
     GIT_AUTHOR_DATE='2026-06-13T09:00:00 +0000' GIT_COMMITTER_DATE='2026-06-13T09:00:00 +0000' \
       git commit -q -m 'feat([10.1]): human-gated marker'
+    # CROSS-REFERENCE TRAP: an [8.3] commit whose SUBJECT carries 8.3 but whose
+    # BODY prose mentions [9.1]. Attribution is SUBJECT-scoped: this commit must
+    # be credited to 8.3 (not in our map → no perf bucket), and must NOT inflate
+    # 9.1's commits/footprint/cycle-time, nor phase 9's wall-clock. A full-message
+    # `git log --grep '[9.1]'` WOULD wrongly catch this — that is the bug T5b/T7b
+    # defend against. We pin its author date AFTER 9.5's commit so a leak would
+    # also stretch 9.1's cycle time and phase-9 wall-clock, making the leak loud.
+    printf 'leak1\nleak2\n' > leak.txt
+    git add leak.txt
+    GIT_AUTHOR_DATE='2026-06-14T09:00:00 +0000' GIT_COMMITTER_DATE='2026-06-14T09:00:00 +0000' \
+      git commit -q -m 'fix([8.3]): replan addendum' -m 'Follows up the work in [9.1]; see that lane for context.'
   ) >/dev/null 2>&1
   echo "$p"
 }
@@ -205,6 +216,31 @@ jq -e '.perf.by_deliverable["9.5"].footprint.files == 1
    and .perf.by_deliverable["9.5"].footprint.insertions == 5' "$OUT" >/dev/null 2>&1 \
   && ok "perf.by_deliverable[9.5].footprint hand-checks (1 file, 5 insertions)" \
   || no "9.5 footprint wrong: $(jq -c '.perf.by_deliverable["9.5"].footprint' "$OUT")"
+
+# ─── T7b — SUBJECT-SCOPED ATTRIBUTION: a body cross-reference must NOT leak ──
+# The CROSS-REFERENCE TRAP commit has subject [8.3] but its body mentions [9.1].
+# Attribution is by SUBJECT (the convention git records on the subject line), so
+# this commit belongs to 8.3 and 9.1 must not see it. A full-message
+# `git log --grep '[9.1]'` matches subject AND body, so the buggy emitter credits
+# the leak to 9.1 — inflating its commits (2→3), footprint (a 3rd file +2 lines),
+# and cycle time (06-10→06-14 instead of the 7200s subject-only span). These
+# assertions FAIL under full-message scope and pass only under subject-scoping.
+jq -e '.perf.by_deliverable["9.1"].commits == 2' "$OUT" >/dev/null 2>&1 \
+  && ok "subject-scope: 9.1 commits stay 2 — a body cross-ref [8.3] commit is NOT credited to 9.1" \
+  || no "9.1 commits leaked a body cross-reference (full-message --grep): $(jq -c '.perf.by_deliverable["9.1"].commits' "$OUT") (expected 2)"
+jq -e '.perf.by_deliverable["9.1"].footprint.files == 2
+   and .perf.by_deliverable["9.1"].footprint.insertions == 4' "$OUT" >/dev/null 2>&1 \
+  && ok "subject-scope: 9.1 footprint stays {2,4} — the cross-ref commit's file does not leak in" \
+  || no "9.1 footprint leaked the cross-ref commit: $(jq -c '.perf.by_deliverable["9.1"].footprint' "$OUT") (expected files 2, insertions 4)"
+jq -e '.perf.by_deliverable["9.1"].cycle_time_s == 7200' "$OUT" >/dev/null 2>&1 \
+  && ok "subject-scope: 9.1 cycle time stays 7200 — the later [8.3] body cross-ref does not stretch it" \
+  || no "9.1 cycle time leaked the cross-ref commit: $(jq -c '.perf.by_deliverable["9.1"].cycle_time_s' "$OUT") (expected 7200)"
+# The cross-referenced [8.3] commit is NOT in the tracker map, so under correct
+# subject-scoping it joins NO phase: phase 9's wall-clock is unchanged. Under the
+# bug, 9.1 would catch the 06-14 leak and stretch phase 9 to ~4 days.
+jq -e '.perf.by_phase["9"].wall_clock_s == 82800' "$OUT" >/dev/null 2>&1 \
+  && ok "subject-scope: phase-9 wall-clock stays 82800 — the [8.3] body cross-ref does not leak into the phase JOIN" \
+  || no "phase-9 wall-clock leaked the cross-ref commit: $(jq -c '.perf.by_phase["9"].wall_clock_s' "$OUT") (expected 82800)"
 
 # ─── T8 — PERF: phase wall-clock, git-derived from the deliverable→phase map ─
 # Phase 9 = first commit of any 9.x (9.1 @ 06-10T10:00) → last (9.5 @ 06-11T09:00)

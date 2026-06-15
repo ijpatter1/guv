@@ -30,9 +30,14 @@ The performance half is derived **mechanically from git history, retroactively
 over existing history** — joined with the resolver's deliverable→phase map.
 There is **no instrumentation**: no timer, no probe, no instrument hook, and
 **no CLI flag that injects a metric**. A deliverable's commits are the commits
-whose subject carries its bracketed `[N.M]` ID — the convention git already
-records — found with `git log --grep='[N.M]' -F` (fixed-string, so the brackets
-are literal). The deliverable→phase map comes from the **resolver**
+whose **subject** carries its bracketed `[N.M]` ID — the convention git already
+records. Attribution is **subject-scoped, not full-message**: `git log
+--grep='[N.M]' -F` (fixed-string, so the brackets are literal) *narrows* the
+candidates, then a post-filter on the subject field (`%s`) drops any commit that
+carries `[N.M]` only in its **body** prose. So a commit that merely
+*cross-references* another lane in its body is **never** credited to that
+deliverable — only a subject-line ID attributes a commit. The deliverable→phase
+map comes from the **resolver**
 (`resolve-ready.sh --json`), never from re-splitting the ID string: the emitter
 knows which phase a deliverable belongs to *only* via that map. That is the JOIN
 the spec names (tracker grammar ⋈ git history) — a single source of plan truth.
@@ -81,7 +86,7 @@ measured live, nothing is agent-supplied.
 
 | field | type | source / meaning |
 |-------|------|------------------|
-| `perf.by_deliverable[ID].commits` | number | **commits-per-deliverable** — the count of commits whose subject carries `[ID]`. |
+| `perf.by_deliverable[ID].commits` | number | **commits-per-deliverable** — the count of commits whose **subject** carries `[ID]`. Subject-scoped: a body-only cross-reference to `[ID]` is not counted. |
 | `perf.by_deliverable[ID].cycle_time_s` | number | **cycle time** — last author date − first author date across the deliverable's commits, in seconds. A single commit is `0`. |
 | `perf.by_deliverable[ID].footprint` | object | **footprint** — `{files, insertions}`: distinct files touched and total inserted lines across the deliverable's commits, from `git log --numstat`. |
 | `perf.by_deliverable[ID].lane_lifetime_s` | number \| null | **lane lifetime** — the span the deliverable's lane was live. Absent merge metadata it degrades to the commit span (== cycle time); always present, number-or-null, never agent-set. |
