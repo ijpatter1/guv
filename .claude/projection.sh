@@ -11,7 +11,8 @@
 # THE SPINE = a quantity takeoff × a unit rate, both derived locally ──────────────
 #   quantity = the ratified sessions-per-deliverable (the [9.6] estimate sidecar)
 #              summed over REMAINING work — the resolver (resolve-ready.sh) tells
-#              us which deliverables remain (ready + in_progress + blocked);
+#              us which deliverables remain (every open deliverable, by marker:
+#              todo ⬜ + in_progress 🔄 + human_gated 🔒);
 #              deliverables lacking a ratified estimate project at the DEFAULT (1)
 #              and are DISCLOSED in default_estimate_ids.
 #   unit rate = the SESSION ENVELOPE — the fixed overhead a session carries,
@@ -172,17 +173,22 @@ envelope_ceiling() {
 }
 
 # ── remaining work, from the resolver (the one parser of plan state) ────────────
-# Remaining = every OPEN deliverable: ready + in_progress + blocked. We read the
-# resolver's published JSON and never re-parse the tracker. Designed degradation:
-# no tracker / a resolver refusal -> empty remaining set (the spine then projects
-# a zero-quantity range honestly, never crashes).
+# Remaining = every OPEN deliverable, selected by the per-deliverable status the
+# resolver actually emits: todo (⬜), in_progress (🔄), and human_gated (🔒). We
+# read the resolver's published JSON and never re-parse the tracker. Note the
+# resolver NEVER emits a per-deliverable status of "blocked" — "blocked" is a
+# FRONTIER classification (a ⬜ with an unsatisfied dep), not a deliverable
+# status — so it is not a selectable status here; a ⬜ is counted as open whether
+# or not its deps are satisfied. Designed degradation: no tracker / a resolver
+# refusal -> empty remaining set (the spine then projects a zero-quantity range
+# honestly, never crashes).
 remaining_ids() {
   [ -f "$TRACKER" ] && [ -f "$RESOLVER" ] || return 0
   local resolved
   resolved=$(bash "$RESOLVER" "$TRACKER" --json 2>/dev/null) || return 0
   [ -n "$resolved" ] || return 0
   printf '%s' "$resolved" | jq -r '
-    [ .deliverables[] | select(.status=="todo" or .status=="in_progress" or .status=="blocked") | .id
+    [ .deliverables[] | select(.status=="todo" or .status=="in_progress" or .status=="human_gated") | .id
       | select(. != null) ] | .[]' 2>/dev/null
 }
 
@@ -338,11 +344,21 @@ case "$SUB" in
     [ -n "$FORECAST" ] || die 4 "no banked forecast in $CALIB to grade against"
 
     # quantity layer: estimated sessions (the forecast's takeoff) vs ACTUAL
-    # sessions (distinct sessions observed in the local metering log).
+    # sessions. The takeoff was REMAINING work AT BANK TIME, so the comparison is
+    # like-for-like only if actual_sessions is bounded to sessions occurring AFTER
+    # the forecast was banked — sessions logged BEFORE the bank were spent on
+    # already-done work and were never in the forecast's scope. We bound on the
+    # banked forecast's own timestamp (banked_at, falling back to generated).
     EST_SESSIONS=$(printf '%s' "$FORECAST" | jq -r '.spine.quantity.remaining_sessions')
     ENVELOPE=$(printf '%s' "$FORECAST" | jq -r '.spine.unit_rate.floor_tokens')
+    BANK_TS=$(printf '%s' "$FORECAST" | jq -r '.banked_at // .generated // empty')
     if [ -f "$LOG" ]; then
-      ACTUAL_SESSIONS=$(jq -rs '[ .[] | select((.schema // "") | startswith("guv.meter")) | .session ] | unique | length' "$LOG" 2>/dev/null)
+      # distinct post-bank sessions: meter entries whose ts is at/after the bank
+      # timestamp (an empty BANK_TS degrades to the whole log — no bound to apply).
+      ACTUAL_SESSIONS=$(jq -rs --arg since "$BANK_TS" \
+        '[ .[] | select((.schema // "") | startswith("guv.meter"))
+               | select($since == "" or (.ts // "") >= $since)
+               | .session ] | unique | length' "$LOG" 2>/dev/null)
       OBS=$(observed_rate); ACTUAL_RATE="${OBS##*	}"
     else
       ACTUAL_SESSIONS=0; ACTUAL_RATE=0

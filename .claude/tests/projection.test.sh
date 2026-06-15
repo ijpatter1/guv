@@ -104,6 +104,23 @@ add_landing() {  # <instance-dir> <deliverable-id> <total-tokens>
     >> "$log"
 }
 
+# Like add_landing, but with an explicit session id and timestamp — so a test can
+# place a session BEFORE or AFTER a banked forecast's timestamp. The grade's
+# actual-sessions denominator must be bounded to sessions occurring AFTER the
+# banked forecast (the forecast was only ever scoped to remaining work from bank
+# time forward), so before/after timestamping is the discriminator.
+add_landing_at() {  # <instance-dir> <deliverable-id> <total-tokens> <session-id> <ts>
+  local d="$1" id="$2" tot="$3" sess="$4" ts="$5"
+  local log="$d/.claude/metering/metering.ndjson"
+  jq -cn --arg id "$id" --argjson t "$tot" --arg sess "$sess" --arg ts "$ts" \
+    '{schema:"guv.meter.v1", ts:$ts, session:$sess,
+      session_derived:true, runtime_session:null, deliverable_ids:[$id],
+      model:"claude-opus-4-8[1m]",
+      tokens:{input:($t/2|floor), output:($t/4|floor), cache_read:($t - ($t/2|floor) - ($t/4|floor)), cache_creation:0},
+      dollars:null, spike_c_rung:"B", perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' \
+    >> "$log"
+}
+
 # ════════════════════════════════════════════════════════════════════════════
 # T0 — the script and its shape doc exist (RED until built)
 # ════════════════════════════════════════════════════════════════════════════
@@ -341,6 +358,8 @@ MD
 ( cd "$G" && bash .claude/projection.sh bank ) >/dev/null 2>&1
 # (2) CLOSE: [9.7] lands. The actual outcome is ONE session at a low rate, so the
 # quantity layer missed (estimated 2, actual 1) — a miss the grade names by layer.
+# The landing must occur AFTER the bank (grade bounds actual_sessions to post-bank
+# sessions); stamp it a year out so it is unambiguously after the just-now bank.
 cat > "$G/docs/PHASE_STATUS.md" <<'MD'
 # Phase Status Tracker
 
@@ -353,7 +372,7 @@ _Goal: meter cost at every boundary._
 - ✅ **[9.1]** Session-boundary cost capture `[deps: none]`
 - ✅ **[9.7]** Projection `[deps: 9.1]`
 MD
-add_landing "$G" 9.7 7000
+add_landing_at "$G" 9.7 7000 "session-2099-01-01-001" "2099-01-01T00:00:00Z"
 GRADE=$( cd "$G" && bash .claude/projection.sh grade 2>/dev/null )
 RC_G=$( cd "$G" && bash .claude/projection.sh grade >/dev/null 2>&1; echo $? )
 
@@ -377,6 +396,41 @@ GLINES=$(grep -c '"kind":"grade"' "$G/.claude/metering/calibration.ndjson" 2>/de
 [ "$GLINES" -ge 1 ] \
   && ok "GRADE: the graded errors are banked into the calibration record (the local record learns)" \
   || no "the grade must be banked into the calibration record (kind=grade lines=$GLINES)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_POSTBANK — actual_sessions counts only sessions AFTER the banked forecast
+# ════════════════════════════════════════════════════════════════════════════
+# A forecast's quantity takeoff is REMAINING work AT BANK TIME — sessions logged
+# BEFORE the bank were spent on already-done work and were never in scope. So the
+# quantity layer must compare estimated_sessions against ACTUAL sessions occurring
+# AFTER the banked forecast's timestamp, not the whole-log session count. A
+# whole-log denominator inflates quantity error for a mid-initiative forecast.
+# Here: a banked forecast at a KNOWN timestamp, with TWO sessions before it and
+# ONE after — only the one post-bank session may count toward actual_sessions.
+PB=$(mk_instance)
+bash "$PB/.claude/estimate.sh" set 9.7 2 "$PB/docs/estimates.json" >/dev/null 2>&1
+PB_CALIB="$PB/.claude/metering/calibration.ndjson"
+PB_BANK_TS="2026-06-10T00:00:00Z"
+# Hand-bank a forecast with a KNOWN banked_at (the discriminator timestamp), so
+# the before/after split is deterministic and independent of wall-clock.
+jq -cn --arg ts "$PB_BANK_TS" \
+  '{kind:"forecast", banked_at:$ts, schema:"guv.projection.v1", generated:$ts,
+    range:{low_tokens:20000, high_tokens:300000, denomination:"tokens"},
+    basis:{claim:"structural", n:0, observed_weight:0, observed_mean_tokens_per_session:0},
+    scope:{claim:"guv-mediated cost to complete (remaining work, not total)"},
+    spine:{quantity:{remaining_sessions:2, default_estimate_ids:[]},
+           unit_rate:{floor_tokens:10000, ceiling_tokens:150000, blended_tokens:10000}}}' \
+  > "$PB_CALIB"
+# TWO distinct sessions BEFORE the bank (already-spent work, out of scope)…
+add_landing_at "$PB" 9.1 6000 "session-2026-06-05-001" "2026-06-05T00:00:00Z"
+add_landing_at "$PB" 9.1 6000 "session-2026-06-08-001" "2026-06-08T00:00:00Z"
+# …and ONE distinct session AFTER the bank (the only one in the forecast's scope).
+add_landing_at "$PB" 9.7 7000 "session-2026-06-12-001" "2026-06-12T00:00:00Z"
+PBGRADE=$( cd "$PB" && bash .claude/projection.sh grade 2>/dev/null )
+# Whole-log unique sessions = 3; post-bank = 1. The bound must yield 1, not 3.
+echo "$PBGRADE" | jq -e '.quantity_error.actual_sessions == 1' >/dev/null 2>&1 \
+  && ok "POST-BANK: actual_sessions counts only sessions AFTER the banked forecast (1, not the whole-log 3)" \
+  || no "actual_sessions must be bounded to post-bank sessions (got: $(echo "$PBGRADE" | jq -c '.quantity_error'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T7 — DEPS-AMEND FOLLOWS BY RECOMPUTATION: change remaining work, projection reflects it
@@ -405,6 +459,38 @@ LOW_B=$(echo "$BEFORE" | jq -r '.range.low_tokens'); LOW_A=$(echo "$AFTER" | jq 
 awk -v a="$LOW_A" -v b="$LOW_B" 'BEGIN{ exit !(a > b) }' \
   && ok "DEPS-AMEND: the projected range grew with the added work (no special handling)" \
   || no "the range must grow with added remaining work (before low=$LOW_B after low=$LOW_A)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_HUMAN_GATED — a 🔒 (human-gated) deliverable is OPEN work and must be counted
+# ════════════════════════════════════════════════════════════════════════════
+# 🔒 (human-gated, [10.1]) is OPEN work: the resolver recognizes it as
+# status="human_gated" and counts it as open. The projection's remaining-work
+# takeoff must include it — dropping it UNDERCOUNTS the cost to complete. (The
+# resolver NEVER emits a per-deliverable status of "blocked"; "blocked" is a
+# frontier classification, not a deliverable status — so filtering on it would be
+# a dead arm that silently loses 🔒 work.) Here: a tracker with one 🔒 deliverable
+# whose estimate must land in remaining_sessions.
+HG=$(mk_instance)
+cat > "$HG/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 9 — The Meter**
+
+## Phase 9 — The Meter
+
+_Goal: meter cost at every boundary._
+
+- ✅ **[9.1]** Session-boundary cost capture `[deps: none]`
+- 🔄 **[9.7]** Projection `[deps: 9.1]`
+- 🔒 **[9.11]** A human-gated deliverable `[deps: 9.1]`
+MD
+bash "$HG/.claude/estimate.sh" set 9.7 2 "$HG/docs/estimates.json" >/dev/null 2>&1
+bash "$HG/.claude/estimate.sh" set 9.11 5 "$HG/docs/estimates.json" >/dev/null 2>&1
+HGDOC=$( cd "$HG" && bash .claude/projection.sh project 2>/dev/null )
+# remaining = 9.7(2) + 9.11(5) = 7. If the 🔒 leg were dropped it would be 2.
+echo "$HGDOC" | jq -e '.spine.quantity.remaining_sessions == 7' >/dev/null 2>&1 \
+  && ok "HUMAN-GATED: a 🔒 deliverable is counted in remaining work (2+5=7, not undercounted to 2)" \
+  || no "a 🔒 (human_gated) deliverable must be counted as open remaining work (got: $(echo "$HGDOC" | jq -c '.spine.quantity'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T8 — usage / stderr discipline (the battery fails any suite that writes stderr)

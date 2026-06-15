@@ -28,9 +28,13 @@ remaining_sessions = Σ  estimate(d)   for d in remaining work
 ```
 
 - **Remaining work** comes from the resolver (`resolve-ready.sh --json`): every
-  **open** deliverable — `todo` (⬜) + `in_progress` (🔄) + `blocked` (⬜ with an
-  unsatisfied dep). The projection consumes the resolver's published JSON and
-  **never re-parses the tracker** (the one-parser discipline, A-001).
+  **open** deliverable, selected by the per-deliverable status the resolver
+  emits — `todo` (⬜) + `in_progress` (🔄) + `human_gated` (🔒). The resolver
+  never emits a per-deliverable status of `blocked` (`blocked` is a *frontier*
+  classification — a ⬜ with an unsatisfied dep — not a deliverable status), so a
+  ⬜ is counted as open whether or not its deps are satisfied. The projection
+  consumes the resolver's published JSON and **never re-parses the tracker** (the
+  one-parser discipline, A-001).
 - **`estimate(d)`** is the ratified per-deliverable session estimate from the
   [9.6] sidecar (`docs/estimates.json`). A deliverable with **no ratified
   estimate** projects at the **default (1)** and is **DISCLOSED** in
@@ -113,7 +117,10 @@ close, **grading** compares the banked forecast against the outcome and emits
 **two separable errors** so a miss **names its layer**:
 
 - **quantity error** — `estimated_sessions` (the forecast's takeoff) vs
-  `actual_sessions` (distinct sessions in the local metering log).
+  `actual_sessions` (distinct sessions in the local metering log occurring
+  **after the forecast was banked** — the takeoff was remaining work from bank
+  time forward, so the actual count is bounded to post-bank sessions to keep the
+  comparison like-for-like).
 - **rate error** — `envelope_tokens` (the forecast's floor) vs
   `actual_tokens_per_session` (the observed mean).
 
