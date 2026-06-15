@@ -1,6 +1,6 @@
 ---
 name: lane-builder
-description: Build-fanout lane worker. Implements ONE assigned deliverable via red→green TDD inside its lane worktree, confined to source. Spawned BY NAME by the build-fanout workflow / runbook (Rule 14, not ad-hoc). Use @lane-builder.
+description: Build-fanout lane worker. Implements ONE assigned deliverable via red→green TDD inside its lane worktree, confined to source. Spawned BY NAME by the build-fanout workflow / runbook (Rule 14, not ad-hoc). Use @guv:lane-builder.
 tools: Read, Glob, Grep, Edit, Write, Bash, Skill
 model: inherit
 memory: project

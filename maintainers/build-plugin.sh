@@ -98,10 +98,15 @@ _namespace_pass() {
     # '#' delimiter: the pattern itself needs both '/' and the ERE '|'
     args+=(-e "s#(^|[^[:alnum:].:-])/$n(\$|[^[:alnum:]:_-])#\\1/guv:$n\\2#g")
   done < <(slash_names)
-  args+=(-e 's|`evaluator` subagent|`guv:evaluator` subagent|g'
-    -e 's|`reviewer` subagent|`guv:reviewer` subagent|g'
-    -e 's|@evaluator|@guv:evaluator|g'
-    -e 's|@reviewer|@guv:reviewer|g')
+  # Namespace EVERY project agent (derived from .claude/agents/) in both its backtick
+  # and @ forms — evaluator, reviewer, lane-builder, and any future agent. Hardcoding
+  # only evaluator/reviewer here was the gap that left a new agent's @mention bare under
+  # a plugin install (where agents resolve only as guv:<name>).
+  local agf agname
+  for agf in "$SRC/agents"/*.md; do
+    agname=$(basename "$agf" .md)
+    args+=(-e "s|\`$agname\` subagent|\`guv:$agname\` subagent|g" -e "s|@$agname|@guv:$agname|g")
+  done
   sed "${args[@]}"
 }
 
