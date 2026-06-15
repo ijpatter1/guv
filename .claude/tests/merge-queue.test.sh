@@ -36,6 +36,10 @@ setup() {
   git -C "$CODE" config user.email t@t; git -C "$CODE" config user.name t
   printf 'alpha\nbeta\ngamma\n' > "$CODE/shared.txt"
   echo "base" > "$CODE/base.txt"
+  # provision the code repo as a guv lane target ([10.10]) so `guv-lane create` is satisfied
+  mkdir -p "$CODE/.claude"
+  jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"task"}' \
+    > "$CODE/.claude/project.json"
   git -C "$CODE" add -A; git -C "$CODE" commit -qm base
   P="$WORK/proj"
   mkdir -p "$P/.claude" "$P/docs"

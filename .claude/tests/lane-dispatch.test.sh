@@ -45,6 +45,10 @@ setup() {
   printf '# Changelog\n' > "$CODE/CHANGELOG.md"
   printf '# Readme\n' > "$CODE/README.md"
   echo base > "$CODE/base.txt"
+  # provision the code repo as a guv lane target ([10.10]) so `guv-lane create` is satisfied
+  mkdir -p "$CODE/.claude"
+  jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"task"}' \
+    > "$CODE/.claude/project.json"
   git -C "$CODE" add -A; git -C "$CODE" commit -qm base
   P="$WORK/proj"
   mkdir -p "$P/.claude" "$P/docs"

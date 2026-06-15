@@ -60,6 +60,11 @@ case "$VERB" in
     # charset rather than letting a slash or space produce surprising refs
     case "$ID" in (*[!A-Za-z0-9._-]*|"") echo "guv-lane: invalid lane id '$ID' (use letters, digits, . _ -)" >&2; exit 2 ;; esac
     case "$SLUG" in (*[!A-Za-z0-9._-]*|"") echo "guv-lane: invalid slug '$SLUG' (use letters, digits, . _ -)" >&2; exit 2 ;; esac
+    # The code repo must be a provisioned guv lane target before a lane is created:
+    # without a manifest a lane builder cannot route its scoped work in the worktree
+    # ([10.10]). Loud-stop, never auto-provision — the setup step stays explicit (Rule 15).
+    [ -f "$CODE/.claude/project.json" ] \
+      || die4 "code repo at roots.code ($CODE) is not a provisioned guv lane target (no .claude/project.json) — run: bash .claude/provision-code-repo.sh \"$CODE\""
     BR="lane/$ID-$SLUG"
     [ -e "$CODE/$WT" ] && die6 "lane $ID already exists at $WT"
     git -C "$CODE" show-ref --verify --quiet "refs/heads/$BR" \

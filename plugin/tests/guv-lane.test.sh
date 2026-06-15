@@ -25,7 +25,11 @@ setup() {
   git -C "$CODE" config user.email t@t
   git -C "$CODE" config user.name t
   echo x > "$CODE/f"
-  git -C "$CODE" add f
+  # provision the code repo as a guv lane target ([10.10]) so `create` is satisfied
+  mkdir -p "$CODE/.claude"
+  jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"task"}' \
+    > "$CODE/.claude/project.json"
+  git -C "$CODE" add -A
   git -C "$CODE" commit -qm init
   P="$WORK/proj"
   mkdir -p "$P/.claude"
@@ -175,6 +179,26 @@ if grep -q '^# guv-core-start' "$ROOT/.gitignore" 2>/dev/null; then
 else
   echo "  - no guv-core gitignore block at repo root (plane/consumer shape) — gitignore check skips"
 fi
+
+# T10 — create asserts the code repo is a provisioned guv lane target: an
+# unprovisioned roots.code (no .claude/project.json — a foreign repo before
+# provision-code-repo.sh runs) loud-stops, never silently creating a lane a builder
+# can't route /task in ([10.10], Rule 15). The earlier probe "worked" only because
+# roots.code happened to BE guv; this guards the foreign-repo path.
+UPC="$WORK/unprov-code"; UP="$WORK/unprov"
+mkdir -p "$UPC"
+git -C "$UPC" init -q; git -C "$UPC" config user.email t@t; git -C "$UPC" config user.name t
+echo x > "$UPC/f"; git -C "$UPC" add -A; git -C "$UPC" commit -qm init
+mkdir -p "$UP/.claude"
+jq -n '{roots:{control:".",code:"../unprov-code"},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"phased"}' \
+  > "$UP/.claude/project.json"
+OUT=$( cd "$UP" && bash "$SCRIPT" create 5.5 thing 2>&1 ); RC=$?
+{ [ $RC -ne 0 ] && echo "$OUT" | grep -q 'provision-code-repo.sh'; } \
+  && ok "create loud-stops on an unprovisioned code repo, naming the remedy (exit $RC)" \
+  || no "create must loud-stop on an unprovisioned code repo (rc=$RC: $OUT)"
+[ -d "$UPC/.worktrees/lane-5.5" ] \
+  && no "create must not leave a worktree when it loud-stops" \
+  || ok "unprovisioned create left nothing behind"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
