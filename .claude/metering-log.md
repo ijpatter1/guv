@@ -1,9 +1,20 @@
-# Metering Log — NDJSON shape ([9.1])
+# Metering Log — NDJSON shape ([9.1], [9.4])
 
-The metering log is the meter's **raw evidence**: one append-only NDJSON line per
-session-close, written by `.claude/meter.sh`. It lives in the control plane at
-`.claude/metering/metering.ndjson` (resolved relative to the project root the way
-every guv script resolves state — never a hardcoded path).
+The metering log is the meter's **raw evidence**: append-only NDJSON, one line per
+metering event. It lives in the control plane at `.claude/metering/metering.ndjson`
+(resolved relative to the project root the way every guv script resolves state —
+never a hardcoded path). Two boundaries write to the SAME log, each a distinct
+sibling shape:
+
+- the **session boundary** ([9.1]) — `.claude/meter.sh` writes one
+  `guv.meter.v1` line per session-close.
+- the **queue boundary** ([9.4]) — `.claude/meter-queue.sh` writes one
+  `guv.meter.queue.v1` line per merge-queue landing. Split off the session boundary
+  so metering as a whole never serializes behind the merge queue: the queue lands
+  one lane at a time and emits its own line at the moment it lands.
+
+The two shapes are distinguished by their `schema` field so the downstream emitter
+can read one log and tell a landing entry from a session entry.
 
 This shape joins the tracker grammar, the manifest schema, and `status.json` as
 **published contract surface**. The downstream consumer is the [9.5] cost-and-
@@ -27,7 +38,7 @@ cost-per-X fields appear here (those are *meaning*, computed downstream).
 - **Raw evidence only.** No derived/aggregate field appears. Aggregation is the
   [9.5] emitter's job.
 
-## Fields
+## Session-boundary fields (`guv.meter.v1`)
 
 One JSON object per line. Every field is present on every entry (degraded values
 are explicit nulls, never omissions).
@@ -93,3 +104,62 @@ suite run and writes the measured seconds to `.claude/metering/.last-suite-runti
 (a guv write, no agent number), and **Step 6b**'s `meter.sh capture` READS
 that artifact to populate `perf.suite_runtime_s`. Step 6b reports no numbers to
 the writer; the artifact, like every other field, is guv-measured or null.
+
+---
+
+# Queue-boundary entry (`guv.meter.queue.v1`, [9.4])
+
+A merge-queue **landing** appends one `guv.meter.queue.v1` line to the same log,
+written by `.claude/meter-queue.sh`. It is the **per-deliverable** sibling of the
+session-scalar entry: where the session boundary records what a *session* spent,
+the queue boundary records what *landing one deliverable* cost — emitted at the
+moment the queue lands (or refuses) it, so metering never waits for session-close.
+
+The same three invariants hold (append-only; no agent I/O for cost — tokens are
+harvested exactly as the session meter harvests them, dollars stay null; raw
+evidence only). The footprint and the landing wall-clock are **flags**, but only
+because they are **mechanical inputs the queue measured upstream**: the diff
+footprint is the number the GATE already computed (`merge-queue.sh footprint`,
+surfaced at `precheck`/`gate-input`) and is **reused verbatim, never recomputed**;
+the wall-clock is what the queue measured while it landed the lane. tokens and
+dollars are never settable by a caller.
+
+## Queue-boundary fields
+
+| field              | type            | source / meaning                                                                                       |
+|--------------------|-----------------|--------------------------------------------------------------------------------------------------------|
+| `schema`           | string          | `guv.meter.queue.v1` — the queue-boundary shape, distinct from `guv.meter.v1`.                          |
+| `ts`               | string          | ISO-8601 UTC instant of the landing (`date -u`). guv-derived.                                           |
+| `deliverable_id`   | string          | the landed (or refused) deliverable ID this entry is attributed to. ONE per entry — the queue lands one lane at a time. |
+| `dispatch_outcome` | string          | the outcome the queue produced: `landed` · `harvest-refused` · `conflict-routed`. An unknown value is a loud usage error. |
+| `runtime_session`  | string \| null  | the Claude Code runtime session id (`CLAUDE_CODE_SESSION_ID`) — the transcript harvest key; null if absent. |
+| `footprint`        | object          | the diff footprint the GATE computed — `{files, insertions, deletions}`. **Reused, not recomputed.**    |
+| `model`            | string \| null  | model id, harvested from the transcript's last assistant message; null when unharvestable.              |
+| `tokens`           | object \| null  | token counts by class — `{input, output, cache_read, cache_creation}` — harvested from the transcript; `null` when unreachable (same Spike C rung B as the session meter). |
+| `dollars`          | null            | **always null** — token-only rung, no guessed price table.                                              |
+| `spike_c_rung`     | string          | `"B"` when tokens were harvested, `"degraded"` when not.                                                |
+| `perf`             | object          | mechanical performance fields the boundary affords.                                                     |
+| `perf.landing_wallclock_s` | number  | the landing's wall-clock seconds, **measured by the queue** while it landed the lane — never an agent value. |
+
+## Subcommands
+
+- `capture …` — **appends** the entry to the log. A real landing is owed a log line.
+- `emit …` — builds the **same** entry and **prints** it to stdout **without
+  appending**. The [7.5] failure report embeds this as a refused lane's **burn
+  profile** (diagnostic input to the retry). A refused lane never landed, so no log
+  line is owed — `emit` keeps the report's burn profile out of the append-only log.
+
+## Wiring
+
+The merge-queue land path ([7.4]) writes a `capture` entry per landing, passing the
+footprint it already computed. The lane-dispatch failure path ([7.5],
+`lane-dispatch.sh capture_report`) embeds an `emit` entry — attributed to the
+refused lane with `dispatch_outcome: harvest-refused` — as the **burn profile** in
+the durable failure report, so a retry carries the cost-and-performance evidence
+of the rejected attempt.
+
+## Example entry
+
+```json
+{"schema":"guv.meter.queue.v1","ts":"2026-06-14T18:22:05Z","deliverable_id":"9.4","dispatch_outcome":"landed","runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","footprint":{"files":3,"insertions":42,"deletions":7},"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"dollars":null,"spike_c_rung":"B","perf":{"landing_wallclock_s":1.25}}
+```

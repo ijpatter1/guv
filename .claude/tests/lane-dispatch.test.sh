@@ -273,6 +273,45 @@ git -C "$CODE" log --oneline main | grep -q "lane 7.B work" \
   && no "a failed lane must NOT land" \
   || ok "dispatch: the failed lane did not land"
 
+# ── T9b — the [7.5] failure report CARRIES the burn profile ([9.4]) ──
+# The deliverable: a failed-lane report carries the cost-and-performance burn
+# profile as diagnostic input to the retry. capture_report attributes a
+# queue-boundary entry to the refused lane (dispatch_outcome = harvest-refused),
+# reusing the diff footprint the gate already computed — never recomputed here —
+# and embeds it in the durable report. It does NOT touch the append-only metering
+# log (a refused lane never landed, so no log line is owed).
+setup
+mklane create 7.A burnharv
+laneexec 7.A base.txt "A-broken-burn" failed
+LOG_BEFORE=$( [ -f "$P/.claude/metering/metering.ndjson" ] && wc -l < "$P/.claude/metering/metering.ndjson" | tr -d ' ' || echo 0 )
+OUT=$(run harvest 7.A); RC=$?
+[ $RC -ne 0 ] || no "precondition: the failed lane must be refused (rc=$RC): $OUT"
+REPORT=$(ls "$P/.lane-reports/"lane-7.A* 2>/dev/null | head -1)
+[ -n "$REPORT" ] && grep -qiE 'burn profile|burn_profile' "$REPORT" \
+  && ok "burn: the failure report has a burn-profile section ([9.4])" \
+  || no "the failure report must carry a burn-profile section"
+# the embedded burn profile is the queue-boundary shape, attributed to this lane,
+# tagged as the refusal outcome, carrying the gate's footprint (reused).
+BURN=$( [ -n "$REPORT" ] && grep -oE '\{"schema":"guv\.meter\.queue\.v1".*\}' "$REPORT" | head -1 || echo '{}' )
+echo "$BURN" | jq -e '.schema == "guv.meter.queue.v1"' >/dev/null 2>&1 \
+  && ok "burn: the report embeds a guv.meter.queue.v1 entry" \
+  || no "the burn profile must be a queue-boundary entry, got: $BURN"
+echo "$BURN" | jq -e '.deliverable_id == "7.A"' >/dev/null 2>&1 \
+  && ok "burn: the burn profile is attributed to the refused lane (7.A)" \
+  || no "the burn profile must be attributed to the refused lane, got: $(echo "$BURN" | jq -c '.deliverable_id')"
+echo "$BURN" | jq -e '.dispatch_outcome == "harvest-refused"' >/dev/null 2>&1 \
+  && ok "burn: the burn profile records the refusal outcome (harvest-refused)" \
+  || no "the burn profile must record dispatch_outcome harvest-refused, got: $(echo "$BURN" | jq -c '.dispatch_outcome')"
+echo "$BURN" | jq -e '.footprint | has("files") and has("insertions") and has("deletions")' >/dev/null 2>&1 \
+  && ok "burn: the burn profile carries the gate's diff footprint (reused, not recomputed)" \
+  || no "the burn profile must carry the diff footprint, got: $(echo "$BURN" | jq -c '.footprint')"
+# APPEND-ONLY guarantee: a refused lane never lands, so capturing its report must
+# NOT append a line to the metering log (the log records LANDINGS, not refusals).
+LOG_AFTER=$( [ -f "$P/.claude/metering/metering.ndjson" ] && wc -l < "$P/.claude/metering/metering.ndjson" | tr -d ' ' || echo 0 )
+[ "$LOG_BEFORE" = "$LOG_AFTER" ] \
+  && ok "burn: capturing a refused lane's report does not write the metering log (no phantom landing)" \
+  || no "a refused lane's report must not append to the metering log (before=$LOG_BEFORE after=$LOG_AFTER)"
+
 # ── T10 — loud stops: unknown lane, corrupt manifest ──
 setup
 OUT=$(run confine 9.9); RC=$?

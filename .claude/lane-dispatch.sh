@@ -74,6 +74,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LANE="$HERE/guv-lane.sh"
 QUEUE="$HERE/merge-queue.sh"
+METER_QUEUE="$HERE/meter-queue.sh"   # [9.4] queue-boundary burn profile (emit mode)
 REPORTS=".lane-reports"          # durable, in the control plane (survives cleanup)
 SIDECAR=".lane-output.json"
 
@@ -142,6 +143,18 @@ lane_paths() {   # branch -> changed paths (merge-base..branch)
   git -C "$CODE" diff --name-only "$base..$br"
 }
 
+# The lane's diff footprint as three numbers ("files insertions deletions"), the
+# SAME measure the [7.4] gate computes (merge-queue.sh footprint, merge-base..branch
+# numstat). Echoes "0 0 0" when the branch has no resolvable base — the burn profile
+# still records a footprint, never omits it. This is the gate's number, not a new one.
+lane_footprint_nums() {  # branch -> "files insertions deletions"
+  local br="$1" base
+  base=$(git -C "$CODE" merge-base "$INTEG" "$br" 2>/dev/null)
+  [ -n "$base" ] || { echo "0 0 0"; return; }
+  git -C "$CODE" diff --numstat "$base..$br" 2>/dev/null \
+    | awk '{f++; i+=($1=="-"?0:$1); d+=($2=="-"?0:$2)} END{printf "%d %d %d", f+0, i+0, d+0}'
+}
+
 # Obvious build/cache artifacts that should never ride a lane commit (the spec
 # invariant: lanes commit SOURCES only). An ADVISORY, never a refusal — a
 # heuristic match must not block a clean land, but the orchestrator should see
@@ -193,6 +206,21 @@ capture_report() {
       echo "## rejected diff (stat)"
       base=$(git -C "$CODE" merge-base "$INTEG" "$br" 2>/dev/null)
       [ -n "$base" ] && git -C "$CODE" diff --stat "$base..$br" 2>/dev/null
+      echo ""
+      # The burn profile ([9.4]): a queue-boundary cost-and-performance entry
+      # attributed to the refused lane, carrying the SAME diff footprint the gate
+      # measures (reused, not recomputed) and the dispatch outcome harvest-refused.
+      # `emit` PRINTS the entry — it never appends to the metering log: a refused
+      # lane did not land, so no log line is owed. This is diagnostic input to the
+      # retry, not a landing record.
+      echo "## burn profile (queue-boundary cost-and-performance, [9.4])"
+      read -r BF BI BD <<<"$(lane_footprint_nums "$br")"
+      echo "Diagnostic input to the retry — the rejected attempt's footprint + harvested cost (not a landing; never written to the metering log)."
+      bash "$METER_QUEUE" emit \
+        --deliverable "$id" --outcome harvest-refused \
+        --files "$BF" --insertions "$BI" --deletions "$BD" --wallclock 0 \
+        2>/dev/null \
+        || echo '{"schema":"guv.meter.queue.v1","deliverable_id":"'"$id"'","dispatch_outcome":"harvest-refused","footprint":{"files":'"$BF"',"insertions":'"$BI"',"deletions":'"$BD"'},"tokens":null,"dollars":null,"note":"emit unavailable — degraded burn profile"}'
       echo ""
       echo "## lane output"
       [ -f "$wt/$SIDECAR" ] && cat "$wt/$SIDECAR" || echo "(no $SIDECAR)"
