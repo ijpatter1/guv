@@ -6,7 +6,7 @@
 # A projection of the guv-mediated cost to COMPLETE the live initiative — a
 # RANGE carrying a BASIS claim and a SCOPE claim. It is computed at n=0 and ever
 # after: there is NO refusal state. The spine stands on the user's OWN plan and
-# harness, never anyone's history.
+# guv, never anyone's history.
 #
 # THE SPINE = a quantity takeoff × a unit rate, both derived locally ──────────────
 #   quantity = the ratified sessions-per-deliverable (the [9.6] estimate sidecar)

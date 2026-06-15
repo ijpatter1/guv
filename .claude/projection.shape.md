@@ -11,14 +11,14 @@ the metering-log shape, and `status.json` as **published contract surface**.
 ## It is computed at n=0 and ever after — there is no refusal state
 
 The projection always answers. With zero landings it stands on the **structural
-spine** alone — the user's *own plan and harness*, never anyone's history. As
+spine** alone — the user's *own plan and guv*, never anyone's history. As
 landings accrue, local observed rates **blend in** and correct the structural
 assumption in flight. The structure is never discarded; history is a **weighted
 input**, never the foundation.
 
 ## The structural spine = a quantity takeoff × a unit rate
 
-Both halves are derived **locally** — from this control plane's plan and harness,
+Both halves are derived **locally** — from this control plane's plan and guv,
 never from foreign history.
 
 ### Quantity — ratified sessions over remaining work
