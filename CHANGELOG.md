@@ -5,6 +5,56 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.3.0 — 2026-06-14
+
+Minor release: the **[8.3] plan-as-data restructure** — the verb grammar ratified
+at [8.2] is applied across the surface. Breaking-while-0.x, so a minor bump per
+`maintainers/RELEASING.md`. Seven commands/skills/agents are renamed, `commands/`
+is flattened into `skills/`, three single-owner scripts are bundled into the skills
+that own them, three status/session surfaces become native hooks, and the legacy
+noun "harness" is retired in favor of `guv` (the product) and `core` (the installed
+machinery). `--sync` migrates already-synced consumers automatically where it can;
+the rest is in the migration notes below.
+
+### Changed
+
+- **Renames (the [8.2] verb grammar):** `/start-phase`→`/phase`,
+  `/plan-initiative`→`/plan`, `/resume`→`/next` (the provisional name retired),
+  `/evaluate`→`/eval`, `/log-feedback`→`/feedback`,
+  `/evaluate-parallel`→`/eval-parallel`, and the `product-reviewer` agent→`reviewer`
+  (`guv:product-reviewer`→`guv:reviewer`).
+- **Flatten:** the `.claude/commands/` tree is gone — every command is now a skill
+  under `.claude/skills/`. `--sync` prunes a consumer's stale `commands/`.
+- **Bundle:** `extract-eval-report.sh`, `feedback-submit.sh`, and
+  `check-citations.sh` move from top-level `.claude/` into the `scripts/` dir of the
+  owning skill (eval, feedback, status). `--sync` prunes the old top-level copies.
+- **Hooks:** session-open route/frontier surfacing and status-view regeneration
+  (status.html + the README status block) are now native SessionStart / PostToolUse
+  / post-commit hooks instead of hand-invoked steps.
+- **Noun retirement:** "harness" is retired across the surface — `guv` for the
+  product, `core` for the installed machinery — with the ratified Vocabulary block
+  placed in the README.
+
+### Migration notes for existing template-clone projects
+
+- **Skill/agent renames:** the old names (`/guv:start-phase`, `/guv:plan-initiative`,
+  `/guv:resume`, `/guv:evaluate`, `/guv:log-feedback`, `/guv:evaluate-parallel`,
+  `guv:product-reviewer`) no longer resolve — use the new names above. Update any
+  hand-written reference to an old skill or agent.
+- **`run-harness-tests.sh`→`run-core-tests.sh`:** the generated test runner is
+  renamed. `--sync` regenerates it under the new name, but a hand-written
+  `commands.test` in `.claude/project.json` that still names `run-harness-tests.sh`
+  breaks — point it at `run-core-tests.sh`.
+- **Post-commit hook marker `Harness-owned`→`Core-owned`:** migrated automatically —
+  `--sync` accepts the old marker and rewrites it. No action needed.
+- **`.gitignore` marker `guv-harness-gitignore`→`guv-gitignore`:** recognized
+  automatically — a re-scaffold/sync no longer duplicates the core block. No action
+  needed.
+- **CI job `harness-tests`→`core-tests`:** the maintainer workflow's job id is
+  renamed. A branch-protection required-status-check named `harness-tests` must be
+  updated in the repo's GitHub settings — a renamed check reads as a new,
+  unsatisfied one.
+
 ## 0.2.0 — 2026-06-14
 
 Minor release: the harness-hardening wave — eight additive capabilities groomed
