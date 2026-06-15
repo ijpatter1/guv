@@ -94,12 +94,36 @@ die() { echo "lane-dispatch: $2" >&2; exit "$1"; }
 # never matches a repo name, so single-repo stays a flat-path no-op (back-compat).
 # `assemble` takes FILE PATHS (containing / or .json), which never match a repo
 # name, so the peel is safe there too. Requires ≥2 args so a lone arg is not peeled.
-REPO=""; NS=""
+# A named map is exactly "the code root is an object" — `jq -e` on that predicate,
+# not a bare-string roots.code read, so the no-single-root-read invariant
+# (roots-map.test) is preserved (matches guv-lane.sh's _is_named_map).
+_is_named_map() {
+  [ -f "$ROOTS_MANIFEST" ] || return 1
+  jq -e '(.roots.code | type) == "object"' "$ROOTS_MANIFEST" >/dev/null 2>&1
+}
+REPO=""; NS=""; MISROUTE=""
 if [ $# -ge 2 ]; then
   _last="${!#}"
-  if _roots_is_repo_name "$_last"; then REPO="$_last"; NS="$REPO/"; set -- "${@:1:$#-1}"; fi
+  if _roots_is_repo_name "$_last"; then
+    REPO="$_last"; NS="$REPO/"; set -- "${@:1:$#-1}"
+  # On a NAMED-MAP plane the trailing token is the <repo> position; one that names
+  # no known repo is a MISROUTE, not a silent fall-through to the primary nor a
+  # silent lane-id (dispatching against the wrong code repo is the worst outcome —
+  # Rule 15, mirroring guv-lane.sh's MISROUTE). EXCEPT `assemble`, whose trailing
+  # arg is a FILE PATH, never a repo position — it is never misrouted. On a string
+  # roots.code this never fires, so single-repo stays a byte-identical no-op.
+  elif [ "$1" != "assemble" ] && _is_named_map; then
+    MISROUTE="$_last"
+  fi
 fi
 CODE=$(roots_code_path "$REPO") || die 4 "could not resolve code repo '${REPO:-<primary>}' from the manifest"
+# A misrouted trailing <repo> (named-map plane, names no known repo) is refused
+# loudly BEFORE any harvest, land, or mutation — route the offender through the
+# resolver, whose unknown-repo stop already names it and the known repos. For the
+# variadic `dispatch <id>… <repo>` this resolves the lane-id-vs-repo ambiguity the
+# way guv-lane does: on a named-map plane the trailing token is the repo position,
+# so an unknown one is a loud misroute, never a silently-treated lane id.
+[ -n "$MISROUTE" ] && { roots_code_path "$MISROUTE" >/dev/null; die 4 "unknown code repo '$MISROUTE' — see the resolver error above"; }
 git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
   || die 4 "no git repo at roots.code ($CODE)"
 

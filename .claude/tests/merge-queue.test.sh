@@ -375,6 +375,63 @@ OUT=$( ( cd "$P" && bash "$SCRIPT" gate-input 7.4 storefront ) 2>&1 ); RC=$?
   && ok "named gate-input: bundles the acceptance block for the namespaced lane" \
   || no "named gate-input must bundle the acceptance block (rc=$RC): $OUT"
 
+# T17 — MISROUTE: on a named-map plane an UNKNOWN trailing <repo> fails LOUD,
+# naming the offender, and mutates nothing — never a silent fall-through to the
+# primary (Rule 15; mirrors guv-lane.sh's MISROUTE). The acceptance: a misrouted
+# invocation fails loud rather than acting in the wrong place.
+NS_setup
+( cd "$P" && bash "$LANE" create 7.4 nsmis storefront ) >/dev/null 2>&1
+WT="$WORK/store/.worktrees/storefront/lane-7.4"
+printf 'landed-in-store\n' > "$WT/base.txt"
+git -C "$WT" add -A; git -C "$WT" -c user.email=t@t -c user.name=t commit -qm "feat: ns misroute"
+STORE_HEAD0=$(git -C "$WORK/store" rev-parse main)
+STUDIO_HEAD0=$(git -C "$WORK/studio" rev-parse main)
+# `land 7.4 typostore` — typostore is no known repo on the named map. Pre-fix the
+# token is not peeled, REPO stays empty, and land silently targets the PRIMARY
+# (storefront) — acting in a place the caller did not name. Post-fix it loud-stops.
+OUT=$( ( cd "$P" && bash "$SCRIPT" land 7.4 typostore ) 2>&1 ); RC=$?
+[ $RC -eq 4 ] \
+  && ok "misroute: an unknown trailing <repo> fails loud (exit 4) on a named-map plane" \
+  || no "an unknown trailing <repo> must fail loud with exit 4 (rc=$RC): $OUT"
+echo "$OUT" | grep -q "typostore" \
+  && ok "misroute: the loud stop NAMES the offending token (typostore)" \
+  || no "the misroute stop must name the offender: $OUT"
+echo "$OUT" | grep -qiE "storefront|studio|known" \
+  && ok "misroute: the stop also lists the known repos (resolver-routed)" \
+  || no "the misroute stop should list the known repos: $OUT"
+[ "$(git -C "$WORK/store" rev-parse main)" = "$STORE_HEAD0" ] \
+  && [ "$(git -C "$WORK/studio" rev-parse main)" = "$STUDIO_HEAD0" ] \
+  && ok "misroute: NOTHING mutated — neither the primary nor any repo advanced" \
+  || no "a misrouted invocation must mutate nothing (it acted in the wrong place)"
+# precheck/gate-input also loud-stop on the misroute (uniform across the verbs),
+# rather than tripping a bare arg-count usage error that doesn't name the offender.
+OUT=$( ( cd "$P" && bash "$SCRIPT" precheck 7.4 typostore ) 2>&1 ); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -q "typostore" \
+  && ok "misroute: precheck too fails loud naming the offender (exit 4)" \
+  || no "precheck must loud-stop on a misrouted <repo> (rc=$RC): $OUT"
+
+# T18 — single-repo (string roots.code) BACK-COMPAT: a trailing token is NEVER
+# peeled or rejected on a string plane — the misroute machinery is a named-map-only
+# concern, so single-repo stays a byte-identical no-op. A stray trailing token on a
+# string plane hits the per-verb arg-count usage error (exit 2), not a misroute (4).
+setup
+mklane create 7.4 bcland
+lanecommit 7.4 base.txt "bc" "feat: back-compat"
+OUT=$(run land 7.4); RC=$?
+[ $RC -eq 0 ] \
+  && ok "back-compat: a bare 'land <id>' on a string roots.code still lands (no peel)" \
+  || no "single-repo land must stay a no-op land (rc=$RC): $OUT"
+# A second positional on a STRING plane is a usage error (exit 2 from the verb's
+# arg-count check), NOT a named-map misroute (exit 4) — the string plane has no
+# repo names, so no token is ever treated as a repo position.
+setup
+mklane create 7.4 bcusage
+lanecommit 7.4 base.txt "bc2" "feat: bc2"
+OUT=$(run land 7.4 stray); RC=$?
+[ $RC -eq 2 ] \
+  && ok "back-compat: a stray token on a string plane is a usage error (exit 2), not a misroute (exit 4)" \
+  || no "single-repo must treat a stray token as usage (exit 2), never a misroute (rc=$RC): $OUT"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

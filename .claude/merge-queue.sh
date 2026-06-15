@@ -79,13 +79,35 @@ footprint_nums() {  # $1=branch -> "files insertions deletions"
 # (matching guv-lane.sh) and the lane lookup is forwarded to that repo. On a
 # string roots.code the trailing token never matches a repo name, so single-repo
 # stays a flat-path no-op (back-compat). Peel it off $@ before the verb dispatch.
+# A named map is exactly "the code root is an object" — `jq -e` on that predicate,
+# not a bare-string roots.code read, so the no-single-root-read invariant
+# (roots-map.test) is preserved (matches guv-lane.sh's _is_named_map).
+_is_named_map() {
+  [ -f "$ROOTS_MANIFEST" ] || return 1
+  jq -e '(.roots.code | type) == "object"' "$ROOTS_MANIFEST" >/dev/null 2>&1
+}
 [ $# -ge 1 ] || die 2 "usage: bash .claude/merge-queue.sh precheck <id> [<repo>] | preview <id>… [<repo>] | gate-input <id> [<repo>] | land <id> [<repo>]"
-REPO=""; NS=""
+REPO=""; NS=""; MISROUTE=""
 if [ $# -ge 2 ]; then
   _last="${!#}"
-  if _roots_is_repo_name "$_last"; then REPO="$_last"; NS="$REPO/"; set -- "${@:1:$#-1}"; fi
+  if _roots_is_repo_name "$_last"; then
+    REPO="$_last"; NS="$REPO/"; set -- "${@:1:$#-1}"
+  elif _is_named_map; then
+    # On a NAMED-MAP plane the trailing token is the <repo> position; one that
+    # names no known repo is a MISROUTE, not a silent fall-through to the primary
+    # (a land/precheck against the wrong code repo is the worst outcome — Rule 15,
+    # mirroring guv-lane.sh's MISROUTE). On a string roots.code this never fires,
+    # so single-repo stays a byte-identical no-op. Loud-stop AFTER CODE resolves,
+    # routing the offender through the resolver so its message names the offender
+    # AND the known repos (one owner, no inline roots.code read here).
+    MISROUTE="$_last"
+  fi
 fi
 CODE=$(roots_code_path "$REPO") || die 4 "could not resolve code repo '${REPO:-<primary>}' from the manifest"
+# A misrouted trailing <repo> (named-map plane, names no known repo) is refused
+# loudly BEFORE any verb dispatch or mutation — route it through the resolver,
+# whose unknown-repo stop already names the offender and the known repos.
+[ -n "$MISROUTE" ] && { roots_code_path "$MISROUTE" >/dev/null; die 4 "unknown code repo '$MISROUTE' — see the resolver error above"; }
 git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
   || die 4 "no git repo at roots.code ($CODE)"
 

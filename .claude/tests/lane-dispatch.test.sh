@@ -502,6 +502,73 @@ TRK1=$(md5 -q "$P/docs/PHASE_STATUS.md" 2>/dev/null || md5sum "$P/docs/PHASE_STA
   || no "the tracker must be untouched"
 ( cd "$P" && bash "$LANE" destroy 7.A --force storefront ) >/dev/null 2>&1
 
+# T20 — MISROUTE: on a named-map plane an UNKNOWN trailing <repo> fails LOUD,
+# naming the offender, and mutates nothing — never a silent fall-through to the
+# primary, never a silently-treated lane id (Rule 15; mirrors guv-lane.sh's
+# MISROUTE). The acceptance: a misrouted dispatch fails loud rather than acting in
+# the wrong place. dispatch's variadic lane-ids make the trailing token genuinely
+# ambiguous; on a named-map plane the repo position wins (an unknown token there is
+# a loud misroute, not a quiet skip).
+NS_setup
+( cd "$P" && bash "$LANE" create 7.A nsmis storefront ) >/dev/null 2>&1
+ns_laneexec 7.A "A-change" ok CHANGELOG.md
+STORE_HEAD0=$(git -C "$WORK/store" rev-parse main)
+STUDIO_HEAD0=$(git -C "$WORK/studio" rev-parse main)
+# `dispatch 7.A typostore` — typostore names no known repo. Pre-fix the token is
+# not peeled, REPO stays empty, and `7.A typostore` are both treated as lane ids:
+# typostore is an unknown lane → quietly SKIPPED, and 7.A lands in the PRIMARY the
+# caller never named. Post-fix the named-map repo position loud-stops on typostore.
+OUT=$(nsrun dispatch 7.A typostore); RC=$?
+[ $RC -eq 4 ] \
+  && ok "misroute: dispatch with an unknown trailing <repo> fails loud (exit 4) on a named-map plane" \
+  || no "dispatch with an unknown <repo> must fail loud with exit 4 (rc=$RC): $OUT"
+echo "$OUT" | grep -q "typostore" \
+  && ok "misroute: the loud stop NAMES the offending token (not a quiet skip)" \
+  || no "the misroute stop must name the offender: $OUT"
+echo "$OUT" | grep -qiE "storefront|studio|known" \
+  && ok "misroute: the stop also lists the known repos (resolver-routed)" \
+  || no "the misroute stop should list the known repos: $OUT"
+[ "$(git -C "$WORK/store" rev-parse main)" = "$STORE_HEAD0" ] \
+  && [ "$(git -C "$WORK/studio" rev-parse main)" = "$STUDIO_HEAD0" ] \
+  && ok "misroute: NOTHING landed — neither the primary nor any repo advanced" \
+  || no "a misrouted dispatch must mutate nothing (it acted in the wrong place)"
+# confine/harvest too: a misrouted single-verb invocation loud-stops naming the
+# offender, rather than silently resolving against the primary.
+OUT=$(nsrun confine 7.A typostore); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -q "typostore" \
+  && ok "misroute: confine too fails loud naming the offender (exit 4)" \
+  || no "confine must loud-stop on a misrouted <repo> (rc=$RC): $OUT"
+
+# T21 — single-repo (string roots.code) BACK-COMPAT: a trailing token is NEVER
+# peeled or rejected on a string plane — the misroute machinery is a named-map-only
+# concern, so single-repo stays a byte-identical no-op. A multi-lane dispatch on a
+# string plane still treats every arg as a lane id (no repo position exists), and a
+# stray single-verb token is the per-verb usage error (exit 2), never a misroute (4).
+setup
+mklane create 7.A bcsolo; laneexec 7.A base.txt "A-bc" ok
+OUT=$(run dispatch 7.A); RC=$?
+[ $RC -eq 0 ] && echo "$OUT" | grep -q "landed=\[7.A\]" \
+  && ok "back-compat: a bare 'dispatch <id>' on a string roots.code still lands (no peel)" \
+  || no "single-repo dispatch must stay a no-op dispatch (rc=$RC): $OUT"
+# `dispatch 7.A 7.B` on a STRING plane: both are lane ids (7.B unknown → skipped),
+# NOT a misroute — the string plane has no repo names, so no token is ever a repo
+# position. This is the T13 multi-id contract; assert it is byte-identical here.
+setup
+mklane create 7.A bcmulti; laneexec 7.A base.txt "A-bc2" ok
+OUT=$(run dispatch 7.A 7.B); RC=$?
+echo "$OUT" | grep -qiE "7.B.*skip|skip.*7.B|unknown-skipped=1" \
+  && git -C "$CODE" log --oneline main | grep -q "lane 7.A work" \
+  && ok "back-compat: a string-plane multi-id dispatch skips the unknown id (no misroute), the valid lane lands" \
+  || no "single-repo multi-id dispatch must skip unknown ids, never misroute (out: $OUT)"
+# confine with a stray second positional on a string plane is a usage error (exit
+# 2), NOT a named-map misroute (exit 4).
+setup
+mklane create 7.A bcusage; laneexec 7.A base.txt "A-bc3" ok
+OUT=$(run confine 7.A stray); RC=$?
+[ $RC -eq 2 ] \
+  && ok "back-compat: a stray token on a string plane is a usage error (exit 2), not a misroute (exit 4)" \
+  || no "single-repo must treat a stray token as usage (exit 2), never a misroute (rc=$RC): $OUT"
+
 # ── T14 — .lane-reports/ is gitignored in the guv-core block (no scratch leak) ──
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
 if grep -q '^# guv-core-start' "$ROOT/.gitignore" 2>/dev/null; then
