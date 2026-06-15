@@ -49,8 +49,84 @@ J=$(propose "$RS")
 [ "$(field "$J" .commands.install)" = null ]         && ok "rust: install null" || no "rust: install"
 
 # ── no recognizable stack → exit 2 ─────────────────────────────────────────
+# A bare directory — no stack of its own AND no control-plane marker — is still the
+# undetectable case (exit 2). The split detection below must NOT swallow this:
+# it keys on a real control-plane STRUCTURE (a stackless .claude/ plane carrying
+# the run-core-tests.sh marker beside a single stack-bearing sibling), not on
+# "stackless" alone and not on the dir's name.
 mkdir -p "$WORK/empty"
 ( bash "$RESOLVER" "$WORK/empty" >/dev/null 2>&1 ); [ $? -eq 2 ] && ok "no-stack: exit 2" || no "no-stack: expected exit 2"
+
+# ── control-plane / code split detection ([11.4]) ───────────────────────────
+# A control plane (setup-control-plane.sh's <project>-guv) carries the guv core in
+# .claude/ but has NO code stack of its own — the code lives in a sibling repo.
+# Pointed at the control root, the resolver used to either exit 2 (no stack here)
+# or — pointed at the sibling — propose roots.code='.' (single-repo, blind to the
+# split). It must instead detect the split: resolve the stack FROM the sibling, and
+# emit roots.code pointing at it with commands resolved from it.
+#
+# Detection is STRUCTURAL, never name-based: the resolver may not re-derive the
+# <project>-guv convention by name (docs-sweep T6 — the manifest is the sole
+# machine pointer). The structural marker is .claude/run-core-tests.sh, which
+# setup-control-plane.sh writes into every control plane and into no code repo.
+# The fixture is faithful to that: a control plane is a stackless .claude/ dir
+# carrying that marker, beside exactly one stack-bearing sibling.
+mk_control_plane() { mkdir -p "$1/.claude"; : > "$1/.claude/run-core-tests.sh"; }  # the structural marker
+SPLIT="$WORK/split"; mkdir -p "$SPLIT/widget"; mk_control_plane "$SPLIT/widget-guv"
+printf '[package]\nname="widget"\n' > "$SPLIT/widget/Cargo.toml"     # the code half (a real stack)
+# the control half: a marked, stackless .claude/ plane
+J=$(propose "$SPLIT/widget-guv")
+# (a) NOT exit 2 — the split is detected, a proposal is produced
+[ -n "$J" ] && ok "split: control root yields a proposal (not exit 2)" \
+  || no "split: control root produced no proposal (regressed to exit 2)"
+# (b) roots.code points at the sibling code repo, NOT '.'
+[ "$(field "$J" .roots.code)" = "../widget" ] \
+  && ok "split: roots.code → sibling (../widget), not '.'" \
+  || no "split: roots.code must be '../widget' (got '$(field "$J" .roots.code)')"
+# (c) roots.control stays the control plane itself ('.')
+[ "$(field "$J" .roots.control)" = "." ] \
+  && ok "split: roots.control stays '.'" \
+  || no "split: roots.control must be '.' (got '$(field "$J" .roots.control)')"
+# (d) commands are resolved from the SIBLING's stack (rust), not absent
+[ "$(field "$J" .language)" = rust ] \
+  && ok "split: language resolved from sibling (rust)" \
+  || no "split: language must be rust from sibling (got '$(field "$J" .language)')"
+[ "$(field "$J" .commands.test)" = "cargo test" ] \
+  && ok "split: commands.test resolved from sibling (cargo test)" \
+  || no "split: commands.test must be 'cargo test' from sibling (got '$(field "$J" .commands.test)')"
+# (e) the split proposal still validates: no undeclared keys, roots present
+echo "$J" | jq -e '.roots | has("control") and has("code")' >/dev/null \
+  && ok "split: roots object well-formed" || no "split: roots object malformed"
+UNKNOWN_SPLIT=$(comm -23 <(echo "$J" | jq -r 'keys[]' | sort) <(jq -r '.properties|keys[]' "$SCHEMA" | sort))
+[ -z "$UNKNOWN_SPLIT" ] && ok "split: no undeclared top-level keys" || no "split: undeclared top-level: $UNKNOWN_SPLIT"
+
+# (f) a GENUINE single-repo with a stack of its own is unchanged — roots.code='.'.
+# This is the discriminator: detection must NOT fire just because a sibling
+# exists; it fires only for a stackless control plane. A repo that HAS a stack
+# resolves itself, single-repo, exactly as today (the rust/node/python cases
+# above already assert roots.code via the schema default '.', re-pinned here).
+[ "$(field "$(propose "$RS")" .roots.code)" = "." ] \
+  && ok "single-repo: stack-bearing repo stays roots.code='.' (split detection does not over-fire)" \
+  || no "single-repo: a stack-bearing repo must stay roots.code='.' (got '$(field "$(propose "$RS")" .roots.code)')"
+
+# (g) detection is STRUCTURAL, not NAME-based — the load-bearing discriminator.
+# A '-guv'-named dir that LACKS the run-core-tests.sh marker must NOT be treated
+# as a control plane (it would exit 2); and a control plane bearing the marker
+# must be detected REGARDLESS of its name. A regression to name-parsing fails one
+# of these two.
+#   (g1) '-guv' name but no marker → undetectable (exit 2), not a false split.
+NAMED="$WORK/named-nomarker"; mkdir -p "$NAMED/thing" "$NAMED/thing-guv/.claude"
+printf '[package]\nname="thing"\n' > "$NAMED/thing/Cargo.toml"
+( bash "$RESOLVER" "$NAMED/thing-guv" >/dev/null 2>&1 ); [ $? -eq 2 ] \
+  && ok "split: '-guv' name without the marker does NOT fire (structural, not name-based)" \
+  || no "split: a '-guv' name alone must not be treated as a control plane (exit 2 expected)"
+#   (g2) marker present but NON-'-guv' name → still detected (name is irrelevant).
+PLAIN="$WORK/plain-marker"; mkdir -p "$PLAIN/app"; mk_control_plane "$PLAIN/ops"
+printf '[package]\nname="app"\n' > "$PLAIN/app/Cargo.toml"
+JG=$(propose "$PLAIN/ops")
+[ "$(field "$JG" .roots.code)" = "../app" ] \
+  && ok "split: marker on a non-'-guv'-named dir is still detected (roots.code=../app)" \
+  || no "split: detection must key on the marker, not the name (got roots.code '$(field "$JG" .roots.code)')"
 
 # ── ceremony detection ([10.7]): onboard adopts an already-phased repo ───────
 # The resolver keys ceremony on the TARGET repo's tracker grammar, not a

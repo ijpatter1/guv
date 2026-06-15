@@ -22,9 +22,69 @@ if [ ! -d "$DIR" ]; then
   exit 1
 fi
 
-has() { [ -e "$DIR/$1" ]; }
+# TARGET is the directory whose STACK we resolve; ROOT_CODE is what we propose for
+# roots.code (relative to the control plane = DIR). For a single repo these are the
+# same place: TARGET=DIR, ROOT_CODE=".". For a control-plane/code split ([11.4])
+# DIR is the stackless control plane and TARGET is its sibling code repo, so the
+# stack is sniffed from the sibling while ROOT_CODE points at it.
+TARGET="$DIR"
+ROOT_CODE="."
+
+has() { [ -e "$TARGET/$1" ]; }
 # glob existence (e.g. *.csproj)
-hasglob() { compgen -G "$DIR/$1" >/dev/null 2>&1; }
+hasglob() { compgen -G "$TARGET/$1" >/dev/null 2>&1; }
+
+# Does the given directory carry a recognizable code stack? (a manifest/lockfile any
+# of the language branches below keys on). Used to tell a real code repo from a
+# stackless control plane, without duplicating the per-language probe logic.
+has_stack() {
+  local d="$1"
+  [ -e "$d/package.json" ] || [ -e "$d/pyproject.toml" ] || [ -e "$d/requirements.txt" ] \
+    || [ -e "$d/Cargo.toml" ] || [ -e "$d/go.mod" ] || [ -e "$d/Gemfile" ] \
+    || [ -e "$d/pom.xml" ] || [ -e "$d/build.gradle" ] || [ -e "$d/build.gradle.kts" ] \
+    || [ -e "$d/mix.exs" ] \
+    || compgen -G "$d/*.csproj" >/dev/null 2>&1 || compgen -G "$d/*.sln" >/dev/null 2>&1
+}
+
+# ── Control-plane / code split detection ([11.4]) ───────────────────────────
+# A control plane (created by setup-control-plane.sh) carries the guv core in
+# .claude/ but has NO code stack of its own — its code lives in a SIBLING repo.
+# Pointed at such a control root the resolver would otherwise exit 2 (no stack
+# here). Detect the split deterministically from STRUCTURE, never from the dir's
+# NAME: scripts must not re-derive the control-plane naming convention (which
+# setup-control-plane.sh owns) by name — the manifest is the sole machine pointer,
+# and name-based discovery is banned (docs-sweep T6). The structural marker is
+# unambiguous: setup-control-plane.sh writes .claude/run-core-tests.sh into EVERY
+# control plane and into NO code repo (it is not part of the core that ships into
+# .claude/), so its presence — over a
+# stackless .claude/ dir — means "this is a control plane." That tells us a split
+# exists; the code repo is then the SIBLING that carries a stack. To stay
+# deterministic (rule 12 — no judgment) we retarget only when EXACTLY ONE sibling
+# bears a stack; zero or several is ambiguous and falls through to the exit-2 loud
+# stop (rule 15) rather than guessing. A DIR with its own stack is a single repo
+# and never enters this branch, so a stack-bearing repo that merely sits beside
+# others is untouched.
+DIR_ABS="$(cd "$DIR" && pwd)"
+if ! has_stack "$DIR" && [ -d "$DIR/.claude" ] && [ -f "$DIR/.claude/run-core-tests.sh" ]; then
+  # Find the sibling(s) that carry a code stack. Iterate immediate siblings of the
+  # control plane (its parent's children, minus itself) — a structural scan, not a
+  # name match. Collect every stack-bearing sibling so we can require exactly one.
+  PARENT="$(cd "$DIR_ABS/.." && pwd)"
+  declare -a CODE_SIBS=()
+  for sib in "$PARENT"/*/; do
+    sib="${sib%/}"
+    [ "$sib" = "$DIR_ABS" ] && continue          # skip the control plane itself
+    has_stack "$sib" && CODE_SIBS+=("$sib")
+  done
+  if [ "${#CODE_SIBS[@]}" -eq 1 ]; then
+    SIBLING="${CODE_SIBS[0]}"
+    TARGET="$SIBLING"
+    # roots.code is the relative path from the control plane to the code repo —
+    # the same shape setup-control-plane.sh writes (os.path.relpath).
+    ROOT_CODE="../$(basename "$SIBLING")"
+    log "Detected a control-plane/code split: '$(basename "$DIR_ABS")' is a stackless control plane (run-core-tests.sh present); resolving the stack from sibling code repo '$(basename "$SIBLING")'."
+  fi
+fi
 
 LANGUAGE=""
 PACKAGE_MANAGER="null"
@@ -167,13 +227,25 @@ if [ -f "$RESOLVER" ]; then
   # The resolver exits non-zero for no-tracker (4) and MALFORMED (5); capture its
   # code without tripping `set -e` (the && true / || RRC=$? guard keeps the line's
   # own status 0 while RRC carries the resolver's exit).
+  # In a split the plan lives in the CODE repo (TARGET), not the control plane;
+  # for a single repo TARGET==DIR, so this is the same tracker as before.
   RRC=0
-  RES=$(bash "$RESOLVER" "$DIR/docs/PHASE_STATUS.md" 2>/dev/null) && true || RRC=$?
+  RES=$(bash "$RESOLVER" "$TARGET/docs/PHASE_STATUS.md" 2>/dev/null) && true || RRC=$?
   if [ "$RRC" -eq 0 ] && printf '%s\n' "$RES" | grep -qx 'mode=GRAMMAR'; then
     CEREMONY="phased"
   elif [ "$RRC" -eq 5 ]; then
-    MALFORMED_TRACKER="$DIR/docs/PHASE_STATUS.md"
+    MALFORMED_TRACKER="$TARGET/docs/PHASE_STATUS.md"
   fi
+fi
+
+# In a split, every command and check runs with cwd = the control plane (DIR), not
+# the code repo (TARGET) — the manifest contract (schema, roots.code doc). So the
+# scaffoldCheck ("does the project exist") must look under roots.code, not cwd: a
+# bare `test -f Cargo.toml` would always fail from the control plane. Mirror
+# setup-control-plane.sh's split manifest, which keys scaffoldCheck on the code
+# repo. Single repo (ROOT_CODE='.') leaves the detected check untouched.
+if [ "$ROOT_CODE" != "." ] && [ -n "$SCAFFOLD_CHECK" ]; then
+  SCAFFOLD_CHECK="test -d \"$ROOT_CODE/.claude\" && (cd \"$ROOT_CODE\" && { $SCAFFOLD_CHECK; })"
 fi
 
 # ── Build the proposed manifest JSON ────────────────────────────────────────
@@ -181,7 +253,7 @@ FMT_JSON=$(printf '%s\n' "${FMT_EXT[@]}" | jq -R . | jq -s .)
 GUARDS_JSON=$(if [ ${#GUARDS[@]} -eq 0 ]; then echo '[]'; else printf '%s\n' "${GUARDS[@]}" | jq -R . | jq -s .; fi)
 
 jq -n \
-  --arg name "$(basename "$(cd "$DIR" && pwd)")" \
+  --arg name "$(basename "$(cd "$TARGET" && pwd)")" \
   --arg language "$LANGUAGE" \
   --argjson packageManager "$(jstr "$PACKAGE_MANAGER")" \
   --argjson test "$(jstr "$CMD_TEST")" \
@@ -195,12 +267,13 @@ jq -n \
   --argjson formatExtensions "$FMT_JSON" \
   --argjson guards "$GUARDS_JSON" \
   --arg ceremony "$CEREMONY" \
+  --arg code "$ROOT_CODE" \
   '{
     "$schema": "./project.schema.json",
     name: $name,
     language: $language,
     packageManager: $packageManager,
-    roots: { control: ".", code: "." },
+    roots: { control: ".", code: $code },
     commands: { test: $test, build: $build, lint: $lint, format: $format, dev: $dev, install: $install },
     scaffoldCheck: $scaffoldCheck,
     readyCheck: $readyCheck,
