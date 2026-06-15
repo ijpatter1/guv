@@ -215,6 +215,48 @@ git -C "$CODE" log --oneline main | grep -q "feat: A edits line1" \
   && ok "land: a routed-out lane still harvests (usable for re-dispatch)" \
   || no "a routed-out lane must remain harvestable"
 
+# ── T9c — the heavy-conflict path EMITS a conflict-routed burn profile ([9.4]) ──
+# The deliverable: the conflict path — the most diagnostically interesting retry
+# case — owes a cost-and-performance burn profile, attributed to the routed-out
+# lane with dispatch_outcome = conflict-routed, reusing the footprint the queue
+# snapshotted BEFORE the rebase (the same gate number, never recomputed). Like the
+# harvest-refused burn profile, it is EMITTED (printed in the conflict output) and
+# must NOT append a phantom landing to the metering log — a refused lane never landed.
+setup
+mklane create 7.4 confbA
+lanecommit 7.4 shared.txt "$(printf 'A-EDIT\nbeta\ngamma\n')" "feat: A edits line1"
+mklane create 7.5 confbB
+lanecommit 7.5 shared.txt "$(printf 'B-EDIT\nbeta\ngamma\n')" "feat: B edits line1"
+run land 7.4 >/dev/null 2>&1   # land the clean lane first
+LOG_BEFORE=$( [ -f "$P/.claude/metering/metering.ndjson" ] && wc -l < "$P/.claude/metering/metering.ndjson" | tr -d ' ' || echo 0 )
+OUT=$(run land 7.5); RC=$?
+[ $RC -eq 7 ] || no "precondition: the conflicted lane must route out (exit 7), got rc=$RC: $OUT"
+echo "$OUT" | grep -qiE 'burn profile|burn_profile' \
+  && ok "burn: the conflict output carries a burn-profile section ([9.4])" \
+  || no "the heavy-conflict path must surface a burn-profile section: $OUT"
+# the embedded burn profile is the queue-boundary shape, attributed to the routed-out
+# lane, tagged conflict-routed, carrying the gate's footprint (reused, not recomputed).
+BURN=$(echo "$OUT" | grep -oE '\{"schema":"guv\.meter\.queue\.v1".*\}' | head -1)
+[ -n "$BURN" ] || BURN='{}'
+echo "$BURN" | jq -e '.schema == "guv.meter.queue.v1"' >/dev/null 2>&1 \
+  && ok "burn: the conflict path emits a guv.meter.queue.v1 entry" \
+  || no "the conflict burn profile must be a queue-boundary entry, got: $BURN"
+echo "$BURN" | jq -e '.deliverable_id == "7.5"' >/dev/null 2>&1 \
+  && ok "burn: the conflict burn profile is attributed to the routed-out lane (7.5)" \
+  || no "the conflict burn profile must be attributed to the routed-out lane, got: $(echo "$BURN" | jq -c '.deliverable_id')"
+echo "$BURN" | jq -e '.dispatch_outcome == "conflict-routed"' >/dev/null 2>&1 \
+  && ok "burn: the conflict burn profile records the routed outcome (conflict-routed)" \
+  || no "the conflict burn profile must record dispatch_outcome conflict-routed, got: $(echo "$BURN" | jq -c '.dispatch_outcome')"
+echo "$BURN" | jq -e '.footprint | has("files") and has("insertions") and has("deletions")' >/dev/null 2>&1 \
+  && ok "burn: the conflict burn profile carries the gate's diff footprint (reused, snapshotted pre-rebase)" \
+  || no "the conflict burn profile must carry the diff footprint, got: $(echo "$BURN" | jq -c '.footprint')"
+# APPEND-ONLY guarantee: a routed-out lane never lands, so its burn profile must NOT
+# append a line to the metering log (the log records LANDINGS, not refusals/routes).
+LOG_AFTER=$( [ -f "$P/.claude/metering/metering.ndjson" ] && wc -l < "$P/.claude/metering/metering.ndjson" | tr -d ' ' || echo 0 )
+[ "$LOG_BEFORE" = "$LOG_AFTER" ] \
+  && ok "burn: a routed-out lane's burn profile does not write the metering log (no phantom landing)" \
+  || no "a routed-out lane must not append to the metering log (before=$LOG_BEFORE after=$LOG_AFTER)"
+
 # ── T10 — corrupt manifest is a loud error before any queue op (Rule 15) ──
 PC="$WORK/corrupt"; mkdir -p "$PC/.claude"
 echo '{not json' > "$PC/.claude/project.json"

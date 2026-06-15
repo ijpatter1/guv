@@ -225,6 +225,23 @@ case "$VERB" in
       echo "land=refused lane=$ID reason=heavy-conflict (rebase onto $INTEG conflicts)"
       echo "conflict-as-DAG-lint: land the lane it collides with first, then re-dispatch [$ID] serially."
       echo "Proposed: /replan (/guv:replan under the plugin) deps-amend [$ID] — add the conflicting deliverable as a dep so the queue serializes them (the model improvises the repair, never the route)."
+      # Burn profile ([9.4]): the routed-out lane is the most diagnostically
+      # interesting retry case, so surface its cost-and-performance entry —
+      # dispatch_outcome=conflict-routed, the footprint snapshotted BEFORE the rebase
+      # (reused, never recomputed; the rebase that just aborted moved no base), and
+      # wallclock 0 (a routed lane never landed, so there is no land wall-clock to
+      # measure). `emit` PRINTS the entry — it does NOT append to the metering log:
+      # the log records LANDINGS, and a refused lane owes no log line (same rule as
+      # the harvest-refused burn profile in lane-dispatch.sh). Best-effort: a metering
+      # hiccup must never change the route (the lane is already refused; Rule 15).
+      if [ -f "$METER_QUEUE" ]; then
+        echo "burn profile (queue-boundary cost-and-performance, [9.4]) — diagnostic input to the retry (not a landing; never written to the metering log):"
+        bash "$METER_QUEUE" emit \
+          --deliverable "$ID" --outcome conflict-routed \
+          --files "$LF_F" --insertions "$LF_I" --deletions "$LF_D" --wallclock 0 \
+          2>/dev/null \
+          || echo "merge-queue: note — burn profile unavailable (lane still routed out; metering is non-fatal exhaust)" >&2
+      fi
       exit 7
     fi
     # The lane now fast-forwards onto integration; advance it in the main worktree.
@@ -238,7 +255,7 @@ case "$VERB" in
     # wall-clock, and dispatch_outcome=landed; tokens are harvested by the writer.
     # BEST-EFFORT and NON-FATAL: the land already succeeded and metering is exhaust
     # — a metering hiccup must never fail a real land (Rule 15 designed degradation).
-    if [ -x "$METER_QUEUE" ] || [ -f "$METER_QUEUE" ]; then
+    if [ -f "$METER_QUEUE" ]; then
       bash "$METER_QUEUE" capture \
         --deliverable "$ID" --outcome landed \
         --files "$LF_F" --insertions "$LF_I" --deletions "$LF_D" \
