@@ -195,6 +195,15 @@ fi
 # its product-category sense is load-bearing and kept (pinned in release.test.sh),
 # so retiring only the docs-directory sense is judgment-verified per file, not
 # assertable by a blanket grep. The list grows as the sweep lands.
+#
+# Backward-compat exception ([8.3] stage 6): the migration shims that update
+# already-deployed consumers must NAME the pre-retirement markers they migrate
+# FROM. Those are fixed legacy-token identifiers carried in consumer artifacts,
+# not prose uses of the retired noun — a line referencing one is an allowed
+# backward-compat citation, matched as the exact hyphenated token so a bare
+# "harness" still fails. Closed set, grown as each shim lands:
+#   Harness-owned   — pre-[8.3] post-commit-hook ownership marker (setup-control-plane.sh)
+LEGACY_MARKER_RE='Harness-owned'
 SWEPT_HARNESS_FREE="
 .claude/rules/guv-codebase-respect.md
 .claude/rules/guv-context-and-llm-use.md
@@ -249,18 +258,20 @@ for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"
   if [ ! -f "$f" ]; then
     no "vocab guard: listed surface missing: $rel"
-  elif grep -niw 'harness' "$f" >/dev/null 2>&1; then
-    no "retired noun 'harness' survives in $rel ($(grep -ciw harness "$f") hit) — first: $(grep -niw harness "$f" | head -1 | cut -c1-72)"
+  elif grep -niw 'harness' "$f" 2>/dev/null | grep -qvE "$LEGACY_MARKER_RE"; then
+    no "retired noun 'harness' survives in $rel ($(grep -niw harness "$f" | grep -cvE "$LEGACY_MARKER_RE") hit) — first: $(grep -niw harness "$f" | grep -vE "$LEGACY_MARKER_RE" | head -1 | cut -c1-72)"
   else
     ok "vocabulary: $rel free of 'harness'"
   fi
 done
 
-# T10 — whole-tree backstop ([8.3] stage 5). "harness" is retired everywhere; the
-# only permitted occurrences are this guard itself (the grep pattern above),
-# CHANGELOG.md (release history), and the README's two Anthropic-citation lines
-# (an external article title + URL). Anything else is a sweep miss or a regression.
-BACKSTOP=$(cd "$ROOT" && git grep -Il -i harness -- ':!plugin/' ':!.claude/tests/docs-sweep.test.sh' ':!CHANGELOG.md' ':!README.md' 2>/dev/null)
+# T10 — whole-tree backstop ([8.3] stage 5; legacy-marker exception added stage 6).
+# "harness" is retired everywhere; the only permitted occurrences are this guard
+# itself (the grep pattern above), CHANGELOG.md (release history), the README's two
+# Anthropic-citation lines (an external article title + URL), and the named legacy
+# markers the stage-6 migration shims grep for (LEGACY_MARKER_RE, filtered below).
+# Anything else is a sweep miss or a regression.
+BACKSTOP=$(cd "$ROOT" && git grep -In -i harness -- ':!plugin/' ':!.claude/tests/docs-sweep.test.sh' ':!CHANGELOG.md' ':!README.md' 2>/dev/null | grep -vE "$LEGACY_MARKER_RE")
 if [ -z "$BACKSTOP" ]; then
   ok "whole-tree backstop: no retired 'harness' outside the allowlist"
 else

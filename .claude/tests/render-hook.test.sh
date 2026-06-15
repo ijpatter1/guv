@@ -305,6 +305,19 @@ bash "$H/maintainers/setup-control-plane.sh" "$CP" --sync > "$WORK/sync2.log" 2>
   && ok "sync: absent hook is NOT created on --sync (consumer protection)" \
   || no "--sync must never hand a project a git hook it didn't have"
 
+# ── T8c — legacy ownership-marker migration: a consumer hook stamped with the
+# pre-[8.3] `Harness-owned` marker must still be recognized as guv-owned,
+# refreshed, and rewritten with the NEW `Core-owned` marker. Without this every
+# already-synced consumer (incl. guv-guv) reads its own hook as foreign and
+# freezes it at the pre-retirement version forever — the noun retirement orphans
+# the very consumers --sync exists to update.
+printf '#!/bin/bash\n# Harness-owned (legacy drifted fixture)\n' > "$HOOK"; chmod +x "$HOOK"
+bash "$H/maintainers/setup-control-plane.sh" "$CP" --sync > "$WORK/sync-legacy.log" 2>&1
+grep -q 'Core-owned' "$HOOK" && ! grep -q 'Harness-owned' "$HOOK" \
+  && grep -qi 'refreshed' "$WORK/sync-legacy.log" \
+  && ok "migrate: legacy Harness-owned hook recognized, refreshed, rewritten Core-owned" \
+  || no "--sync must migrate a legacy Harness-owned hook to the Core-owned marker (not freeze it as foreign)"
+
 # ── T9 — a foreign (non-core-owned) hook is never clobbered, in either mode.
 printf '#!/bin/bash\n# my own hook\n' > "$HOOK"; chmod +x "$HOOK"
 bash "$H/maintainers/setup-control-plane.sh" "$CP" --sync > "$WORK/sync3.log" 2>&1

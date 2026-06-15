@@ -212,7 +212,12 @@ write_render_hook() {
     # git hook must not be handed one (T8 pins the no-creation contract).
     return 0
   fi
-  if [ -f "$target" ] && ! grep -q 'Core-owned' "$target"; then
+  # Recognize the pre-[8.3] `Harness-owned` marker too: the noun retirement
+  # renamed it to `Core-owned`, and an already-synced consumer carries the old
+  # stamp on a hook this generator wrote. Accepting either keeps --sync able to
+  # update those consumers (the refresh below rewrites it with the new marker);
+  # matching only the new name would orphan every plane synced before [8.3].
+  if [ -f "$target" ] && ! grep -qE 'Core-owned|Harness-owned' "$target"; then
     echo "[setup] .git/hooks/post-commit exists and is not core-owned — left untouched (the render hook was not installed)"
     return 0
   fi
