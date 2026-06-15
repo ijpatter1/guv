@@ -315,7 +315,7 @@ later — consumes this JSON and never parses the tracker. Changing the shape
 pays contract cost.
 
 **Contract version ([10.1]):** the shape carries a `contract_version` integer
-(currently `1`) as its leading field — the single negotiation surface a
+(currently `2`) as its leading field — the single negotiation surface a
 breaking change has with external consumers. It is the published surface's
 version marker, the same number documented in the JSON example below and
 emitted by `resolve-ready.sh --json`; the tracker grammar and the status.json
@@ -323,7 +323,10 @@ shape version together (one parser, one version). A semantic-only change (like
 [7.6]'s frontier widening) does **not** bump it — only a breaking shape or
 grammar change does, at which point the bump is the consumer's signal to
 re-read. The downstream manifest contract change (the multi-repo `roots.code`
-map) takes the first bump on this marker.
+map — [11.2]) took the first bump on this marker, `1` → `2`: `roots.code`
+became a string-or-named-map (a string is the single-repo shorthand), a
+breaking manifest-contract change the published-contract family versions
+through this one number.
 
 [7.6] changed frontier *semantics* with the shape structurally unchanged:
 `ready`/`blocked` widened from current-phase to all phases, and `phase`
@@ -341,10 +344,11 @@ documented shape, never re-derive it.
 
 ```json
 {
-  "contract_version": 1,                    // published-surface version ([10.1]);
+  "contract_version": 2,                    // published-surface version ([10.1]);
                                             //   bump only on a breaking shape or
                                             //   grammar change — the negotiation
                                             //   surface for external consumers
+                                            //   (v2: [11.2] roots.code named map)
   "generated": "2026-06-12T14:57:21Z",      // ISO-8601 UTC stamp
   "mode": "GRAMMAR",                        // or "LEGACY"
   "phase": 6,                               // first open phase (reporting only);

@@ -65,16 +65,14 @@ footprint_nums() {  # $1=branch -> "files insertions deletions"
     | awk '{f++; i+=($1=="-"?0:$1); d+=($2=="-"?0:$2)} END{printf "%d %d %d", f+0, i+0, d+0}'
 }
 
-# Resolve the CODE repo the same way every sibling does — a manifest that
-# exists but won't parse is a loud stop, never the single-repo fallback
-# (landing into the wrong repo is the worst version of this mistake; Rule 15).
-CODE="."
-if [ -f .claude/project.json ]; then
-  jq -e . .claude/project.json >/dev/null 2>&1 \
-    || die 4 ".claude/project.json exists but is not valid JSON — fix the manifest"
-  CODE=$(jq -r '.roots.code // "."' .claude/project.json)
-  { [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
-fi
+# Resolve the CODE repo the same way every sibling does — through the shared
+# [11.2] resolver (string roots.code = the single primary; named map addresses
+# each repo by name). A manifest that exists but won't parse is a loud stop,
+# never the single-repo fallback (landing into the wrong repo is the worst
+# version of this mistake; Rule 15).
+# shellcheck source=/dev/null
+. "$HERE/roots.sh"
+CODE=$(roots_code_path) || die 4 "could not resolve a code repo from the manifest"
 git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
   || die 4 "no git repo at roots.code ($CODE)"
 

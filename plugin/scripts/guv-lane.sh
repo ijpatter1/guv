@@ -25,15 +25,14 @@ die4() { echo "guv-lane: $1" >&2; exit 4; }
 die5() { echo "guv-lane: $1" >&2; exit 5; }
 die6() { echo "guv-lane: $1" >&2; exit 6; }
 
-CODE="."
-if [ -f .claude/project.json ]; then
-  # Unparseable manifest -> loud error, never the single-repo fallback (a lane
-  # created in the wrong repo is the worst version of this mistake; Rule 15).
-  jq -e . .claude/project.json >/dev/null 2>&1 \
-    || die4 ".claude/project.json exists but is not valid JSON — fix the manifest"
-  CODE=$(jq -r '.roots.code // "."' .claude/project.json)
-  { [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
-fi
+# Resolve WHICH code repo through the shared [11.2] resolver — a string
+# roots.code is the single primary, a named map addresses each repo by name.
+# An unparseable manifest is a loud error, never the single-repo fallback (a
+# lane created in the wrong repo is the worst version of this mistake; Rule 15).
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$HERE/roots.sh"
+CODE=$(roots_code_path) || die4 "could not resolve a code repo from the manifest"
 git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
   || die4 "no git repo at roots.code ($CODE)"
 

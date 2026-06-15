@@ -123,7 +123,12 @@ LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*$ID_RE"
 # Published-surface version of the status.json shape ([10.1]). Bumped only on a
 # breaking shape or grammar change — the negotiation surface for external
 # consumers; documented identically in the phase-docs skill's status.json shape.
-CONTRACT_VERSION=1
+# v2 ([11.2]): the breaking manifest-contract change — roots.code becomes a
+# named map of code repos (string stays the single-repo shorthand). The
+# downstream manifest contract takes the first bump on this marker (the
+# published-contract family versions together; phase-docs/SKILL.md §"Contract
+# version").
+CONTRACT_VERSION=2
 
 LINES=$(grep -E '^\s*-\s*(✅|🔄|⬜|❌|🔒)' "$TRACKER")
 

@@ -44,7 +44,7 @@
     },
     "roots": {
       "type": "object",
-      "description": "Repo topology, relative to cwd (the control plane). Single-repo sets both to '.', which makes every root-aware operation a no-op and serves both topologies with one code path.",
+      "description": "Repo topology, relative to cwd (the control plane). Single-repo sets control to '.' and code to '.', which makes every root-aware operation a no-op and serves both topologies with one code path. roots.code is EITHER a string (single-repo shorthand — the string is the one code repo, the primary) OR a named map of code repos with codePrimary naming the default ([11.2] — the breaking contract change behind the multi-repo topology). Every root-aware reader resolves a named repo through .claude/roots.sh (default = the primary), so no call site assumes a single code root.",
       "required": ["control", "code"],
       "additionalProperties": false,
       "properties": {
@@ -54,11 +54,59 @@
           "minLength": 1
         },
         "code": {
+          "description": "Code repo(s) root, relative to cwd. A STRING is the single-repo shorthand: that string is the one code repo (the primary), code writes target ${code}/…, code-repo git runs as `git -C ${code}`, '.' in single-repo. A named MAP { name: { path, commands? } } expresses N code repos under one control plane; codePrimary names the default for unqualified operations and a named repo may override the top-level commands. The string and the map-of-one are the same degenerate case — the resolver (.claude/roots.sh) collapses them so single-repo stays a no-op.",
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Single-repo shorthand: the string is the primary code repo. '.' in single-repo; a relative path to the sibling product repo in a one-code-repo split.",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "description": "Named map of code repos: name → { path, commands? }. Requires roots.codePrimary to name one of these keys.",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Code repo root for this named repo, relative to cwd.",
+                    "minLength": 1
+                  },
+                  "commands": {
+                    "type": "object",
+                    "description": "Per-repo command overrides. Any field absent here falls back to the top-level commands (the primary's defaults), so single-repo manifests are byte-identical. Same null-means-skip semantics as the top-level commands. Forward-declared as part of the [11.2] named-map contract: the consumer — guv-cmd.sh's per-repo selector (cmd <name> [<repo>]) — lands in [11.3], so this field validates but has no reader until then.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "test":    { "type": ["string", "null"] },
+                      "build":   { "type": ["string", "null"] },
+                      "lint":    { "type": ["string", "null"] },
+                      "format":  { "type": ["string", "null"] },
+                      "dev":     { "type": ["string", "null"] },
+                      "install": { "type": ["string", "null"] }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "codePrimary": {
           "type": "string",
-          "description": "Code repo root, relative to cwd. Code writes target ${code}/…; code-repo git runs as `git -C ${code}`. '.' in single-repo; a relative path to the sibling product repo in a split.",
+          "description": "Names the default code repo for unqualified root-aware operations. REQUIRED iff roots.code is a named map (it must be a key of that map); FORBIDDEN when roots.code is a string (the string IS the primary). Enforced by the if/then/else below.",
           "minLength": 1
         }
-      }
+      },
+      "allOf": [
+        {
+          "comment": "codePrimary is required exactly when roots.code is a named map.",
+          "if": { "properties": { "code": { "type": "object" } }, "required": ["code"] },
+          "then": { "required": ["codePrimary"] },
+          "else": { "not": { "required": ["codePrimary"] } }
+        }
+      ]
     },
     "commands": {
       "type": "object",

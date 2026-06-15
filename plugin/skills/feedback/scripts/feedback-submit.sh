@@ -116,8 +116,16 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 \
 # `--repo <owner/name>` is the explicit override to point the drain anywhere else.
 # A consumer who wants the guv upstream passes `--repo` (or runs this from a plane
 # whose `roots.code` is guv).
-CODE=$(jq -r '.roots.code // "."' "$MANIFEST")
-{ [ -n "$CODE" ] && [ "$CODE" != "null" ]; } || CODE="."
+#
+# Resolve the code repo through the shared [11.2] resolver: roots.code may be a
+# named map, so a bare string read would hand `gh` the map object rather than a
+# clone path. The resolver returns the PRIMARY's path — the conventional single
+# code repo whose remote this drain resolves its upstream tracker from. roots.sh
+# is three levels up under .claude/; source it location-relative ([7.7]).
+ROOTS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/roots.sh"
+# shellcheck source=/dev/null
+. "$ROOTS_SH"
+CODE=$(roots_code_path) || die 4 "could not resolve a code repo from the manifest"
 
 # Resolve the slug by running `gh repo view` INSIDE the code-repo clone (it reads
 # the clone's remote). gh's -R takes an OWNER/REPO slug, never a local path, so a
