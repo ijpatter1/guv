@@ -166,9 +166,34 @@ if [ -f "$LOG" ]; then
       }
     ' "$LOG" 2>/dev/null) || COST_BY_INIT='{"tokens":{"input":0,"output":0,"cache_read":0,"cache_creation":0},"sessions":0}'
   [ -n "$COST_BY_INIT" ] || COST_BY_INIT='{"tokens":{"input":0,"output":0,"cache_read":0,"cache_creation":0},"sessions":0}'
+
+  # Per-phase DISTINCT session counts — the same discipline by_initiative uses
+  # (each session counted ONCE), applied at the phase level. by_phase.sessions
+  # canNOT be the sum of its members' per-deliverable session counts: a single
+  # session attributed to two deliverables IN THE SAME PHASE would then be
+  # counted twice. So we go back to the RAW log (the only place session identity
+  # survives — the per-deliverable buckets carry only a count), map each entry's
+  # deliverable_ids to their phases, and count distinct sessions per phase. An
+  # entry touching two phases counts once toward EACH (it is genuinely one
+  # session of each phase); an entry touching one phase twice counts once. Phase
+  # comes ONLY from the deliverable→phase map — an id absent from the map (e.g.
+  # session-scalar) contributes no phase, exactly as the token rollup does.
+  COST_PHASE_SESSIONS=$(jq -s \
+    --argjson phase_of "$DELIV_PHASE_JSON" '
+      [ .[]
+        | { session: .session, phases: ([ (.deliverable_ids // [])[]
+              | $phase_of[.] | select(. != null) | tostring ] | unique) } ]
+      | [ .[] | .session as $s | .phases[] | { phase: ., session: $s } ]
+      | group_by(.phase)
+      | map({ key: .[0].phase,
+              value: ([ .[].session ] | unique | length) })
+      | from_entries
+    ' "$LOG" 2>/dev/null) || COST_PHASE_SESSIONS="{}"
+  [ -n "$COST_PHASE_SESSIONS" ] || COST_PHASE_SESSIONS="{}"
 else
   COST_BY_DELIV="{}"
   COST_BY_INIT='{"tokens":{"input":0,"output":0,"cache_read":0,"cache_creation":0},"sessions":0}'
+  COST_PHASE_SESSIONS="{}"
 fi
 
 # by_phase and by_initiative roll the per-deliverable sums up THROUGH the
@@ -181,6 +206,7 @@ fi
 COST_ROLLUP=$(jq -cn \
   --argjson by_deliverable "$COST_BY_DELIV" \
   --argjson by_initiative "$COST_BY_INIT" \
+  --argjson phase_sessions "$COST_PHASE_SESSIONS" \
   --argjson phase_of "$DELIV_PHASE_JSON" '
     ($by_deliverable | to_entries) as $entries
     | {
@@ -196,12 +222,21 @@ COST_ROLLUP=$(jq -cn \
               key: .[0].phase,
               value: {
                 tokens: {
+                  # Tokens ARE additive across the phase per-deliverable legs:
+                  # a session credits its tokens to each deliverable it names
+                  # (the per-deliverable view), and the phase total is the whole
+                  # phase spend — so summing the member buckets is correct here.
                   input:          (map(.v.tokens.input)          | add),
                   output:         (map(.v.tokens.output)         | add),
                   cache_read:     (map(.v.tokens.cache_read)     | add),
                   cache_creation: (map(.v.tokens.cache_creation) | add)
                 },
-                sessions: (map(.v.sessions) | add)
+                # sessions is NOT a sum of the members per-deliverable counts —
+                # that double-counts a session shared by two same-phase
+                # deliverables. It is the DISTINCT session count for this phase,
+                # computed over the raw log in $phase_sessions (the by_initiative
+                # discipline, at the phase level). 0 if the phase has no sessions.
+                sessions: ($phase_sessions[.[0].phase] // 0)
               }
             })
           | from_entries

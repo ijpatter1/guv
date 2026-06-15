@@ -76,7 +76,7 @@ shape. `sessions` is a count of contributing log entries.
 | field | type | source / meaning |
 |-------|------|------------------|
 | `cost.by_deliverable` | object | keyed by deliverable ID. A session attributed to N deliverables credits its tokens to **each** leg (additive — the per-deliverable view), so an ID appearing in two sessions sums both. `session-scalar` (the meter's no-single-ID attribution) is **not** a deliverable and never appears here as a phantom phase. |
-| `cost.by_phase` | object | keyed by phase number (as a string). The per-deliverable sums rolled up **through the deliverable→phase map** (the resolver's JOIN). An ID with no phase in the map contributes to the initiative but to no phase. |
+| `cost.by_phase` | object | keyed by phase number (as a string), rolled up **through the deliverable→phase map** (the resolver's JOIN). **Tokens** are the sum across the phase's member deliverables (additive — the per-deliverable view of the phase's spend). **`sessions` is a *distinct* count, not that sum**: a session attributed to two deliverables *in the same phase* is one session at the phase level, counted **once** — the same distinct-session discipline `by_initiative` uses, applied per phase (computed over the raw log, where session identity survives). An ID with no phase in the map contributes to the initiative but to no phase. |
 | `cost.by_initiative` | object | the whole live plan: **every log entry counted once** (not per leg) — a multi-attribution session is one set of tokens, one session, never double-counted at the initiative level. `sessions` = the total log-entry count. |
 
 ### `perf` — git-derived, no instrumentation

@@ -216,6 +216,79 @@ jq -e '.cost.by_deliverable | has("session-scalar") | not' "$OUT" >/dev/null 2>&
   && ok "session-scalar is not folded into a phase (no phantom phase)" \
   || ok "(no session-scalar entry in this fixture)"
 
+# ─── T4b — by_phase.sessions is a DISTINCT count, not a per-deliverable SUM ───
+# THE HEART OF THIS RE-GATE. cost.by_phase[N].sessions must count each session
+# attributed to a phase ONCE — the same distinct-session discipline by_initiative
+# uses — NOT the sum of its members' per-deliverable session counts. A single
+# session attributed to TWO deliverables IN THE SAME PHASE is one session at the
+# phase level, never two.
+#
+# The shared fixture above can't expose this: its multi-attribution session spans
+# phases 9 AND 10 (9.5 + 10.1), so no two PHASE-9 members share a session and the
+# sum coincidentally equals the distinct count. So this fixture is built so two
+# deliverables in the SAME phase share one session. The shared session carries
+# ZERO tokens, isolating the SESSION-COUNT invariant from the token sums.
+#
+#   Phase 9, two deliverables (9.1, 9.5), three sessions:
+#     d1 → only 9.1           (one session)
+#     d2 → only 9.5           (one session)
+#     d3 → BOTH 9.1 and 9.5   (one session, same phase)   ← the double-count trap
+#   Distinct phase-9 sessions = 3 (d1, d2, d3 — d3 counted ONCE).
+#   Per-deliverable: 9.1 has {d1,d3}=2, 9.5 has {d2,d3}=2; SUM = 4 (the bug).
+# An honest distinct count reads 3; the `map(.sessions) | add` code reads 4.
+make_phase_dup_fixture() {  # echoes the project dir
+  local p="$WORK/dupproj.$RANDOM"
+  rm -rf "$p"
+  mkdir -p "$p/.claude/metering" "$p/docs/sessions"
+  jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",ceremony:"phased"}' \
+    > "$p/.claude/project.json"
+  cat > "$p/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 9 — The Meter
+
+- ✅ **[9.1]** A `[deps: none]`
+- ✅ **[9.5]** B `[deps: 9.1]`
+MD
+  local L="$p/.claude/metering/metering.ndjson"
+  {
+    printf '%s\n' '{"schema":"guv.meter.v1","ts":"2026-06-10T12:00:00Z","session":"session-2026-06-10-001","deliverable_ids":["9.1"],"tokens":{"input":100,"output":10,"cache_read":0,"cache_creation":0}}'
+    printf '%s\n' '{"schema":"guv.meter.v1","ts":"2026-06-11T12:00:00Z","session":"session-2026-06-11-001","deliverable_ids":["9.5"],"tokens":{"input":200,"output":20,"cache_read":0,"cache_creation":0}}'
+    printf '%s\n' '{"schema":"guv.meter.v1","ts":"2026-06-12T12:00:00Z","session":"session-2026-06-12-001","deliverable_ids":["9.1","9.5"],"tokens":{"input":0,"output":0,"cache_read":0,"cache_creation":0}}'
+  } > "$L"
+  echo "$p"
+}
+
+PD=$(make_phase_dup_fixture)
+PDOUT="$WORK/dup.json"
+( cd "$PD" && bash "$SCRIPT" ) >"$PDOUT" 2>"$WORK/dup.err"; RCPD=$?
+[ "$RCPD" -eq 0 ] && jq -e . "$PDOUT" >/dev/null 2>&1 \
+  && ok "phase-dup fixture: emitter emits a valid document (rc=$RCPD)" \
+  || no "phase-dup fixture: emitter must emit a valid document (rc=$RCPD, err=$(cat "$WORK/dup.err"))"
+# The two members each see the shared session in their per-deliverable count …
+jq -e '.cost.by_deliverable["9.1"].sessions == 2
+   and .cost.by_deliverable["9.5"].sessions == 2' "$PDOUT" >/dev/null 2>&1 \
+  && ok "phase-dup: each member counts the shared session per-deliverable (9.1=2, 9.5=2 — additive, correct)" \
+  || no "phase-dup per-deliverable session counts wrong: $(jq -c '{d91:.cost.by_deliverable["9.1"].sessions, d95:.cost.by_deliverable["9.5"].sessions}' "$PDOUT")"
+# … but the PHASE counts that shared session ONCE: distinct = 3, NOT the sum 4.
+# This assertion FAILS against the `map(.sessions) | add` code (reads 4) and
+# passes only when by_phase.sessions is a distinct count (reads 3).
+jq -e '.cost.by_phase["9"].sessions == 3' "$PDOUT" >/dev/null 2>&1 \
+  && ok "phase-dup: by_phase[9].sessions == 3 — the intra-phase shared session is counted ONCE (distinct), not summed" \
+  || no "by_phase[9].sessions double-counts an intra-phase multi-attribution session: $(jq -c '.cost.by_phase["9"].sessions' "$PDOUT") (expected 3; 4 is the sum-of-per-deliverable bug)"
+# by_phase distinct count must agree with by_initiative's already-correct distinct
+# count here (one phase, all three sessions touch it): both must read 3.
+jq -e '.cost.by_phase["9"].sessions == .cost.by_initiative.sessions
+   and .cost.by_initiative.sessions == 3' "$PDOUT" >/dev/null 2>&1 \
+  && ok "phase-dup: by_phase[9].sessions agrees with by_initiative (3) — same distinct-session discipline" \
+  || no "by_phase[9].sessions disagrees with by_initiative's distinct count: $(jq -c '{phase:.cost.by_phase["9"].sessions, init:.cost.by_initiative.sessions}' "$PDOUT")"
+# The zero-token shared session must leave the phase TOKEN sums untouched: this
+# is a session-count fix, not a token fix. Phase-9 tokens = 100+200+0 / 10+20+0.
+jq -e '.cost.by_phase["9"].tokens.input == 300
+   and .cost.by_phase["9"].tokens.output == 30' "$PDOUT" >/dev/null 2>&1 \
+  && ok "phase-dup: by_phase[9] token sums unchanged (300/30) — the distinct fix touches sessions only" \
+  || no "phase-dup token sums perturbed by the session fix: $(jq -c '.cost.by_phase["9"].tokens' "$PDOUT")"
+
 # ─── T5 — PERF: commits-per-deliverable, git-derived, hand-checks ────────────
 # 9.1 has TWO commits; 9.5 has ONE; 10.1 has ONE.
 jq -e '.perf.by_deliverable["9.1"].commits == 2' "$OUT" >/dev/null 2>&1 \
