@@ -52,7 +52,7 @@ setup() {
   git -C "$CODE" add -A; git -C "$CODE" commit -qm base
   P="$WORK/proj"
   mkdir -p "$P/.claude" "$P/docs"
-  jq -n '{roots:{control:".",code:"../code"},name:"t",language:"node",commands:{},scaffoldCheck:"true",ceremony:"phased"}' \
+  jq -n '{roots:{control:".",code:"../code"},name:"t",language:"node",commands:{},scaffoldCheck:"true",ceremony:"phased",lanes:{protectedProse:["(^|/)(CHANGELOG|README)(\\.template)?\\.md$","(^|/)plugin/"]}}' \
     > "$P/.claude/project.json"
   printf '# Tracker\n- ⬜ **[7.A]** thing `[deps: none]`\n' > "$P/docs/PHASE_STATUS.md"
 }
@@ -137,6 +137,27 @@ OUT=$(run confine 7.A); RC=$?
 [ $RC -eq 0 ] \
   && ok "confine: a lane editing maintainers/plugin-src/ (real source) passes — only derived plugin/ is protected" \
   || no "confine must NOT refuse a lane editing real plugin-src/ source (rc=$RC): $OUT"
+
+# ── T3d — DEFAULT confinement ([10.10] G3): with no lanes.protectedProse, a foreign
+#          code repo's OWN README is lane-editable, while the single-writer trackers
+#          stay protected unconditionally. (Hardcoded prose protection wrongly blocked a
+#          consumer's own README — the clean-room finding.) ──
+setup
+jq 'del(.lanes)' "$P/.claude/project.json" > "$P/.claude/p.tmp" && mv "$P/.claude/p.tmp" "$P/.claude/project.json"
+mklane create 7.A readme-own
+( cd "$CODE/.worktrees/lane-7.A" && printf -- '- a consumer readme edit\n' >> README.md \
+  && git add -A && git -c user.email=t@t -c user.name=t commit -qm "edit own README" ) >/dev/null 2>&1
+OUT=$(run confine 7.A); RC=$?
+[ $RC -eq 0 ] \
+  && ok "confine: default config lets a lane edit the repo's OWN README (G3 fix)" \
+  || no "default confine must NOT refuse a consumer's own README (rc=$RC): $OUT"
+mklane create 7.B trackertouch
+( cd "$CODE/.worktrees/lane-7.B" && mkdir -p docs && printf 'x\n' > docs/PHASE_STATUS.md \
+  && git add -A && git -c user.email=t@t -c user.name=t commit -qm "touch tracker" ) >/dev/null 2>&1
+OUT=$(run confine 7.B); RC=$?
+[ $RC -ne 0 ] && echo "$OUT" | grep -q "PHASE_STATUS" \
+  && ok "confine: the single-writer tracker stays protected even with default config" \
+  || no "default confine must still refuse a tracker touch (rc=$RC): $OUT"
 
 # ── T4 — harvest: a clean, confined, status=ok lane harvests ──
 setup

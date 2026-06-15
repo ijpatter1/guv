@@ -25,5 +25,11 @@
     "yaml"
   ],
   "guards": [],
-  "ceremony": "task"
+  "ceremony": "task",
+  "lanes": {
+    "protectedProse": [
+      "(^|/)(CHANGELOG|README)(\\.template)?\\.md$",
+      "(^|/)plugin/"
+    ]
+  }
 }

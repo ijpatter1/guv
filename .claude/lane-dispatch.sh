@@ -111,7 +111,18 @@ git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
 # A lane diff intersecting this set has drifted out of confinement; the join
 # owns the merge-in (single-writer at the tracker, serial assembly for prose,
 # the rebuild for plugin/).
-PROTECTED='(^|/)docs/(PHASE_STATUS|REQUIREMENTS)\.md$|(^|/)(CHANGELOG|README)(\.template)?\.md$|(^|/)plugin/'
+#
+# The single-writer TRACKERS are ALWAYS protected (universal: plan mutation is /replan
+# only). The project-specific join-owned surfaces above — the CHANGELOG/README prose
+# and the derived plugin/ tree — are guv-shaped, so they are OPT-IN via the control
+# plane's manifest (lanes.protectedProse): DEFAULT none, so a foreign code repo's own
+# README/CHANGELOG stay lane-editable ([10.10] G3); guv declares them. (Hardcoding them
+# wrongly flagged a consumer's own README as drift — the clean-room finding.)
+PROTECTED='(^|/)docs/(PHASE_STATUS|REQUIREMENTS)\.md$'
+if [ -f .claude/project.json ]; then
+  PROSE=$(jq -r '(.lanes.protectedProse // []) | join("|")' .claude/project.json 2>/dev/null)
+  [ -n "$PROSE" ] && [ "$PROSE" != "null" ] && PROTECTED="$PROTECTED|$PROSE"
+fi
 
 # The integration branch the queue lands onto — resolved ONCE in the main shell.
 # (A die inside a $()-substituted helper only exits the subshell, never the

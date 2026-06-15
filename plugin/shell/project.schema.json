@@ -119,6 +119,19 @@
       },
       "uniqueItems": true
     },
+    "lanes": {
+      "type": "object",
+      "description": "Build-fanout lane confinement ([10.10]). The single-writer trackers (docs/PHASE_STATUS.md, docs/REQUIREMENTS.md) are ALWAYS protected from a lane's direct edit (plan mutation goes through the replan command only); this declares PROJECT-SPECIFIC join-owned surfaces to protect on top — prose the join assembles via docFragments (CHANGELOG/README) and derived trees it rebuilds (e.g. plugin/). Absent/empty → only the trackers are protected, so a generic code repo's own README/CHANGELOG stay lane-editable; guv opts in.",
+      "additionalProperties": false,
+      "properties": {
+        "protectedProse": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "description": "ERE patterns matched against lane-diff paths. lane-dispatch.sh confine refuses a lane whose diff touches any, beyond the always-protected trackers. Absent/empty → trackers only."
+        }
+      }
+    },
     "ceremony": {
       "type": "string",
       "description": "How much project-shape machinery the commands invoke. 'phased' = full greenfield with phase docs; 'onboard' = existing repo, conventions inferred not scaffolded, no phase structure; 'task' = scoped change, no phase docs.",
