@@ -125,6 +125,23 @@ diff <(awk '/^# guv-core-start/,/^# guv-core-end/' "$SHELL_DIR/gitignore") \
   && ok "appended block == template's guv-core block (single source, extracted)" \
   || no "appended .gitignore block must be extracted from shell/gitignore's core block"
 
+# T6b — legacy marker migration ([8.3] stage 6): a consumer .gitignore carrying
+# the pre-retirement `guv-harness-gitignore` marker must be recognized as already
+# holding the core block — deploy must NOT re-append it. Stage 5 renamed the
+# marker to `guv-gitignore`; matching only the new name reads the legacy block as
+# absent and duplicates the core entries on the next scaffold/sync.
+P2L="$WORK/legacy-gi"; mkdir -p "$P2L"
+{
+  printf 'my-build-dir/\n'
+  printf '\n# guv-harness-gitignore — appended by /guv:scaffold\n'
+  awk '/^# guv-core-start/,/^# guv-core-end/' "$SHELL_DIR/gitignore"
+} > "$P2L/.gitignore"
+deploy "$P2L" >/dev/null 2>&1
+NL=$(grep -c "secrets/" "$P2L/.gitignore")
+[ "$NL" -eq 1 ] \
+  && ok "legacy guv-harness-gitignore marker recognized — core block not duplicated" \
+  || no "legacy gitignore marker must be recognized as present (secrets/ appears ${NL}x)"
+
 # T7 — Docker tier is opt-in (--docker), and existing tier files are never
 # clobbered (consumers patch init-firewall.sh with their registry domains)
 [ ! -e "$P1/sandbox" ] && [ ! -e "$P1/Makefile" ] \

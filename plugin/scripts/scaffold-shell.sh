@@ -25,6 +25,11 @@ PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SHELL_DIR="$PLUGIN_ROOT/shell"
 RULES_DIR="$PLUGIN_ROOT/rules"
 GI_MARKER="guv-gitignore"
+# Pre-[8.3] marker name. A consumer scaffolded before the noun retirement carries
+# this in its .gitignore; recognizing it keeps a re-scaffold/sync from reading the
+# block as absent and appending a duplicate. Consumer-owned file — we never rewrite
+# the old marker line, only refrain from re-appending (ownership: append once).
+GI_MARKER_LEGACY="guv-harness-gitignore"
 
 DOCKER=0
 while [ $# -gt 0 ]; do
@@ -81,7 +86,7 @@ keep_file "$SHELL_DIR/settings.json" ".claude/settings.json"
 if [ ! -f .gitignore ]; then
   cp "$SHELL_DIR/gitignore" .gitignore
   created+=(".gitignore")
-elif ! grep -q "$GI_MARKER" .gitignore; then
+elif ! grep -qe "$GI_MARKER" -e "$GI_MARKER_LEGACY" .gitignore; then
   {
     printf '\n# %s — appended by /guv:scaffold\n' "$GI_MARKER"
     awk '/^# guv-core-start/,/^# guv-core-end/' "$SHELL_DIR/gitignore"

@@ -202,8 +202,9 @@ fi
 # not prose uses of the retired noun — a line referencing one is an allowed
 # backward-compat citation, matched as the exact hyphenated token so a bare
 # "harness" still fails. Closed set, grown as each shim lands:
-#   Harness-owned   — pre-[8.3] post-commit-hook ownership marker (setup-control-plane.sh)
-LEGACY_MARKER_RE='Harness-owned'
+#   Harness-owned          — pre-[8.3] post-commit-hook ownership marker (setup-control-plane.sh)
+#   guv-harness-gitignore  — pre-[8.3] gitignore append marker (scaffold-shell.sh, shipped in plugin/)
+LEGACY_MARKER_RE='Harness-owned|guv-harness-gitignore'
 SWEPT_HARNESS_FREE="
 .claude/rules/guv-codebase-respect.md
 .claude/rules/guv-context-and-llm-use.md
@@ -284,10 +285,13 @@ if [ -z "$README_BAD" ]; then
 else
   no "non-citation 'harness' in README.md: $README_BAD"
 fi
-# plugin/ is generated from swept source, so it must be fully harness-free.
-PLUGIN_BAD=$(cd "$ROOT" && git grep -Il -i harness -- 'plugin/' 2>/dev/null)
+# plugin/ is generated from swept source, so it must be harness-free apart from
+# the named legacy markers a shipped migration shim greps for (scaffold-shell.sh's
+# guv-harness-gitignore) — same narrow LEGACY_MARKER_RE exception, bare "harness"
+# in plugin/ still fails.
+PLUGIN_BAD=$(cd "$ROOT" && git grep -In -i harness -- 'plugin/' 2>/dev/null | grep -vE "$LEGACY_MARKER_RE")
 if [ -z "$PLUGIN_BAD" ]; then
-  ok "plugin/ is fully harness-free"
+  ok "plugin/ harness-free (apart from named legacy markers)"
 else
   no "harness shipped in plugin/: $(echo "$PLUGIN_BAD" | tr '\n' ' ')"
 fi
