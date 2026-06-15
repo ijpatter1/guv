@@ -187,10 +187,17 @@ done
 # .claude/guv-*.sh helpers — dead paths in a plugin-only project without it).
 for a in "$SRC/agents"/*.md; do
   awk '
-    /^---$/ { fm++; inhooks=0; print; next }
+    /^---$/ { fm++; inhooks=0; inskills=0; print; next }
     fm==1 && /^hooks:/ { inhooks=1; next }
     fm==1 && inhooks && /^[^ ]/ { inhooks=0 }
     inhooks { next }
+    # skills: preload entries are guv:-namespaced under a plugin install (the agent
+    # preloads guv:<name>, not <name> — else the preload silently no-ops). Bounded to
+    # the frontmatter (fm==1) and the skills: block; bare names only (already-prefixed
+    # pass through).
+    fm==1 && /^skills:/ { inskills=1; print; next }
+    fm==1 && inskills && /^[ \t]+-[ \t]+/ { if ($0 !~ /guv:/) sub(/-[ \t]+/, "&guv:"); print; next }
+    fm==1 && inskills && /^[^ \t]/ { inskills=0 }
     { print }
   ' "$a" | rewrite_paths | namespace_refs > "$OUT/agents/$(basename "$a")"
 done
