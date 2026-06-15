@@ -68,7 +68,7 @@ after_gi=$(grep -cF '.worktrees/' "$R1/.gitignore" 2>/dev/null)
 
 # T5 — a foreign .gitignore already present (no guv marker): block appended, prior preserved
 R2="$WORK/r2"; mkrepo "$R2"; printf 'node_modules/\n' > "$R2/.gitignore"
-bash "$PROV" "$R2" >/dev/null 2>&1
+bash "$PROV" "$R2" --test "bash src/app.sh" >/dev/null 2>&1
 { grep -qF 'node_modules/' "$R2/.gitignore" && grep -qF '.worktrees/' "$R2/.gitignore"; } \
   && ok "appended guv-core block while preserving the existing .gitignore" \
   || no "append/preserve failed"
@@ -96,6 +96,11 @@ git -C "$R2" worktree add -q "$WORK/wt" HEAD 2>/dev/null
 { [ -f "$WORK/wt/.claude/project.json" ] && [ -f "$WORK/wt/.gitignore" ]; } \
   && ok "a worktree of the provisioned repo carries the guv-core (lane builders can route)" \
   || no "worktree must inherit the provisioned guv-core"
+# acceptance: `guv-cmd test` runs the provisioned repo's OWN test command in the worktree
+( cd "$WORK/wt" && bash "$ROOT/.claude/guv-cmd.sh" test >/dev/null 2>&1 ); GC=$?
+[ "$GC" -eq 0 ] \
+  && ok "guv-cmd test in the worktree runs the provisioned repo's own test command" \
+  || no "guv-cmd test must run the repo's test in the worktree (acceptance; rc=$GC)"
 git -C "$R2" worktree remove --force "$WORK/wt" 2>/dev/null
 
 echo ""

@@ -47,7 +47,10 @@ fails silently.
 
 ## Stage 1 — EXECUTION (conversational; one lane builder per deliverable)
 
-For each deliverable, create a lane and spawn a builder into it:
+First decide *which* deliverables to fan out: the ready set comes from the resolver
+(`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-ready.sh` — its `ready=` frontier); a person picks from it (the
+resolver says what *may* be worked, you decide what *is*). Then, for each chosen
+deliverable, create a lane and spawn a builder into it:
 
 1. `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-lane.sh create <id> <slug>` — a worktree at
    `.worktrees/lane-<id>/` on branch `lane/<id>-<slug>` in the code repo.

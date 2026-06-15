@@ -97,7 +97,7 @@ fi
 # Commit ONLY what provision wrote — never the consumer's other work; own git identity
 # so it works in a repo with no user.* config; no-op when nothing was written.
 if [ ${#wrote[@]} -gt 0 ] && git -C "$DEST" rev-parse --git-dir >/dev/null 2>&1; then
-  git -C "$DEST" add -- "${wrote[@]}" 2>/dev/null
+  git -C "$DEST" add -- "${wrote[@]}"
   if ! git -C "$DEST" diff --cached --quiet 2>/dev/null; then
     git -C "$DEST" -c user.email=guv@local -c user.name=guv \
       commit -qm "chore: provision as a guv lane target ([10.10])" 2>/dev/null \
