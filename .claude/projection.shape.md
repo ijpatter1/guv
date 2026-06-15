@@ -58,6 +58,10 @@ ceiling_tokens  = occupancy.threshold  (else window-relative default)  # SETPOIN
   `occupancy.threshold` if present, else the same window-relative default the
   [9.2]/[10.6] meter ships (¾ of the standard 200 000-token window = 150 000).
   Floor is measured evidence; ceiling is a tunable setpoint.
+- The floor is **bounded above by the ceiling**: a measured fixed overhead that
+  exceeds the occupancy setpoint (a degenerate heavy-doc / low-threshold config)
+  is **clamped** to the ceiling, so the band can never invert
+  (`low_tokens <= high_tokens` always holds).
 
 ### The range
 

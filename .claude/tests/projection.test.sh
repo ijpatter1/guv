@@ -563,6 +563,31 @@ if [ -f "$SHAPE" ]; then
     || no "shape doc must name quantity error and rate error"
 fi
 
+# ════════════════════════════════════════════════════════════════════════════
+# T_FLOOR_CLAMP — the floor is bounded above by the ceiling (no inverted range)
+# ════════════════════════════════════════════════════════════════════════════
+# The spec: the envelope floor is "bounded above by [9.2]'s occupancy threshold".
+# A heavy-doc consumer fork with a LOW occupancy.threshold setpoint could measure
+# a floor that EXCEEDS the ceiling — which, unclamped, emits low_tokens >
+# high_tokens (an inverted, nonsensical range). The floor must clamp to the
+# ceiling so the band can never invert.
+I=$(mk_instance); write_tracker "$I"
+bash "$I/.claude/estimate.sh" set 9.7 2 "$I/docs/estimates.json" >/dev/null 2>&1
+# Force the ceiling BELOW the measured floor (~10k tokens from the 40k chars of
+# docs mk_instance plants): a tiny occupancy.threshold setpoint.
+jq '.occupancy={threshold:3000}' "$I/.claude/project.json" > "$I/.claude/project.json.tmp" \
+  && mv "$I/.claude/project.json.tmp" "$I/.claude/project.json"
+DOC=$( cd "$I" && bash .claude/projection.sh project 2>/dev/null )
+
+echo "$DOC" | jq -e '.range.low_tokens <= .range.high_tokens' >/dev/null 2>&1 \
+  && ok "floor>ceiling: the range never inverts (low <= high)" \
+  || no "floor must clamp to ceiling so low <= high (got range=$(echo "$DOC" | jq -c '.range'))"
+
+echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens == .spine.unit_rate.ceiling_tokens
+  and .spine.unit_rate.ceiling_tokens == 3000' >/dev/null 2>&1 \
+  && ok "floor>ceiling: the floor is clamped to the ceiling (bounded above)" \
+  || no "the floor must clamp to ceiling=3000 (got floor=$(echo "$DOC" | jq -c '.spine.unit_rate.floor_tokens'), ceiling=$(echo "$DOC" | jq -c '.spine.unit_rate.ceiling_tokens'))"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -gt 0 ] && exit 1

@@ -216,6 +216,11 @@ compute_projection() {
   local floor ceiling
   floor=$(envelope_floor)
   ceiling=$(envelope_ceiling)
+  # The floor is "bounded above by [9.2]'s occupancy threshold" (the spec wording):
+  # a measured fixed overhead that exceeds the ceiling setpoint is a degenerate
+  # config (overhead alone above the calm threshold). Clamp so the band can never
+  # invert (low <= high) — the floor is evidence, the ceiling is its upper bound.
+  [ "$floor" -gt "$ceiling" ] && floor="$ceiling"
 
   # quantity takeoff: sum ratified estimates over remaining work; disclose the
   # deliverables that fell back to the default.
