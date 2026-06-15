@@ -32,6 +32,8 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 GATE="$ROOT/.claude/budget-gate.sh"
 SCHEMA="$ROOT/.claude/project.schema.json"
+SS_HOOK="$ROOT/.claude/hooks/session-start.sh"
+HANDOFF_SKILL="$ROOT/.claude/skills/handoff/SKILL.md"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -278,6 +280,89 @@ P=$(mk_project '{"session":{"tokens":100000}}' 10000 0)
 [ "$RC" -ne 0 ] \
   && ok "an unknown phase is a loud usage error (no invented route)" \
   || no "an unknown phase must be a loud usage error, got rc=$RC"
+
+# A degraded metering entry (tokens:null) contributes 0 — a missing measurement is
+# never a fabricated breach (the line-46 Rule-15 claim). A within-budget current
+# burn plus one tokens:null entry must stay SILENT: the null entry adds nothing, so
+# no breach is fabricated from a measurement that was never taken.
+P=$(mk_project '{"session":{"tokens":100000}}' 10000 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.3"],tokens:null,perf:{}}' \
+  >> "$P/.claude/metering/metering.ndjson"
+OUT=$(gate "$P" exit); RC=$?
+[ $RC -eq 0 ] && [ -z "$OUT" ] \
+  && ok "a tokens:null metering entry contributes 0 (no fabricated breach — line-46 Rule 15)" \
+  || no "a tokens:null entry must contribute 0, not fabricate a breach (rc=$RC out='$OUT')"
+
+# ── ACCEPTANCE 10: THE TENSION GATE IS WIRED INTO BOTH SESSION BOUNDARIES ──
+# The deliverable is "the tension gate runs at session entry and exit." A gate
+# that no boundary invokes is an UNBACKED-INTEGRATION claim (Rule 9/10) — the doc
+# header would describe an integration that does not exist. So both boundary
+# surfaces — the SessionStart hook (ENTRY) and the session-close path the handoff
+# skill drives (EXIT) — must actually invoke budget-gate.sh at their phase. These
+# are the real wiring surfaces ([9.1]'s meter rides the same two boundaries), and
+# both are in the lane footprint (NOT join-protected, NOT settings.json).
+#
+# 10a — ENTRY: the SessionStart hook invokes the gate at the entry phase.
+[ -f "$SS_HOOK" ] \
+  && ok "the SessionStart hook exists at .claude/hooks/session-start.sh" \
+  || no "the SessionStart hook is missing at .claude/hooks/session-start.sh"
+grep -qE 'budget-gate\.sh.*entry' "$SS_HOOK" 2>/dev/null \
+  && ok "the SessionStart hook invokes budget-gate.sh at the ENTRY boundary" \
+  || no "the gate is NOT wired at session entry (the header's entry claim is unbacked)"
+# 10b — a SessionStart hook MUST NOT block the session: a budget-gate breach
+# exits 3, but the hook must still exit 0 (a non-zero SessionStart exit blocks the
+# session from starting). The breach must be SURFACED as context, never
+# propagated as a blocking exit. We exercise the live hook over a BREACH fixture:
+# the breach text is surfaced, and the hook still exits 0.
+mk_hook_proj() {  # a fixture whose .claude symlinks the real hook + gate siblings
+  local budgets="$1" sburn="$2" d
+  d=$(mktemp -d "$WORK/hookproj.XXXXXX")
+  mkdir -p "$d/.claude/hooks" "$d/.claude/metering" "$d/docs/sessions"
+  ln -s "$GATE"                          "$d/.claude/budget-gate.sh"
+  ln -s "$ROOT/.claude/route.sh"         "$d/.claude/route.sh"
+  ln -s "$ROOT/.claude/resolve-ready.sh" "$d/.claude/resolve-ready.sh"
+  ln -s "$SS_HOOK"                       "$d/.claude/hooks/session-start.sh"
+  jq -nc --argjson b "$budgets" \
+    '{name:"x",language:"shell",roots:{control:".",code:"."},commands:{},scaffoldCheck:"true",ceremony:"task",budgets:$b}' \
+    > "$d/.claude/project.json"
+  printf '# handoff\n' > "$d/docs/sessions/session-2026-06-15-001.md"
+  jq -nc --argjson a "$sburn" \
+    '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.3"],tokens:{input:$a,output:0,cache_read:0,cache_creation:0},perf:{}}' \
+    > "$d/.claude/metering/metering.ndjson"
+  echo "$d"
+}
+HP=$(mk_hook_proj '{"session":{"tokens":100000}}' 150000)
+HERR=$(mktemp)
+HOUT=$( cd "$HP" && printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' \
+        | bash .claude/hooks/session-start.sh 2>"$HERR" ); HRC=$?
+HE=$(cat "$HERR"); rm -f "$HERR"
+[ "$HRC" -eq 0 ] \
+  && ok "a budget breach at entry does NOT block the session (hook exits 0)" \
+  || no "the SessionStart hook must exit 0 over a breach (got rc=$HRC) — a non-zero exit BLOCKS the session"
+echo "$HOUT" | grep -q '150000' \
+  && ok "the entry breach is SURFACED as session-open context (burn 150000 visible)" \
+  || no "the entry breach must be surfaced as context, not swallowed (out='$HOUT')"
+[ -z "$HE" ] \
+  && ok "the entry-gate wiring is stderr-clean (no leaked gate stderr)" \
+  || no "the entry-gate wiring must be stderr-clean, got: $HE"
+# 10c — within budget at entry: the gate stays silent, the hook still surfaces its
+# normal route/frontier context and exits 0 (the gate adds nothing when silent).
+HP2=$(mk_hook_proj '{"session":{"tokens":100000}}' 10000)
+HOUT2=$( cd "$HP2" && printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' \
+         | bash .claude/hooks/session-start.sh 2>/dev/null ); HRC2=$?
+[ "$HRC2" -eq 0 ] && { [ -z "$HOUT2" ] || ! echo "$HOUT2" | grep -qi 'breach'; } \
+  && ok "within budget at entry: the gate is silent (no breach surfaced), hook exits 0" \
+  || no "within budget the entry gate must add no breach context (rc=$HRC2 out='$HOUT2')"
+
+# 10d — EXIT: the session-close path the handoff skill drives invokes the gate at
+# the exit phase. The handoff SKILL.md is the documented session-close path (it is
+# where [9.1]'s meter.sh capture already runs); the exit gate rides the same path.
+[ -f "$HANDOFF_SKILL" ] \
+  && ok "the handoff skill exists (the session-close path)" \
+  || no "the handoff skill is missing at .claude/skills/handoff/SKILL.md"
+grep -qE 'budget-gate\.sh.*exit' "$HANDOFF_SKILL" 2>/dev/null \
+  && ok "the session-close path (handoff skill) invokes budget-gate.sh at the EXIT boundary" \
+  || no "the gate is NOT wired at session exit (the header's exit claim is unbacked)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

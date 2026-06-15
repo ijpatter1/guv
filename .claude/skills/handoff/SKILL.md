@@ -258,6 +258,26 @@ deterministic-op wall-clock, reads the suite-runtime artifact, and appends the
 line. The log is append-only; nothing here rewrites it. The emitted shape is
 documented in `.claude/metering-log.md`.
 
+## Step 6c — Run the Budget Gate at the Exit Boundary
+
+The [9.3] tension gate runs at the session **exit** boundary — the second of the
+two boundaries the gate rides (the SessionStart hook fires it at entry). Run it
+**after** Step 6b so it compares the just-appended burn against the chosen budget:
+
+```bash
+bash .claude/budget-gate.sh exit
+```
+
+The gate is the **tension gate**: it sums burn from the metering log and, *on
+tension only*, raises a loud decision gate (exit 3) naming the breach, the burn
+profile, and the person's choices — **extend / harvest / kill**. Within budget,
+or with no budget set (absent means unlimited), it is **silent** — no banner, no
+recap — and exits 0. If it raises, **do not paper over it**: surface the breach
+verbatim in the handoff (under **Blocked**, naming the budget crossed) and stop
+for the person's decision. The machinery never raises a setpoint; raising the
+ceiling is a human commit to `budgets.{initiative,session}.tokens` in
+`project.json` (the commit is the provenance — no approval flow, no side channel).
+
 ## Step 7 — Update Phase Status
 
 **Phased projects only.** Read `ceremony` from `.claude/project.json`. If it is not

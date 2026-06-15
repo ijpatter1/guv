@@ -71,9 +71,14 @@
 #       4 no/corrupt manifest (cwd must be the project root)
 #
 # This script ships in both install modes: build-plugin.sh glob-derives it into
-# plugin/scripts/, and the session-entry / session-close paths invoke it by the
-# rewritten path. cwd is the project root in both modes, so the project.json read
-# is identical.
+# plugin/scripts/, and the two session boundaries invoke it by the rewritten path.
+# ENTRY: the SessionStart hook (.claude/hooks/session-start.sh) fires the gate at
+# `entry` and SURFACES a breach as session-open context — it deliberately does NOT
+# propagate the gate's exit 3, because a non-zero SessionStart exit blocks the
+# session from starting (a breach is a decision to pause for, not a denied start).
+# EXIT: the session-close path the handoff skill drives (Step 6c, beside [9.1]'s
+# meter.sh capture) fires the gate at `exit`, where a breach is the loud pause.
+# cwd is the project root in both modes, so the project.json read is identical.
 set -u
 
 err() { echo "budget-gate: $1" >&2; }
