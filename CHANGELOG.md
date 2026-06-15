@@ -5,6 +5,53 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.4.0 — 2026-06-15
+
+Minor release: the **build fan-out becomes a first-class, code-repo-agnostic driver**
+(Phase 10 complete). Phase 7 shipped the deterministic JOIN and the gated queue but
+left the EXECUTION and GATE stages an unscripted manual job; [10.9] adds the door, and
+[10.10] makes the machinery work on a code repo that is not itself a guv install (the
+prior machinery only worked by self-hosting accident). Additive — existing single-repo
+planes are unaffected. One behavior change in lane confinement; see migration notes.
+
+### Added
+
+- **`/build-fanout`** — the build-fanout GATE workflow (the build-half analog of
+  `/eval-parallel`) + a runbook skill (the first-class door). Over a list of built lanes
+  it assembles each lane's acceptance bundle and runs the calibrated `evaluator` +
+  `reviewer` by name, carrying the lane↔join responsibility split, and returns structured
+  per-lane verdicts with a convergence (all Critical/Major closed) clear-to-land flag.
+- **`lane-builder` agent** — the calibrated writer subagent for a fan-out lane: red→green
+  TDD confined to source, acquires the behavioral core natively (an Agent-tool subagent
+  inherits `CLAUDE.md` + the `guv-*` rules) and preloads the `task` skill.
+- **`provision-code-repo.sh`** — makes an arbitrary (foreign) code repo a guv lane
+  target: a deploy-once `ceremony=task` manifest + the marker-idempotent guv-core
+  `.gitignore`, committed so lane worktrees inherit it. Idempotent / no-clobber — an
+  already-provisioned repo is left untouched.
+- **Manifest `lanes.protectedProse`** — opt-in per-repo confinement of project-specific
+  join-owned prose/derived trees (schema-validated array of path patterns).
+
+### Changed
+
+- **`guv-lane create` asserts provisioning** — it loud-stops (Rule 15, naming the
+  remedy) if the code repo has no committed `.claude/project.json`, rather than silently
+  creating a lane a builder can't route work in.
+- **Lane confinement is control-plane-configurable.** Only the single-writer trackers
+  (`docs/PHASE_STATUS.md`, `docs/REQUIREMENTS.md`) are universally protected from a direct
+  lane edit; the join-owned prose set (CHANGELOG/README/`plugin/`) moves to the opt-in
+  `lanes.protectedProse`. Default is none, so a consumer's own README is lane-editable.
+- **`build-plugin.sh` ships + namespaces every workflow and every agent** (derived from
+  the source tree) — `@`/backtick agent mentions and `skills:` preloads alike — not a
+  hardcoded pair, so a new workflow or agent can't ship un-namespaced.
+
+### Migration notes
+
+- **Lane confinement default changed.** A consumer that ran build fan-outs and relied on
+  the previously-hardcoded protection of `CHANGELOG`/`README`/`plugin/` should set
+  `lanes.protectedProse` in the control-plane manifest to keep refusing direct lane edits
+  to those surfaces (guv's own control plane does). Single-repo / non-fan-out planes are
+  unaffected.
+
 ## 0.3.0 — 2026-06-14
 
 Minor release: the **[8.3] plan-as-data restructure** — the verb grammar ratified
