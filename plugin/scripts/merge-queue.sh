@@ -43,8 +43,27 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LANE="$HERE/guv-lane.sh"
+METER_QUEUE="$HERE/meter-queue.sh"   # [9.4] queue-boundary cost-and-performance writer
 
 die() { echo "merge-queue: $2" >&2; exit "$1"; }
+
+# A hi-res clock in seconds (bash + coreutils only); degrades to integer seconds on
+# a date without %N (stock macOS) — the same clock meter.sh uses, kept local so the
+# queue measures the land's wall-clock itself (never an agent value).
+now_s() {
+  local t; t=$(date +%s.%N 2>/dev/null)
+  case "$t" in *N|"") date +%s ;; *) printf '%s' "$t" ;; esac
+}
+
+# The diff footprint as three numbers ("files insertions deletions") — the SAME
+# measure footprint() surfaces, parsed back to discrete fields for the metering
+# writer. Reused, not recomputed differently.
+footprint_nums() {  # $1=branch -> "files insertions deletions"
+  local br="$1" base
+  base=$(git -C "$CODE" merge-base "$(integ)" "$br" 2>/dev/null) || { echo "0 0 0"; return; }
+  git -C "$CODE" diff --numstat "$base..$br" 2>/dev/null \
+    | awk '{f++; i+=($1=="-"?0:$1); d+=($2=="-"?0:$2)} END{printf "%d %d %d", f+0, i+0, d+0}'
+}
 
 # Resolve the CODE repo the same way every sibling does — a manifest that
 # exists but won't parse is a loud stop, never the single-repo fallback
@@ -193,6 +212,11 @@ case "$VERB" in
     read -r BR DIRTY <<<"$STATE"
     WT="$CODE/.worktrees/lane-$ID"
     [ -d "$WT" ] || die 5 "lane $ID has no worktree at $WT to land from"
+    # Snapshot the footprint BEFORE the rebase: the rebase replays the lane onto
+    # the post-merge head and moves the merge-base, so the gate's footprint must be
+    # read here, against the pre-rebase base — the same number precheck surfaced.
+    read -r LF_F LF_I LF_D <<<"$(footprint_nums "$BR")"
+    LAND_START=$(now_s)   # the queue measures the land's wall-clock itself ([9.4])
     # Rebase onto the post-merge integration head IN THE LANE'S OWN WORKTREE,
     # so the main worktree is never disturbed. A conflict here is the heavy
     # path: abort cleanly, land nothing, route to /replan (Rule 15).
@@ -201,13 +225,43 @@ case "$VERB" in
       echo "land=refused lane=$ID reason=heavy-conflict (rebase onto $INTEG conflicts)"
       echo "conflict-as-DAG-lint: land the lane it collides with first, then re-dispatch [$ID] serially."
       echo "Proposed: /replan (/guv:replan under the plugin) deps-amend [$ID] — add the conflicting deliverable as a dep so the queue serializes them (the model improvises the repair, never the route)."
+      # Burn profile ([9.4]): the routed-out lane is the most diagnostically
+      # interesting retry case, so surface its cost-and-performance entry —
+      # dispatch_outcome=conflict-routed, the footprint snapshotted BEFORE the rebase
+      # (reused, never recomputed; the rebase that just aborted moved no base), and
+      # wallclock 0 (a routed lane never landed, so there is no land wall-clock to
+      # measure). `emit` PRINTS the entry — it does NOT append to the metering log:
+      # the log records LANDINGS, and a refused lane owes no log line (same rule as
+      # the harvest-refused burn profile in lane-dispatch.sh). Best-effort: a metering
+      # hiccup must never change the route (the lane is already refused; Rule 15).
+      if [ -f "$METER_QUEUE" ]; then
+        echo "burn profile (queue-boundary cost-and-performance, [9.4]) — diagnostic input to the retry (not a landing; never written to the metering log):"
+        bash "$METER_QUEUE" emit \
+          --deliverable "$ID" --outcome conflict-routed \
+          --files "$LF_F" --insertions "$LF_I" --deletions "$LF_D" --wallclock 0 \
+          2>/dev/null \
+          || echo "merge-queue: note — burn profile unavailable (lane still routed out; metering is non-fatal exhaust)" >&2
+      fi
       exit 7
     fi
     # The lane now fast-forwards onto integration; advance it in the main worktree.
     if ! git -C "$CODE" merge --ff-only "$BR" >/dev/null 2>&1; then
       die 1 "ff-merge of $BR onto $INTEG failed (integration worktree dirty or not on $INTEG?)"
     fi
+    LAND_WALLCLOCK=$(awk -v a="$LAND_START" -v b="$(now_s)" 'BEGIN{ d=b-a; if (d<0) d=0; printf "%.3f", d }')
     echo "landed=$ID branch=$BR head=$(git -C "$CODE" rev-parse "$INTEG")"
+    # Queue-boundary capture ([9.4]): append the landing's per-deliverable cost-and-
+    # performance entry — the gate's footprint (reused), the queue-measured land
+    # wall-clock, and dispatch_outcome=landed; tokens are harvested by the writer.
+    # BEST-EFFORT and NON-FATAL: the land already succeeded and metering is exhaust
+    # — a metering hiccup must never fail a real land (Rule 15 designed degradation).
+    if [ -f "$METER_QUEUE" ]; then
+      bash "$METER_QUEUE" capture \
+        --deliverable "$ID" --outcome landed \
+        --files "$LF_F" --insertions "$LF_I" --deletions "$LF_D" \
+        --wallclock "$LAND_WALLCLOCK" >/dev/null 2>&1 \
+        || echo "merge-queue: note — queue-boundary metering capture skipped (land succeeded; metering is non-fatal exhaust)" >&2
+    fi
     ;;
 
   *) die 2 "unknown verb '$VERB' (precheck | preview | gate-input | land)" ;;

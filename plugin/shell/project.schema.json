@@ -160,6 +160,37 @@
           "description": "Context occupancy, in tokens, at which the meter takes the designed degradation (write the handoff, signal finalize). Measured as the latest assistant turn's input + cache-read + cache-creation tokens. An absolute token count the person may set to override the default. Absent → the shipped default, which [10.6] makes context-window aware: occupancy-meter.sh derives it from the model the transcript reports (3/4 of that model's context window — 750000 for a 1M-window model, 150000 for the standard 200000 window), so a large-window model no longer meters every turn. With no model signal the hook falls back to the documented 150000 (3/4 of the standard 200000 window) mirrored here."
         }
       }
+    },
+    "budgets": {
+      "type": "object",
+      "description": "Cost-and-performance budget setpoints ([9.3]). OPTIONAL at two granularities — initiative (cumulative burn across the whole metering log) and session (burn of the current session). ABSENT MEANS UNLIMITED, never 'off': a governor with no setpoint spins free, so an absent budgets block gates nothing anywhere. The tension gate (budget-gate.sh) runs at session entry and exit, compares burn (summed from the [9.1] metering log) to the chosen budget, and raises a decision gate ON TENSION ONLY — within budget it is silent. A breach PAUSES and escalates with work preserved (extend/harvest/kill is the person's decision); the machinery never raises a setpoint. Person-adjustable; budget edits are commits, so this block's git history IS the provenance — no approval flow, no side channel, no storage outside this manifest. Per-lane granularity is deferred until evidence demands it.",
+      "additionalProperties": false,
+      "properties": {
+        "initiative": {
+          "type": "object",
+          "description": "The initiative budget: cumulative burn across the whole metering log. Absent means unlimited for the initiative axis.",
+          "additionalProperties": false,
+          "properties": {
+            "tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Cumulative token ceiling for the initiative. The gate breaches when summed burn across the whole [9.1] metering log reaches this. Tokens (not dollars) are the budget denomination: [9.1]'s Spike C keeps dollars null (no guessed price table), so tokens are the mechanical burn evidence the boundary affords."
+            }
+          }
+        },
+        "session": {
+          "type": "object",
+          "description": "The session budget: burn of the current session (entries tagged with the newest docs/sessions/session-*.md). Absent means unlimited for the session axis.",
+          "additionalProperties": false,
+          "properties": {
+            "tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Per-session token ceiling. The gate breaches when the current session's summed burn in the [9.1] metering log reaches this. Tokens are the denomination (dollars stay null on the current rung)."
+            }
+          }
+        }
+      }
     }
   }
 }

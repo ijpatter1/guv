@@ -32,12 +32,25 @@ cat >/dev/null 2>&1   # drain the hook payload on stdin (unused)
 ROUTE="$(bash "$BASE/route.sh" 2>/dev/null)"
 FRONTIER="$(bash "$BASE/resolve-ready.sh" 2>/dev/null)"
 
-# Nothing to surface (pre-scaffold, non-git, helpers absent) — inject nothing.
-[ -z "$ROUTE$FRONTIER" ] && exit 0
+# The [9.3] tension gate at the ENTRY boundary: it compares burn to the chosen
+# budget and, ON TENSION ONLY, prints a loud decision gate (exit 3). We capture
+# its stdout and SURFACE it as session-open context — but the gate's non-zero exit
+# is deliberately NOT propagated: a SessionStart hook that exits non-zero BLOCKS
+# the session from starting (hooks reference), and a budget breach is a decision
+# to PAUSE for, not a reason to deny the session its start. So entry-tension is
+# surfaced before more work is done (the gate's purpose) while the hook stays at
+# exit 0 (its load-bearing invariant). Absent budget / within budget → silent →
+# nothing surfaced; a missing manifest or absent jq → empty, same as the siblings.
+GATE_ENTRY=""
+[ -f "$BASE/budget-gate.sh" ] && GATE_ENTRY="$(bash "$BASE/budget-gate.sh" entry 2>/dev/null)"
+
+# Nothing to surface (pre-scaffold, non-git, helpers absent, within budget) — inject nothing.
+[ -z "$ROUTE$FRONTIER$GATE_ENTRY" ] && exit 0
 
 CTX="guv session-open dispatch (advisory — the entry-door skill remains authoritative):"
-[ -n "$ROUTE" ]    && CTX="$CTX"$'\n\n'"$ROUTE"
-[ -n "$FRONTIER" ] && CTX="$CTX"$'\n'"$FRONTIER"
+[ -n "$ROUTE" ]      && CTX="$CTX"$'\n\n'"$ROUTE"
+[ -n "$FRONTIER" ]   && CTX="$CTX"$'\n'"$FRONTIER"
+[ -n "$GATE_ENTRY" ] && CTX="$CTX"$'\n\n'"$GATE_ENTRY"
 
 # Emit the documented SessionStart context-injection envelope. jq escapes the
 # text safely; if jq is somehow absent, degrade to no injection (still exit 0).
