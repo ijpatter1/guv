@@ -6,6 +6,7 @@
 set -u
 
 REAL_SCRIPT="$(cd "$(dirname "$0")/../.." && pwd)/maintainers/setup-control-plane.sh"
+REAL_ROOTS_SH="$(cd "$(dirname "$0")/.." && pwd)/roots.sh"  # shipped beside the generated runner ([11.2])
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 
 # Maintainer tooling — a consumer repo that deleted maintainers/ still ships
@@ -43,6 +44,11 @@ make_guv() {
   echo "dir-wf main v1" > "$h/.claude/workflows/dir-wf/main.js"
   echo "archive" > "$h/.claude/archive-initiative.sh"
   echo "resolver" > "$h/.claude/resolve-ready.sh"
+  # The generated run-core-tests.sh sources roots.sh to resolve the code repo
+  # ([11.2]); the real copy_core ships it via the *.sh glob, so the fixture must
+  # provide it too or the runner can't source it. A faithful minimal resolver:
+  # roots.code string is the primary, '.' / no manifest is single-repo.
+  cp "$REAL_ROOTS_SH" "$h/.claude/roots.sh"
   echo '{}' > "$h/.claude/settings.json"
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/skills/status/.DS_Store"
   echo "$h"

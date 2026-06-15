@@ -38,7 +38,16 @@
 MANIFEST=".claude/project.json"
 [ -f "$MANIFEST" ] || exit 0
 
-CODE=$(jq -r '.roots.code // "."' "$MANIFEST" 2>/dev/null || echo ".")
+# Resolve the code repo through the shared [11.2] resolver — roots.code may be a
+# named map, so reading it as a bare string would compare the map object, not a
+# path. The resolver returns the PRIMARY's path (the conventional single code
+# root this advisory check verifies against); a corrupt manifest makes it fail,
+# and an advisory check stays silent on failure (it never blocks). roots.sh is
+# four levels up under .claude/; source it location-relative ([7.7]).
+ROOTS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/roots.sh"
+# shellcheck source=/dev/null
+[ -f "$ROOTS_SH" ] && . "$ROOTS_SH" || exit 0
+CODE=$(roots_code_path 2>/dev/null) || exit 0
 CONTROL=$(jq -r '.roots.control // "."' "$MANIFEST" 2>/dev/null || echo ".")
 
 # No-op in single-repo: one shared history, nothing to verify.
