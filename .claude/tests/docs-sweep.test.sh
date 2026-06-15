@@ -209,6 +209,21 @@ fi
 #   guv-harness-gitignore  — pre-[8.3] gitignore append marker (scaffold-shell.sh, shipped in plugin/)
 #   run-harness-tests      — pre-[8.3] generated test-runner name, migrated to run-core-tests.sh (setup-control-plane.sh)
 LEGACY_MARKER_RE='Harness-owned|guv-harness-gitignore|run-harness-tests'
+# The ONE implementation of the token-anchored exception. Strips the allowed marker
+# tokens from each input line, then surfaces any line where a bare "harness" still
+# survives. All three guards below AND the teeth self-check share it — so a revert to
+# a whole-line exemption (`grep -vE`) breaks the self-check, not just the (currently
+# co-occurrence-free) real tree, which would otherwise leave the narrowing untested
+# (Rule 8). Input: lines (file: or git-grep: prefixed). Output: the offending lines.
+harness_residue() { sed -E "s/$LEGACY_MARKER_RE//g" | grep -iw harness; }
+# Teeth, encoded (not a one-off manual check): a bare "harness" co-occurring with a
+# marker on one line must still be caught; a marker-only citation must stay exempt.
+printf '# Harness-owned but also a sneaky harness\n' | harness_residue | grep -qiw harness \
+  && ok "vocab guard teeth: a bare 'harness' sharing a legacy-marker's line is still caught" \
+  || no "token-anchored exception must catch a stray 'harness' co-occurring with a marker (else it masks)"
+printf '%s\n' '# Harness-owned' 'guv-harness-gitignore' 'bash .claude/run-harness-tests.sh' | harness_residue | grep -qiw harness \
+  && no "marker-only legacy citations must remain exempt (no residue)" \
+  || ok "vocab guard teeth: marker-only legacy citations stay exempt (no false positive)"
 SWEPT_HARNESS_FREE="
 .claude/rules/guv-codebase-respect.md
 .claude/rules/guv-context-and-llm-use.md
@@ -263,8 +278,8 @@ for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"
   if [ ! -f "$f" ]; then
     no "vocab guard: listed surface missing: $rel"
-  elif grep -niw 'harness' "$f" 2>/dev/null | sed -E "s/$LEGACY_MARKER_RE//g" | grep -qiw harness; then
-    no "retired noun 'harness' survives in $rel ($(grep -niw harness "$f" | sed -E "s/$LEGACY_MARKER_RE//g" | grep -ciw harness) hit) — first: $(grep -niw harness "$f" | sed -E "s/$LEGACY_MARKER_RE//g" | grep -iw harness | head -1 | cut -c1-72)"
+  elif grep -niw 'harness' "$f" 2>/dev/null | harness_residue >/dev/null; then
+    no "retired noun 'harness' survives in $rel ($(grep -niw harness "$f" | harness_residue | grep -c .) hit) — first: $(grep -niw harness "$f" | harness_residue | head -1 | cut -c1-72)"
   else
     ok "vocabulary: $rel free of 'harness'"
   fi
@@ -276,7 +291,7 @@ done
 # Anthropic-citation lines (an external article title + URL), and the named legacy
 # markers the stage-6 migration shims grep for (LEGACY_MARKER_RE, filtered below).
 # Anything else is a sweep miss or a regression.
-BACKSTOP=$(cd "$ROOT" && git grep -In -i harness -- ':!plugin/' ':!.claude/tests/docs-sweep.test.sh' ':!CHANGELOG.md' ':!README.md' 2>/dev/null | sed -E "s/$LEGACY_MARKER_RE//g" | grep -iw harness)
+BACKSTOP=$(cd "$ROOT" && git grep -In -i harness -- ':!plugin/' ':!.claude/tests/docs-sweep.test.sh' ':!CHANGELOG.md' ':!README.md' 2>/dev/null | harness_residue)
 if [ -z "$BACKSTOP" ]; then
   ok "whole-tree backstop: no retired 'harness' outside the allowlist"
 else
@@ -293,7 +308,7 @@ fi
 # the named legacy markers a shipped migration shim greps for (scaffold-shell.sh's
 # guv-harness-gitignore) — same narrow LEGACY_MARKER_RE exception, bare "harness"
 # in plugin/ still fails.
-PLUGIN_BAD=$(cd "$ROOT" && git grep -In -i harness -- 'plugin/' 2>/dev/null | sed -E "s/$LEGACY_MARKER_RE//g" | grep -iw harness)
+PLUGIN_BAD=$(cd "$ROOT" && git grep -In -i harness -- 'plugin/' 2>/dev/null | harness_residue)
 if [ -z "$PLUGIN_BAD" ]; then
   ok "plugin/ harness-free (apart from named legacy markers)"
 else
