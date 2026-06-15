@@ -207,7 +207,8 @@ fi
 # grown as each shim lands:
 #   Harness-owned          — pre-[8.3] post-commit-hook ownership marker (setup-control-plane.sh)
 #   guv-harness-gitignore  — pre-[8.3] gitignore append marker (scaffold-shell.sh, shipped in plugin/)
-LEGACY_MARKER_RE='Harness-owned|guv-harness-gitignore'
+#   run-harness-tests      — pre-[8.3] generated test-runner name, migrated to run-core-tests.sh (setup-control-plane.sh)
+LEGACY_MARKER_RE='Harness-owned|guv-harness-gitignore|run-harness-tests'
 SWEPT_HARNESS_FREE="
 .claude/rules/guv-codebase-respect.md
 .claude/rules/guv-context-and-llm-use.md

@@ -322,6 +322,25 @@ run_setup "$H" "$D" --sync
   && ok "sync: no runner planted where none existed (consumer-project shape)" \
   || no "sync must not inject the dogfooding runner into a consumer project"
 
+# T8c — legacy runner-name migration ([8.3]): a consumer synced before the rename
+# carries run-harness-tests.sh and no run-core-tests.sh. The refresh-only skip must
+# NOT read that as "never had a runner" (T8b's case) — that would freeze it at the
+# old name forever. --sync must create run-core-tests.sh AND prune the old name.
+H=$(make_guv)
+D="$WORK/legacy-runner"
+run_setup "$H" "$D"
+mv "$D/.claude/run-core-tests.sh" "$D/.claude/run-harness-tests.sh"
+OUT=$( (bash "$H/maintainers/setup-control-plane.sh" "$D" --sync) 2>&1 )
+[ -x "$D/.claude/run-core-tests.sh" ] \
+  && ok "sync: legacy runner migrated to run-core-tests.sh (created + executable)" \
+  || no "sync must create run-core-tests.sh for a consumer carrying the old runner name (not freeze it)"
+[ ! -e "$D/.claude/run-harness-tests.sh" ] \
+  && ok "sync: obsolete old-name runner pruned (no dual runner)" \
+  || no "sync must prune the pre-rename runner once run-core-tests.sh is in place"
+echo "$OUT" | grep -qi 'run-harness-tests\.sh' \
+  && ok "sync: runner migration announced (not silent)" \
+  || no "sync must announce the runner migration"
+
 # T9 — DOGFOODING.md re-derived against current reality (Phase 5 D4). The doc
 # documents this script's loop, so its accuracy guards live with this suite.
 # Conditional like T7: a fork may strip individual maintainer docs.

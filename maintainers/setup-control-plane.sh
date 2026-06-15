@@ -159,8 +159,14 @@ copy_core
 # template-clone consumer update path — a project that never had the runner must
 # not be handed one. Creation stays a create-mode act.
 write_runner() {
-  local target="$DEST/.claude/run-core-tests.sh" tmp
-  if [ ! -f "$target" ] && [ "$MODE" = "sync" ]; then
+  local target="$DEST/.claude/run-core-tests.sh" legacy="$DEST/.claude/run-harness-tests.sh" tmp
+  # Refresh-only on --sync, with one migration exception. A consumer synced
+  # before the [8.3] rename carries the OLD runner name (run-harness-tests.sh)
+  # and no run-core-tests.sh — it DID have a runner, so the "never had one" skip
+  # must not freeze it at the old name. When the legacy runner is present, fall
+  # through to write run-core-tests.sh (and prune the old name below). Only a
+  # consumer with NEITHER runner is genuinely runner-less (consumer-project shape).
+  if [ ! -f "$target" ] && [ ! -f "$legacy" ] && [ "$MODE" = "sync" ]; then
     return 0
   fi
   tmp=$(mktemp)
@@ -198,6 +204,14 @@ SH
   fi
   chmod +x "$target"
   rm -f "$tmp"
+  # Migrate away the pre-[8.3] runner name: once run-core-tests.sh is in place the
+  # old run-harness-tests.sh is an orphan (dual runners) — remove it, loud. The
+  # consumer's project.json commands.test that still names the old runner is
+  # consumer-owned (not synced) and is the one manual step the CHANGELOG flags.
+  if [ -f "$legacy" ]; then
+    rm -f "$legacy"
+    echo "[setup] migrated runner: removed obsolete .claude/run-harness-tests.sh (now run-core-tests.sh)"
+  fi
 }
 write_runner
 
