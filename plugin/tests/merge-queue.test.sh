@@ -311,6 +311,127 @@ OUT=$(run gate-input 7.5); RC=$?
   && ok "gate-input: a deliverable in REQUIREMENTS but with no lane loud-stops (exit 5, no_lane path)" \
   || no "gate-input must loud-stop via no_lane when the deliverable exists but the lane doesn't (rc=$RC): $OUT"
 
+# ── [11.3] — named-map split: the queue lands into the NAMED repo's namespaced
+#    worktree (.worktrees/<repo>/lane-<id>/), addressed by the trailing <repo>
+#    selector — so a command never lands in the wrong code repo. ──
+echo "── [11.3] named-map: the queue lands into the named repo's namespaced worktree ──"
+# A control plane with two provisioned code repos and a REQUIREMENTS the queue can
+# read; the lane lives in storefront, namespaced.
+NS_setup() {
+  rm -rf "$WORK/store" "$WORK/studio" "$WORK/named"
+  for r in store studio; do
+    local d="$WORK/$r"
+    mkdir -p "$d/.claude"
+    git -C "$d" init -q -b main; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+    echo base > "$d/base.txt"
+    jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"task"}' \
+      > "$d/.claude/project.json"
+    git -C "$d" add -A; git -C "$d" commit -qm base
+  done
+  P="$WORK/named"; mkdir -p "$P/.claude" "$P/docs"
+  jq -n '{roots:{control:".",code:{storefront:{path:"../store"},studio:{path:"../studio"}},codePrimary:"storefront"},
+          name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"phased"}' \
+    > "$P/.claude/project.json"
+  cat > "$P/docs/REQUIREMENTS.md" <<'REQ'
+# Requirements
+## Phase 7
+4. **[7.4]** thing `[deps: none]`
+   - *Acceptance:* NS-SENTINEL-7-4.
+## Phase 8
+REQ
+}
+
+# T15 — land <id> <repo>: the queue resolves the namespaced worktree of the named
+# repo and fast-forwards onto THAT repo's integration head (not the primary's).
+NS_setup
+( cd "$P" && bash "$LANE" create 7.4 nsland storefront ) >/dev/null 2>&1
+WT="$WORK/store/.worktrees/storefront/lane-7.4"
+[ -d "$WT" ] || no "precondition: the namespaced worktree should exist at $WT"
+printf 'landed-in-store\n' > "$WT/base.txt"
+git -C "$WT" add -A; git -C "$WT" -c user.email=t@t -c user.name=t commit -qm "feat: ns landable"
+HEAD0=$(git -C "$WORK/store" rev-parse main)
+OUT=$( ( cd "$P" && bash "$SCRIPT" land 7.4 storefront ) 2>&1 ); RC=$?
+[ $RC -eq 0 ] || no "named land must succeed against the namespaced worktree (rc=$RC): $OUT"
+[ "$(git -C "$WORK/store" rev-parse main)" != "$HEAD0" ] \
+  && git -C "$WORK/store" log --oneline main | grep -q "feat: ns landable" \
+  && ok "named land: the lane landed on the storefront repo's integration (namespaced worktree resolved)" \
+  || no "named land must advance the named repo's head from its namespaced worktree (rc=$RC): $OUT"
+git -C "$WORK/studio" log --oneline main 2>/dev/null | grep -q "feat: ns landable" \
+  && no "named land must NOT touch the studio repo" \
+  || ok "named land: the studio repo is untouched (landed in the right place)"
+
+# T16 — precheck/gate-input <id> <repo> resolve the named repo's namespaced lane.
+NS_setup
+( cd "$P" && bash "$LANE" create 7.4 nspre storefront ) >/dev/null 2>&1
+WT="$WORK/store/.worktrees/storefront/lane-7.4"
+printf 'x\n' > "$WT/new.txt"; git -C "$WT" add -A
+git -C "$WT" -c user.email=t@t -c user.name=t commit -qm "feat: ns precheck"
+OUT=$( ( cd "$P" && bash "$SCRIPT" precheck 7.4 storefront ) 2>&1 ); RC=$?
+[ $RC -eq 0 ] && echo "$OUT" | grep -qi "footprint" \
+  && ok "named precheck: resolves the namespaced lane and computes its footprint" \
+  || no "named precheck must resolve the namespaced lane (rc=$RC): $OUT"
+OUT=$( ( cd "$P" && bash "$SCRIPT" gate-input 7.4 storefront ) 2>&1 ); RC=$?
+[ $RC -eq 0 ] && echo "$OUT" | grep -q "NS-SENTINEL-7-4" \
+  && ok "named gate-input: bundles the acceptance block for the namespaced lane" \
+  || no "named gate-input must bundle the acceptance block (rc=$RC): $OUT"
+
+# T17 — MISROUTE: on a named-map plane an UNKNOWN trailing <repo> fails LOUD,
+# naming the offender, and mutates nothing — never a silent fall-through to the
+# primary (Rule 15; mirrors guv-lane.sh's MISROUTE). The acceptance: a misrouted
+# invocation fails loud rather than acting in the wrong place.
+NS_setup
+( cd "$P" && bash "$LANE" create 7.4 nsmis storefront ) >/dev/null 2>&1
+WT="$WORK/store/.worktrees/storefront/lane-7.4"
+printf 'landed-in-store\n' > "$WT/base.txt"
+git -C "$WT" add -A; git -C "$WT" -c user.email=t@t -c user.name=t commit -qm "feat: ns misroute"
+STORE_HEAD0=$(git -C "$WORK/store" rev-parse main)
+STUDIO_HEAD0=$(git -C "$WORK/studio" rev-parse main)
+# `land 7.4 typostore` — typostore is no known repo on the named map. Pre-fix the
+# token is not peeled, REPO stays empty, and land silently targets the PRIMARY
+# (storefront) — acting in a place the caller did not name. Post-fix it loud-stops.
+OUT=$( ( cd "$P" && bash "$SCRIPT" land 7.4 typostore ) 2>&1 ); RC=$?
+[ $RC -eq 4 ] \
+  && ok "misroute: an unknown trailing <repo> fails loud (exit 4) on a named-map plane" \
+  || no "an unknown trailing <repo> must fail loud with exit 4 (rc=$RC): $OUT"
+echo "$OUT" | grep -q "typostore" \
+  && ok "misroute: the loud stop NAMES the offending token (typostore)" \
+  || no "the misroute stop must name the offender: $OUT"
+echo "$OUT" | grep -qiE "storefront|studio|known" \
+  && ok "misroute: the stop also lists the known repos (resolver-routed)" \
+  || no "the misroute stop should list the known repos: $OUT"
+[ "$(git -C "$WORK/store" rev-parse main)" = "$STORE_HEAD0" ] \
+  && [ "$(git -C "$WORK/studio" rev-parse main)" = "$STUDIO_HEAD0" ] \
+  && ok "misroute: NOTHING mutated — neither the primary nor any repo advanced" \
+  || no "a misrouted invocation must mutate nothing (it acted in the wrong place)"
+# precheck/gate-input also loud-stop on the misroute (uniform across the verbs),
+# rather than tripping a bare arg-count usage error that doesn't name the offender.
+OUT=$( ( cd "$P" && bash "$SCRIPT" precheck 7.4 typostore ) 2>&1 ); RC=$?
+[ $RC -eq 4 ] && echo "$OUT" | grep -q "typostore" \
+  && ok "misroute: precheck too fails loud naming the offender (exit 4)" \
+  || no "precheck must loud-stop on a misrouted <repo> (rc=$RC): $OUT"
+
+# T18 — single-repo (string roots.code) BACK-COMPAT: a trailing token is NEVER
+# peeled or rejected on a string plane — the misroute machinery is a named-map-only
+# concern, so single-repo stays a byte-identical no-op. A stray trailing token on a
+# string plane hits the per-verb arg-count usage error (exit 2), not a misroute (4).
+setup
+mklane create 7.4 bcland
+lanecommit 7.4 base.txt "bc" "feat: back-compat"
+OUT=$(run land 7.4); RC=$?
+[ $RC -eq 0 ] \
+  && ok "back-compat: a bare 'land <id>' on a string roots.code still lands (no peel)" \
+  || no "single-repo land must stay a no-op land (rc=$RC): $OUT"
+# A second positional on a STRING plane is a usage error (exit 2 from the verb's
+# arg-count check), NOT a named-map misroute (exit 4) — the string plane has no
+# repo names, so no token is ever treated as a repo position.
+setup
+mklane create 7.4 bcusage
+lanecommit 7.4 base.txt "bc2" "feat: bc2"
+OUT=$(run land 7.4 stray); RC=$?
+[ $RC -eq 2 ] \
+  && ok "back-compat: a stray token on a string plane is a usage error (exit 2), not a misroute (exit 4)" \
+  || no "single-repo must treat a stray token as usage (exit 2), never a misroute (rc=$RC): $OUT"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

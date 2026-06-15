@@ -21,6 +21,21 @@
 # come from the user-level plugin (${CLAUDE_PLUGIN_ROOT}); only the per-repo manifest +
 # gitignore are written here.
 #
+# Command self-location & per-repo namespacing ([11.3]). When roots.code is a NAMED
+# MAP (N code repos under one control plane), a command must act on the INTENDED code
+# repo, never the control-plane cwd — a silent wrong-repo operation is the worst
+# failure (Rule 15). Two mechanisms make this so, both keyed on the optional trailing
+# <repo> selector and resolved through the shared .claude/roots.sh:
+#   - guv-cmd.sh <name> [<repo>] runs the NAMED repo's commands.<name> (the per-repo
+#     `commands` override, else the top-level default) IN that repo's root — so a
+#     project command self-locates instead of running from the plane;
+#   - guv-lane.sh / merge-queue.sh / lane-dispatch.sh REPO-NAMESPACE their worktrees at
+#     .worktrees/<repo>/lane-<id>/ (default .worktrees/lane-<id>/ for the primary), so
+#     two repos' lanes never collide and a lane lands in the repo it was created in.
+# A misrouted invocation (an unknown <repo>) loud-stops, naming the offender. A string
+# roots.code (single-repo) has no repo names, so the selector is a no-op and the flat
+# worktree path stands — single-repo planes are unaffected (the load-bearing back-compat).
+#
 # Usage:
 #   bash .claude/provision-code-repo.sh <code-repo-path> [--language <lang>] [--test <cmd>]
 #

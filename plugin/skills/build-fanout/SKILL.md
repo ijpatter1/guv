@@ -54,6 +54,13 @@ deliverable, create a lane and spawn a builder into it:
 
 1. `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-lane.sh create <id> <slug>` — a worktree at
    `.worktrees/lane-<id>/` on branch `lane/<id>-<slug>` in the code repo.
+   **Split topology ([11.3]):** in a multi-repo plane (`roots.code` a named map),
+   pass the target repo as a trailing arg — `guv-lane.sh create <id> <slug> <repo>` —
+   and the worktree is repo-namespaced at `.worktrees/<repo>/lane-<id>/`, so two code
+   repos' lanes never collide and the lane lands back in the repo it was created in.
+   An unknown `<repo>` fails loud (it never silently runs against the primary). A
+   string `roots.code` (single-repo) takes no `<repo>` and keeps the flat path — a
+   no-op, byte-identical to today.
 2. Spawn the calibrated **`@guv:lane-builder`** agent (BY NAME, Rule 14 — not an ad-hoc
    worker) into that lane, told its deliverable id and worktree path. The lane builder:
    - acquires the behavioral core **natively** — an Agent-tool subagent inherits this
@@ -101,6 +108,10 @@ Hand the cleared lanes to the deterministic JOIN:
 ```
 bash "${CLAUDE_PLUGIN_ROOT}"/scripts/lane-dispatch.sh dispatch <id> <id> …
 ```
+
+**Split topology ([11.3]):** `dispatch <id> … <repo>` lands the lanes in the named code
+repo (harvesting their `.worktrees/<repo>/lane-<id>/` worktrees), and `merge-queue.sh`'s
+verbs take the same trailing `[<repo>]`. Single-repo takes no `<repo>`.
 
 It harvests each lane (the failure contract refuses a dirty/garbage/drifted lane and
 captures a durable report), orders cheapest-first through the `merge-queue.sh` queue,

@@ -85,7 +85,45 @@ die() { echo "lane-dispatch: $2" >&2; exit "$1"; }
 # exists but won't parse is a loud stop, never the single-repo fallback (Rule 15).
 # shellcheck source=/dev/null
 . "$HERE/roots.sh"
-CODE=$(roots_code_path) || die 4 "could not resolve a code repo from the manifest"
+
+# Per-repo selector & worktree namespacing ([11.3]). A TRAILING <repo> token
+# names which code repo the whole join acts on (default = the primary); when
+# present, every lane worktree is repo-namespaced at .worktrees/<repo>/lane-<id>/
+# (matching guv-lane.sh / merge-queue.sh) and the lane lookups, queue calls, and
+# lifecycle are forwarded to that repo. On a string roots.code the trailing token
+# never matches a repo name, so single-repo stays a flat-path no-op (back-compat).
+# `assemble` takes FILE PATHS (containing / or .json), which never match a repo
+# name, so the peel is safe there too. Requires ≥2 args so a lone arg is not peeled.
+# A named map is exactly "the code root is an object" — `jq -e` on that predicate,
+# not a bare-string roots.code read, so the no-single-root-read invariant
+# (roots-map.test) is preserved (matches guv-lane.sh's _is_named_map).
+_is_named_map() {
+  [ -f "$ROOTS_MANIFEST" ] || return 1
+  jq -e '(.roots.code | type) == "object"' "$ROOTS_MANIFEST" >/dev/null 2>&1
+}
+REPO=""; NS=""; MISROUTE=""
+if [ $# -ge 2 ]; then
+  _last="${!#}"
+  if _roots_is_repo_name "$_last"; then
+    REPO="$_last"; NS="$REPO/"; set -- "${@:1:$#-1}"
+  # On a NAMED-MAP plane the trailing token is the <repo> position; one that names
+  # no known repo is a MISROUTE, not a silent fall-through to the primary nor a
+  # silent lane-id (dispatching against the wrong code repo is the worst outcome —
+  # Rule 15, mirroring guv-lane.sh's MISROUTE). EXCEPT `assemble`, whose trailing
+  # arg is a FILE PATH, never a repo position — it is never misrouted. On a string
+  # roots.code this never fires, so single-repo stays a byte-identical no-op.
+  elif [ "$1" != "assemble" ] && _is_named_map; then
+    MISROUTE="$_last"
+  fi
+fi
+CODE=$(roots_code_path "$REPO") || die 4 "could not resolve code repo '${REPO:-<primary>}' from the manifest"
+# A misrouted trailing <repo> (named-map plane, names no known repo) is refused
+# loudly BEFORE any harvest, land, or mutation — route the offender through the
+# resolver, whose unknown-repo stop already names it and the known repos. For the
+# variadic `dispatch <id>… <repo>` this resolves the lane-id-vs-repo ambiguity the
+# way guv-lane does: on a named-map plane the trailing token is the repo position,
+# so an unknown one is a loud misroute, never a silently-treated lane id.
+[ -n "$MISROUTE" ] && { roots_code_path "$MISROUTE" >/dev/null; die 4 "unknown code repo '$MISROUTE' — see the resolver error above"; }
 git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
   || die 4 "no git repo at roots.code ($CODE)"
 
@@ -132,7 +170,7 @@ INTEG=$(git -C "$CODE" symbolic-ref --short HEAD 2>/dev/null) \
 
 lane_branch() {  # id -> branch on stdout; returns 1 if unknown (caller dies)
   local id="$1" out
-  out=$(bash "$LANE" harvest "$id" 2>/dev/null) || return 1
+  out=$(bash "$LANE" harvest "$id" $REPO 2>/dev/null) || return 1
   printf '%s' "$out" | grep -oE 'branch=[^ ]+' | cut -d= -f2-
 }
 
@@ -170,7 +208,7 @@ lane_artifact_advisory() {  # $1 = branch
 # Real dirtiness = uncommitted work EXCLUDING the orchestrator sidecar. Porcelain
 # lines are "XY <path>", so anchor the sidecar match on the path tail, not column 0.
 lane_realdirty() {  # id -> count of non-sidecar porcelain lines
-  local wt="$CODE/.worktrees/lane-$1"
+  local wt="$CODE/.worktrees/${NS}lane-$1"
   [ -d "$wt" ] || { echo 0; return; }
   git -C "$wt" status --porcelain 2>/dev/null | grep -vE '\.lane-output\.json$' | grep -c .
 }
@@ -190,9 +228,9 @@ do_confine() {  # $1=id
 # Capture a durable failure report to the control plane. $1=id $2=reason -> path
 capture_report() {
   local id="$1" reason="$2" br wt base
-  br=$(bash "$LANE" harvest "$id" 2>/dev/null | grep -oE 'branch=[^ ]+' | cut -d= -f2-)
+  br=$(bash "$LANE" harvest "$id" $REPO 2>/dev/null | grep -oE 'branch=[^ ]+' | cut -d= -f2-)
   [ -n "$br" ] || br="(unresolved)"
-  wt="$CODE/.worktrees/lane-$id"
+  wt="$CODE/.worktrees/${NS}lane-$id"
   mkdir -p "$REPORTS"
   {
     echo "# Lane failure report — [$id]"
@@ -236,7 +274,7 @@ capture_report() {
 do_harvest() {  # $1=id
   local id="$1" br wt status report
   br=$(lane_branch "$id") || die 5 "no lane for id $id (expected lane/$id-<slug>)"  # structural, not a contract refusal
-  wt="$CODE/.worktrees/lane-$id"
+  wt="$CODE/.worktrees/${NS}lane-$id"
   if [ "$(lane_realdirty "$id")" -gt 0 ]; then
     report=$(capture_report "$id" "dirty worktree (uncommitted changes beyond the sidecar)")
     echo "harvest=refused lane=$id reason=dirty report=$report"; return 6
@@ -302,17 +340,17 @@ do_assemble() {  # $@ = lane-output json files
   done
 }
 
-[ $# -ge 1 ] || die 2 "usage: bash .claude/lane-dispatch.sh confine <id> | harvest <id> | assemble <out>… | dispatch <id>…"
+[ $# -ge 1 ] || die 2 "usage: bash .claude/lane-dispatch.sh confine <id> [<repo>] | harvest <id> [<repo>] | assemble <out>… | dispatch <id>… [<repo>]"
 VERB="$1"; shift
 
 case "$VERB" in
   confine)
-    [ $# -eq 1 ] || die 2 "usage: confine <id>"
+    [ $# -eq 1 ] || die 2 "usage: confine <id> [<repo>]"
     do_confine "$1"; exit $?
     ;;
 
   harvest)
-    [ $# -eq 1 ] || die 2 "usage: harvest <id>"
+    [ $# -eq 1 ] || die 2 "usage: harvest <id> [<repo>]"
     do_harvest "$1"; exit $?
     ;;
 
@@ -322,13 +360,14 @@ case "$VERB" in
     ;;
 
   dispatch)
-    [ $# -ge 1 ] || die 2 "usage: dispatch <id>…"
+    [ $# -ge 1 ] || die 2 "usage: dispatch <id>… [<repo>]"
     TOTAL=$#
     declare -a OK=(); SKIPPED=0
     for id in "$@"; do
       # A dispatched id with no lane is a malformed list entry — skip it (and say
       # so) rather than abort the batch and waste already-collected siblings.
-      if ! bash "$LANE" harvest "$id" >/dev/null 2>&1; then
+      # Forward $REPO so the lookup hits the named repo's namespaced worktree.
+      if ! bash "$LANE" harvest "$id" $REPO >/dev/null 2>&1; then
         echo "dispatch: lane $id does not exist — skipped (siblings unaffected)"
         SKIPPED=$((SKIPPED + 1)); continue
       fi
@@ -336,16 +375,17 @@ case "$VERB" in
     done
     declare -a LANDED=() CLEANED=()
     if [ "${#OK[@]}" -gt 0 ]; then
-      # Order cheapest-first through the [7.4] queue, then gate + land each.
-      ORDER=$(bash "$QUEUE" preview "${OK[@]}" 2>/dev/null | grep '^order=' | cut -d= -f2-)
+      # Order cheapest-first through the [7.4] queue, then gate + land each. The
+      # peeled $REPO is the TRAILING arg to each queue call (namespaced worktree).
+      ORDER=$(bash "$QUEUE" preview "${OK[@]}" $REPO 2>/dev/null | grep '^order=' | cut -d= -f2-)
       [ -n "$ORDER" ] || ORDER="${OK[*]}"
       for id in $ORDER; do
-        bash "$QUEUE" precheck "$id" >/dev/null 2>&1 \
+        bash "$QUEUE" precheck "$id" $REPO >/dev/null 2>&1 \
           || { echo "dispatch: lane $id failed the queue pre-check — not landed"; continue; }
-        if bash "$QUEUE" land "$id" >/dev/null 2>&1; then
+        if bash "$QUEUE" land "$id" $REPO >/dev/null 2>&1; then
           LANDED+=("$id")
         else
-          echo "dispatch: lane $id hit a queue conflict — routed to serial re-dispatch (merge-queue land $id)"
+          echo "dispatch: lane $id hit a queue conflict — routed to serial re-dispatch (merge-queue land $id $REPO)"
         fi
       done
     fi
@@ -376,10 +416,10 @@ case "$VERB" in
     # after assembly: assembly reads the staged sidecars, never the worktrees.
     if [ "${#LANDED[@]}" -gt 0 ]; then
       for id in "${LANDED[@]}"; do
-        if bash "$LANE" destroy "$id" >/dev/null 2>&1; then
+        if bash "$LANE" destroy "$id" $REPO >/dev/null 2>&1; then
           CLEANED+=("$id")
         else
-          echo "dispatch: lane $id landed but auto-destroy failed — leftover worktree at $CODE/.worktrees/lane-$id (clean up: guv-lane destroy $id)"
+          echo "dispatch: lane $id landed but auto-destroy failed — leftover worktree at $CODE/.worktrees/${NS}lane-$id (clean up: guv-lane destroy $id $REPO)"
         fi
       done
     fi
