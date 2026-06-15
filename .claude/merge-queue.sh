@@ -72,7 +72,20 @@ footprint_nums() {  # $1=branch -> "files insertions deletions"
 # version of this mistake; Rule 15).
 # shellcheck source=/dev/null
 . "$HERE/roots.sh"
-CODE=$(roots_code_path) || die 4 "could not resolve a code repo from the manifest"
+
+# Per-repo selector & worktree namespacing ([11.3]). A TRAILING <repo> token
+# names which code repo this queue invocation acts on (default = the primary);
+# when present, the worktree is repo-namespaced at .worktrees/<repo>/lane-<id>/
+# (matching guv-lane.sh) and the lane lookup is forwarded to that repo. On a
+# string roots.code the trailing token never matches a repo name, so single-repo
+# stays a flat-path no-op (back-compat). Peel it off $@ before the verb dispatch.
+[ $# -ge 1 ] || die 2 "usage: bash .claude/merge-queue.sh precheck <id> [<repo>] | preview <id>… [<repo>] | gate-input <id> [<repo>] | land <id> [<repo>]"
+REPO=""; NS=""
+if [ $# -ge 2 ]; then
+  _last="${!#}"
+  if _roots_is_repo_name "$_last"; then REPO="$_last"; NS="$REPO/"; set -- "${@:1:$#-1}"; fi
+fi
+CODE=$(roots_code_path "$REPO") || die 4 "could not resolve code repo '${REPO:-<primary>}' from the manifest"
 git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1 \
   || die 4 "no git repo at roots.code ($CODE)"
 
@@ -92,7 +105,9 @@ integ() {
 # `STATE=$(lane_state "$id") || die 5 …` so an unknown id loud-stops (Rule 15).
 lane_state() {
   local id="$1" out rc br dirty
-  out=$(bash "$LANE" harvest "$id" 2>/dev/null); rc=$?
+  # Forward the peeled <repo> so guv-lane resolves the SAME named repo + namespaced
+  # worktree (a bare REPO is the primary, the single-repo no-op).
+  out=$(bash "$LANE" harvest "$id" $REPO 2>/dev/null); rc=$?
   [ $rc -eq 0 ] || return 5
   br=$(printf '%s' "$out" | grep -oE 'branch=[^ ]+' | head -1 | cut -d= -f2-)
   dirty=$(printf '%s' "$out" | grep -oE 'dirty=[^ ]+' | head -1 | cut -d= -f2-)
@@ -127,7 +142,6 @@ acceptance_block() {
   ' "$file"
 }
 
-[ $# -ge 1 ] || die 2 "usage: bash .claude/merge-queue.sh precheck <id> | preview <id>… | gate-input <id> | land <id>"
 VERB="$1"; shift
 
 case "$VERB" in
@@ -208,7 +222,7 @@ case "$VERB" in
     INTEG=$(integ)
     STATE=$(lane_state "$ID") || no_lane "$ID"
     read -r BR DIRTY <<<"$STATE"
-    WT="$CODE/.worktrees/lane-$ID"
+    WT="$CODE/.worktrees/${NS}lane-$ID"   # repo-namespaced when a <repo> was named ([11.3])
     [ -d "$WT" ] || die 5 "lane $ID has no worktree at $WT to land from"
     # Snapshot the footprint BEFORE the rebase: the rebase replays the lane onto
     # the post-merge head and moves the merge-base, so the gate's footprint must be

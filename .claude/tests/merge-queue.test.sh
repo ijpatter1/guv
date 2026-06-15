@@ -311,6 +311,70 @@ OUT=$(run gate-input 7.5); RC=$?
   && ok "gate-input: a deliverable in REQUIREMENTS but with no lane loud-stops (exit 5, no_lane path)" \
   || no "gate-input must loud-stop via no_lane when the deliverable exists but the lane doesn't (rc=$RC): $OUT"
 
+# ── [11.3] — named-map split: the queue lands into the NAMED repo's namespaced
+#    worktree (.worktrees/<repo>/lane-<id>/), addressed by the trailing <repo>
+#    selector — so a command never lands in the wrong code repo. ──
+echo "── [11.3] named-map: the queue lands into the named repo's namespaced worktree ──"
+# A control plane with two provisioned code repos and a REQUIREMENTS the queue can
+# read; the lane lives in storefront, namespaced.
+NS_setup() {
+  rm -rf "$WORK/store" "$WORK/studio" "$WORK/named"
+  for r in store studio; do
+    local d="$WORK/$r"
+    mkdir -p "$d/.claude"
+    git -C "$d" init -q -b main; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+    echo base > "$d/base.txt"
+    jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"task"}' \
+      > "$d/.claude/project.json"
+    git -C "$d" add -A; git -C "$d" commit -qm base
+  done
+  P="$WORK/named"; mkdir -p "$P/.claude" "$P/docs"
+  jq -n '{roots:{control:".",code:{storefront:{path:"../store"},studio:{path:"../studio"}},codePrimary:"storefront"},
+          name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"phased"}' \
+    > "$P/.claude/project.json"
+  cat > "$P/docs/REQUIREMENTS.md" <<'REQ'
+# Requirements
+## Phase 7
+4. **[7.4]** thing `[deps: none]`
+   - *Acceptance:* NS-SENTINEL-7-4.
+## Phase 8
+REQ
+}
+
+# T15 — land <id> <repo>: the queue resolves the namespaced worktree of the named
+# repo and fast-forwards onto THAT repo's integration head (not the primary's).
+NS_setup
+( cd "$P" && bash "$LANE" create 7.4 nsland storefront ) >/dev/null 2>&1
+WT="$WORK/store/.worktrees/storefront/lane-7.4"
+[ -d "$WT" ] || no "precondition: the namespaced worktree should exist at $WT"
+printf 'landed-in-store\n' > "$WT/base.txt"
+git -C "$WT" add -A; git -C "$WT" -c user.email=t@t -c user.name=t commit -qm "feat: ns landable"
+HEAD0=$(git -C "$WORK/store" rev-parse main)
+OUT=$( ( cd "$P" && bash "$SCRIPT" land 7.4 storefront ) 2>&1 ); RC=$?
+[ $RC -eq 0 ] || no "named land must succeed against the namespaced worktree (rc=$RC): $OUT"
+[ "$(git -C "$WORK/store" rev-parse main)" != "$HEAD0" ] \
+  && git -C "$WORK/store" log --oneline main | grep -q "feat: ns landable" \
+  && ok "named land: the lane landed on the storefront repo's integration (namespaced worktree resolved)" \
+  || no "named land must advance the named repo's head from its namespaced worktree (rc=$RC): $OUT"
+git -C "$WORK/studio" log --oneline main 2>/dev/null | grep -q "feat: ns landable" \
+  && no "named land must NOT touch the studio repo" \
+  || ok "named land: the studio repo is untouched (landed in the right place)"
+
+# T16 — precheck/gate-input <id> <repo> resolve the named repo's namespaced lane.
+NS_setup
+( cd "$P" && bash "$LANE" create 7.4 nspre storefront ) >/dev/null 2>&1
+WT="$WORK/store/.worktrees/storefront/lane-7.4"
+printf 'x\n' > "$WT/new.txt"; git -C "$WT" add -A
+git -C "$WT" -c user.email=t@t -c user.name=t commit -qm "feat: ns precheck"
+OUT=$( ( cd "$P" && bash "$SCRIPT" precheck 7.4 storefront ) 2>&1 ); RC=$?
+[ $RC -eq 0 ] && echo "$OUT" | grep -qi "footprint" \
+  && ok "named precheck: resolves the namespaced lane and computes its footprint" \
+  || no "named precheck must resolve the namespaced lane (rc=$RC): $OUT"
+OUT=$( ( cd "$P" && bash "$SCRIPT" gate-input 7.4 storefront ) 2>&1 ); RC=$?
+[ $RC -eq 0 ] && echo "$OUT" | grep -q "NS-SENTINEL-7-4" \
+  && ok "named gate-input: bundles the acceptance block for the namespaced lane" \
+  || no "named gate-input must bundle the acceptance block (rc=$RC): $OUT"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

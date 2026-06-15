@@ -155,6 +155,104 @@ run destroy 1.1 >/dev/null 2>&1
   && ok "single-repo: lifecycle invariant holds" \
   || no "single-repo: worktree count != 1 after destroy"
 
+# ── [11.3] — named-map split: lanes repo-namespace their worktrees as
+#    .worktrees/<repo>/lane-<id>/, addressed by the optional <repo> selector,
+#    so two code repos' lanes never collide and a lane lands in the named repo. ──
+# A control plane with TWO code repos, each provisioned + with a base commit.
+setup_named() {
+  rm -rf "$WORK/store" "$WORK/studio" "$WORK/named"
+  for r in store studio; do
+    local d="$WORK/$r"
+    mkdir -p "$d/.claude"
+    git -C "$d" init -q; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+    echo "$r" > "$d/marker"
+    jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"task"}' \
+      > "$d/.claude/project.json"
+    git -C "$d" add -A; git -C "$d" commit -qm init
+  done
+  P="$WORK/named"; mkdir -p "$P/.claude"
+  jq -n '{roots:{control:".",code:{storefront:{path:"../store"},studio:{path:"../studio"}},codePrimary:"storefront"},
+          name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"phased"}' \
+    > "$P/.claude/project.json"
+}
+
+# T11 — create <id> <slug> <repo>: the worktree is repo-NAMESPACED at
+# .worktrees/<repo>/lane-<id>/ in THAT repo, never the flat .worktrees/lane-<id>/
+# (so storefront's lane and studio's lane never collide), and the branch is born
+# in the named repo's git.
+setup_named
+OUT=$(run create 9.9 fix storefront); RC=$?
+[ $RC -eq 0 ] || no "named create failed (rc=$RC): $OUT"
+[ -d "$WORK/store/.worktrees/storefront/lane-9.9" ] \
+  && ok "named create: worktree is repo-namespaced at .worktrees/storefront/lane-9.9/" \
+  || no "named create must namespace the worktree under the repo (got: $OUT)"
+[ ! -d "$WORK/store/.worktrees/lane-9.9" ] \
+  && ok "named create: NOT the flat .worktrees/lane-9.9/ (namespacing avoids collision)" \
+  || no "a named lane must not use the flat worktree path"
+git -C "$WORK/store" show-ref --verify --quiet refs/heads/lane/9.9-fix \
+  && ok "named create: branch born in the storefront repo (not studio)" \
+  || no "named create must create the branch in the named repo"
+git -C "$WORK/studio" show-ref --verify --quiet refs/heads/lane/9.9-fix \
+  && no "named create must NOT touch the studio repo" \
+  || ok "named create: studio repo untouched"
+OUT=$(run create 9.9 build studio); RC=$?
+[ $RC -eq 0 ] && [ -d "$WORK/studio/.worktrees/studio/lane-9.9" ] \
+  && ok "named create: the SAME id in a different repo coexists (no collision)" \
+  || no "the same lane id must coexist across repos (rc=$RC): $OUT"
+
+# T11b — harvest <id> <repo> resolves the namespaced worktree of the named repo.
+( cd "$WORK/store/.worktrees/storefront/lane-9.9" \
+  && echo y > g && git add g && git -c user.email=t@t -c user.name=t commit -qm work )
+OUT=$(run harvest 9.9 storefront); RC=$?
+[ $RC -eq 0 ] && echo "$OUT" | grep -q "ahead=1" \
+  && ok "named harvest: addresses the namespaced worktree of the named repo" \
+  || no "named harvest must read the namespaced worktree (rc=$RC): $OUT"
+
+# T11c — destroy <id> --force <repo>: full lifecycle in the namespaced repo.
+# Worktree gone, branch gone, the namespace dir does not leak a stale worktree.
+# (Per the contract the repo selector is the trailing token: destroy <id>
+# [--force] [<repo>].)
+OUT=$(run destroy 9.9 --force storefront); RC=$?
+[ $RC -eq 0 ] || no "named destroy --force failed (rc=$RC): $OUT"
+[ ! -d "$WORK/store/.worktrees/storefront/lane-9.9" ] \
+  && ok "named destroy: the namespaced worktree is removed" \
+  || no "named destroy must remove the namespaced worktree"
+[ -z "$(git -C "$WORK/store" branch --list 'lane/*')" ] \
+  && ok "named destroy: no lane/* branch leaks in the named repo" \
+  || no "named destroy leaked a branch"
+# the studio lane (same id) is independent and still present
+git -C "$WORK/studio" show-ref --verify --quiet refs/heads/lane/9.9-build \
+  && ok "named destroy: the sibling repo's same-id lane is untouched" \
+  || no "destroying storefront's 9.9 must not affect studio's 9.9"
+run destroy 9.9 --force studio >/dev/null 2>&1
+
+# T11d — a misrouted lane op (unknown repo name) FAILS LOUD via the resolver,
+# never silently creating the lane in the primary (Rule 15 — a lane in the wrong
+# repo is the worst version of this).
+OUT=$(run create 8.8 thing nope); RC=$?
+[ $RC -ne 0 ] && echo "$OUT" | grep -qi "nope" \
+  && ok "named create: an unknown repo name fails loud (no silent wrong-repo lane)" \
+  || no "an unknown repo must fail loud, naming the offender (rc=$RC): $OUT"
+[ ! -d "$WORK/store/.worktrees/nope" ] && [ ! -d "$WORK/store/.worktrees/lane-8.8" ] \
+  && ok "named create: a misrouted invocation left nothing behind" \
+  || no "a misrouted create must mutate nothing"
+
+# T8c — BACK-COMPAT (load-bearing): a single-repo plane is unaffected by
+# namespacing — its lane stays at the flat .worktrees/lane-<id>/ (the no-op
+# invariant). The bare create (no repo arg) keeps the historical path.
+P="$WORK/single2"
+mkdir -p "$P/.claude"
+jq -n '{roots:{control:".",code:"."},name:"t",language:"node",commands:{},scaffoldCheck:"true",ceremony:"phased"}' \
+  > "$P/.claude/project.json"
+git -C "$P" init -q; git -C "$P" config user.email t@t; git -C "$P" config user.name t
+( cd "$P" && git add -A && git commit -qm init )
+OUT=$(run create 2.0 flat); RC=$?
+# The worktree reported and created must be the FLAT path — no repo segment.
+[ $RC -eq 0 ] && [ -d "$P/.worktrees/lane-2.0" ] && echo "$OUT" | grep -q "worktree=.worktrees/lane-2.0" \
+  && ok "back-compat: single-repo lane stays at the flat .worktrees/lane-2.0/ (no namespacing)" \
+  || no "single-repo must keep the flat worktree path (rc=$RC): $OUT"
+run destroy 2.0 --force >/dev/null 2>&1
+
 # T8b — a corrupt manifest is a loud error before any lane op (a lane created
 # in the wrong repo via the '.' fallback is the worst version of the mistake).
 P="$WORK/corrupt"

@@ -408,6 +408,100 @@ echo "$OUT" | grep -qi "advisory" && echo "$OUT" | grep -q "__pycache__" \
   && ok "harvest: emits a build-artifact advisory naming the artifact path (UAT-F2)" \
   || no "harvest must advise on build artifacts in the lane diff: $OUT"
 
+# ── [11.3] — named-map split: the JOIN harvests, lands, assembles, and destroys
+#    against the NAMED repo's namespaced worktree (.worktrees/<repo>/lane-<id>/),
+#    addressed by the trailing <repo> selector — never the wrong code repo. ──
+echo "── [11.3] named-map: the join acts on the named repo's namespaced worktree ──"
+NS_setup() {
+  rm -rf "$WORK/store" "$WORK/studio" "$WORK/named"
+  for r in store studio; do
+    local d="$WORK/$r"
+    mkdir -p "$d/.claude"
+    git -C "$d" init -q -b main; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+    printf '# Changelog\n' > "$d/CHANGELOG.md"
+    echo base > "$d/base.txt"
+    jq -n '{roots:{control:".",code:"."},name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"task"}' \
+      > "$d/.claude/project.json"
+    git -C "$d" add -A; git -C "$d" commit -qm base
+  done
+  P="$WORK/named"; mkdir -p "$P/.claude" "$P/docs"
+  jq -n '{roots:{control:".",code:{storefront:{path:"../store"},studio:{path:"../studio"}},codePrimary:"storefront"},
+          name:"t",language:"shell",commands:{},scaffoldCheck:"true",ceremony:"phased",
+          lanes:{protectedProse:["(^|/)(CHANGELOG|README)\\.md$"]}}' \
+    > "$P/.claude/project.json"
+  printf '# Tracker\n- ⬜ **[7.A]** thing `[deps: none]`\n' > "$P/docs/PHASE_STATUS.md"
+}
+nsrun() { ( cd "$P" && bash "$SCRIPT" "$@" ) 2>&1; }
+# Make a lane execute in the NAMED repo's namespaced worktree.
+ns_laneexec() {  # $1=id $2=content $3=status $4=docfrag(optional)
+  local id="$1" content="$2" status="$3" frag="${4:-}"
+  local wt="$WORK/store/.worktrees/storefront/lane-$id"
+  printf '%s' "$content" > "$wt/base.txt"
+  git -C "$wt" add -A
+  git -C "$wt" -c user.email=t@t -c user.name=t commit -qm "lane $id work"
+  if [ -n "$frag" ]; then
+    jq -n --arg id "$id" --arg status "$status" --arg f "$frag" \
+      '{id:$id,status:$status,docFragments:[{file:$f,content:("- ["+$id+"] landed\n")}],notes:"ok"}' \
+      > "$wt/.lane-output.json"
+  else
+    jq -n --arg id "$id" --arg status "$status" '{id:$id,status:$status,docFragments:[],notes:"n"}' \
+      > "$wt/.lane-output.json"
+  fi
+}
+
+# T17 — confine <id> <repo>: a confined lane in the named repo's namespaced
+# worktree passes; this proves confine resolves the namespaced path.
+NS_setup
+( cd "$P" && bash "$LANE" create 7.A nsconf storefront ) >/dev/null 2>&1
+ns_laneexec 7.A "edited-in-store" ok
+OUT=$(nsrun confine 7.A storefront); RC=$?
+[ $RC -eq 0 ] \
+  && ok "named confine: a confined lane in the namespaced worktree passes" \
+  || no "named confine must resolve the namespaced worktree (rc=$RC): $OUT"
+
+# T18 — dispatch <id> <repo>: the whole join lands the lane into the NAMED repo's
+# integration, assembles its docFragment into THAT repo's prose, and destroys the
+# namespaced worktree — never touching the sibling (studio) repo.
+NS_setup
+( cd "$P" && bash "$LANE" create 7.A nsjoin storefront ) >/dev/null 2>&1
+ns_laneexec 7.A "A-change" ok CHANGELOG.md
+OUT=$(nsrun dispatch 7.A storefront); RC=$?
+[ $RC -eq 0 ] || no "named dispatch must succeed (rc=$RC): $OUT"
+git -C "$WORK/store" log --oneline main | grep -q "lane 7.A work" \
+  && ok "named dispatch: the lane landed on the storefront repo's integration" \
+  || no "named dispatch must land into the named repo (out: $OUT)"
+git -C "$WORK/studio" log --oneline main 2>/dev/null | grep -q "lane 7.A work" \
+  && no "named dispatch must NOT land into the sibling (studio) repo" \
+  || ok "named dispatch: the studio repo is untouched"
+grep -q "7.A" "$WORK/store/CHANGELOG.md" \
+  && ok "named dispatch: the docFragment assembled into the named repo's prose" \
+  || no "named dispatch must assemble the docFragment into the named repo's CHANGELOG"
+[ ! -d "$WORK/store/.worktrees/storefront/lane-7.A" ] \
+  && ok "named dispatch: the namespaced worktree is destroyed (lifecycle ends at destroy)" \
+  || no "named dispatch must destroy the namespaced worktree"
+echo "$OUT" | grep -q "destroyed=1" \
+  && ok "named dispatch: the summary reports destroyed=1" \
+  || no "named dispatch summary must report destroyed=1: $OUT"
+
+# T19 — harvest <id> <repo>: a failed lane in the named repo is refused, a report
+# captured (the contract holds across the split), the tracker untouched.
+NS_setup
+TRK0=$(md5 -q "$P/docs/PHASE_STATUS.md" 2>/dev/null || md5sum "$P/docs/PHASE_STATUS.md")
+( cd "$P" && bash "$LANE" create 7.A nsfail storefront ) >/dev/null 2>&1
+ns_laneexec 7.A "A-broken" failed
+OUT=$(nsrun harvest 7.A storefront); RC=$?
+[ $RC -ne 0 ] \
+  && ok "named harvest: a failed lane in the named repo is refused (contract holds)" \
+  || no "named harvest must refuse a failed lane (rc=$RC): $OUT"
+ls "$P/.lane-reports/"lane-7.A* >/dev/null 2>&1 \
+  && ok "named harvest: a failure report is captured to the control plane" \
+  || no "a failed named harvest must capture a report"
+TRK1=$(md5 -q "$P/docs/PHASE_STATUS.md" 2>/dev/null || md5sum "$P/docs/PHASE_STATUS.md")
+[ "$TRK0" = "$TRK1" ] \
+  && ok "named harvest: the tracker is untouched through the failure" \
+  || no "the tracker must be untouched"
+( cd "$P" && bash "$LANE" destroy 7.A --force storefront ) >/dev/null 2>&1
+
 # ── T14 — .lane-reports/ is gitignored in the guv-core block (no scratch leak) ──
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
 if grep -q '^# guv-core-start' "$ROOT/.gitignore" 2>/dev/null; then
