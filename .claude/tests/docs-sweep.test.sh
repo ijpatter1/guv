@@ -200,8 +200,11 @@ fi
 # already-deployed consumers must NAME the pre-retirement markers they migrate
 # FROM. Those are fixed legacy-token identifiers carried in consumer artifacts,
 # not prose uses of the retired noun — a line referencing one is an allowed
-# backward-compat citation, matched as the exact hyphenated token so a bare
-# "harness" still fails. Closed set, grown as each shim lands:
+# backward-compat citation. Applied TOKEN-anchored, not line-anchored: each
+# matching line has only the marker token stripped, then the remainder is
+# re-checked for "harness" — so a stray bare "harness" co-occurring with a marker
+# on the same line still fails (a whole-line exemption would mask it). Closed set,
+# grown as each shim lands:
 #   Harness-owned          — pre-[8.3] post-commit-hook ownership marker (setup-control-plane.sh)
 #   guv-harness-gitignore  — pre-[8.3] gitignore append marker (scaffold-shell.sh, shipped in plugin/)
 LEGACY_MARKER_RE='Harness-owned|guv-harness-gitignore'
@@ -259,8 +262,8 @@ for rel in $SWEPT_HARNESS_FREE; do
   f="$ROOT/$rel"
   if [ ! -f "$f" ]; then
     no "vocab guard: listed surface missing: $rel"
-  elif grep -niw 'harness' "$f" 2>/dev/null | grep -qvE "$LEGACY_MARKER_RE"; then
-    no "retired noun 'harness' survives in $rel ($(grep -niw harness "$f" | grep -cvE "$LEGACY_MARKER_RE") hit) — first: $(grep -niw harness "$f" | grep -vE "$LEGACY_MARKER_RE" | head -1 | cut -c1-72)"
+  elif grep -niw 'harness' "$f" 2>/dev/null | sed -E "s/$LEGACY_MARKER_RE//g" | grep -qiw harness; then
+    no "retired noun 'harness' survives in $rel ($(grep -niw harness "$f" | sed -E "s/$LEGACY_MARKER_RE//g" | grep -ciw harness) hit) — first: $(grep -niw harness "$f" | sed -E "s/$LEGACY_MARKER_RE//g" | grep -iw harness | head -1 | cut -c1-72)"
   else
     ok "vocabulary: $rel free of 'harness'"
   fi
@@ -272,7 +275,7 @@ done
 # Anthropic-citation lines (an external article title + URL), and the named legacy
 # markers the stage-6 migration shims grep for (LEGACY_MARKER_RE, filtered below).
 # Anything else is a sweep miss or a regression.
-BACKSTOP=$(cd "$ROOT" && git grep -In -i harness -- ':!plugin/' ':!.claude/tests/docs-sweep.test.sh' ':!CHANGELOG.md' ':!README.md' 2>/dev/null | grep -vE "$LEGACY_MARKER_RE")
+BACKSTOP=$(cd "$ROOT" && git grep -In -i harness -- ':!plugin/' ':!.claude/tests/docs-sweep.test.sh' ':!CHANGELOG.md' ':!README.md' 2>/dev/null | sed -E "s/$LEGACY_MARKER_RE//g" | grep -iw harness)
 if [ -z "$BACKSTOP" ]; then
   ok "whole-tree backstop: no retired 'harness' outside the allowlist"
 else
@@ -289,7 +292,7 @@ fi
 # the named legacy markers a shipped migration shim greps for (scaffold-shell.sh's
 # guv-harness-gitignore) — same narrow LEGACY_MARKER_RE exception, bare "harness"
 # in plugin/ still fails.
-PLUGIN_BAD=$(cd "$ROOT" && git grep -In -i harness -- 'plugin/' 2>/dev/null | grep -vE "$LEGACY_MARKER_RE")
+PLUGIN_BAD=$(cd "$ROOT" && git grep -In -i harness -- 'plugin/' 2>/dev/null | sed -E "s/$LEGACY_MARKER_RE//g" | grep -iw harness)
 if [ -z "$PLUGIN_BAD" ]; then
   ok "plugin/ harness-free (apart from named legacy markers)"
 else
