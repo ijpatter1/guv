@@ -227,7 +227,7 @@ cp "$SRC/rules"/guv-*.md "$OUT/rules/"
 # only" is the deliverable's three named reference patterns (maintainers/,
 # plugin-src/, .claude/settings.json) COMPLETED with the source-tree surfaces a
 # plugin install does not reproduce: source command/skill files, project.schema.
-# json, and the top-level .claude/ shape docs (estimate.shape.md, metering*.md).
+# json, and the top-level .claude/ shape docs (any *.shape.md, metering*.md).
 # A suite that asserts any of those is a source-shape check, not consumer script
 # behavior — it cannot run green in plugin layout no matter how the tree is
 # reconstructed, so it is maintainer-only in the same spirit as the named three.
@@ -235,7 +235,7 @@ cp "$SRC/rules"/guv-*.md "$OUT/rules/"
 # (grep -r … .claude/skills 2>/dev/null) do NOT match — the
 # patterns require a trailing /<file>.md or /SKILL.md. ship-suite.test.sh derives
 # the SAME partition and asserts it both directions, so this rule lives once.
-MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|estimate\.shape\.md|/metering[a-z-]*\.md'
+MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|[a-z][a-z-]*\.shape\.md|/metering[a-z-]*\.md'
 mkdir -p "$OUT/tests"
 for t in "$SRC/tests"/*.test.sh; do
   b="$(basename "$t")"

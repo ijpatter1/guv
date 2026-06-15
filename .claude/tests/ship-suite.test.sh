@@ -45,7 +45,7 @@ fi
 # any of these source-tree-only surfaces. The directory-grep forms the green
 # consumer suites use (grep -r ... .claude/skills 2>/dev/null)
 # do NOT match — the patterns require a trailing /<file>.md or /SKILL.md.
-MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|estimate\.shape\.md|/metering[a-z-]*\.md'
+MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|[a-z][a-z-]*\.shape\.md|/metering[a-z-]*\.md'
 
 is_maint() { grep -qE "$MAINTAINER_ONLY" "$1"; }
 
