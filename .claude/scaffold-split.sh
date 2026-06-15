@@ -103,10 +103,19 @@ PROVISION="$HERE/provision-code-repo.sh"
 # resolvable; the plane is its <product>-guv sibling.
 mkdir -p "$CODE_DIR"
 CODE_ABS="$(cd "$CODE_DIR" && pwd)"
-[ -n "$NAME" ] || NAME="$(basename "$CODE_ABS")"
+CODE_BASE="$(basename "$CODE_ABS")"        # the code repo's REAL on-disk basename
+[ -n "$NAME" ] || NAME="$CODE_BASE"
 PARENT="$(cd "$CODE_ABS/.." && pwd)"
 PLANE="$PARENT/$NAME-guv"
-log "Product '$NAME': code repo at $CODE_ABS, control plane at $PLANE (the <product>-guv convention)."
+# roots.code's PATH must point at the code repo's real location, not at a sibling
+# named after --name: provision-code-repo.sh provisions the repo IN PLACE (it never
+# moves/renames it), so the plane reaches it via its real basename. --name controls
+# only the product/plane name (the <name>-guv dir, the map key, codePrimary); the
+# path tracks the real repo. The plane is the code repo's sibling under $PARENT, so
+# the relative path is ../<real basename>. (When --name is omitted, NAME==CODE_BASE
+# and this collapses to the historical ../<name>.)
+CODE_REL="../$CODE_BASE"
+log "Product '$NAME': code repo at $CODE_ABS, control plane at $PLANE (the <product>-guv convention); roots.code → $CODE_REL."
 
 # ── 1. Deploy the per-plane shell into the control plane via the plugin ──────
 # scaffold-shell.sh runs with cwd = the plane and lays down .claude/ (schema,
@@ -126,20 +135,20 @@ if [ -f "$MANIFEST" ]; then
   log "control-plane manifest exists at $MANIFEST — kept (no clobber)."
 else
   if [ -n "$TEST_CMD" ]; then test_json=$(printf '%s' "$TEST_CMD" | jq -Rs .); else test_json=null; fi
-  jq -n --arg name "$NAME" --arg lang "$LANG_" --argjson test "$test_json" '{
+  jq -n --arg name "$NAME" --arg coderel "$CODE_REL" --arg lang "$LANG_" --argjson test "$test_json" '{
     "$schema": "./project.schema.json",
     name: $name,
     language: $lang,
     packageManager: null,
-    roots: { control: ".", code: { ($name): { path: ("../" + $name) } }, codePrimary: $name },
+    roots: { control: ".", code: { ($name): { path: $coderel } }, codePrimary: $name },
     commands: { test: $test, build: null, lint: null, format: null, dev: null, install: null },
-    scaffoldCheck: ("test -d \"../" + $name + "/.claude\""),
+    scaffoldCheck: ("test -d \"" + $coderel + "/.claude\""),
     readyCheck: null,
     formatExtensions: [],
     guards: [],
     ceremony: "phased"
   }' > "$MANIFEST"
-  log "wrote split manifest (roots.code → named map { $NAME: { path: \"../$NAME\" } }, codePrimary=$NAME, ceremony=phased)."
+  log "wrote split manifest (roots.code → named map { $NAME: { path: \"$CODE_REL\" } }, codePrimary=$NAME, ceremony=phased)."
 fi
 
 # ── 3. Provision the code repo as a guv lane target ([10.10]) ────────────────
@@ -154,7 +163,7 @@ bash "$PROVISION" "${prov_args[@]}" >&2 || { log "ERROR: provision-code-repo.sh 
 # ── Report ───────────────────────────────────────────────────────────────────
 log ""
 log "Split scaffold complete:"
-log "  control plane: $PLANE   (roots.code → ../$NAME)"
+log "  control plane: $PLANE   (roots.code → $CODE_REL)"
 log "  code repo:     $CODE_ABS   (provisioned as a guv lane target)"
 log "  Next:  cd \"$PLANE\" && claude   then  /init-project <spec>  (writes the phase docs over the split manifest)"
 echo "$PLANE"

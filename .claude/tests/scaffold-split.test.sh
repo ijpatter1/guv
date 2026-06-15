@@ -187,13 +187,36 @@ fi
   && ok "no code-repo argument → exit 2 (usage)" \
   || no "missing code-repo argument must exit 2"
 
-# ── T6 — --name overrides the product name (plane + roots key follow it) ─────
+# ── T6 — --name overrides the product NAME only; roots.code's PATH tracks the
+# REAL code repo. The code repo here sits at proj2/code but --name is 'gadget', so
+# the plane is proj2/gadget-guv. --name must drive the plane name + map key +
+# codePrimary, but the path must point at the actual repo (proj2/code) — NOT at a
+# non-existent ../gadget sibling. provision-code-repo.sh provisions in place; it
+# never renames the repo to match --name, so a path of "../gadget" would resolve to
+# a directory that does not exist and break scaffoldCheck permanently. ──
 PROD2="$WORK/proj2/code"; mkcoderepo "$PROD2"
+PLANE2="$WORK/proj2/gadget-guv"
 run_split "$PROD2" --name gadget >/dev/null 2>/dev/null
-M2="$WORK/proj2/gadget-guv/.claude/project.json"
+M2="$PLANE2/.claude/project.json"
 [ -f "$M2" ] && [ "$(jq -r '.roots.codePrimary' "$M2" 2>/dev/null)" = gadget ] \
   && ok "--name overrides the product name (plane=gadget-guv, codePrimary=gadget)" \
   || no "--name must drive the plane name + codePrimary (got plane $(dirname "$(dirname "$M2")"), codePrimary '$(jq -r '.roots.codePrimary' "$M2" 2>/dev/null)')"
+# Resolve roots.code.gadget.path RELATIVE TO THE PLANE and confirm it lands on the
+# REAL code repo (proj2/code), not a phantom ../gadget. This is the discriminator
+# for the path-vs-name bug: a path derived from --name fails here, one derived from
+# the real basename passes.
+CODE_PATH=$(jq -r '.roots.code.gadget.path' "$M2" 2>/dev/null)
+RESOLVED=""; [ -n "$CODE_PATH" ] && [ "$CODE_PATH" != null ] && RESOLVED="$(cd "$PLANE2" 2>/dev/null && cd "$CODE_PATH" 2>/dev/null && pwd)"
+PROD2_ABS="$(cd "$PROD2" && pwd)"
+[ -n "$RESOLVED" ] && [ "$RESOLVED" = "$PROD2_ABS" ] \
+  && ok "roots.code.gadget.path resolves to the REAL code repo, not a ../gadget phantom (path=$CODE_PATH)" \
+  || no "roots.code.gadget.path must resolve to the real code repo $PROD2_ABS (path='$CODE_PATH' resolved to '${RESOLVED:-<nonexistent>}')"
+# scaffoldCheck must key on that same real path — a check pointing at ../gadget can
+# never pass (the dir does not exist), so the plane would read as un-scaffolded forever.
+SCAFFOLD_CHECK=$(jq -r '.scaffoldCheck' "$M2" 2>/dev/null)
+( cd "$PLANE2" && eval "$SCAFFOLD_CHECK" ) >/dev/null 2>&1 \
+  && ok "scaffoldCheck passes from the plane (keys on the real code repo's .claude/)" \
+  || no "scaffoldCheck must pass from the plane (got '$SCAFFOLD_CHECK')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -48,7 +48,7 @@ delete any step the project doesn't have.]
 - **Plan & architecture:** `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`
 - **Context for Claude:** `CLAUDE.md`
 
-[For a control-plane / code split — guv's default shape for standalone or
+[For a control-plane / code split — guv's recommended shape for standalone or
 publishable products — say which repo is the product and which is this control plane.]
 
 ## Contributing
