@@ -16,6 +16,25 @@ trap 'rm -rf "$WORK"' EXIT
 propose() { bash "$RESOLVER" "$1" 2>/dev/null; }            # → JSON on stdout
 field() { echo "$1" | jq -r "$2"; }
 
+# jsonschema validator (the one on PATH; the guv idiom from manifest-language /
+# roots-map tests). The greenfield split proposal must validate against the
+# named-map allOf, not just "have the right fields" — so we check it when the
+# validator is present and skip cleanly when it isn't.
+HAVE_JSONSCHEMA=0
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import jsonschema' 2>/dev/null; then
+  HAVE_JSONSCHEMA=1
+fi
+validates() {  # stdin = instance JSON; exit 0 iff it validates against SCHEMA
+  python3 -c '
+import json,sys,jsonschema
+schema=json.load(open(sys.argv[1])); inst=json.load(sys.stdin)
+try:
+    jsonschema.validate(inst, schema); sys.exit(0)
+except jsonschema.ValidationError:
+    sys.exit(1)
+' "$SCHEMA" 2>/dev/null
+}
+
 # ── node (pnpm lockfile + scripts + prettier) ──────────────────────────────
 ND="$WORK/node"; mkdir -p "$ND"
 cat > "$ND/package.json" <<'JSON'
@@ -127,6 +146,103 @@ JG=$(propose "$PLAIN/ops")
 [ "$(field "$JG" .roots.code)" = "../app" ] \
   && ok "split: marker on a non-'-guv'-named dir is still detected (roots.code=../app)" \
   || no "split: detection must key on the marker, not the name (got roots.code '$(field "$JG" .roots.code)')"
+
+# ── greenfield proactive split proposal ([11.5]) ────────────────────────────
+# [11.4] detects an EXISTING split (both repos on disk). [11.5] adds the
+# PROACTIVE proposal: pointed at a GREENFIELD product (no stack files yet), the
+# resolver proposes a split for a publishable/standalone product and single-repo
+# for an internal app. The class is a JUDGMENT the human supplies (rule 12 — the
+# resolver never guesses publishable-vs-internal); given the class, the proposal
+# is deterministic. The signal is --greenfield <name> --class <class>.
+#
+# Why these tests, not "emits something": the WHOLE deliverable is that the SAME
+# resolver, handed the same greenfield product, flips its roots proposal on the
+# class — a split (named-map roots, codePrimary set, code path = ../<name>) for
+# publishable/standalone and single-repo (roots.code='.') for internal. A change
+# that proposed split for both classes, or single-repo for both, passes a shallow
+# "runs" test and fails the discriminators below.
+
+# (a) publishable greenfield → split: named-map roots.code with codePrimary,
+# the code repo a sibling (../<name>), control stays '.'. This is the literal
+# "split by default" claim made true.
+JG=$(bash "$RESOLVER" --greenfield widget --class publishable 2>/dev/null)
+[ -n "$JG" ] && ok "greenfield publishable: a proposal is produced (not exit 2)" \
+  || no "greenfield publishable: produced no proposal"
+[ "$(field "$JG" '.roots.code | type')" = object ] \
+  && ok "greenfield publishable: roots.code is a named map (the [11.2] forward shape)" \
+  || no "greenfield publishable: roots.code must be a named map (got type '$(field "$JG" '.roots.code | type')')"
+[ "$(field "$JG" '.roots.codePrimary')" = widget ] \
+  && ok "greenfield publishable: codePrimary names the product (widget)" \
+  || no "greenfield publishable: codePrimary must be 'widget' (got '$(field "$JG" '.roots.codePrimary')')"
+[ "$(field "$JG" '.roots.code.widget.path')" = "../widget" ] \
+  && ok "greenfield publishable: code repo is the sibling ../widget" \
+  || no "greenfield publishable: code path must be '../widget' (got '$(field "$JG" '.roots.code.widget.path')')"
+[ "$(field "$JG" '.roots.control')" = "." ] \
+  && ok "greenfield publishable: control stays '.'" \
+  || no "greenfield publishable: control must be '.' (got '$(field "$JG" '.roots.control')')"
+[ "$(field "$JG" '.name')" = widget ] \
+  && ok "greenfield publishable: name is the product name" \
+  || no "greenfield publishable: name must be 'widget' (got '$(field "$JG" '.name')')"
+[ "$(field "$JG" '.ceremony')" = phased ] \
+  && ok "greenfield publishable: ceremony=phased (greenfield builds structure)" \
+  || no "greenfield publishable: ceremony must be 'phased' (got '$(field "$JG" '.ceremony')')"
+
+# (b) standalone is the same class as publishable → split (both get the sibling).
+JS=$(bash "$RESOLVER" --greenfield mylib --class standalone 2>/dev/null)
+[ "$(field "$JS" '.roots.code | type')" = object ] \
+  && [ "$(field "$JS" '.roots.code.mylib.path')" = "../mylib" ] \
+  && ok "greenfield standalone: same as publishable → split (../mylib)" \
+  || no "greenfield standalone: must propose a split like publishable (got roots.code '$(field "$JS" .roots.code)')"
+
+# (c) internal greenfield → single-repo: roots.code='.', NO codePrimary. This is
+# the discriminator — the class genuinely changes the proposal.
+JI=$(bash "$RESOLVER" --greenfield internalapp --class internal 2>/dev/null)
+[ "$(field "$JI" '.roots.code')" = "." ] \
+  && ok "greenfield internal: roots.code='.' (single-repo, the class flip discriminator)" \
+  || no "greenfield internal: roots.code must be '.' for an internal app (got '$(field "$JI" .roots.code)')"
+[ "$(field "$JI" '.roots.codePrimary')" = null ] \
+  && ok "greenfield internal: no codePrimary (string roots.code forbids it — schema if/then)" \
+  || no "greenfield internal: codePrimary must be absent for single-repo (got '$(field "$JI" .roots.codePrimary)')"
+
+# (d) the split proposal VALIDATES against the schema — including the named-map
+# allOf (codePrimary required iff roots.code is a map, and it must be a key of
+# the map). A regression that emitted a map without codePrimary, or a codePrimary
+# naming a non-existent repo, fails the schema here, not at a consumer.
+if [ "$HAVE_JSONSCHEMA" -eq 1 ]; then
+  printf '%s' "$JG" | validates \
+    && ok "greenfield publishable: split proposal validates against the schema (named-map allOf)" \
+    || no "greenfield publishable: split proposal must validate against project.schema.json"
+  printf '%s' "$JI" | validates \
+    && ok "greenfield internal: single-repo proposal validates against the schema" \
+    || no "greenfield internal: single-repo proposal must validate against project.schema.json"
+else
+  echo "  - jsonschema unavailable — greenfield schema-validation checks skipped"
+fi
+
+# (e) no undeclared keys on the split proposal (additionalProperties:false guard,
+# same as the detected-stack proposals above) — covers the named-map branch.
+UNKNOWN_GF=$(comm -23 <(echo "$JG" | jq -r 'keys[]' | sort) <(jq -r '.properties|keys[]' "$SCHEMA" | sort))
+[ -z "$UNKNOWN_GF" ] && ok "greenfield: split proposal has no undeclared top-level keys" || no "greenfield: undeclared top-level: $UNKNOWN_GF"
+
+# (f) an unknown --class is a loud stop (exit 2), never a silent default to one
+# topology — guessing the topology on a typo is the improvised path rule 15 bans.
+( bash "$RESOLVER" --greenfield widget --class bogus >/dev/null 2>&1 ); [ $? -eq 2 ] \
+  && ok "greenfield: unknown --class → exit 2 (loud stop, no silent topology default)" \
+  || no "greenfield: an unknown --class must exit 2, not guess a topology"
+
+# (g) --greenfield without --class is incomplete → exit 2 (the class is the whole
+# judgment; defaulting it silently is what this deliverable exists to make explicit).
+( bash "$RESOLVER" --greenfield widget >/dev/null 2>&1 ); [ $? -eq 2 ] \
+  && ok "greenfield: missing --class → exit 2 (the class is required, never defaulted)" \
+  || no "greenfield: --greenfield without --class must exit 2"
+
+# (h) back-compat: the greenfield flags are ADDITIVE — a bare positional invocation
+# (detect-from-files) is byte-for-byte unchanged. The rust fixture re-proposed here
+# must be identical with and without the new code paths in the file.
+[ "$(field "$(propose "$RS")" .roots.code)" = "." ] \
+  && [ "$(field "$(propose "$RS")" .language)" = rust ] \
+  && ok "back-compat: bare positional detect-from-files unchanged by the greenfield path" \
+  || no "back-compat: the greenfield flags must not alter detect-from-files proposals"
 
 # ── ceremony detection ([10.7]): onboard adopts an already-phased repo ───────
 # The resolver keys ceremony on the TARGET repo's tracker grammar, not a

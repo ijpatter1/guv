@@ -10,12 +10,111 @@
 #   bash .claude/resolve-stack.sh [CODE_ROOT]      # CODE_ROOT defaults to "."
 #   bash .claude/resolve-stack.sh ../store > /tmp/proposal.json
 #
+#   # Greenfield proactive proposal ([11.5]) — no stack on disk yet; topology
+#   # flips on the product CLASS, which is the human's judgment (rule 12 — the
+#   # resolver never guesses publishable-vs-internal):
+#   bash .claude/resolve-stack.sh --greenfield <name> --class <class>
+#     <class> ∈ { publishable | standalone | internal }
+#       publishable/standalone → SPLIT: roots.code is the named map
+#         { <name>: { path: "../<name>" } } with codePrimary=<name>; the control
+#         plane stays '.' and the product lives in its own sibling repo. This is
+#         the literal "split by default" claim made true.
+#       internal               → SINGLE-REPO: roots.code='.' (the framework files
+#         riding along in one tree is harmless for an internal app).
+#
 # Requires: jq (already a sandbox dependency).
 
 set -euo pipefail
 
-DIR="${1:-.}"
 log() { echo "[resolve] $*" >&2; }
+
+# ── Argument parsing ────────────────────────────────────────────────────────
+# Two mutually-exclusive modes:
+#   1. positional CODE_ROOT (default ".")        — detect-from-files (the [11.4] path)
+#   2. --greenfield <name> --class <class>       — proactive proposal ([11.5])
+# The greenfield flags are ADDITIVE: a bare positional invocation is byte-for-byte
+# the historical behavior, so every existing caller is untouched.
+GF_NAME=""
+GF_CLASS=""
+DIR=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --greenfield) [ $# -ge 2 ] || { log "ERROR: --greenfield needs a product name"; exit 2; }; GF_NAME="$2"; shift 2 ;;
+    --class)      [ $# -ge 2 ] || { log "ERROR: --class needs a value (publishable|standalone|internal)"; exit 2; }; GF_CLASS="$2"; shift 2 ;;
+    --*)          log "ERROR: unknown flag '$1' — usage: bash .claude/resolve-stack.sh [CODE_ROOT] | --greenfield <name> --class <class>"; exit 2 ;;
+    *)            [ -z "$DIR" ] || { log "ERROR: unexpected extra argument '$1'"; exit 2; }; DIR="$1"; shift ;;
+  esac
+done
+
+# ── Greenfield proactive proposal ([11.5]) ──────────────────────────────────
+# Pointed at a GREENFIELD product (no stack files on disk), the resolver proposes
+# a topology from the product CLASS rather than from detection: a SPLIT for a
+# publishable/standalone artifact (it gets its own public repo, so the framework
+# files must not pollute its history), single-repo for an internal app. The class
+# is the human's judgment; given it, the proposal is a deterministic transform
+# (rule 12 — no model in the loop). Greenfield is always ceremony=phased: an
+# init-from-spec build is where structure is legitimately built (the resolver's
+# detect path proposes 'onboard' for an existing repo; greenfield overrides it,
+# matching /init-project which sets phased regardless).
+if [ -n "$GF_NAME" ] || [ -n "$GF_CLASS" ]; then
+  # Both halves are required — the class IS the judgment, so a bare --greenfield
+  # with no class is incomplete; silently defaulting the topology is the
+  # improvised path rule 15 bans. Refuse loud.
+  [ -n "$GF_NAME" ]  || { log "ERROR: --class given without --greenfield <name>"; exit 2; }
+  [ -n "$GF_CLASS" ] || { log "ERROR: --greenfield <name> given without --class (publishable|standalone|internal)"; exit 2; }
+  [ -z "$DIR" ]      || { log "ERROR: --greenfield is exclusive with a positional CODE_ROOT (greenfield has no stack to detect)"; exit 2; }
+
+  case "$GF_CLASS" in
+    publishable|standalone)
+      # SPLIT — named-map roots.code ([11.2] forward shape): the product is a
+      # sibling repo, codePrimary names it. The control plane stays '.'.
+      jq -n --arg name "$GF_NAME" \
+        '{
+          "$schema": "./project.schema.json",
+          name: $name,
+          language: "shell",
+          packageManager: null,
+          roots: { control: ".", code: { ($name): { path: ("../" + $name) } }, codePrimary: $name },
+          commands: { test: null, build: null, lint: null, format: null, dev: null, install: null },
+          scaffoldCheck: ("test -d \"../" + $name + "/.claude\""),
+          readyCheck: null,
+          formatExtensions: [],
+          guards: [],
+          ceremony: "phased"
+        }'
+      log "Greenfield SPLIT proposed for '$GF_NAME' (class=$GF_CLASS): control plane stays '.', product lives in sibling '../$GF_NAME' (named-map roots.code, codePrimary=$GF_NAME)."
+      log "This is the split-by-default proposal — a publishable/standalone product gets its own repo so framework files never pollute its public history."
+      ;;
+    internal)
+      # SINGLE-REPO — roots.code='.', no codePrimary (the schema forbids it when
+      # roots.code is a string). Framework files riding along is harmless here.
+      jq -n --arg name "$GF_NAME" \
+        '{
+          "$schema": "./project.schema.json",
+          name: $name,
+          language: "shell",
+          packageManager: null,
+          roots: { control: ".", code: "." },
+          commands: { test: null, build: null, lint: null, format: null, dev: null, install: null },
+          scaffoldCheck: "test -d .claude",
+          readyCheck: null,
+          formatExtensions: [],
+          guards: [],
+          ceremony: "phased"
+        }'
+      log "Greenfield SINGLE-REPO proposed for '$GF_NAME' (class=internal): framework files, docs, and product code share one tree."
+      ;;
+    *)
+      log "ERROR: unknown --class '$GF_CLASS' — expected one of: publishable | standalone | internal"
+      exit 2
+      ;;
+  esac
+  log "This is a PROPOSAL. Confirm or override before writing .claude/project.json. language defaults to 'shell' — set it from the chosen stack."
+  exit 0
+fi
+
+# Detect-from-files path ([11.4] and earlier): CODE_ROOT defaults to ".".
+DIR="${DIR:-.}"
 
 if [ ! -d "$DIR" ]; then
   log "ERROR: '$DIR' is not a directory"

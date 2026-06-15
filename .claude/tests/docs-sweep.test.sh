@@ -144,8 +144,12 @@ fi
 
 # T6 — no script resolves a control plane by name. Two layers:
 #   (a) no '*-guv' glob in any shipped script, anywhere;
-#   (b) '-guv' as a constructed name appears in scripts ONLY in
-#       maintainers/setup-control-plane.sh (the sanctioned creation default).
+#   (b) '-guv' as a constructed name appears in scripts ONLY in the sanctioned
+#       CREATION defaults — maintainers/setup-control-plane.sh (the maintainer
+#       dogfooding plane) and .claude/scaffold-split.sh (the consumer split
+#       scaffold, [11.5]; its plugin-built copy ships at plugin/scripts/). Both
+#       CONSTRUCT the <product>-guv name as a creation default offered to a
+#       human; neither DISCOVERS a plane by name (the ban this lint enforces).
 # Test fixtures (.claude/tests/) are excluded — they build -guv-named dirs to
 # test the default itself.
 SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" 2>/dev/null; ls "$ROOT/Makefile" "$ROOT/plugin/shell/Makefile" 2>/dev/null)
@@ -155,11 +159,15 @@ if [ -z "$GLOB_HITS" ]; then
 else
   no "scripts must never glob for *-guv — offenders: $(echo "$GLOB_HITS" | tr '\n' ' ')"
 fi
-NAME_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\-guv' 2>/dev/null | grep -v 'maintainers/setup-control-plane\.sh' || true)
+# The sanctioned creation defaults: the maintainer plane setup and the consumer
+# split scaffold (and its plugin/scripts/ build copy). Both construct the name;
+# neither discovers by it.
+NAME_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\-guv' 2>/dev/null \
+  | grep -vE 'maintainers/setup-control-plane\.sh|(\.claude|plugin/scripts)/scaffold-split\.sh' || true)
 if [ -z "$NAME_HITS" ]; then
-  ok "-guv name construction confined to the setup script's creation default"
+  ok "-guv name construction confined to the sanctioned creation defaults (setup-control-plane.sh, scaffold-split.sh)"
 else
-  no "-guv in scripts outside the sanctioned default — offenders: $(echo "$NAME_HITS" | tr '\n' ' ')"
+  no "-guv in scripts outside the sanctioned defaults — offenders: $(echo "$NAME_HITS" | tr '\n' ' ')"
 fi
 
 # T7 — README.template.md (the consumer project's README source) never carries
