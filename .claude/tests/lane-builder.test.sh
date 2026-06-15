@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for .claude/agents/lane-builder.md ([10.9]) — the calibrated build-fanout lane
 # worker. Unlike the read-only evaluator/reviewer it WRITES (red->green TDD) confined to
-# its lane worktree, and acquires the harness behavioral core NATIVELY (an Agent-tool
+# its lane worktree, and acquires the behavioral core NATIVELY (an Agent-tool
 # subagent inherits the control plane's CLAUDE.md + guv-* rules — verified) plus the
 # preloaded task skill for red->green TDD. Guards the invariants the driver relies on so
 # a future edit can't silently turn it into a read-only or skill-less agent. Pure bash.

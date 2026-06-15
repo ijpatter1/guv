@@ -363,11 +363,15 @@ cp "$ROOT/sandbox/"* "$OUT/shell/sandbox/"
 # the three phase-doc skeletons template-clone consumers get from docs/
 cp "$ROOT/docs/REQUIREMENTS.md" "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/PHASE_STATUS.md" "$OUT/shell/docs/"
 
-# ── workflow asset: reviewers namespaced ──
-# Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the
-# plugin copy of the workflow spawns guv:evaluator / guv:reviewer;
-# the project copy keeps bare names for .claude/agents/ consumers.
-sed "s/agentType: 'evaluator'/agentType: 'guv:evaluator'/; s/agentType: 'reviewer'/agentType: 'guv:reviewer'/" \
-  "$SRC/workflows/eval-parallel.js" > "$OUT/workflows/eval-parallel.js"
+# ── workflow assets: reviewers namespaced ──
+# Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the plugin
+# copy of each saved workflow spawns guv:evaluator / guv:reviewer; the project copy
+# keeps bare names for .claude/agents/ consumers. EVERY workflow in .claude/workflows/
+# passes through the same rewrite (eval-parallel.js, build-fanout.js, …) — a per-file
+# copy here was the gap that would have left a new workflow unshipped.
+for wf in "$SRC/workflows"/*.js; do
+  sed "s/agentType: 'evaluator'/agentType: 'guv:evaluator'/; s/agentType: 'reviewer'/agentType: 'guv:reviewer'/" \
+    "$wf" > "$OUT/workflows/$(basename "$wf")"
+done
 
 echo "Built plugin at $OUT"
