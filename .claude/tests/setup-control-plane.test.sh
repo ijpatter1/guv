@@ -188,6 +188,36 @@ grep -q "sentinel-claude-md" "$D/CLAUDE.md" 2>/dev/null \
   && ok "sync: CLAUDE.md + manifest contents untouched" \
   || no "sync: must not touch CLAUDE.md or the manifest"
 
+# T4b — --sync prunes guv-owned artifacts REMOVED upstream ([8.3]). copy_core
+# only adds/replaces what EXISTS in source, so a removal can't self-heal: a
+# flattened dir (commands/) or a script bundled into a skill (extract-eval-report,
+# feedback-submit, check-citations) lingers in an already-synced consumer, dual-
+# loading the old surface beside the new. The prune is an explicit list of removed
+# core paths — it must clear exactly those, leave renamed-WITHIN-a-wholesale-dir
+# cases to the dir replace, and never touch a setup-GENERATED file (run-core-tests.sh,
+# which is regenerated, not copied — a blanket mirror would wrongly delete it).
+H=$(make_guv)
+D="$WORK/control-prune"
+run_setup "$H" "$D"
+mkdir -p "$D/.claude/commands"
+echo "# stale flattened command" > "$D/.claude/commands/handoff.md"
+echo "stale script" > "$D/.claude/extract-eval-report.sh"
+echo "stale script" > "$D/.claude/feedback-submit.sh"
+echo "stale script" > "$D/.claude/check-citations.sh"
+# A skill renamed within the wholesale-replaced skills/ dir: the dir replace (not
+# the prune) clears it — pinned here so the two mechanisms stay distinct.
+mkdir -p "$D/.claude/skills/log-feedback"
+echo "# old name" > "$D/.claude/skills/log-feedback/SKILL.md"
+run_setup "$H" "$D" --sync
+PRUNE_OK=1
+for stale in commands extract-eval-report.sh feedback-submit.sh check-citations.sh skills/log-feedback; do
+  [ -e "$D/.claude/$stale" ] && { no "sync: stale .claude/$stale must be gone (dual-load)"; PRUNE_OK=0; }
+done
+[ "$PRUNE_OK" -eq 1 ] && ok "sync: obsolete commands/, bundled scripts, and renamed skill dir all cleared"
+[ -f "$D/.claude/run-core-tests.sh" ] \
+  && ok "sync: prune leaves the setup-generated run-core-tests.sh in place" \
+  || no "sync: prune must not remove the setup-generated run-core-tests.sh"
+
 # T5 — create-mode never-clobber: re-running create on an existing control
 # plane must not overwrite the manifest or CLAUDE.md ("write ... ONLY if they
 # don't exist yet"). The generated test runner is the exception: it carries no

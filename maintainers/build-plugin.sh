@@ -220,10 +220,10 @@ cp "$SRC/rules"/guv-*.md "$OUT/rules/"
 # behavior — it cannot run green in plugin layout no matter how the tree is
 # reconstructed, so it is maintainer-only in the same spirit as the named three.
 # The directory-grep forms a green consumer suite uses
-# (grep -r … .claude/commands .claude/skills 2>/dev/null) do NOT match — the
+# (grep -r … .claude/skills 2>/dev/null) do NOT match — the
 # patterns require a trailing /<file>.md or /SKILL.md. ship-suite.test.sh derives
 # the SAME partition and asserts it both directions, so this rule lives once.
-MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|commands/[a-z][a-z-]*\.md|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|estimate\.shape\.md|/metering[a-z-]*\.md'
+MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|estimate\.shape\.md|/metering[a-z-]*\.md'
 mkdir -p "$OUT/tests"
 for t in "$SRC/tests"/*.test.sh; do
   b="$(basename "$t")"

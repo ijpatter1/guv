@@ -15,7 +15,7 @@
 #   (no flag)  create the control plane if absent; copy the core into it; write
 #              the dogfooding manifest + CLAUDE.md ONLY if they don't exist yet
 #              (so your session artifacts are never clobbered); git init it.
-#   --sync     refresh ONLY the copied core (commands/skills/agents/hooks/scripts/
+#   --sync     refresh ONLY the copied core (skills/agents/hooks/scripts/
 #              guv-* rules/workflows/schema/settings) plus the generated test runner —
 #              run-core-tests.sh carries no consumer state, so it is core-owned and
 #              regenerated whenever the generator's copy changes (announced; silent when
@@ -86,7 +86,7 @@ copy_core() {
   # The helper-script set is DERIVED by glob ([7.1]: this was the fourth
   # hand-enumerated registry, found during 6.2 — a new .claude/*.sh helper now
   # reaches every plane on create and --sync by existing).
-  for item in commands skills agents hooks tests project.schema.json settings.json \
+  for item in skills agents hooks tests project.schema.json settings.json \
               $(cd "$GUV_DIR/.claude" && ls *.sh 2>/dev/null); do
     if [ -e "$GUV_DIR/.claude/$item" ]; then
       rm -rf "$DEST/.claude/$item"
@@ -128,6 +128,22 @@ copy_core() {
       echo "        still carries an '@.claude/RULES.md' import line, delete that line)"
     fi
   fi
+  # Prune guv-owned core artifacts REMOVED upstream. copy_core only adds/replaces
+  # what EXISTS in source, so a removal cannot self-heal: the commands/ dir
+  # (flattened into skills/ at [8.3] stage 2) and the single-owner scripts bundled
+  # into their skills at stage 3 (extract-eval-report, feedback-submit,
+  # check-citations) linger in an already-synced consumer, dual-loading the old
+  # surface beside the new. EXPLICIT list, never a mirror: a blanket "delete dest
+  # not in source" would also delete setup-GENERATED files (run-core-tests.sh) and
+  # consumer-owned ones. Append a path here when a future change removes a
+  # guv-owned core artifact. (Renames WITHIN a wholesale-replaced dir — skills/,
+  # agents/ — are already handled by the rm-rf+cp above; only removals need this.)
+  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh; do
+    if [ -e "$DEST/.claude/$obsolete" ]; then
+      rm -rf "$DEST/.claude/$obsolete"
+      echo "[setup] pruned obsolete core artifact: .claude/$obsolete (removed upstream)"
+    fi
+  done
   echo "[setup] synced core → $DEST/.claude/"
 }
 
