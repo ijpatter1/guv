@@ -221,6 +221,102 @@ tail -1 "$LOG13" | jq -e '.tokens.cache_read == 1000 and .model == "claude-main"
   && ok "queue harvest INCLUDES subagent burn (cache_read 1000) and model from main (lockstep with meter.sh)" \
   || no "queue meter must capture subagents like the session meter: got $(tail -1 "$LOG13" | jq -c '{tokens,model}') (err=$(cat "$WORK/t13.err"))"
 
+# ════════════════════════════════════════════════════════════════════════════
+# [13.6] — the QUEUE meter records the SAME bounded per-deliverable slice as the
+# session meter (lockstep): tokens = the runtime-transcript DELTA from the last
+# same-runtime_session capture (session OR queue boundary — they advance one
+# cumulative high-water mark per transcript), self-describing its slice basis,
+# preserving transcript_tokens, and detecting+declaring a balloon. Same forensic
+# fix, same shape, enforced byte-identical by the parity test below.
+# ════════════════════════════════════════════════════════════════════════════
+
+mk_main_transcript() {  # $1=plane $2=home $3=sid — main + one subagent (cr 100 + 900 = 1000)
+  local p="$1" fh="$2" sid="$3" slug base
+  slug=$(cd "$p" && pwd -P | sed 's#/#-#g'); base="$fh/.claude/projects/$slug"
+  mkdir -p "$base/$sid/subagents"
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-16T12:00:00.000Z","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}' \
+    > "$base/$sid.jsonl"
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-16T12:01:00.000Z","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}' \
+    > "$base/$sid/subagents/agent-x.jsonl"
+}
+mk_compaction_transcript() {  # $1=plane $2=home $3=sid $4=n $5=cts
+  local p="$1" fh="$2" sid="$3" n="$4" cts="$5" slug base i
+  slug=$(cd "$p" && pwd -P | sed 's#/#-#g'); base="$fh/.claude/projects/$slug"
+  mkdir -p "$base"
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-16T12:00:00.000Z","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}' \
+    > "$base/$sid.jsonl"
+  i=0; while [ "$i" -lt "$n" ]; do
+    printf '%s\n' "{\"type\":\"user\",\"isCompactSummary\":true,\"timestamp\":\"$cts\"}" >> "$base/$sid.jsonl"
+    i=$((i + 1))
+  done
+}
+seed_prior_q() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  (a SESSION-boundary prior)
+  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" \
+    '{schema:"guv.meter.v1", ts:$ts, session:"session-2026-06-16-001",
+      session_derived:true, runtime_session:$rs, deliverable_ids:["9.4"],
+      model:"m", tokens:$cum, transcript_tokens:$cum, dollars:null,
+      spike_c_rung:"B", slice_basis:"since_process_start", compaction_cycles:0,
+      perf:{op_wallclock_s:0.1, suite_runtime_s:null}}')" >> "$1"
+}
+
+# ── T14 — BOUNDED SLICE (lockstep with meter.sh T15): the landing's tokens are the
+# DELTA from the prior same-runtime_session capture, differencing even against a
+# SESSION-boundary prior — both boundaries advance one cumulative high-water mark
+# per transcript. Prior cumulative {2,1,300,4}; now {12,6,1000,10}; slice {10,5,700,6}.
+P14=$(make_plane); LOG14="$P14/.claude/metering/metering.ndjson"
+FH14="$WORK/home.$RANDOM"; SID14="14141414-1111-2222-3333-444444444444"
+mk_main_transcript "$P14" "$FH14" "$SID14"
+mkdir -p "$P14/.claude/metering"
+seed_prior_q "$LOG14" "$SID14" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":300,"cache_creation":4}'
+( cd "$P14" && HOME="$FH14" CLAUDE_CODE_SESSION_ID="$SID14" bash "$SCRIPT" capture \
+    --deliverable 9.4 --outcome landed --files 1 --insertions 1 --deletions 0 --wallclock 0.5 ) >/dev/null 2>"$WORK/qt14.err"
+QE14=$(tail -1 "$LOG14")
+echo "$QE14" | jq -e '.tokens == {input:10,output:5,cache_read:700,cache_creation:6} and .slice_basis == "per_deliverable"' >/dev/null 2>&1 \
+  && ok "[13.6] queue landing records the bounded DELTA against the prior capture (lockstep with the session meter)" \
+  || no "[13.6] queue slice wrong: got $(echo "$QE14" | jq -c '{tokens, slice_basis}') (err=$(cat "$WORK/qt14.err"))"
+echo "$QE14" | jq -e '.transcript_tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+  && ok "[13.6] queue entry preserves transcript_tokens (the cumulative high-water reading)" \
+  || no "[13.6] queue transcript_tokens wrong: $(echo "$QE14" | jq -c '.transcript_tokens')"
+
+# ── T15 — first capture (no prior) discloses since_process_start, like the session meter.
+P15=$(make_plane); LOG15="$P15/.claude/metering/metering.ndjson"
+FH15="$WORK/home.$RANDOM"; SID15="15a5a5a5-1111-2222-3333-444444444444"
+mk_main_transcript "$P15" "$FH15" "$SID15"
+( cd "$P15" && HOME="$FH15" CLAUDE_CODE_SESSION_ID="$SID15" bash "$SCRIPT" capture \
+    --deliverable 9.4 --outcome landed --files 1 --insertions 1 --deletions 0 --wallclock 0.5 ) >/dev/null 2>&1
+tail -1 "$LOG15" | jq -e '.slice_basis == "since_process_start" and .tokens.cache_read == 1000' >/dev/null 2>&1 \
+  && ok "[13.6] queue first capture → since_process_start, slice = full cumulative (lockstep)" \
+  || no "[13.6] queue first-capture basis wrong: $(tail -1 "$LOG15" | jq -c '{slice_basis, tokens}')"
+
+# ── T16 — the queue meter detects + declares a balloon too (lockstep), exit 0.
+P16=$(make_plane); LOG16="$P16/.claude/metering/metering.ndjson"
+FH16="$WORK/home.$RANDOM"; SID16="16a6a6a6-1111-2222-3333-444444444444"
+mk_compaction_transcript "$P16" "$FH16" "$SID16" 3 "2026-06-16T12:30:00.000Z"
+mkdir -p "$P16/.claude/metering" "$P16/docs"
+seed_prior_q "$LOG16" "$SID16" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}'
+printf '%s\n' '{"9.4":1}' > "$P16/docs/estimates.json"
+( cd "$P16" && HOME="$FH16" CLAUDE_CODE_SESSION_ID="$SID16" bash "$SCRIPT" capture \
+    --deliverable 9.4 --outcome landed --files 1 --insertions 1 --deletions 0 --wallclock 0.5 ) >"$WORK/qt16.out" 2>"$WORK/qt16.err"; QRC=$?
+QE16=$(tail -1 "$LOG16")
+[ "$QRC" -eq 0 ] && echo "$QE16" | jq -e '.compaction_cycles == 3' >/dev/null 2>&1 \
+  && grep -qiE 'balloon' "$WORK/qt16.out" "$WORK/qt16.err" 2>/dev/null \
+  && ok "[13.6] queue meter counts compaction cycles (3) and declares a balloon loudly, exit 0 (lockstep)" \
+  || no "[13.6] queue balloon detection wrong: rc=$QRC cycles=$(echo "$QE16" | jq -c '.compaction_cycles') out=$(cat "$WORK/qt16.out") err=$(cat "$WORK/qt16.err")"
+
+# ── T17 — LOCKSTEP BY CONSTRUCTION: the bounded-slice harvest block is BYTE-IDENTICAL
+# between meter.sh and meter-queue.sh. The two harvesters "share the bounded harvest"
+# ([13.6] acceptance); rather than risk drift between two copies, the shared logic is
+# delimited by sentinels in both files and this test asserts the delimited regions
+# match exactly. If they diverge, the meters are no longer in lockstep — fail loud.
+MQ="$CLAUDE_DIR/meter-queue.sh"; MS="$CLAUDE_DIR/meter.sh"
+extract_block() {  # $1=file — the lines strictly between the two sentinels
+  awk '/# >>> \[13\.6\] bounded-slice harvest/{f=1; next} /# <<< \[13\.6\] bounded-slice harvest/{f=0} f' "$1"
+}
+BLK_Q=$(extract_block "$MQ"); BLK_S=$(extract_block "$MS")
+[ -n "$BLK_S" ] && [ "$BLK_Q" = "$BLK_S" ] \
+  && ok "[13.6] the bounded-slice harvest block is byte-identical in meter.sh and meter-queue.sh (lockstep by construction)" \
+  || no "[13.6] the bounded-slice block DRIFTED between the two meters (or its sentinels are missing) — they must stay in lockstep"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

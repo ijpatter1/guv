@@ -257,7 +257,7 @@ if [ -n "$SHAPEDOC" ]; then
   # the doc must name every top-level field the writer emits, so it stays a
   # contract and not decoration
   MISSING=""
-  for f in ts session deliverable_ids model tokens dollars perf spike_c_rung; do
+  for f in ts session deliverable_ids model tokens transcript_tokens slice_basis compaction_cycles dollars perf spike_c_rung; do
     grep -q "$f" "$SHAPEDOC" || MISSING="$MISSING $f"
   done
   [ -z "$MISSING" ] \
@@ -349,6 +349,139 @@ printf '%s\n' '{"type":"assistant","message":{"model":"m","usage":{"input_tokens
 tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B"' >/dev/null 2>&1 \
   && ok "no subagents dir -> main-only harvest unchanged (back-compat, cache_read 42)" \
   || no "back-compat broken: expected cache_read 42, got $(tail -1 "$LOG14c" | jq -c '.tokens') (err=$(cat "$WORK/t14c.err"))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# [13.6] — PER-DELIVERABLE COST METERING: a bounded slice, not the cumulative
+# transcript. The meter records a deliverable's burn as the runtime-transcript
+# DELTA from the last same-runtime_session capture to now (forensics B2 mechanism
+# 1: cumulative_now − cumulative_at_the_prior_capture), self-describing its slice
+# basis, and preserving the cumulative high-water reading (transcript_tokens) so
+# the NEXT slice can difference against it. This corrects WHAT a session-cost
+# measures — the whole-transcript sum made every capture a cumulative snapshot of
+# the entire Claude Code session (docs/notes/meter-forensics.md, ~4.6× inflation).
+# ════════════════════════════════════════════════════════════════════════════
+
+# Seed a PRIOR same-runtime_session capture carrying a cumulative high-water
+# reading, so the next capture has something to difference against.
+seed_prior() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json
+  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" \
+    '{schema:"guv.meter.v1", ts:$ts, session:"session-2026-06-16-001",
+      session_derived:true, runtime_session:$rs, deliverable_ids:["13.6"],
+      model:"m", tokens:$cum, transcript_tokens:$cum, dollars:null,
+      spike_c_rung:"B", slice_basis:"since_process_start", compaction_cycles:0,
+      perf:{op_wallclock_s:0.1, suite_runtime_s:null}}')" >> "$1"
+}
+
+# A main transcript carrying a usage line PLUS $4 real compaction summaries
+# (isCompactSummary==true, type user, each timestamped) at $5 — the verified-real
+# compaction-event shape (docs/notes/meter-forensics.md A1).
+mk_transcript_compaction() {  # $1=proj $2=home $3=sid $4=n-compactions $5=compaction-ts
+  local p="$1" fh="$2" sid="$3" n="$4" cts="$5" slug base i
+  slug=$(cd "$p" && pwd -P | sed 's#/#-#g'); base="$fh/.claude/projects/$slug"
+  mkdir -p "$base"
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-16T12:00:00.000Z","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}' \
+    > "$base/$sid.jsonl"
+  i=0; while [ "$i" -lt "$n" ]; do
+    printf '%s\n' "{\"type\":\"user\",\"isCompactSummary\":true,\"timestamp\":\"$cts\"}" >> "$base/$sid.jsonl"
+    i=$((i + 1))
+  done
+}
+
+# ── T15 — BOUNDED SLICE: tokens is the per-session DELTA, not the cumulative sum.
+# A prior same-runtime_session capture banked cumulative {2,1,300,4}; the current
+# transcript harvests cumulative {12,6,1000,10} (mk_transcript: main 100 + sub
+# 900 cache_read). The entry's tokens must be the DIFFERENCE {10,5,700,6} — the
+# bounded slice — never the whole-transcript {12,6,1000,10}. RED against the
+# pre-fix whole-transcript harvest (would record the cumulative).
+P15=$(make_project); LOG15="$P15/.claude/metering/metering.ndjson"
+FH15="$WORK/home.$RANDOM"; SID15="15151515-1111-2222-3333-444444444444"
+mk_transcript "$P15" "$FH15" "$SID15"
+mkdir -p "$P15/.claude/metering"
+seed_prior "$LOG15" "$SID15" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":300,"cache_creation":4}'
+( cd "$P15" && HOME="$FH15" CLAUDE_CODE_SESSION_ID="$SID15" bash "$SCRIPT" capture --deliverables "13.6" ) >/dev/null 2>"$WORK/t15.err"
+E15=$(tail -1 "$LOG15")
+echo "$E15" | jq -e '.tokens == {input:10,output:5,cache_read:700,cache_creation:6}' >/dev/null 2>&1 \
+  && ok "[13.6] tokens is the bounded per-session DELTA (cumulative_now − prior capture), not the whole transcript" \
+  || no "[13.6] expected delta {10,5,700,6}, got $(echo "$E15" | jq -c '.tokens') (err=$(cat "$WORK/t15.err"))"
+echo "$E15" | jq -e '.slice_basis == "per_deliverable"' >/dev/null 2>&1 \
+  && ok "[13.6] slice_basis = per_deliverable when a prior same-runtime_session capture exists" \
+  || no "[13.6] expected slice_basis per_deliverable, got $(echo "$E15" | jq -c '.slice_basis')"
+echo "$E15" | jq -e '.transcript_tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+  && ok "[13.6] transcript_tokens preserves the cumulative high-water reading (the next slice differences against it)" \
+  || no "[13.6] expected transcript_tokens = full cumulative {12,6,1000,10}, got $(echo "$E15" | jq -c '.transcript_tokens')"
+
+# ── T15b — the slice basis is ALWAYS present and self-describing (Rule 15): no
+# reading can be mistaken for the wrong unit. The field is one of the three named
+# bases (or null when nothing was harvested), never absent.
+echo "$E15" | jq -e 'has("slice_basis") and (.slice_basis | . == "per_deliverable" or . == "since_process_start" or . == "unbounded_cumulative" or . == null)' >/dev/null 2>&1 \
+  && ok "[13.6] slice_basis is present and self-describing (per_deliverable|since_process_start|unbounded_cumulative|null)" \
+  || no "[13.6] slice_basis must be a recognized basis, got $(echo "$E15" | jq -c '.slice_basis')"
+
+# ── T16 — FIRST capture in a transcript (no prior same-runtime_session entry):
+# the slice IS the burn since process start — correct as the first slice, and
+# disclosed as such (since_process_start), never silently treated as a bounded
+# per-deliverable delta. T14 already exercised a no-prior harvest; pin the basis.
+echo "$E14" | jq -e '.slice_basis == "since_process_start" and .tokens.cache_read == 1000' >/dev/null 2>&1 \
+  && ok "[13.6] first capture (no prior) → slice_basis since_process_start, slice = full cumulative (disclosed)" \
+  || no "[13.6] first capture must disclose since_process_start, got $(echo "$E14" | jq -c '{slice_basis, tokens}')"
+
+# ── T17 — DEGRADATION (Rule 15): if the cumulative shrank vs the prior capture
+# (an anomaly — the high-water reading should be monotone within a transcript),
+# the slice cannot be trusted as a bounded delta. Disclose it as
+# unbounded_cumulative (excluded downstream), never a fabricated negative slice.
+P17=$(make_project); LOG17="$P17/.claude/metering/metering.ndjson"
+FH17="$WORK/home.$RANDOM"; SID17="17171717-1111-2222-3333-444444444444"
+mk_transcript "$P17" "$FH17" "$SID17"   # cumulative now = cache_read 1000
+mkdir -p "$P17/.claude/metering"
+seed_prior "$LOG17" "$SID17" "2026-06-16T09:00:00Z" '{"input":99,"output":99,"cache_read":9999,"cache_creation":99}'  # prior > now
+( cd "$P17" && HOME="$FH17" CLAUDE_CODE_SESSION_ID="$SID17" bash "$SCRIPT" capture --deliverables "13.6" ) >/dev/null 2>"$WORK/t17.err"
+E17=$(tail -1 "$LOG17")
+echo "$E17" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens.cache_read == 1000' >/dev/null 2>&1 \
+  && ok "[13.6] a negative (non-monotone) delta degrades to unbounded_cumulative, tokens = full cumulative (disclosed, never negative)" \
+  || no "[13.6] non-monotone cumulative must degrade to unbounded_cumulative, got $(echo "$E17" | jq -c '{slice_basis, tokens}') (err=$(cat "$WORK/t17.err"))"
+
+# ── T18 — COMPACTION-CYCLE COUNT: the meter records how many real compaction
+# cycles (isCompactSummary==true, the verified-real event shape) the slice spanned,
+# bounded to the slice window (timestamp ≥ the prior capture's ts). Raw evidence
+# — a count, like tokens — that powers balloon detection and Phase 14.
+P18=$(make_project); LOG18="$P18/.claude/metering/metering.ndjson"
+FH18="$WORK/home.$RANDOM"; SID18="18181818-1111-2222-3333-444444444444"
+mk_transcript_compaction "$P18" "$FH18" "$SID18" 3 "2026-06-16T12:30:00.000Z"  # 3 compactions, after prior ts
+mkdir -p "$P18/.claude/metering"
+seed_prior "$LOG18" "$SID18" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}'
+printf '%s\n' '{"13.6":{"sessions":1,"fraction":0.9,"size":"heavy"}}' > "$P18/docs/estimates.json"
+( cd "$P18" && HOME="$FH18" CLAUDE_CODE_SESSION_ID="$SID18" bash "$SCRIPT" capture --deliverables "13.6" ) >"$WORK/t18.out" 2>"$WORK/t18.err"; RC18=$?
+E18=$(tail -1 "$LOG18")
+echo "$E18" | jq -e '.compaction_cycles == 3' >/dev/null 2>&1 \
+  && ok "[13.6] compaction_cycles counts the real isCompactSummary events in the slice window (3)" \
+  || no "[13.6] expected compaction_cycles 3, got $(echo "$E18" | jq -c '.compaction_cycles') (err=$(cat "$WORK/t18.err"))"
+
+# ── T18b — BALLOON DETECTION, declared not stopped: a deliverable sized to 1
+# session (≈1 window) whose slice spanned 3 compaction cycles ballooned past its
+# sizing. The meter DECLARES it loudly (a line the handoff surfaces) but the
+# capture still SUCCEEDS (exit 0) — a fuzzy breach is declared for a human call,
+# never a mid-flight stop ([13.5] semantics, Rule 15).
+[ "$RC18" -eq 0 ] \
+  && ok "[13.6] a balloon is declared, NOT stopped — capture still exits 0 (fuzzy breach, [13.5] semantics)" \
+  || no "[13.6] balloon must not stop the capture, rc=$RC18"
+grep -qiE 'balloon|ballooned' "$WORK/t18.out" "$WORK/t18.err" 2>/dev/null \
+  && ok "[13.6] the balloon is declared loudly (a 'balloon' line the handoff surfaces)" \
+  || no "[13.6] expected a loud balloon declaration (out=$(cat "$WORK/t18.out"); err=$(cat "$WORK/t18.err"))"
+
+# ── T18c — NO false balloon within sizing: a deliverable sized to 2 sessions
+# whose slice spanned 1 compaction cycle is within tolerance — no declaration,
+# silent success (a reviewer-asked-for-gaps defensive over-fire is its own failure,
+# Rule 3). Also pins the unsized/session-scalar path: no budget → no balloon.
+P18c=$(make_project); LOG18c="$P18c/.claude/metering/metering.ndjson"
+FH18c="$WORK/home.$RANDOM"; SID18c="18c18c18-1111-2222-3333-444444444444"
+mk_transcript_compaction "$P18c" "$FH18c" "$SID18c" 1 "2026-06-16T12:30:00.000Z"
+mkdir -p "$P18c/.claude/metering"
+seed_prior "$LOG18c" "$SID18c" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}'
+printf '%s\n' '{"13.6":{"sessions":2,"fraction":0.9,"size":"heavy"}}' > "$P18c/docs/estimates.json"
+( cd "$P18c" && HOME="$FH18c" CLAUDE_CODE_SESSION_ID="$SID18c" bash "$SCRIPT" capture --deliverables "13.6" ) >"$WORK/t18c.out" 2>"$WORK/t18c.err"
+grep -qiE 'balloon' "$WORK/t18c.out" "$WORK/t18c.err" 2>/dev/null \
+  && no "[13.6] false balloon: 1 cycle within a 2-session budget must NOT declare a breach" \
+  || ok "[13.6] no false balloon when the slice is within its sized window budget (silent success)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

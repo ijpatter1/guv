@@ -52,7 +52,10 @@ are explicit nulls, never omissions).
 | `runtime_session` | string \| null  | the Claude Code runtime session id (`CLAUDE_CODE_SESSION_ID`) — the transcript harvest key; null if absent. |
 | `deliverable_ids` | array<string>   | the deliverable ID(s) this session served, e.g. `["9.1"]` or `["9.1","9.4"]`; `["session-scalar"]` when no single ID applies. |
 | `model`           | string \| null  | model identifier, harvested from the transcript's last assistant message; null when unharvestable.  |
-| `tokens`          | object \| null  | token counts **by class** — `{input, output, cache_read, cache_creation}` — summed from the per-message `usage` objects across the main transcript **and the subagent transcripts the session spawned** (see [13.1] below). `null` when the transcript is unreachable. |
+| `tokens`          | object \| null  | token counts **by class** — `{input, output, cache_read, cache_creation}` — the **bounded per-session SLICE** ([13.6]): the transcript delta (main + subagents) from the last same-`runtime_session` capture to now, NOT the cumulative whole-transcript sum. `null` when the transcript is unreachable. |
+| `transcript_tokens` | object \| null | the **raw cumulative high-water reading** by class at capture (main + subagents to that instant) — the value the NEXT slice differences against ([13.6]). NOT a per-session figure; `slice_basis` names the unit. `null` when the transcript is unreachable. |
+| `slice_basis`     | string \| null  | self-describes `tokens`' unit ([13.6], Rule 15): `per_deliverable` (a bounded delta against a prior same-`runtime_session` capture) · `since_process_start` (the first capture in this transcript — the full reading IS the first slice) · `unbounded_cumulative` (a non-monotone/unbounded degradation — disclosed and **excluded** from `observed_rate()`) · `null` when nothing was harvested. |
+| `compaction_cycles` | number \| null | count of real compaction events (`isCompactSummary == true`) the slice spanned — main-transcript events with `timestamp ≥` the prior capture ([13.6]). Raw evidence (a count); powers balloon detection and Phase 14. `null` when the transcript is unreachable. |
 | `dollars`         | null            | **always null** on the current rung — token-only, no guessed price table (pricing tables drift; the spec forbids a guessed conversion). |
 | `spike_c_rung`    | string          | the harvest rung this entry achieved (see below): `"B"` when tokens were harvested, `"degraded"` when not. |
 | `perf`            | object          | mechanical performance fields the boundary affords (see below).                                  |
@@ -103,6 +106,38 @@ So: attribution rung **B**, denomination **C** (token-only). The fields the
 attribution affords — `tokens` by class and `model` — are harvested; `dollars`
 stays null by design.
 
+### [13.6] — the bounded per-session slice (the unit fix)
+
+[13.1] got the harvest's **scope** right (subagents in). [13.6] gets its **unit**
+right. A `CLAUDE_CODE_SESSION_ID` names the whole `claude` *process* — one transcript
+that grows across every `/clear`, `/compact`, and handoff (`docs/notes/meter-forensics.md`).
+A guv session is a **slice** of that transcript, not the whole thing. The pre-[13.6]
+harvest summed the *whole* transcript at every capture, so each entry was a **cumulative
+snapshot of the entire process to date** — the entries for one transcript strictly
+increase, and averaging those running totals inflated the observed per-session anchor
+~4.6× (a bogus ~503M mean vs. a real ~70–350M).
+
+The fix records the **delta**, not the total:
+
+- `tokens` is the **bounded slice** — `cumulative_now − cumulative_at_the_last_capture_for_this_runtime_session`, computed by reading the most recent prior `guv.meter.*` entry for this `runtime_session` (across **both** boundaries — session and queue advance one high-water mark per transcript) and differencing per class.
+- `transcript_tokens` preserves the **cumulative high-water reading** so the next slice has something to difference against. It is raw evidence (the same extraction `tokens` *used* to be), never a per-session figure.
+- `slice_basis` makes the unit **self-describing** (Rule 15): `per_deliverable` (a real delta), `since_process_start` (the first capture — the full reading is correctly the first slice, disclosed), or `unbounded_cumulative` (a non-monotone degradation — disclosed and excluded downstream). A reading is never mistaken for the wrong unit.
+- `compaction_cycles` counts the real compaction events the slice spanned (`isCompactSummary == true`, `timestamp ≥` the prior capture) — raw evidence powering **balloon detection** and Phase 14.
+
+**Migration (append-only, read-time).** The log is append-only, so pre-[13.6]
+entries are **not** rewritten. The downstream `observed_rate()` ([9.7]) is slice-aware:
+it reads slice-tagged entries directly, excludes `unbounded_cumulative`, and
+**differences legacy cumulative entries per `runtime_session`** at read time — recovering
+the real per-session deltas from the existing history without a destructive migration.
+
+**Balloon detection — declared, never stopped.** When a deliverable's slice spanned
+**more compaction cycles than its sizing** (`compaction_cycles >` the deliverable's
+sized sessions from [13.2]), the meter declares a loud `BALLOON:` line the handoff
+surfaces — but the capture still exits 0. A deliverable-budget breach is **fuzzy**: a
+human call at the handoff boundary, never a mid-flight stop ([13.5] semantics). No
+compaction signal or no sized budget → no declaration (absence of a signal is never a
+fabricated breach, Rule 15).
+
 **Designed degradation (Rule 15).** The transcript is a research-preview surface.
 If `CLAUDE_CODE_SESSION_ID` is unset, the file is absent, or jq cannot sum it,
 the writer takes the documented fallback rung: it emits the fields that *are*
@@ -114,7 +149,7 @@ degrades the meter's resolution, never blocks the line.
 ## Example entry
 
 ```json
-{"schema":"guv.meter.v1","ts":"2026-06-13T21:40:12Z","session":"session-2026-06-13-004","session_derived":true,"runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","deliverable_ids":["9.1"],"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"dollars":null,"spike_c_rung":"B","perf":{"op_wallclock_s":0.041,"suite_runtime_s":1.232}}
+{"schema":"guv.meter.v1","ts":"2026-06-13T21:40:12Z","session":"session-2026-06-13-004","session_derived":true,"runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","deliverable_ids":["9.1"],"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"transcript_tokens":{"input":72804,"output":662186,"cache_read":104991852,"cache_creation":7563948},"slice_basis":"per_deliverable","compaction_cycles":1,"dollars":null,"spike_c_rung":"B","perf":{"op_wallclock_s":0.041,"suite_runtime_s":1.232}}
 ```
 
 ## Wiring
@@ -160,7 +195,10 @@ dollars are never settable by a caller.
 | `runtime_session`  | string \| null  | the Claude Code runtime session id (`CLAUDE_CODE_SESSION_ID`) — the transcript harvest key; null if absent. |
 | `footprint`        | object          | the diff footprint the GATE computed — `{files, insertions, deletions}`. **Reused, not recomputed.**    |
 | `model`            | string \| null  | model id, harvested from the transcript's last assistant message; null when unharvestable.              |
-| `tokens`           | object \| null  | token counts by class — `{input, output, cache_read, cache_creation}` — harvested from the transcript **and the session's subagent transcripts**, exactly as the session meter ([13.1]); `null` when unreachable (same Spike C rung B). |
+| `tokens`           | object \| null  | token counts by class — `{input, output, cache_read, cache_creation}` — the **bounded per-deliverable SLICE** ([13.6]): the transcript delta (main + subagents, [13.1]) from the last same-`runtime_session` capture (session OR queue boundary — both advance one high-water mark per transcript), NOT the cumulative sum; `null` when unreachable. |
+| `transcript_tokens`| object \| null  | the raw cumulative high-water reading by class at capture — the value the next slice differences against ([13.6]); `null` when unreachable. |
+| `slice_basis`      | string \| null  | self-describes `tokens`' unit ([13.6]): `per_deliverable` · `since_process_start` · `unbounded_cumulative` (excluded from `observed_rate()`) · `null`. Identical semantics to the session-boundary field above. |
+| `compaction_cycles`| number \| null  | count of real compaction events (`isCompactSummary == true`, `timestamp ≥` the prior capture) the slice spanned ([13.6]); `null` when unreachable. |
 | `dollars`          | null            | **always null** — token-only rung, no guessed price table.                                              |
 | `spike_c_rung`     | string          | `"B"` when tokens were harvested, `"degraded"` when not.                                                |
 | `perf`             | object          | mechanical performance fields the boundary affords.                                                     |
@@ -186,5 +224,5 @@ of the rejected attempt.
 ## Example entry
 
 ```json
-{"schema":"guv.meter.queue.v1","ts":"2026-06-14T18:22:05Z","deliverable_id":"9.4","dispatch_outcome":"landed","runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","footprint":{"files":3,"insertions":42,"deletions":7},"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"dollars":null,"spike_c_rung":"B","perf":{"landing_wallclock_s":1.25}}
+{"schema":"guv.meter.queue.v1","ts":"2026-06-14T18:22:05Z","deliverable_id":"9.4","dispatch_outcome":"landed","runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","footprint":{"files":3,"insertions":42,"deletions":7},"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"transcript_tokens":{"input":72804,"output":662186,"cache_read":104991852,"cache_creation":7563948},"slice_basis":"per_deliverable","compaction_cycles":0,"dollars":null,"spike_c_rung":"B","perf":{"landing_wallclock_s":1.25}}
 ```

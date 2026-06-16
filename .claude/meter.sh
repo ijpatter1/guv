@@ -215,6 +215,72 @@ if [ -n "$TRANSCRIPT" ]; then
   [ -n "$MODEL_JSON" ] || MODEL_JSON="null"
 fi
 
+# >>> [13.6] bounded-slice harvest (lockstep with meter.sh / meter-queue.sh) >>>
+# The harvest above summed the WHOLE transcript (main + subagents) to NOW — a
+# cumulative reading. A guv session is a SLICE of that transcript, not the whole
+# thing (docs/notes/meter-forensics.md): summing the whole made every capture a
+# cumulative snapshot of the entire Claude Code process (~4.6x inflation). Convert
+# the cumulative reading into a BOUNDED per-session SLICE — the delta from the last
+# same-runtime_session capture to now (forensics B2 mechanism 1). TRANSCRIPT_TOKENS
+# preserves the cumulative high-water reading so the NEXT slice differences against
+# it; SLICE_BASIS self-describes the unit so a reading is never mistaken for the
+# wrong one (Rule 15); COMPACTION_CYCLES counts the real compaction events the slice
+# spanned (isCompactSummary==true, ts >= the prior capture) for balloon detection.
+# This block is BYTE-IDENTICAL in both meters — meter-queue.test.sh asserts it; edit
+# both or neither.
+TRANSCRIPT_TOKENS="$TOKENS_JSON"   # the raw cumulative high-water reading
+SLICE_BASIS="null"
+COMPACTION_CYCLES="null"
+PRIOR_TS=""
+if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
+  # the most recent prior guv.meter.* entry for THIS runtime_session that carries a
+  # usable cumulative reading (a [13.6] transcript_tokens, or a legacy cumulative
+  # `tokens`), across BOTH boundaries (session + queue advance one high-water mark
+  # per transcript). Emits "<cumulative-json>\t<ts>" or nothing.
+  PRIOR=""
+  if [ -f "$LOG" ]; then
+    PRIOR=$(jq -rs --arg rs "$RUNTIME_SESSION" '
+      [ .[] | select((.schema // "") | startswith("guv.meter"))
+            | select(.runtime_session == $rs)
+            | select(((.transcript_tokens // .tokens) // null) != null) ]
+      | last
+      | if . == null then empty
+        else ((.transcript_tokens // .tokens) | @json) + "\t" + (.ts // "") end
+    ' "$LOG" 2>/dev/null)
+  fi
+  if [ -n "$PRIOR" ]; then
+    PRIOR_CUM=${PRIOR%%$'\t'*}
+    PRIOR_TS=${PRIOR#*$'\t'}
+    # per-class delta = now - prior. The cumulative is monotone within a transcript
+    # (the file only grows), so a NEGATIVE class delta means the high-water reading
+    # is unreliable (e.g. subagent files pruned) — disclose unbounded_cumulative and
+    # keep the full cumulative, never a fabricated negative slice (Rule 15).
+    DELTA=$(jq -cn --argjson now "$TOKENS_JSON" --argjson prior "$PRIOR_CUM" '
+      { input:          (($now.input//0)          - ($prior.input//0)),
+        output:         (($now.output//0)         - ($prior.output//0)),
+        cache_read:     (($now.cache_read//0)     - ($prior.cache_read//0)),
+        cache_creation: (($now.cache_creation//0) - ($prior.cache_creation//0)) }' 2>/dev/null)
+    if [ -n "$DELTA" ] && [ "$(printf '%s' "$DELTA" | jq '[.input,.output,.cache_read,.cache_creation] | all(. >= 0)')" = "true" ]; then
+      TOKENS_JSON="$DELTA"
+      SLICE_BASIS="per_deliverable"
+    else
+      SLICE_BASIS="unbounded_cumulative"   # TOKENS_JSON stays the full cumulative
+    fi
+  else
+    SLICE_BASIS="since_process_start"       # first capture: the full reading IS the first slice
+  fi
+  # compaction cycles the slice spanned: real isCompactSummary==true events in the
+  # MAIN transcript with ts >= the prior capture (all when since_process_start).
+  if [ -n "$TRANSCRIPT" ]; then
+    COMPACTION_CYCLES=$(jq -rs --arg since "$PRIOR_TS" '
+      [ .[] | select(.isCompactSummary == true)
+            | select($since == "" or ((.timestamp // "") >= $since)) ] | length
+    ' "$TRANSCRIPT" 2>/dev/null)
+    case "$COMPACTION_CYCLES" in ''|*[!0-9]*) COMPACTION_CYCLES="null" ;; esac
+  fi
+fi
+# <<< [13.6] bounded-slice harvest <<<
+
 # --- suite runtime (mechanical only — measured here or read from the artifact) -
 # Two mechanical sources, NEVER an agent value:
 #   1. --run-suite : THIS SCRIPT times a real run of the manifest suite.
@@ -256,6 +322,9 @@ ENTRY=$(jq -cn \
   --argjson deliverable_ids "$DELIVERABLES_JSON" \
   --argjson model "$MODEL_JSON" \
   --argjson tokens "$TOKENS_JSON" \
+  --argjson transcript_tokens "$TRANSCRIPT_TOKENS" \
+  --arg slice_basis "$SLICE_BASIS" \
+  --argjson compaction_cycles "$COMPACTION_CYCLES" \
   --arg rung "$RUNG" \
   --argjson op "$OP_WALLCLOCK" \
   --argjson suite "$SUITE_RUNTIME" \
@@ -268,6 +337,9 @@ ENTRY=$(jq -cn \
      deliverable_ids: $deliverable_ids,
      model: $model,
      tokens: $tokens,
+     transcript_tokens: $transcript_tokens,
+     slice_basis: (if $slice_basis == "null" then null else $slice_basis end),
+     compaction_cycles: $compaction_cycles,
      dollars: null,
      spike_c_rung: $rung,
      perf: { op_wallclock_s: $op, suite_runtime_s: $suite }
@@ -280,3 +352,24 @@ mkdir -p "$(dirname "$LOG")"
 printf '%s\n' "$ENTRY" >> "$LOG"
 
 echo "[meter] appended $SESSION ($(printf '%s' "$DELIVERABLES_JSON" | jq -r 'join(",")')) rung=$RUNG -> $LOG"
+
+# [13.6] balloon detection — DECLARE, never stop. A deliverable sized to N sessions
+# (≈N context windows, [13.2]) whose slice spanned MORE compaction cycles than that
+# ballooned past its sizing. Declare it loudly (the handoff surfaces this) but exit
+# 0 — a deliverable-budget breach is fuzzy, a human call, never a mid-flight stop
+# ([13.5] semantics). Degradation-safe (Rule 15): no compaction signal (null) or no
+# sized budget (session-scalar / unsized) → no declaration; absence of a signal is
+# never a fabricated breach. ([14.1] hardens the compaction read across runtimes.)
+if [ "$COMPACTION_CYCLES" != "null" ]; then
+  SIZED_WINDOWS=0; HAVE_BUDGET=0
+  EST_SH="$(cd "$(dirname "$0")" && pwd)/estimate.sh"
+  for did in $(printf '%s' "$DELIVERABLES_JSON" | jq -r '.[]'); do
+    case "$did" in session-scalar) continue ;; esac
+    e=$(bash "$EST_SH" get "$did" "docs/estimates.json" 2>/dev/null)
+    case "$e" in ''|*[!0-9]*) continue ;; esac
+    SIZED_WINDOWS=$((SIZED_WINDOWS + e)); HAVE_BUDGET=1
+  done
+  if [ "$HAVE_BUDGET" = "1" ] && [ "$COMPACTION_CYCLES" -gt "$SIZED_WINDOWS" ]; then
+    echo "[meter] BALLOON: $(printf '%s' "$DELIVERABLES_JSON" | jq -r 'join(",")') spanned $COMPACTION_CYCLES compaction cycle(s) vs a sized budget of $SIZED_WINDOWS window-span(s) — declared for human review, not stopped ([13.5] fuzzy semantics)" >&2
+  fi
+fi

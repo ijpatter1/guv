@@ -207,20 +207,42 @@ remaining_ids() {
 }
 
 # ── observed per-session rate, from the LOCAL metering log ──────────────────────
-# The observed burn is the total token burn per session over this control plane's
-# metering log. Total burn = the four token classes summed (the same burn
-# definition budget-gate.sh uses) — cumulative session THROUGHPUT, not point-in-
-# time occupancy: it sums across every turn, so cache_read dominates and the value
-# is unbounded by the window. Only entries with harvested tokens count as a sample
-# (a degraded tokens:null entry is no sample). Emits "n<TAB>mean<TAB>min<TAB>max"
-# (all 0 when n=0) — the mean drives the central blended rate, the min/max drive
-# the blended band EDGES. NEVER reads anything but this local log.
+# The observed burn is the per-session token burn over this control plane's metering
+# log — a BOUNDED transcript SLICE ([13.6]), NOT the cumulative whole-transcript sum.
+# Burn per sample = the four token classes summed (the same definition
+# budget-gate.sh uses) — session THROUGHPUT (cache_read-dominated, unbounded by the
+# window). [13.6] made the log slice-aware, so this reads each entry as the right
+# unit (forensics: averaging cumulative snapshots produced the inflated ~503M
+# anchor; the real per-session burns are ~70–350M):
+#   • slice-tagged (slice_basis per_deliverable / since_process_start) — tokens IS
+#     the bounded slice; counted directly as a sample.
+#   • unbounded_cumulative (disclosed degradation) and tokens:null — NOT samples.
+#   • legacy (pre-[13.6], no slice_basis key) — the cumulative snapshots; MIGRATED
+#     to per-session deltas at READ TIME (difference consecutive same-runtime_session
+#     cumulatives — the log stays append-only; nothing is rewritten).
+# Emits "n<TAB>mean<TAB>min<TAB>max" (all 0 when n=0) — the mean drives the central
+# blended rate, the min/max the band EDGES. NEVER reads anything but this local log.
 observed_rate() {
   if [ ! -f "$LOG" ]; then printf '0\t0\t0\t0'; return; fi
   jq -rs '
-    [ .[] | select((.schema // "") | startswith("guv.meter"))
-          | (.tokens // null) | select(. != null)
-          | ((.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0)) ] as $b
+    def burn: (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0);
+    [ .[] | select((.schema // "") | startswith("guv.meter")) ] as $all
+    # slice-tagged entries: tokens is the bounded slice, a sample as-is
+    | [ $all[] | select(.tokens != null)
+              | select((.slice_basis // "") as $sb | $sb == "per_deliverable" or $sb == "since_process_start")
+              | (.tokens | burn) ] as $direct
+    # legacy cumulative entries (no slice_basis key): difference per runtime_session
+    | [ $all[] | select(.tokens != null) | select(has("slice_basis") | not) ] as $legacy
+    | ( $legacy | group_by(.runtime_session)
+        | map( . as $g
+               | [ range(0; ($g | length)) as $i
+                   | ($g[$i].tokens | burn) as $cum
+                   | if $i == 0 then $cum
+                     else $cum - ($g[$i-1].tokens | burn) end ] )
+        | add // [] ) as $legacy_deltas
+    # a non-monotone legacy series yields a negative delta (out-of-order / pruned) —
+    # never a real slice; drop it rather than fabricate a negative sample (Rule 15).
+    | ( $direct + ($legacy_deltas | map(select(. >= 0))) ) as $b
     | ($b | length) as $n
     | if $n == 0 then "0\t0\t0\t0"
       else "\($n)\t\(($b | add) / $n | floor)\t\($b | min)\t\($b | max)" end
@@ -426,9 +448,13 @@ case "$SUB" in
       # bound the GRADE's comparison alone. An empty BANK_TS degrades to whole-log,
       # matching the actual_sessions bound. (Same burn definition as observed_rate:
       # the four token classes summed; only harvested-token entries are samples.)
+      # post-bank entries are [13.6] bounded slices; tokens IS the per-session burn.
+      # Exclude the disclosed unbounded_cumulative degradation — it is not a real
+      # per-session rate (same unit honesty as observed_rate).
       ACTUAL_RATE=$(jq -rs --arg since "$BANK_TS" '
         [ .[] | select((.schema // "") | startswith("guv.meter"))
               | select($since == "" or (.ts // "") >= $since)
+              | select((.slice_basis // "") != "unbounded_cumulative")
               | (.tokens // null) | select(. != null)
               | ((.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0)) ] as $b
         | ($b | length) as $n

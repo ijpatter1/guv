@@ -101,6 +101,7 @@ add_landing() {  # <instance-dir> <deliverable-id> <total-tokens>
       session_derived:true, runtime_session:null, deliverable_ids:[$id],
       model:"claude-opus-4-8[1m]",
       tokens:{input:($t/2|floor), output:($t/4|floor), cache_read:($t - ($t/2|floor) - ($t/4|floor)), cache_creation:0},
+      transcript_tokens:null, slice_basis:"per_deliverable", compaction_cycles:0,
       dollars:null, spike_c_rung:"B", perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' \
     >> "$log"
 }
@@ -118,6 +119,26 @@ add_landing_at() {  # <instance-dir> <deliverable-id> <total-tokens> <session-id
       session_derived:true, runtime_session:null, deliverable_ids:[$id],
       model:"claude-opus-4-8[1m]",
       tokens:{input:($t/2|floor), output:($t/4|floor), cache_read:($t - ($t/2|floor) - ($t/4|floor)), cache_creation:0},
+      transcript_tokens:null, slice_basis:"per_deliverable", compaction_cycles:0,
+      dollars:null, spike_c_rung:"B", perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' \
+    >> "$log"
+}
+
+# Append a LEGACY cumulative entry — the pre-[13.6] shape: NO slice_basis field, a
+# runtime_session, and tokens that are the WHOLE-transcript cumulative sum to that
+# instant (so consecutive same-runtime_session entries strictly increase). This is
+# the exact shape the forensic bug produced (docs/notes/meter-forensics.md A2). The
+# slice-aware observed_rate() must MIGRATE these to per-session deltas at read time
+# (difference consecutive same-runtime_session cumulatives), never average the
+# running totals.
+add_legacy_cumulative() {  # <instance-dir> <runtime_session> <cumulative-total>
+  local d="$1" rs="$2" cum="$3"
+  local log="$d/.claude/metering/metering.ndjson"
+  jq -cn --arg rs "$rs" --argjson t "$cum" \
+    '{schema:"guv.meter.v1", ts:"2026-06-14T00:00:00Z", session:"session-2026-06-14-001",
+      session_derived:true, runtime_session:$rs, deliverable_ids:["8.3"],
+      model:"claude-opus-4-8[1m]",
+      tokens:{input:0, output:0, cache_read:$t, cache_creation:0},
       dollars:null, spike_c_rung:"B", perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' \
     >> "$log"
 }
@@ -746,6 +767,69 @@ echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens > .spine.unit_rate.occupancy_
   and .spine.unit_rate.occupancy_reference_tokens == 3000' >/dev/null 2>&1 \
   && ok "occupancy<floor: the floor is NOT clamped to occupancy (occupancy is the informational reference=3000)" \
   || no "the floor must stand on its own with occupancy informational=3000 (got floor=$(echo "$DOC" | jq -c '.spine.unit_rate.floor_tokens'), occ=$(echo "$DOC" | jq -c '.spine.unit_rate.occupancy_reference_tokens'))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# [13.6] — observed_rate() is SLICE-AWARE: it measures per-session DELTAS, never
+# the cumulative running totals the forensic bug produced. The metering log mixes
+# three shapes and observed_rate() must read each as the right unit:
+#   • slice-tagged entries (slice_basis per_deliverable / since_process_start) —
+#     tokens IS the bounded slice, counted directly;
+#   • unbounded_cumulative — disclosed degradation, EXCLUDED;
+#   • legacy (no slice_basis) — the pre-fix cumulative snapshots, MIGRATED to
+#     deltas at read time (difference consecutive same-runtime_session cumulatives).
+# This is the bug's principal victim made right: averaging running totals produced
+# the inflated ~503M anchor; differencing recovers the real per-session burns.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── T_SLICE_LEGACY — the cumulative-snapshot REGRESSION: three legacy cumulative
+# entries for one runtime_session (1M, 3M, 6M) are NOT three samples of 1M/3M/6M
+# (mean 3.33M, the bug) — they are ONE transcript's running totals, whose real
+# per-session burns are the DELTAS 1M, 2M, 3M (mean 2M). observed_rate must report
+# the differenced mean. RED against the pre-fix averaging of running totals.
+I=$(mk_instance); write_tracker "$I"
+add_legacy_cumulative "$I" "tx-legacy" 1000000
+add_legacy_cumulative "$I" "tx-legacy" 3000000
+add_legacy_cumulative "$I" "tx-legacy" 6000000
+DOC=$( cd "$I" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC" | jq -e '.basis.n == 3 and .basis.observed_mean_tokens_per_session == 2000000' >/dev/null 2>&1 \
+  && ok "[13.6] legacy cumulative entries are MIGRATED to per-session deltas (mean 2M = differenced), not averaged as running totals (3.33M = the bug)" \
+  || no "[13.6] cumulative-snapshot regression: expected n=3, observed_mean=2000000 (differenced), got n=$(echo "$DOC" | jq -c '.basis.n'), mean=$(echo "$DOC" | jq -c '.basis.observed_mean_tokens_per_session')"
+# the first cumulative is the since-process-start slice (1M), the band's low edge;
+# the largest delta (3M) is the high edge — differenced, never the 6M cumulative max.
+echo "$DOC" | jq -e '.spine.unit_rate.blended_low_tokens > 0 and .spine.unit_rate.blended_high_tokens >= .spine.unit_rate.blended_low_tokens' >/dev/null 2>&1 \
+  && ok "[13.6] the band edges derive from the differenced slices, not the cumulative min/max" \
+  || no "[13.6] band edges must derive from deltas (got $(echo "$DOC" | jq -c '.spine.unit_rate'))"
+
+# ── T_SLICE_EXCLUDE — an unbounded_cumulative entry (the disclosed degradation) is
+# EXCLUDED from observed_rate: it never becomes a phantom sample. Seed one alongside
+# two clean slice samples; n must be 2, the mean the two slices' mean only.
+I2=$(mk_instance); write_tracker "$I2"
+add_landing "$I2" 8.3 1000000     # slice sample (tagged per_deliverable)
+add_landing "$I2" 8.3 3000000     # slice sample
+LOG2="$I2/.claude/metering/metering.ndjson"
+jq -cn '{schema:"guv.meter.v1", ts:"2026-06-14T00:00:00Z", session:"session-2026-06-14-009",
+  session_derived:true, runtime_session:"tx-ub", deliverable_ids:["8.3"], model:"m",
+  tokens:{input:0,output:0,cache_read:999000000,cache_creation:0},
+  transcript_tokens:{input:0,output:0,cache_read:999000000,cache_creation:0},
+  slice_basis:"unbounded_cumulative", compaction_cycles:0, dollars:null, spike_c_rung:"B",
+  perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' >> "$LOG2"
+DOC2=$( cd "$I2" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC2" | jq -e '.basis.n == 2 and .basis.observed_mean_tokens_per_session == 2000000' >/dev/null 2>&1 \
+  && ok "[13.6] an unbounded_cumulative entry is EXCLUDED from observed_rate (n=2, mean=2M; the 999M degradation never samples)" \
+  || no "[13.6] unbounded_cumulative must be excluded: expected n=2 mean=2M, got n=$(echo "$DOC2" | jq -c '.basis.n'), mean=$(echo "$DOC2" | jq -c '.basis.observed_mean_tokens_per_session')"
+
+# ── T_SLICE_MIX — slice-tagged samples and legacy cumulatives COEXIST in one log
+# and both contribute correctly: 2 clean slices (1M, 3M) + a legacy series (10M,
+# 30M → deltas 10M, 20M). n=4, samples {1M,3M,10M,20M}, mean 8.5M.
+I3=$(mk_instance); write_tracker "$I3"
+add_landing "$I3" 8.3 1000000
+add_landing "$I3" 8.3 3000000
+add_legacy_cumulative "$I3" "tx-mix" 10000000
+add_legacy_cumulative "$I3" "tx-mix" 30000000
+DOC3=$( cd "$I3" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC3" | jq -e '.basis.n == 4 and .basis.observed_mean_tokens_per_session == 8500000' >/dev/null 2>&1 \
+  && ok "[13.6] slice-tagged samples and migrated legacy deltas coexist (n=4, mean 8.5M)" \
+  || no "[13.6] mixed log mis-counted: expected n=4 mean=8500000, got n=$(echo "$DOC3" | jq -c '.basis.n'), mean=$(echo "$DOC3" | jq -c '.basis.observed_mean_tokens_per_session')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
