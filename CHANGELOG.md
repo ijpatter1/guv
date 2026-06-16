@@ -5,6 +5,53 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.5.0 — 2026-06-16
+
+Minor release (0.x): **Phase 9 (the meter) and Phase 11 (multi-repo topology) complete.**
+guv meters its own cost at every session/queue boundary and projects cost-to-complete
+from the project's own plan + observed history; and a control plane can orchestrate N
+code repos through a named-map `roots.code`, with split proposed by default for
+standalone/publishable products. Single-repo planes are unaffected — a string
+`roots.code` is the unchanged shorthand. Manifest contract version 1 → 2.
+
+### Added
+
+- **The meter** — `meter.sh` / `meter-queue` (session + queue-boundary cost capture,
+  harvested not agent-reported, append-only), `emit-metrics.sh` (the one-parser
+  `guv.metrics.v1` aggregate), the occupancy meter + calibration, and `estimate.sh`
+  (per-deliverable session-estimate sidecar).
+- **`projection.sh`** — cost-to-complete: a structural spine (quantity × the session
+  envelope) blended with this plane's own observed rate, a basis claim
+  (structural / blended, n=…) and a scope claim, banked forecasts, and close-time
+  grading into two separable errors (quantity vs rate). Reads only the local plane —
+  never foreign history.
+- **`budget-gate`** — budget setpoints with a silent-within / loud-on-breach tension
+  gate at the session boundaries; never self-raising.
+- **Named-map `roots.code`** (+ `roots.codePrimary`) — a control plane names N code
+  repos, each with its own `commands`. `guv-cmd <name> [<repo>]` self-locates into the
+  named repo; lane/dispatch/queue repo-namespace their worktrees
+  (`.worktrees/<repo>/lane-<id>/`); a misrouted repo fails loud.
+- **`scaffold-split.sh`** — the consumer-facing split scaffold: lays down a sibling
+  control plane + provisions the code repo, for a standalone/publishable product.
+
+### Changed
+
+- **Split is the default proposal for standalone/publishable products** (single-repo
+  stays the default for internal apps). `resolve-stack.sh --greenfield … --class …`
+  proactively proposes the split; the README/templates flip "recommended" → "default".
+  `resolve-stack` also detects an existing control-plane/code split structurally.
+- **Manifest contract version 1 → 2** — `roots.code` accepts a named map; a string is
+  the single-repo shorthand and a no-op for every root-aware operation (back-compat).
+
+### Fixed
+
+- **Consumer-scaffolded splits are now detected** — split-detection generalized to a
+  universal control-plane signal (the manifest's `roots.code` resolving to a sibling),
+  no longer keyed solely on the maintainer-only `run-core-tests.sh` marker.
+- **`resolve-stack` reads the code repo's stack in a split** — node/python/rust splits
+  now emit a proposal instead of detecting-then-exiting (the per-language reads hit the
+  detected code repo, not the stackless control plane).
+
 ## 0.4.0 — 2026-06-15
 
 Minor release: the **build fan-out becomes a first-class, code-repo-agnostic driver**
