@@ -1,14 +1,17 @@
-# Projection — shape ([9.7]; throughput-native unit model [12.1])
+# Projection — shape ([9.7]; throughput-native unit model [12.1]; occupancy×turns structural prior [13.3])
 
 The **projection** is guv's estimate of the **cost to complete** the live
 initiative: a **range** carrying a **basis claim** and a **scope claim**. It is
 the consuming surface that joins the [9.6] estimate sidecar (the quantity) and the
 [9.1] metering log (the observed **throughput** rate) into one forward-looking
 number. ([12.1]) The cost unit is cumulative session **throughput**, not
-point-in-time occupancy — the [9.2] occupancy threshold is carried only as an
-informational reference, never as the cost ceiling. The helper `.claude/projection.sh`
-is the only producer; the shape joins the tracker grammar, the manifest schema,
-the metering-log shape, and `status.json` as **published contract surface**.
+point-in-time occupancy. ([13.3]) Occupancy returns only as a modeled **factor** —
+the structural per-session rate is `occupancy_budget × expected_turns`, the
+cumulative-flow reconstruction of the point-in-time occupancy stock — never as the
+cost itself; the raw [9.2] occupancy threshold stays an informational reference.
+The helper `.claude/projection.sh` is the only producer; the shape joins the tracker
+grammar, the manifest schema, the metering-log shape, and `status.json` as
+**published contract surface**.
 
 ## It is computed at n=0 and ever after — there is no refusal state
 
@@ -43,11 +46,16 @@ remaining_sessions = Σ  estimate(d)   for d in remaining work
   `spine.quantity.default_estimate_ids` — the range's honesty depends on naming
   which legs leaned on the default.
 
-### Unit rate — throughput, anchored on the measured floor ([12.1])
+### Unit rate — throughput, modeled as occupancy × turns ([13.3])
 
 ```
-floor_tokens               = tokenize(CLAUDE.md + .claude/rules/*.md)         # MEASURED lower bound
-occupancy_reference_tokens = occupancy.threshold (else window-relative default)  # INFORMATIONAL only
+occupancy_budget_tokens = max( occupancy_reference × 2/5 , floor_tokens )      # the modeled working set
+expected_turns          = { base_build: 220, low: 220, central: 470, high: 1090 }  # base_build + eval/fix term
+structural_low_tokens   = occupancy_budget × expected_turns.low                # 220   (clean run)
+structural_tokens       = occupancy_budget × expected_turns.central            # 470   (typical eval/fix)
+structural_high_tokens  = occupancy_budget × expected_turns.high               # 1090  (fix-heavy)
+floor_tokens               = tokenize(CLAUDE.md + .claude/rules/*.md)          # INFORMATIONAL lower bound
+occupancy_reference_tokens = occupancy.threshold (else window-relative default)  # INFORMATIONAL setpoint
 ```
 
 The cost unit is cumulative session **throughput** — the burn the [9.1] meter
@@ -57,48 +65,64 @@ is a point-in-time _stock_** (the window working set, bounded by the window);
 **throughput is cumulative _flow_** (unbounded, cache_read-dominated, in practice
 orders of magnitude larger). Conflating them was BUG 3.
 
-- The **floor** is the structural anchor — the *fixed overhead* a session loads at
-  least once, a true **lower bound** on its throughput. Measured by tokenizing the
-  control-plane docs a session loads (the rendered `CLAUDE.md` plus the
-  natively-loaded `.claude/rules/*.md`); tokenization is the deterministic
-  **chars/4** heuristic (Rule 12 — a transform, not a model call). If no doc is
-  readable the floor degrades to a documented minimum (Rule 15), so the spine never
-  collapses to zero.
-- The **occupancy reference** is the [9.2] threshold (manifest `occupancy.threshold`
-  if present, else the ¾-of-200 000 = 150 000 window-relative default). It is
-  carried so the [9.2] linkage stays visible, but it is **informational only** — it
-  is **not** a cost ceiling and **never enters the range** (occupancy is the wrong
-  unit for cumulative cost). There is **no floor clamp** to it (coupling the floor
-  to occupancy was the retired occupancy-as-ceiling model).
+([13.3]) The structural per-session rate **reconstructs the flow from the stock**: a
+session re-reads ≈ its working set on every inference, so cumulative flow ≈
+`occupancy_budget × expected_turns`. Occupancy is back — but as a **modeled factor**,
+never as the cost itself.
+
+- **`occupancy_budget`** = the [9.2] setpoint's *working set* — the **average**
+  point-in-time occupancy over a session, empirically **≈ 0.4× the setpoint** (a
+  session sits below the calm ceiling most of its life; `meter-forensics.md` B4), not
+  the full ceiling. It is **clamped up to the measured floor** as a true lower bound,
+  so a tiny or absent setpoint degrades to the floor rather than collapsing the rate
+  to zero (Rule 15).
+- **`expected_turns`** = `base_build + an eval/fix term`, where "turns" are
+  **inferences/session** (hundreds — the granularity at which cumulative flow
+  accrues). The eval/fix term's **distribution sets the band**: the **low** edge is
+  `base_build` alone (a **clean run**, no fix iterations), the **high** edge adds the
+  **fix-heavy** eval/fix loop (grounded in [13.1]'s now-in-scope subagent-reviewer
+  burn). The coefficients are calibrated against the forensic per-deliverable deltas
+  (real throughput ≈ 70–350M/session, mean ~150M): at the real 800k setpoint,
+  `occupancy_budget = 320 000` and turns `220/470/1090` give structural
+  `70.4M / 150.4M / 348.8M` — squarely in that band.
+- The **floor** (the *fixed overhead* a session loads at least once — tokenizing the
+  rendered `CLAUDE.md` plus the natively-loaded `.claude/rules/*.md`, the deterministic
+  **chars/4** heuristic, Rule 12) and the raw **occupancy reference** ([9.2] threshold,
+  else the ¾-of-200 000 = 150 000 default) are carried as **informational** fields.
+  The threshold **never clamps the measured floor** (the pre-[12.1] occupancy-as-ceiling
+  coupling stays retired); it feeds the rate **only** through `occupancy_budget`.
 
 ### The range
 
 ```
-range.low_tokens  = remaining_sessions × blended_low_tokens    # n=0: floor_tokens
-range.high_tokens = remaining_sessions × blended_high_tokens   # n=0: floor_tokens
+range.low_tokens  = remaining_sessions × blended_low_tokens    # n=0: structural_low_tokens
+range.high_tokens = remaining_sessions × blended_high_tokens   # n=0: structural_high_tokens
 range.denomination = "tokens"
 ```
 
 The blended band-edge rates are **emitted** in `spine.unit_rate`
 (`blended_low_tokens`, `blended_high_tokens`) alongside the centre
-(`blended_tokens`), the measured `floor_tokens`, and the informational
-`occupancy_reference_tokens`, so the document is **self-reconcilable**: a reader
-can derive the range from the projection's own published fields
+(`blended_tokens`), the modeled `structural_{low,,high}_tokens`,
+`occupancy_budget_tokens` + `expected_turns`, and the informational `floor_tokens`
+and `occupancy_reference_tokens`, so the document is **self-reconcilable**: a
+reader can derive the range from the projection's own published fields
 (`range.low_tokens == remaining_sessions × spine.unit_rate.blended_low_tokens`).
 
-At **`n = 0`** (no throughput history) the band is a **floor-anchored lower
-bound** — a *point* at `remaining_sessions × floor` (low == high), and the basis
-discloses `bound="lower_bound_only"`: there is **no observed throughput ceiling
-yet** and guv **refuses to fabricate one** (no turn-count multiplier — the same
-no-guess discipline that keeps [9.1]'s `dollars` null and forbids foreign
-history). The first banked session establishes the scale. As landings accrue the
-band **edges migrate toward observed throughput** by the same blend weight as the
-centre (low → observed min, high → observed max; see *The local blend*), and
-`bound` becomes `"observed_range"` — the reported range and the central blended
-rate stay in the **same unit (throughput) and the same universe**, the centre
-always inside its band. **Denomination follows Spike C's rung — tokens — never a
-guessed dollar conversion** (pricing tables drift; the spec forbids the guess,
-exactly as the [9.1] meter keeps `dollars` null).
+At **`n = 0`** (no throughput history) the band is the **modeled occupancy×turns
+band** — a *real* band `remaining_sessions × [structural_low, structural_high]`
+(low **<** high, not a point), and the basis discloses `bound="modeled_range"`. This
+**supersedes [12.1]'s `lower_bound_only`**: there is now a principled central
+estimate (`structural_tokens`) and a genuine spread from the eval/fix term, instead
+of a bare floor-anchored point — and still **no fabricated turn-count guess** (the
+coefficients are calibrated from forensic evidence, the same no-guess discipline
+that keeps [9.1]'s `dollars` null and forbids foreign history). As landings accrue
+the band **edges migrate toward observed throughput** by the same blend weight as the
+centre (low → observed min, high → observed max; see *The local blend*), and `bound`
+becomes `"observed_range"` — the reported range and the central blended rate stay in
+the **same unit (throughput) and the same universe**, the centre always inside its
+band. **Denomination follows Spike C's rung — tokens — never a guessed dollar
+conversion** (pricing tables drift; the spec forbids the guess, exactly as the [9.1]
+meter keeps `dollars` null).
 
 ## The local blend
 
@@ -108,21 +132,24 @@ per-session rate blends into the central unit rate:
 ```
 observed_{mean,min,max} = {mean,min,max}( per-session total token burn )  over the local log
 weight           = n / (n + K)        K = 3 (smoothing)
-blended_tokens   = (1 − weight) × floor + weight × observed_mean    # the centre
-blended_low_rate = (1 − weight) × floor + weight × observed_min     # the band low edge
-blended_high_rate= (1 − weight) × floor + weight × observed_max     # the band high edge
+blended_tokens   = (1 − weight) × structural_tokens      + weight × observed_mean   # the centre
+blended_low_rate = (1 − weight) × structural_low_tokens  + weight × observed_min    # the band low edge
+blended_high_rate= (1 − weight) × structural_high_tokens + weight × observed_max    # the band high edge
 ```
 
 - `n` is the count of **local** landings (metering entries with harvested
-  tokens). At `n = 0` the weight is 0 — all three collapse to `floor_tokens`, the
-  band is a lower-bound point, the spine is purely structural.
-- ([12.1]) **All three edges anchor on the floor** (the one measured
-  throughput-relevant quantity) and migrate toward observed throughput by the
-  **same weight** — the centre toward the observed mean, the edges toward observed
-  min/max — so the whole band is corrected in-flight as one. With the floor the
-  common anchor and `min ≤ mean ≤ max`, the band never inverts and the centre
-  always lies inside it. (The occupancy threshold is **not** an anchor — it is
-  informational and never enters the blend.)
+  tokens). At `n = 0` the weight is 0 — each edge **is** its structural
+  occupancy×turns anchor, the spine is purely structural (a real modeled band).
+- ([13.3]) **Each edge anchors on its own structural occupancy×turns edge**
+  (`structural_low/central/high`) and migrates toward the matching observed edge by
+  the **same weight** — the centre toward the observed mean, the low/high edges
+  toward observed min/max — so the whole band is corrected in-flight as one. Because
+  the blend now corrects a **meaningful prior** (a throughput-scale central estimate,
+  not the near-zero floor), it **converges from a sensible start** rather than
+  dragging up from ≈0. With `structural_low ≤ structural_central ≤ structural_high`
+  and `min ≤ mean ≤ max`, the per-edge blend stays ordered (the band never inverts)
+  and the centre always lies inside it. (The raw occupancy threshold is **not** an
+  anchor — it enters only through `occupancy_budget`.)
 - The **weight rises monotonically** with the sample count and never reaches 1 —
   the structure always retains some pull. More samples → more weight on observed
   → the blended rate (and band) move further toward the observed burn.

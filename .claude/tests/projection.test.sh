@@ -192,26 +192,61 @@ echo "$DOC" | jq -e '.spine.quantity.remaining_sessions == 6' >/dev/null 2>&1 \
   && ok "spine quantity = ratified sessions over REMAINING work (2+3+1=6)" \
   || no "remaining_sessions must sum the estimates of remaining deliverables (got: $(echo "$DOC" | jq -c '.spine.quantity'))"
 
-# [12.1] throughput-native: the structural unit rate is the MEASURED floor (a true
-# lower bound on a session's THROUGHPUT). The occupancy threshold is emitted only
-# as an informational reference, NEVER as the cost ceiling (occupancy is a
-# point-in-time stock; cost-to-complete is cumulative throughput).
+# [13.3] throughput-native, MODELED: the structural unit rate is occupancy_budget ×
+# expected_turns — the [9.2] setpoint's working set re-read over a session's inferences
+# (the cumulative-FLOW reconstruction of the point-in-time occupancy STOCK). The measured
+# doc-overhead floor and the raw occupancy threshold are carried only as INFORMATIONAL
+# references, never as the cost rate (the floor was the pre-[13.3] structural rate — an
+# orders-of-magnitude undershoot of real throughput).
 echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens > 0 and (.spine.unit_rate.occupancy_reference_tokens|type=="number")' >/dev/null 2>&1 \
-  && ok "unit rate is the measured floor; occupancy is an informational reference, not the cost ceiling" \
+  && ok "unit rate carries the measured floor + occupancy reference as INFORMATIONAL fields" \
   || no "the unit rate must carry a positive floor + an informational occupancy reference (got: $(echo "$DOC" | jq -c '.spine.unit_rate'))"
 
-# [12.1] n=0: with NO throughput history the projection is a floor-anchored LOWER
-# BOUND — the band is a point at remaining × floor (low == high), and the basis
-# discloses it has no observed throughput ceiling yet (no occupancy ceiling
-# masquerading as a cost ceiling, no fabricated turn-count multiplier).
+# [13.3] occupancy_budget = the [9.2] setpoint × the working-set fraction (the avg
+# working set is ~0.4× the setpoint — meter-forensics B4 — not the full setpoint).
 echo "$DOC" | jq -e '
-  (.spine.quantity.remaining_sessions * .spine.unit_rate.floor_tokens) == .range.low_tokens
-  and .range.low_tokens == .range.high_tokens' >/dev/null 2>&1 \
-  && ok "n=0: the range is a floor-anchored lower bound (low==high==remaining×floor)" \
-  || no "n=0 range must be a point at remaining×floor (got range=$(echo "$DOC" | jq -c '.range'), floor=$(echo "$DOC" | jq -r '.spine.unit_rate.floor_tokens'))"
-echo "$DOC" | jq -e '.basis.bound == "lower_bound_only"' >/dev/null 2>&1 \
-  && ok "n=0: the basis discloses a lower-bound-only claim (no observed throughput ceiling yet)" \
-  || no "n=0 basis.bound must be \"lower_bound_only\" (got: $(echo "$DOC" | jq -c '.basis'))"
+  (.spine.unit_rate.occupancy_budget_tokens|type=="number")
+  and .spine.unit_rate.occupancy_budget_tokens > 0
+  and .spine.unit_rate.occupancy_budget_tokens < .spine.unit_rate.occupancy_reference_tokens' >/dev/null 2>&1 \
+  && ok "[13.3] occupancy_budget is the modeled working set (a fraction of the setpoint, below it)" \
+  || no "[13.3] occupancy_budget_tokens must be a positive fraction of the occupancy reference (got: $(echo "$DOC" | jq -c '.spine.unit_rate'))"
+
+# [13.3] the structural rate DECOMPOSES as occupancy_budget × expected_turns (a
+# documented formula), per band edge. The eval/fix term sets the band: the low edge is
+# base_build alone (a clean run), the high edge adds the fix-heavy eval/fix turns.
+echo "$DOC" | jq -e '
+  (.spine.unit_rate.occupancy_budget_tokens) as $ob
+  | (.spine.unit_rate.expected_turns) as $t
+  | $t.low == $t.base_build
+  and $t.low < $t.central and $t.central < $t.high
+  and .spine.unit_rate.structural_low_tokens  == ($ob * $t.low)
+  and .spine.unit_rate.structural_tokens      == ($ob * $t.central)
+  and .spine.unit_rate.structural_high_tokens == ($ob * $t.high)' >/dev/null 2>&1 \
+  && ok "[13.3] structural rate = occupancy_budget × expected_turns per edge; eval/fix term sets the band (low=base_build clean run < central < high fix-heavy)" \
+  || no "[13.3] the structural rate must decompose as occupancy_budget × expected_turns with an eval/fix band (got: $(echo "$DOC" | jq -c '.spine.unit_rate'))"
+
+# [13.3] n=0: with NO throughput history the projection is a REAL central estimate — the
+# modeled occupancy×turns band, NOT a floor-anchored lower-bound point. The range is
+# remaining × the structural band (low < high, a genuine band), and the basis bound names
+# the modeled range (no lower_bound_only collapse — superseding [12.1]).
+echo "$DOC" | jq -e '
+  (.spine.quantity.remaining_sessions) as $q
+  | .range.low_tokens  == ($q * .spine.unit_rate.structural_low_tokens)
+  and .range.high_tokens == ($q * .spine.unit_rate.structural_high_tokens)
+  and .range.low_tokens < .range.high_tokens' >/dev/null 2>&1 \
+  && ok "[13.3] n=0: the range is the MODELED band (remaining × structural_{low,high}), a real band (low < high)" \
+  || no "[13.3] n=0 range must be remaining × the structural band, low < high (got range=$(echo "$DOC" | jq -c '.range'), unit_rate=$(echo "$DOC" | jq -c '.spine.unit_rate'))"
+echo "$DOC" | jq -e '.basis.bound == "modeled_range"' >/dev/null 2>&1 \
+  && ok "[13.3] n=0: the basis bound is \"modeled_range\" — a real central estimate, no lower-bound-only collapse" \
+  || no "[13.3] n=0 basis.bound must be \"modeled_range\" (got: $(echo "$DOC" | jq -c '.basis'))"
+# the central blended rate at n=0 IS the structural central (a real point estimate, not
+# the floor) and lies inside the modeled band.
+echo "$DOC" | jq -e '
+  .spine.unit_rate.blended_tokens == .spine.unit_rate.structural_tokens
+  and .spine.unit_rate.structural_low_tokens <= .spine.unit_rate.structural_tokens
+  and .spine.unit_rate.structural_tokens <= .spine.unit_rate.structural_high_tokens' >/dev/null 2>&1 \
+  && ok "[13.3] n=0: the central rate is the structural central estimate, inside the modeled band" \
+  || no "[13.3] n=0 central rate must equal structural_tokens within the band (got: $(echo "$DOC" | jq -c '.spine.unit_rate'))"
 
 # Denomination follows Spike C's rung (tokens) — never a guessed dollar conversion.
 echo "$DOC" | jq -e '.range.denomination == "tokens"' >/dev/null 2>&1 \
@@ -228,9 +263,11 @@ B=$(mk_instance); write_tracker "$B"
 bash "$B/.claude/estimate.sh" set 9.7 2 "$B/docs/estimates.json" >/dev/null 2>&1
 bash "$B/.claude/estimate.sh" set 9.8 3 "$B/docs/estimates.json" >/dev/null 2>&1
 STRUCT=$( cd "$B" && bash .claude/projection.sh project 2>/dev/null )
-STRUCT_RATE=$(echo "$STRUCT" | jq -r '.spine.unit_rate.floor_tokens')
+# [13.3] the structural prior is now the occupancy×turns central rate (the n=0
+# blended_tokens), not the doc-overhead floor.
+STRUCT_RATE=$(echo "$STRUCT" | jq -r '.spine.unit_rate.structural_tokens')
 
-# three landings at a LOW observed burn (well under the structural floor)
+# three landings at a LOW observed burn (well under the structural occupancy×turns prior)
 add_landing "$B" 9.1 5000
 add_landing "$B" 9.1 6000
 add_landing "$B" 9.1 5500
@@ -244,11 +281,11 @@ echo "$BLEND" | jq -e '.basis.n == 3' >/dev/null 2>&1 \
   && ok "basis.n counts the landings consulted (3)" \
   || no "basis.n must equal the landing count (got: $(echo "$BLEND" | jq -c '.basis.n'))"
 
-# The blended effective rate sits BELOW the structural floor (it moved toward the
+# The blended effective rate sits BELOW the structural prior (it moved toward the
 # low observed rate) but ABOVE the raw observed rate (the structure still pulls).
 BLEND_RATE=$(echo "$BLEND" | jq -r '.spine.unit_rate.blended_tokens')
 awk -v b="$BLEND_RATE" -v s="$STRUCT_RATE" 'BEGIN{ exit !(b < s) }' \
-  && ok "blended rate moved BELOW the structural floor toward the low observed rate" \
+  && ok "blended rate moved BELOW the structural occupancy×turns prior toward the low observed rate" \
   || no "the blended rate must shift toward the observed rate (blended=$BLEND_RATE structural=$STRUCT_RATE)"
 
 # WEIGHT MOVES with samples: more landings -> MORE weight on the observed rate,
@@ -291,16 +328,17 @@ HB=$(mk_instance); write_tracker "$HB"
 bash "$HB/.claude/estimate.sh" set 9.7 2 "$HB/docs/estimates.json" >/dev/null 2>&1
 bash "$HB/.claude/estimate.sh" set 9.8 3 "$HB/docs/estimates.json" >/dev/null 2>&1
 HB_STRUCT=$( cd "$HB" && bash .claude/projection.sh project 2>/dev/null )
-HB_HIGH0=$(echo "$HB_STRUCT" | jq -r '.range.high_tokens')   # n=0 structural high = remaining×floor
-# three landings whose per-session burn dwarfs the ceiling (throughput scale),
-# varying so observed min<mean<max (a real band, not a degenerate point).
-add_landing "$HB" 9.1 4000000
-add_landing "$HB" 9.1 6000000
-add_landing "$HB" 9.1 5000000
+HB_HIGH0=$(echo "$HB_STRUCT" | jq -r '.range.high_tokens')   # n=0 structural high = remaining × structural_high
+# [13.3] three landings whose per-session burn exceeds the modeled structural high edge
+# (~65M at the test setpoint), varying so observed min<mean<max (a real band) — the band
+# must track observed throughput UP above the modeled prior.
+add_landing "$HB" 9.1 200000000
+add_landing "$HB" 9.1 300000000
+add_landing "$HB" 9.1 250000000
 HB_DOC=$( cd "$HB" && bash .claude/projection.sh project 2>/dev/null )
 HB_HIGH=$(echo "$HB_DOC" | jq -r '.range.high_tokens')
 awk -v a="$HB_HIGH" -v b="$HB_HIGH0" 'BEGIN{ exit !(a > b) }' \
-  && ok "BAND: observed burn above the floor RAISES the range high edge (it tracks throughput, not the occupancy stock)" \
+  && ok "BAND: observed burn above the modeled high edge RAISES the range high edge (it tracks throughput, not the occupancy stock)" \
   || no "the range high edge must rise toward observed burn (n=0 structural high=$HB_HIGH0, blended high=$HB_HIGH)"
 # coherence: the central blended estimate (remaining × blended_tokens) lies INSIDE
 # its own reported range — the bug was a center hundreds of × outside its band.
@@ -342,13 +380,14 @@ echo "$HB_DOC" | jq -e '
   and (.spine.quantity.remaining_sessions * .spine.unit_rate.blended_high_tokens) == .range.high_tokens' >/dev/null 2>&1 \
   && ok "BAND: the document is SELF-RECONCILABLE — range = remaining × emitted blended_{low,high}_tokens" \
   || no "the range must reconcile from the emitted blended band-edge rates (unit_rate=$(echo "$HB_DOC" | jq -c '.spine.unit_rate'), range=$(echo "$HB_DOC" | jq -c '.range'))"
-# [12.1] at n=0 BOTH emitted blended edges equal the floor — the band is a
-# floor-anchored lower-bound point, the occupancy ceiling is retired from the
-# cost path (it no longer forms the high edge).
-echo "$HB_STRUCT" | jq -e '.spine.unit_rate.blended_low_tokens == .spine.unit_rate.floor_tokens
-  and .spine.unit_rate.blended_high_tokens == .spine.unit_rate.floor_tokens' >/dev/null 2>&1 \
-  && ok "BAND: at n=0 BOTH blended edges equal the floor (lower-bound point; no occupancy ceiling in the band)" \
-  || no "n=0 blended edges must both equal the floor (got: $(echo "$HB_STRUCT" | jq -c '.spine.unit_rate'))"
+# [13.3] at n=0 the emitted blended edges equal the STRUCTURAL band edges (the modeled
+# occupancy×turns band), NOT the floor — and the band is real (low < high), not a
+# lower-bound point. With no observed pull yet the blend sits on the modeled prior.
+echo "$HB_STRUCT" | jq -e '.spine.unit_rate.blended_low_tokens == .spine.unit_rate.structural_low_tokens
+  and .spine.unit_rate.blended_high_tokens == .spine.unit_rate.structural_high_tokens
+  and .spine.unit_rate.structural_low_tokens < .spine.unit_rate.structural_high_tokens' >/dev/null 2>&1 \
+  && ok "[13.3] BAND: at n=0 the blended edges equal the modeled structural band edges (a real band, not a floor point)" \
+  || no "[13.3] n=0 blended edges must equal the structural band edges, low<high (got: $(echo "$HB_STRUCT" | jq -c '.spine.unit_rate'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T_FOREIGN — NO INPUT PATH TO FOREIGN HISTORY (the grep-assert)
@@ -740,21 +779,24 @@ if [ -f "$SHAPE" ]; then
   grep -qiE 'throughput' "$SHAPE" && grep -qiE 'occupanc' "$SHAPE" \
     && ok "shape doc names the throughput-vs-occupancy (flow vs stock) distinction ([12.1])" \
     || no "shape doc must explain the cost unit is throughput, not occupancy ([12.1])"
+  grep -qiE 'occupancy_budget|expected.turns|occupancy.{0,4}turns' "$SHAPE" \
+    && ok "[13.3] shape doc documents the occupancy×turns structural model" \
+    || no "[13.3] shape doc must document the occupancy×turns rate model (occupancy_budget × expected_turns)"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-# T_OCCUPANCY_INFORMATIONAL — [12.1] occupancy no longer clamps the floor
+# T_OCCUPANCY_INFORMATIONAL — [13.3] occupancy is a modeled FACTOR, never a floor clamp
 # ════════════════════════════════════════════════════════════════════════════
-# Pre-[12.1] the envelope floor was "bounded above by the occupancy threshold" and
-# clamped to it, because the band ran floor..ceiling. [12.1] retires occupancy from
-# the cost path: the floor is the MEASURED throughput lower bound and stands on its
-# own; the occupancy threshold is informational only. So a LOW occupancy setpoint
-# must NOT cap the measured floor, and the range still never inverts (both edges
-# anchor on the floor).
+# [13.3] occupancy returns as a modeled FACTOR (the occupancy_budget feeding the rate),
+# but the raw occupancy threshold and the measured doc-overhead floor stay INFORMATIONAL
+# fields — the threshold never clamps the measured floor (the pre-[12.1] occupancy-as-
+# ceiling coupling stays retired). A tiny setpoint below the measured floor must not
+# invert the range, and occupancy_budget degrades UP to the floor as a lower bound
+# (Rule 15) rather than collapsing the structural rate.
 I=$(mk_instance); write_tracker "$I"
 bash "$I/.claude/estimate.sh" set 9.7 2 "$I/docs/estimates.json" >/dev/null 2>&1
 # A tiny occupancy.threshold setpoint, BELOW the ~10k measured floor (40k chars of
-# docs mk_instance plants): pre-[12.1] this would have clamped the floor to 3000.
+# docs mk_instance plants): occupancy×fraction (1200) falls under the floor.
 jq '.occupancy={threshold:3000}' "$I/.claude/project.json" > "$I/.claude/project.json.tmp" \
   && mv "$I/.claude/project.json.tmp" "$I/.claude/project.json"
 DOC=$( cd "$I" && bash .claude/projection.sh project 2>/dev/null )
@@ -767,6 +809,14 @@ echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens > .spine.unit_rate.occupancy_
   and .spine.unit_rate.occupancy_reference_tokens == 3000' >/dev/null 2>&1 \
   && ok "occupancy<floor: the floor is NOT clamped to occupancy (occupancy is the informational reference=3000)" \
   || no "the floor must stand on its own with occupancy informational=3000 (got floor=$(echo "$DOC" | jq -c '.spine.unit_rate.floor_tokens'), occ=$(echo "$DOC" | jq -c '.spine.unit_rate.occupancy_reference_tokens'))"
+
+# [13.3] degradation: a setpoint whose working-set fraction falls below the measured
+# floor clamps occupancy_budget UP to the floor (the doc overhead is a true lower bound
+# on a session's working set) — the structural rate never collapses below it (Rule 15).
+echo "$DOC" | jq -e '.spine.unit_rate.occupancy_budget_tokens >= .spine.unit_rate.floor_tokens
+  and .spine.unit_rate.structural_tokens > 0' >/dev/null 2>&1 \
+  && ok "[13.3] occupancy_budget degrades UP to ≥ the measured floor when the setpoint is tiny (Rule-15 lower bound)" \
+  || no "[13.3] occupancy_budget must clamp to ≥ floor (got budget=$(echo "$DOC" | jq -r '.spine.unit_rate.occupancy_budget_tokens'), floor=$(echo "$DOC" | jq -r '.spine.unit_rate.floor_tokens'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # [13.6] — observed_rate() is SLICE-AWARE: it measures per-session DELTAS, never
@@ -844,6 +894,63 @@ DOC4=$( cd "$I4" && bash .claude/projection.sh project 2>/dev/null )
 echo "$DOC4" | jq -e '.basis.n == 1 and .basis.observed_mean_tokens_per_session == 10000000' >/dev/null 2>&1 \
   && ok "[13.6] a non-monotone legacy delta is DROPPED, not counted as a negative sample (n=1, mean=10M)" \
   || no "[13.6] negative legacy delta must be dropped: expected n=1 mean=10M, got n=$(echo "$DOC4" | jq -c '.basis.n'), mean=$(echo "$DOC4" | jq -c '.basis.observed_mean_tokens_per_session')"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_MODEL_RECONCILE — [13.3] the modeled rate reconciles with the forensic band
+# ════════════════════════════════════════════════════════════════════════════
+# meter-forensics (B4) fixed the unit: real per-deliverable throughput ≈ 70–350M/session,
+# mean ~150M; occupancy_budget ≈ avg working set ≈ 0.4× the 800k setpoint (~320k). With
+# the REAL setpoint the structural occupancy×turns model must land IN that band — the
+# calibration is the deliverable's point (a prior that under/over-shoots the forensic
+# evidence would be untrustworthy). occ_budget = 800000 × 0.4 = 320000; expected_turns
+# 220/470/1090 → structural 70.4M / 150.4M / 348.8M.
+MR=$(mk_instance); write_tracker "$MR"
+bash "$MR/.claude/estimate.sh" set 9.7 2 "$MR/docs/estimates.json" >/dev/null 2>&1
+jq '.occupancy={threshold:800000}' "$MR/.claude/project.json" > "$MR/.claude/project.json.tmp" \
+  && mv "$MR/.claude/project.json.tmp" "$MR/.claude/project.json"
+MR_DOC=$( cd "$MR" && bash .claude/projection.sh project 2>/dev/null )
+echo "$MR_DOC" | jq -e '
+  .spine.unit_rate.occupancy_budget_tokens == 320000
+  and .spine.unit_rate.structural_low_tokens  == 70400000
+  and .spine.unit_rate.structural_tokens      == 150400000
+  and .spine.unit_rate.structural_high_tokens == 348800000' >/dev/null 2>&1 \
+  && ok "[13.3] RECONCILE: at the real 800k setpoint the modeled rate lands in the forensic band (low 70.4M / central 150.4M / high 348.8M)" \
+  || no "[13.3] the modeled structural rate must reconcile with the forensic per-deliverable band (got: $(echo "$MR_DOC" | jq -c '.spine.unit_rate'))"
+# the central estimate sits inside the forensic 70–350M envelope (the meter's real deltas).
+echo "$MR_DOC" | jq -e '.spine.unit_rate.structural_tokens >= 70000000 and .spine.unit_rate.structural_tokens <= 350000000' >/dev/null 2>&1 \
+  && ok "[13.3] RECONCILE: the central structural estimate sits inside the forensic 70–350M envelope" \
+  || no "[13.3] the central structural estimate must lie in the forensic envelope (got: $(echo "$MR_DOC" | jq -r '.spine.unit_rate.structural_tokens'))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_BLEND_FROM_MODELED — [13.3] the blend corrects a MEANINGFUL prior, not ≈0
+# ════════════════════════════════════════════════════════════════════════════
+# Pre-[13.3] the structural prior was the doc-overhead floor (~10k tokens), orders of
+# magnitude below real throughput — so at n=0 the central estimate was a bare lower bound
+# and the blend had to drag it up from ≈0 over many landings. [13.3] makes the prior a
+# real occupancy×turns central estimate (throughput scale), so the n/(n+K) blend now
+# CORRECTS a sensible start: blended_central lies strictly BETWEEN the modeled prior and
+# the observed mean — converging from a meaningful anchor rather than from ≈0.
+BM=$(mk_instance); write_tracker "$BM"
+bash "$BM/.claude/estimate.sh" set 9.7 2 "$BM/docs/estimates.json" >/dev/null 2>&1
+bash "$BM/.claude/estimate.sh" set 9.8 3 "$BM/docs/estimates.json" >/dev/null 2>&1
+BM_STRUCT=$( cd "$BM" && bash .claude/projection.sh project 2>/dev/null )
+BM_PRIOR=$(echo "$BM_STRUCT" | jq -r '.spine.unit_rate.structural_tokens')
+# the n=0 prior is at THROUGHPUT scale (millions), not the near-zero doc floor — a real
+# central estimate, the heart of [13.3].
+awk -v p="$BM_PRIOR" 'BEGIN{ exit !(p >= 1000000) }' \
+  && ok "[13.3] the n=0 structural prior is a real central estimate at throughput scale (≥1M), not the ≈0 floor" \
+  || no "[13.3] the n=0 prior must be a throughput-scale central estimate (got structural_tokens=$BM_PRIOR)"
+# observed landings ABOVE the modeled prior — the blend must correct toward them, landing
+# strictly BETWEEN the prior and the observed mean (a correction, not a replacement).
+add_landing "$BM" 9.1 100000000
+add_landing "$BM" 9.1 100000000
+add_landing "$BM" 9.1 100000000
+BM_BLEND=$( cd "$BM" && bash .claude/projection.sh project 2>/dev/null )
+BM_CENT=$(echo "$BM_BLEND" | jq -r '.spine.unit_rate.blended_tokens')
+BM_OBS=$(echo "$BM_BLEND" | jq -r '.basis.observed_mean_tokens_per_session')
+awk -v c="$BM_CENT" -v p="$BM_PRIOR" -v o="$BM_OBS" 'BEGIN{ exit !(c > p && c < o) }' \
+  && ok "[13.3] the blend corrects the modeled prior: blended_central lies BETWEEN the prior and observed mean" \
+  || no "[13.3] blended central must sit between the modeled prior and observed mean (prior=$BM_PRIOR blended=$BM_CENT observed=$BM_OBS)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

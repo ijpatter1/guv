@@ -18,20 +18,23 @@
 #   unit rate = per-session cumulative THROUGHPUT ([12.1]) — the burn the [9.1]
 #              meter captures (input + output + cache_read + cache_creation summed
 #              across every turn), the unit a [9.3] budget is set in. The structural
-#              anchor is the MEASURED FLOOR — the fixed overhead a session loads at
-#              least once (tokenize CLAUDE.md + .claude/rules/*.md), a true LOWER
-#              BOUND on throughput. The [9.2] occupancy threshold is NOT the cost
-#              ceiling: occupancy is a point-in-time STOCK (bounded by the window),
-#              throughput is cumulative FLOW (unbounded, cache_read-dominated) — the
-#              wrong unit by orders of magnitude. Occupancy is carried only as an
-#              informational reference (occupancy_reference_tokens), never in the range.
-#   range    = quantity × the throughput band. At n=0 (no history) the band is a
-#              floor-anchored LOWER BOUND — a point at remaining × floor with
-#              basis.bound="lower_bound_only": there is no observed throughput
-#              ceiling yet and guv refuses to fabricate one (no turn-count
-#              multiplier). Denomination follows Spike C's rung — TOKENS — never a
-#              guessed dollar conversion (pricing tables drift; the spec forbids the
-#              guess, exactly as [9.1]'s dollars stays null).
+#              anchor is the MODELED rate occupancy_budget × expected_turns ([13.3]):
+#              a session re-reads ~its working set on every inference, so cumulative
+#              FLOW ≈ working_set × turns — the flow reconstruction of the point-in-
+#              time occupancy STOCK. occupancy_budget = the [9.2] setpoint's working
+#              set (≈0.4× the setpoint — meter-forensics B4 — clamped ≥ the measured
+#              doc-overhead floor); expected_turns = base_build + an eval/fix term whose
+#              distribution sets the band. The pre-[13.3] anchor was the bare doc floor
+#              (orders of magnitude below real throughput); occupancy now returns ONLY
+#              as a modeled FACTOR (rate = occupancy × turns), never as the cost itself.
+#              The raw occupancy threshold and the floor stay informational references.
+#   range    = quantity × the throughput band. At n=0 (no history) the band is the
+#              MODELED occupancy×turns band — a REAL central estimate with
+#              basis.bound="modeled_range" (superseding [12.1]'s lower_bound_only): the
+#              eval/fix term's low edge (clean run) and high edge (fix-heavy) set a
+#              genuine band, no fabricated turn-count guess. Denomination follows Spike
+#              C's rung — TOKENS — never a guessed dollar conversion (pricing tables
+#              drift; the spec forbids the guess, exactly as [9.1]'s dollars stays null).
 #
 # THE LOCAL BLEND ────────────────────────────────────────────────────────────────
 # Local observed THROUGHPUT blends into the unit rate as landings accrue. The
@@ -39,11 +42,12 @@
 # log (.claude/metering/metering.ndjson — the [9.1] raw evidence): the mean drives
 # the central rate, the min/max drive the band EDGES. The blend WEIGHT moves with
 # the sample count (more landings -> more weight on observed): a plain arithmetic
-# weight n/(n+K) over the count, K a smoothing constant. All three edges anchor on
-# the floor and migrate toward observed throughput by the same weight, so the band
-# is corrected in-flight as one. History is a WEIGHTED INPUT, never the foundation —
-# at n=0 the weight is 0 and the spine is the floor-anchored lower bound; the
-# structure never disappears, it is corrected in-flight.
+# weight n/(n+K) over the count, K a smoothing constant. Each edge anchors on its
+# structural occupancy×turns edge (low/central/high — [13.3]) and migrates toward the
+# matching observed edge (min/mean/max) by the same weight, so the band is corrected
+# in-flight as one. History is a WEIGHTED INPUT, never the foundation — at n=0 the
+# weight is 0 and the spine is the modeled occupancy×turns band; the structure never
+# disappears, it is CORRECTED in-flight (from a meaningful prior, not from ≈0).
 #
 # NO FOREIGN HISTORY ─────────────────────────────────────────────────────────────
 # The ONLY inputs are THIS control plane's own artifacts: its metering log, its
@@ -114,6 +118,32 @@ DEFAULT_CEILING=$((STANDARD_WINDOW * CALM_FRACTION_NUM / CALM_FRACTION_DEN))   #
 # n=3 the observed rate carries half the weight; the weight rises monotonically
 # with the landing count and never reaches 1 (the structure never fully leaves).
 BLEND_K=3
+
+# ── [13.3] the occupancy×turns structural rate model ─────────────────────────────
+# The structural per-session rate is occupancy_budget × expected_turns — the modeled
+# cumulative THROUGHPUT (flow) reconstructed from the point-in-time occupancy (stock):
+# a session re-reads ~its working set on every inference, so flow ≈ working_set × turns.
+# This replaces the pre-[13.3] doc-overhead floor (an orders-of-magnitude undershoot
+# that made the n=0 prior a bare lower bound and the blend converge from ≈0). The
+# coefficients are calibrated against the forensic per-deliverable deltas
+# (docs/notes/meter-forensics.md B4: real throughput ≈ 70–350M/session, mean ~150M;
+# occupancy_budget ≈ avg working set ≈ 0.4× the setpoint):
+#   • occupancy_budget = occupancy setpoint × WORKING_SET_FRACTION. The avg working set
+#     is ~0.4× the setpoint, NOT the full setpoint (a session sits below the calm
+#     ceiling most of its life). Clamped UP to the measured floor (the doc overhead is
+#     a true lower bound on a session's working set) so a tiny/absent setpoint degrades
+#     to the floor rather than collapsing the rate to 0 (Rule 15).
+#   • expected_turns = BASE_BUILD_TURNS + an eval/fix term whose DISTRIBUTION sets the
+#     band: the low edge is base_build alone (a clean run, no fix iterations), the high
+#     edge adds the fix-heavy eval/fix loop (grounded in [13.1]'s now-in-scope subagent
+#     burn). "Turns" = inferences/session (hundreds; the unit cumulative flow counts).
+# At the real 800k setpoint: occupancy_budget=320000; turns 220/470/1090 → structural
+# 70.4M / 150.4M / 348.8M — squarely in the forensic band.
+WORKING_SET_FRACTION_NUM=2          # occupancy_budget = setpoint × 2/5 = 0.4 × setpoint
+WORKING_SET_FRACTION_DEN=5
+BASE_BUILD_TURNS=220                 # clean-run inferences (the band's LOW edge)
+EVAL_FIX_TURNS_TYPICAL=250          # + typical eval/fix loop → central = 470
+EVAL_FIX_TURNS_HEAVY=870            # + fix-heavy eval/fix loop → high = 1090
 
 # ── arg parse ───────────────────────────────────────────────────────────────────
 [ $# -ge 1 ] || die 2 "usage: bash .claude/projection.sh project|bank|grade [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P]"
@@ -252,16 +282,30 @@ observed_rate() {
 # ── compute the projection document (shared by project / bank) ──────────────────
 # Pure read over the local artifacts; emits one guv.projection.v1 JSON document.
 compute_projection() {
-  # [12.1] the cost-to-complete is denominated in cumulative session THROUGHPUT,
-  # not point-in-time occupancy. The structural unit rate is the MEASURED floor —
-  # the doc overhead a session loads at least once, a true lower bound on its
-  # throughput. The [9.2] occupancy threshold is NOT a cost ceiling (it bounds a
-  # point-in-time stock, not cumulative flow); it is carried only as an
-  # informational reference and never enters the range. No clamp: the floor stands
-  # on its own (coupling it to occupancy was the old occupancy-as-ceiling model).
+  # [13.3] the cost-to-complete is denominated in cumulative session THROUGHPUT, not
+  # point-in-time occupancy. The structural unit rate is the MODELED occupancy_budget ×
+  # expected_turns (see the constants block): occupancy (the stock) returns as a FACTOR,
+  # reconstructing the cumulative flow, never as the cost itself. The measured doc-overhead
+  # floor and the raw occupancy threshold are carried only as informational references.
   local floor occ_ref
   floor=$(envelope_floor)
   occ_ref=$(envelope_ceiling)
+
+  # [13.3] occupancy_budget = the [9.2] setpoint's modeled working set (a fraction of
+  # it — the avg working set, not the full ceiling), clamped UP to the measured floor as
+  # a true lower bound (Rule 15: a tiny/absent setpoint degrades to the floor, never to 0).
+  local occ_budget turns_low turns_central turns_high struct_low struct_central struct_high
+  occ_budget=$(( occ_ref * WORKING_SET_FRACTION_NUM / WORKING_SET_FRACTION_DEN ))
+  [ "$occ_budget" -lt "$floor" ] && occ_budget="$floor"
+  # expected_turns = base_build + the eval/fix term; its distribution sets the band
+  # (low = clean run = base_build alone, high = base_build + the fix-heavy loop).
+  turns_low=$BASE_BUILD_TURNS
+  turns_central=$((BASE_BUILD_TURNS + EVAL_FIX_TURNS_TYPICAL))
+  turns_high=$((BASE_BUILD_TURNS + EVAL_FIX_TURNS_HEAVY))
+  # the structural band: occupancy_budget × expected_turns, per edge (low ≤ central ≤ high).
+  struct_low=$(( occ_budget * turns_low ))
+  struct_central=$(( occ_budget * turns_central ))
+  struct_high=$(( occ_budget * turns_high ))
 
   # quantity takeoff: sum ratified estimates over remaining work; disclose the
   # deliverables that fell back to the default.
@@ -289,46 +333,46 @@ EOF
   case "$omin" in ''|*[!0-9]*) omin=0 ;; esac
   case "$omax" in ''|*[!0-9]*) omax=0 ;; esac
 
-  # [12.1] the structural anchor for ALL THREE edges is the floor (the one measured
-  # throughput-relevant quantity). blended = (1-w)*floor + w*observed, w = n/(n+K),
-  # the SAME weight on the centre (->observed_mean) and both edges (->observed
-  # min/max). Integer arithmetic via the weight num/den to stay pure-bash +
-  # deterministic.
-  #   n=0 (no history): all three collapse to the floor — the projection is a
-  #        floor-anchored LOWER BOUND (a point at remaining×floor), and the basis
-  #        discloses bound="lower_bound_only": there is NO observed throughput
-  #        ceiling yet and we refuse to fabricate one (no turn-count multiplier —
-  #        the same no-guess discipline that keeps [9.1]'s dollars null). The first
-  #        banked session establishes the scale.
-  #   n>0: the band is the observed throughput spread (min..max), blended from the
-  #        floor; basis bound="observed_range". With floor as the common anchor and
-  #        min<=mean<=max, the band never inverts and the centre always lies inside.
+  # [13.3] each band edge anchors on its STRUCTURAL occupancy×turns edge (struct_low/
+  # central/high) and migrates toward the matching observed edge (min/mean/max) by the
+  # SAME weight w = n/(n+K): blended = (1-w)*structural_edge + w*observed_edge. Integer
+  # arithmetic via the weight num/den to stay pure-bash + deterministic.
+  #   n=0 (no history): each edge IS its structural anchor — the projection is the
+  #        modeled occupancy×turns band, a REAL central estimate (struct_central), and
+  #        the basis discloses bound="modeled_range" (superseding [12.1]'s
+  #        lower_bound_only: the structural prior is a sensible central estimate, not a
+  #        bare floor). The eval/fix term's spread (struct_low < struct_high) is the band.
+  #   n>0: the blend CORRECTS the modeled prior toward observed throughput; basis bound
+  #        ="observed_range". With struct_low<=struct_central<=struct_high and
+  #        omin<=mean<=omax, the per-edge blend stays ordered (band never inverts) and
+  #        the centre always lies inside.
   weight_num=$n
   weight_den=$((n + BLEND_K))
   local basis_claim basis_bound blended_rate blended_low_rate blended_high_rate observed_weight_str
   if [ "$n" -eq 0 ]; then
     basis_claim="structural"
-    basis_bound="lower_bound_only"
-    blended_rate="$floor"
-    blended_low_rate="$floor"
-    blended_high_rate="$floor"
+    basis_bound="modeled_range"
+    blended_rate="$struct_central"
+    blended_low_rate="$struct_low"
+    blended_high_rate="$struct_high"
     observed_weight_str="0"
   else
     basis_claim="blended"
     basis_bound="observed_range"
-    # (floor*(den-num) + observed*num) / den — centre toward mean, edges toward min/max.
-    blended_rate=$(( (floor * (weight_den - weight_num) + mean * weight_num) / weight_den ))
-    blended_low_rate=$(( (floor * (weight_den - weight_num) + omin * weight_num) / weight_den ))
-    blended_high_rate=$(( (floor * (weight_den - weight_num) + omax * weight_num) / weight_den ))
+    # (structural_edge*(den-num) + observed_edge*num) / den — centre toward mean,
+    # edges toward min/max, each from its own structural anchor.
+    blended_rate=$(( (struct_central * (weight_den - weight_num) + mean * weight_num) / weight_den ))
+    blended_low_rate=$(( (struct_low * (weight_den - weight_num) + omin * weight_num) / weight_den ))
+    blended_high_rate=$(( (struct_high * (weight_den - weight_num) + omax * weight_num) / weight_den ))
     # observed weight as a decimal string for the document (num/den)
     observed_weight_str=$(awk -v a="$weight_num" -v b="$weight_den" 'BEGIN{ printf "%.4f", a/b }')
   fi
 
   # the range: quantity × the (possibly blended) throughput band. low = remaining ×
-  # the low edge, high = remaining × the high edge. At n=0 both edges are the floor
-  # (a lower-bound point); once landings accrue the edges migrate toward observed
-  # throughput, so the reported range and the central blended rate stay in the same
-  # unit (throughput) and the same universe.
+  # the low edge, high = remaining × the high edge. At n=0 the edges are the modeled
+  # structural band (struct_low/high — a real band, not a point); once landings accrue
+  # the edges migrate toward observed throughput, so the reported range and the central
+  # blended rate stay in the same unit (throughput) and the same universe.
   local low high
   low=$((remaining_sessions * blended_low_rate))
   high=$((remaining_sessions * blended_high_rate))
@@ -343,6 +387,14 @@ EOF
     --argjson remaining_sessions "$remaining_sessions" \
     --argjson floor "$floor" \
     --argjson occ_ref "$occ_ref" \
+    --argjson occ_budget "$occ_budget" \
+    --argjson turns_base "$BASE_BUILD_TURNS" \
+    --argjson turns_low "$turns_low" \
+    --argjson turns_central "$turns_central" \
+    --argjson turns_high "$turns_high" \
+    --argjson struct_low "$struct_low" \
+    --argjson struct_central "$struct_central" \
+    --argjson struct_high "$struct_high" \
     --argjson blended "$blended_rate" \
     --argjson blended_low "$blended_low_rate" \
     --argjson blended_high "$blended_high_rate" \
@@ -376,6 +428,11 @@ EOF
         unit_rate: {
           floor_tokens: $floor,
           occupancy_reference_tokens: $occ_ref,
+          occupancy_budget_tokens: $occ_budget,
+          expected_turns: { base_build: $turns_base, low: $turns_low, central: $turns_central, high: $turns_high },
+          structural_low_tokens: $struct_low,
+          structural_tokens: $struct_central,
+          structural_high_tokens: $struct_high,
           blended_tokens: $blended,
           blended_low_tokens: $blended_low,
           blended_high_tokens: $blended_high
