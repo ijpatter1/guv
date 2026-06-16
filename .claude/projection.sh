@@ -193,21 +193,24 @@ remaining_ids() {
 }
 
 # ── observed per-session rate, from the LOCAL metering log ──────────────────────
-# The observed rate is the MEAN total token burn per session over this control
-# plane's metering log. Total burn = the four token classes summed (the same
-# burn definition budget-gate.sh uses). Only entries with harvested tokens count
-# as a sample (a degraded tokens:null entry is no sample). Emits "n<TAB>mean"
-# (mean 0 when n=0). NEVER reads anything but this local log.
+# The observed burn is the total token burn per session over this control plane's
+# metering log. Total burn = the four token classes summed (the same burn
+# definition budget-gate.sh uses) — cumulative session THROUGHPUT, not point-in-
+# time occupancy: it sums across every turn, so cache_read dominates and the value
+# is unbounded by the window. Only entries with harvested tokens count as a sample
+# (a degraded tokens:null entry is no sample). Emits "n<TAB>mean<TAB>min<TAB>max"
+# (all 0 when n=0) — the mean drives the central blended rate, the min/max drive
+# the blended band EDGES. NEVER reads anything but this local log.
 observed_rate() {
-  if [ ! -f "$LOG" ]; then printf '0\t0'; return; fi
+  if [ ! -f "$LOG" ]; then printf '0\t0\t0\t0'; return; fi
   jq -rs '
     [ .[] | select((.schema // "") | startswith("guv.meter"))
           | (.tokens // null) | select(. != null)
           | ((.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0)) ] as $b
     | ($b | length) as $n
-    | if $n == 0 then "0\t0"
-      else "\($n)\t\(($b | add) / $n | floor)" end
-  ' "$LOG" 2>/dev/null || printf '0\t0'
+    | if $n == 0 then "0\t0\t0\t0"
+      else "\($n)\t\(($b | add) / $n | floor)\t\($b | min)\t\($b | max)" end
+  ' "$LOG" 2>/dev/null || printf '0\t0\t0\t0'
 }
 
 # ── compute the projection document (shared by project / bank) ──────────────────
@@ -237,38 +240,57 @@ compute_projection() {
     fi
   done
 
-  # the local blend: observed mean rate, weight = n/(n+K).
-  local obs n mean blended weight_num weight_den
-  obs=$(observed_rate); n="${obs%%	*}"; mean="${obs##*	}"
+  # the local blend: observed burn (mean + band edges min/max), weight = n/(n+K).
+  local obs n mean omin omax blended weight_num weight_den
+  obs=$(observed_rate)
+  IFS=$'\t' read -r n mean omin omax <<EOF
+$obs
+EOF
   case "$n" in ''|*[!0-9]*) n=0 ;; esac
   case "$mean" in ''|*[!0-9]*) mean=0 ;; esac
+  case "$omin" in ''|*[!0-9]*) omin=0 ;; esac
+  case "$omax" in ''|*[!0-9]*) omax=0 ;; esac
 
   # The structural per-session rate is the floor (the measured fixed overhead is
-  # the structural unit rate; the ceiling bounds the band, not the central rate).
-  # blended = (1-w)*floor + w*observed, w = n/(n+K). Integer arithmetic via the
-  # weight numerator/denominator to stay pure-bash + deterministic.
+  # the structural unit rate; the ceiling is the structural band's upper edge).
+  # blended = (1-w)*structural + w*observed, w = n/(n+K). Integer arithmetic via
+  # the weight numerator/denominator to stay pure-bash + deterministic. The SAME
+  # weight applies to the CENTER and to BOTH BAND EDGES, so the whole band is
+  # "corrected in-flight" toward observed throughput — not just the central rate
+  # while the band stays frozen at occupancy scale (the incoherence BUG 3 fixes:
+  # a blended central rate is throughput-scale but a static floor..ceiling band is
+  # occupancy-scale, so the center landed hundreds of × outside its own range).
   weight_num=$n
   weight_den=$((n + BLEND_K))
-  local basis_claim blended_rate observed_weight_str
+  local basis_claim blended_rate blended_low_rate blended_high_rate observed_weight_str
   if [ "$n" -eq 0 ]; then
+    # n=0: purely structural — center = floor, band = floor..ceiling (occupancy).
     basis_claim="structural"
     blended_rate="$floor"
+    blended_low_rate="$floor"
+    blended_high_rate="$ceiling"
     observed_weight_str="0"
   else
     basis_claim="blended"
-    # (floor*(den-num) + observed*num) / den
+    # center: (floor*(den-num) + observed_mean*num) / den
     blended_rate=$(( (floor * (weight_den - weight_num) + mean * weight_num) / weight_den ))
+    # band edges migrate by the same weight: low toward observed min, high toward
+    # observed max. floor<=ceiling (clamped) and min<=mean<=max => the band never
+    # inverts and the center always lies inside it (coherent document).
+    blended_low_rate=$(( (floor * (weight_den - weight_num) + omin * weight_num) / weight_den ))
+    blended_high_rate=$(( (ceiling * (weight_den - weight_num) + omax * weight_num) / weight_den ))
     # observed weight as a decimal string for the document (num/den)
     observed_weight_str=$(awk -v a="$weight_num" -v b="$weight_den" 'BEGIN{ printf "%.4f", a/b }')
   fi
 
-  # the range: quantity × the envelope band. low = remaining × floor (the tight
-  # session), high = remaining × ceiling (the full-window session). When blended,
-  # the central rate has moved, but the band stays floor..ceiling — the structure
-  # still bounds it; the blend reports the corrected central rate.
+  # the range: quantity × the (possibly blended) envelope band. low = remaining ×
+  # the low edge, high = remaining × the high edge. At n=0 these are the structural
+  # floor/ceiling; once landings accrue the edges have migrated toward observed
+  # throughput, so the reported range and the central blended rate stay in the
+  # same unit and the same universe.
   local low high
-  low=$((remaining_sessions * floor))
-  high=$((remaining_sessions * ceiling))
+  low=$((remaining_sessions * blended_low_rate))
+  high=$((remaining_sessions * blended_high_rate))
 
   # disclosure list as a JSON array
   local default_json
@@ -281,6 +303,8 @@ compute_projection() {
     --argjson floor "$floor" \
     --argjson ceiling "$ceiling" \
     --argjson blended "$blended_rate" \
+    --argjson blended_low "$blended_low_rate" \
+    --argjson blended_high "$blended_high_rate" \
     --argjson low "$low" \
     --argjson high "$high" \
     --arg basis "$basis_claim" \
@@ -309,7 +333,9 @@ compute_projection() {
         unit_rate: {
           floor_tokens: $floor,
           ceiling_tokens: $ceiling,
-          blended_tokens: $blended
+          blended_tokens: $blended,
+          blended_low_tokens: $blended_low,
+          blended_high_tokens: $blended_high
         }
       }
     }'

@@ -66,15 +66,33 @@ ceiling_tokens  = occupancy.threshold  (else window-relative default)  # SETPOIN
 ### The range
 
 ```
-range.low_tokens  = remaining_sessions × floor_tokens
-range.high_tokens = remaining_sessions × ceiling_tokens
+range.low_tokens  = remaining_sessions × blended_low_tokens    # n=0: floor_tokens
+range.high_tokens = remaining_sessions × blended_high_tokens   # n=0: ceiling_tokens
 range.denomination = "tokens"
 ```
 
-The band runs from the tight session (floor) to the full-window session
-(ceiling). **Denomination follows Spike C's rung — tokens — never a guessed
-dollar conversion** (pricing tables drift; the spec forbids the guess, exactly
-as the [9.1] meter keeps `dollars` null).
+The blended band-edge rates are **emitted** in `spine.unit_rate`
+(`blended_low_tokens`, `blended_high_tokens`) alongside the centre
+(`blended_tokens`) and the raw structural `floor_tokens`/`ceiling_tokens`, so the
+document is **self-reconcilable**: a reader can derive the range from the
+projection's own published fields (`range.low_tokens == remaining_sessions ×
+spine.unit_rate.blended_low_tokens`). At n=0 the blended edges equal the
+structural floor/ceiling, so the structural relationship still reads off directly.
+
+At `n = 0` the band is purely structural — the tight session (floor) to the
+full-window session (ceiling), an **occupancy** band. As landings accrue the band
+**edges migrate toward observed throughput** by the same blend weight as the
+centre (low edge → observed min, high edge → observed max; see *The local
+blend*), so the reported range and the central blended rate stay in the **same
+unit and the same universe**. This is the BUG-3 correction: occupancy is a
+point-in-time *stock* (bounded by the window) but cost-to-complete is cumulative
+session *throughput* (the four classes summed across every turn, cache_read-
+dominated, unbounded) — a static floor..ceiling band left the throughput-scale
+central rate sitting orders of magnitude **outside** its own occupancy-scale
+range. Blending the band edges keeps the document coherent: the centre always
+lies inside its band. **Denomination follows Spike C's rung — tokens — never a
+guessed dollar conversion** (pricing tables drift; the spec forbids the guess,
+exactly as the [9.1] meter keeps `dollars` null).
 
 ## The local blend
 
@@ -82,17 +100,23 @@ As landings accrue in **this** control plane's metering log, the observed
 per-session rate blends into the central unit rate:
 
 ```
-observed_mean = mean( per-session total token burn )   over the local metering log
-weight        = n / (n + K)        K = 3 (smoothing)
-blended_tokens = (1 − weight) × floor + weight × observed_mean
+observed_{mean,min,max} = {mean,min,max}( per-session total token burn )  over the local log
+weight           = n / (n + K)        K = 3 (smoothing)
+blended_tokens   = (1 − weight) × floor   + weight × observed_mean    # the centre
+blended_low_rate = (1 − weight) × floor   + weight × observed_min     # the band low edge
+blended_high_rate= (1 − weight) × ceiling + weight × observed_max     # the band high edge
 ```
 
 - `n` is the count of **local** landings (metering entries with harvested
-  tokens). At `n = 0` the weight is 0 and `blended_tokens == floor_tokens` — the
-  spine is purely structural.
+  tokens). At `n = 0` the weight is 0 — `blended_tokens == floor_tokens`, the
+  band is `floor..ceiling`, the spine is purely structural.
+- The **same weight** drives the centre and **both band edges**, so the whole
+  band is corrected in-flight, not just the centre. With `floor ≤ ceiling`
+  (clamped) and `min ≤ mean ≤ max`, the band never inverts and the centre always
+  lies inside it.
 - The **weight rises monotonically** with the sample count and never reaches 1 —
   the structure always retains some pull. More samples → more weight on observed
-  → the blended rate moves further toward the observed mean.
+  → the blended rate (and band) move further toward the observed burn.
 - The blend reads **only the local metering log**. The arithmetic is plain
   (mean + a count-based weight), not a model call.
 

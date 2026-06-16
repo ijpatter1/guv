@@ -238,6 +238,87 @@ awk -v a="$BLEND6_RATE" -v b="$BLEND_RATE" 'BEGIN{ exit !(a <= b) }' \
   || no "more low landings should pull the blended rate further down (n=6=$BLEND6_RATE n=3=$BLEND_RATE)"
 
 # ════════════════════════════════════════════════════════════════════════════
+# T_BAND_BLEND — the RANGE tracks the blend, not a static occupancy band
+# ════════════════════════════════════════════════════════════════════════════
+# The blend corrects "the structural assumptions in-flight" — and the spec output
+# is a RANGE, so the range EDGES must migrate toward observed burn as landings
+# accrue, not stay frozen at the occupancy floor/ceiling while only the central
+# rate moves. The bug this kills (BUG 3): a blended central rate sitting hundreds
+# of times OUTSIDE its own reported range — occupancy is a point-in-time STOCK
+# (the window working set, bounded by the threshold) but cost-to-complete is
+# cumulative session THROUGHPUT (the four classes summed across every turn,
+# cache_read-dominated), unbounded and ~orders of magnitude larger. The two
+# invariants: (1) the central blended estimate lies INSIDE its own band — a
+# coherent document; (2) the band moves with observed burn in BOTH directions
+# (rising when observed >> ceiling, falling when observed << floor). At n=0 the
+# band is unchanged (purely structural) — guarded by T1 above.
+
+# (high) observed burn FAR ABOVE the occupancy ceiling (throughput >> stock):
+# the high edge must rise above the structural remaining×ceiling, and the center
+# must sit inside the band.
+HB=$(mk_instance); write_tracker "$HB"
+bash "$HB/.claude/estimate.sh" set 9.7 2 "$HB/docs/estimates.json" >/dev/null 2>&1
+bash "$HB/.claude/estimate.sh" set 9.8 3 "$HB/docs/estimates.json" >/dev/null 2>&1
+HB_STRUCT=$( cd "$HB" && bash .claude/projection.sh project 2>/dev/null )
+HB_HIGH0=$(echo "$HB_STRUCT" | jq -r '.range.high_tokens')   # structural high = remaining×ceiling
+# three landings whose per-session burn dwarfs the ceiling (throughput scale),
+# varying so observed min<mean<max (a real band, not a degenerate point).
+add_landing "$HB" 9.1 4000000
+add_landing "$HB" 9.1 6000000
+add_landing "$HB" 9.1 5000000
+HB_DOC=$( cd "$HB" && bash .claude/projection.sh project 2>/dev/null )
+HB_HIGH=$(echo "$HB_DOC" | jq -r '.range.high_tokens')
+awk -v a="$HB_HIGH" -v b="$HB_HIGH0" 'BEGIN{ exit !(a > b) }' \
+  && ok "BAND: observed burn above the ceiling RAISES the range high edge (it tracks throughput, not the occupancy stock)" \
+  || no "the range high edge must rise toward observed burn (structural high=$HB_HIGH0, blended high=$HB_HIGH)"
+# coherence: the central blended estimate (remaining × blended_tokens) lies INSIDE
+# its own reported range — the bug was a center hundreds of × outside its band.
+echo "$HB_DOC" | jq -e '
+  (.spine.quantity.remaining_sessions * .spine.unit_rate.blended_tokens) as $center
+  | .range.low_tokens <= $center and $center <= .range.high_tokens' >/dev/null 2>&1 \
+  && ok "BAND: the central blended estimate lies INSIDE its own range (coherent document)" \
+  || no "the blended center must lie within [low,high] (range=$(echo "$HB_DOC" | jq -c '.range'), blended=$(echo "$HB_DOC" | jq -r '.spine.unit_rate.blended_tokens'), remaining=$(echo "$HB_DOC" | jq -r '.spine.quantity.remaining_sessions'))"
+
+# (low) observed burn FAR BELOW the measured floor: the low edge must fall below
+# the structural remaining×floor (symmetric — the band tracks observed downward too).
+LB=$(mk_instance); write_tracker "$LB"
+bash "$LB/.claude/estimate.sh" set 9.7 2 "$LB/docs/estimates.json" >/dev/null 2>&1
+bash "$LB/.claude/estimate.sh" set 9.8 3 "$LB/docs/estimates.json" >/dev/null 2>&1
+LB_STRUCT=$( cd "$LB" && bash .claude/projection.sh project 2>/dev/null )
+LB_LOW0=$(echo "$LB_STRUCT" | jq -r '.range.low_tokens')   # structural low = remaining×floor
+add_landing "$LB" 9.1 5000
+add_landing "$LB" 9.1 6000
+add_landing "$LB" 9.1 5500
+LB_DOC=$( cd "$LB" && bash .claude/projection.sh project 2>/dev/null )
+LB_LOW=$(echo "$LB_DOC" | jq -r '.range.low_tokens')
+awk -v a="$LB_LOW" -v b="$LB_LOW0" 'BEGIN{ exit !(a < b) }' \
+  && ok "BAND: observed burn below the floor LOWERS the range low edge (the band tracks observed downward too)" \
+  || no "the range low edge must fall toward the low observed burn (structural low=$LB_LOW0, blended low=$LB_LOW)"
+echo "$LB_DOC" | jq -e '
+  (.spine.quantity.remaining_sessions * .spine.unit_rate.blended_tokens) as $center
+  | .range.low_tokens <= $center and $center <= .range.high_tokens' >/dev/null 2>&1 \
+  && ok "BAND: (low case) the central blended estimate lies INSIDE its own range" \
+  || no "(low case) the blended center must lie within [low,high] (range=$(echo "$LB_DOC" | jq -c '.range'))"
+
+# SELF-RECONCILABLE: the blended band-edge rates the range is built from are
+# EMITTED in spine.unit_rate, so a reader can derive the range from the document's
+# own published fields — range.low == remaining × blended_low_tokens (and high).
+# Without the emitted edges the range would be an unexplained number at n>0 (the
+# spine would still publish the structural floor/ceiling, which no longer produce
+# the range once the band has blended).
+echo "$HB_DOC" | jq -e '
+  (.spine.quantity.remaining_sessions * .spine.unit_rate.blended_low_tokens) == .range.low_tokens
+  and (.spine.quantity.remaining_sessions * .spine.unit_rate.blended_high_tokens) == .range.high_tokens' >/dev/null 2>&1 \
+  && ok "BAND: the document is SELF-RECONCILABLE — range = remaining × emitted blended_{low,high}_tokens" \
+  || no "the range must reconcile from the emitted blended band-edge rates (unit_rate=$(echo "$HB_DOC" | jq -c '.spine.unit_rate'), range=$(echo "$HB_DOC" | jq -c '.range'))"
+# at n=0 the emitted blended edges equal the structural floor/ceiling (so the
+# structural relationship reads off directly too).
+echo "$HB_STRUCT" | jq -e '.spine.unit_rate.blended_low_tokens == .spine.unit_rate.floor_tokens
+  and .spine.unit_rate.blended_high_tokens == .spine.unit_rate.ceiling_tokens' >/dev/null 2>&1 \
+  && ok "BAND: at n=0 the emitted blended edges equal the structural floor/ceiling" \
+  || no "n=0 blended edges must equal floor/ceiling (got: $(echo "$HB_STRUCT" | jq -c '.spine.unit_rate'))"
+
+# ════════════════════════════════════════════════════════════════════════════
 # T_FOREIGN — NO INPUT PATH TO FOREIGN HISTORY (the grep-assert)
 # ════════════════════════════════════════════════════════════════════════════
 # The projection may consult ONLY this control plane's own artifacts: its
