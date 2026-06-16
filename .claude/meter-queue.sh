@@ -119,20 +119,35 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 \
 [ -n "$LOG" ] || LOG=".claude/metering/metering.ndjson"
 
 # --- Spike C harvest: tokens by class + model, from the runtime transcript ----
-# Identical harvest contract to meter.sh (rung B; dollars at C). The transcript is
-# a research-preview surface — any miss degrades to tokens=null (Rule 15). tokens
-# and dollars are NEVER caller-settable: they are harvested or null, never a flag.
+# Identical harvest contract to meter.sh (rung B; dollars at C): the token total
+# sums the MAIN transcript PLUS every *.jsonl under the sibling <session>/ tree,
+# so subagent burn (evaluator/reviewer, lane/workflow agents) is included and the
+# queue entry never undercounts the eval/fix loop ([13.1]). The MODEL is read from
+# the MAIN transcript only. The transcript is a research-preview surface — any miss
+# degrades to tokens=null (Rule 15). tokens and dollars are NEVER caller-settable:
+# they are harvested or null, never a flag.
 TOKENS_JSON="null"
 MODEL_JSON="null"
 RUNTIME_SESSION="${CLAUDE_CODE_SESSION_ID:-}"
 RUNG="degraded"   # upgraded to "B" once tokens are summed
 TRANSCRIPT=""
+SUBAGENT_TREE=""
 if [ -n "$RUNTIME_SESSION" ]; then
   SLUG=$(pwd -P | sed 's#/#-#g')
   CAND="$HOME/.claude/projects/$SLUG/$RUNTIME_SESSION.jsonl"
   [ -f "$CAND" ] && TRANSCRIPT="$CAND"
+  CANDTREE="$HOME/.claude/projects/$SLUG/$RUNTIME_SESSION"
+  [ -d "$CANDTREE" ] && SUBAGENT_TREE="$CANDTREE"
 fi
 if [ -n "$TRANSCRIPT" ]; then
+  # main transcript + every subagent/workflow *.jsonl under the sibling tree.
+  # NUL-safe, bash-3.2 compatible (no mapfile); .meta.json excluded by *.jsonl. No
+  # sidechain double-count — this runtime externalizes subagents to their own files.
+  TOKEN_FILES=("$TRANSCRIPT")
+  if [ -n "$SUBAGENT_TREE" ]; then
+    while IFS= read -r -d '' f; do TOKEN_FILES+=("$f"); done \
+      < <(find "$SUBAGENT_TREE" -name '*.jsonl' -type f -print0 2>/dev/null)
+  fi
   TOKENS_JSON=$(jq -s '
       [ .[] | (.message.usage // .usage) | select(. != null) ] as $u
       | if ($u | length) == 0 then null
@@ -142,7 +157,7 @@ if [ -n "$TRANSCRIPT" ]; then
           cache_read:     ([ $u[].cache_read_input_tokens // 0 ]| add),
           cache_creation: ([ $u[].cache_creation_input_tokens // 0 ] | add)
         } end
-    ' "$TRANSCRIPT" 2>/dev/null) || TOKENS_JSON="null"
+    ' "${TOKEN_FILES[@]}" 2>/dev/null) || TOKENS_JSON="null"
   [ -n "$TOKENS_JSON" ] || TOKENS_JSON="null"
   if [ "$TOKENS_JSON" != "null" ]; then RUNG="B"; fi
   MODEL_JSON=$(jq -s '

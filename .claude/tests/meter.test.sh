@@ -287,6 +287,69 @@ echo "$ENTRY" | jq -e '.perf.op_wallclock_s | type == "number"' >/dev/null 2>&1 
   && ok "perf field present even with no harvestable transcript (log never blocks on Spike C)" \
   || no "perf field must survive an unharvestable transcript"
 
+# T14 — SUBAGENT-TOKEN CAPTURE ([13.1], the eval/fix spike). The token burn of the
+# subagent reviewers (evaluator/reviewer) and any lane/workflow agents a session
+# spawns lives in their OWN transcripts under the SIBLING <session>/ tree
+# (subagents/, …), NOT in the main <session>.jsonl. A session-scalar total that
+# harvested only the main transcript would systematically UNDERCOUNT real burn —
+# and the missing burn is exactly the eval/fix loop the projection ([13.3]) must
+# predict. The harvest therefore sums the main transcript PLUS every *.jsonl under
+# the sibling <session>/ tree. These tests pin the captured path (the [13.1]
+# finding: the meter CAPTURES subagent burn, not a disclosed exclusion). HOME is
+# overridden to a fixture root and the slug computed the way the script does
+# (pwd -P), so the path matches regardless of macOS /var symlink resolution.
+mk_transcript() {  # $1=project $2=fake-home $3=session-id — main + one subagent
+  local p="$1" fh="$2" sid="$3" slug base
+  slug=$(cd "$p" && pwd -P | sed 's#/#-#g')
+  base="$fh/.claude/projects/$slug"
+  mkdir -p "$base/$sid/subagents"
+  # main: cache_read 100, input 10, output 5, cache_creation 3, model claude-main
+  printf '%s\n' '{"type":"assistant","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}' \
+    > "$base/$sid.jsonl"
+  # subagent: cache_read 900, input 2, output 1, cache_creation 7, model claude-sub
+  printf '%s\n' '{"type":"assistant","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}' \
+    > "$base/$sid/subagents/agent-deadbeef.jsonl"
+}
+
+P14=$(make_project); LOG14="$P14/.claude/metering/metering.ndjson"
+FH14="$WORK/home.$RANDOM"; SID14="11111111-2222-3333-4444-555555555555"
+mk_transcript "$P14" "$FH14" "$SID14"
+( cd "$P14" && HOME="$FH14" CLAUDE_CODE_SESSION_ID="$SID14" bash "$SCRIPT" capture --deliverables "13.1" ) >/dev/null 2>"$WORK/t14.err"
+E14=$( [ -f "$LOG14" ] && tail -1 "$LOG14" || echo '{}' )
+# headline: cache_read = main(100) + subagent(900) = 1000. RED against a main-only
+# harvest (would be 100); GREEN once the sibling subagent transcripts are summed.
+echo "$E14" | jq -e '.tokens.cache_read == 1000' >/dev/null 2>&1 \
+  && ok "harvest INCLUDES subagent cache_read (100 main + 900 subagent = 1000)" \
+  || no "subagent burn not captured: expected cache_read 1000, got $(echo "$E14" | jq -c '.tokens') (err=$(cat "$WORK/t14.err"))"
+# every class is summed across main + subagents, not just cache_read
+echo "$E14" | jq -e '.tokens.input == 12 and .tokens.output == 6 and .tokens.cache_creation == 10' >/dev/null 2>&1 \
+  && ok "all token classes summed across main + subagents (input 12, output 6, cache_creation 10)" \
+  || no "expected input 12 / output 6 / cache_creation 10, got $(echo "$E14" | jq -c '.tokens')"
+echo "$E14" | jq -e '.spike_c_rung == "B"' >/dev/null 2>&1 \
+  && ok "rung B recorded when the combined harvest succeeds" \
+  || no "expected rung B, got $(echo "$E14" | jq -c '.spike_c_rung')"
+
+# T14b — the MODEL is the session's, read from the MAIN transcript ONLY, never a
+# subagent's. The subagent message names a different model (claude-sub); were the
+# model harvest to slurp subagents, `last` could pick it up. Pins that tokens span
+# main+subagents but model does not (the session's model, not a reviewer's).
+echo "$E14" | jq -e '.model == "claude-main"' >/dev/null 2>&1 \
+  && ok "model harvested from the MAIN transcript only (claude-main, not the subagent's claude-sub)" \
+  || no "model must come from the main transcript: expected claude-main, got $(echo "$E14" | jq -c '.model')"
+
+# T14c — BACK-COMPAT: a session that spawned no subagents (no sibling <session>/
+# dir) meters exactly as before — main transcript only, no error, rung B.
+P14c=$(make_project); LOG14c="$P14c/.claude/metering/metering.ndjson"
+FH14c="$WORK/home.$RANDOM"; SID14c="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+slug14c=$(cd "$P14c" && pwd -P | sed 's#/#-#g')
+mkdir -p "$FH14c/.claude/projects/$slug14c"
+printf '%s\n' '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":42,"cache_creation_input_tokens":0}}}' \
+  > "$FH14c/.claude/projects/$slug14c/$SID14c.jsonl"
+( cd "$P14c" && HOME="$FH14c" CLAUDE_CODE_SESSION_ID="$SID14c" bash "$SCRIPT" capture ) >/dev/null 2>"$WORK/t14c.err"
+tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B"' >/dev/null 2>&1 \
+  && ok "no subagents dir -> main-only harvest unchanged (back-compat, cache_read 42)" \
+  || no "back-compat broken: expected cache_read 42, got $(tail -1 "$LOG14c" | jq -c '.tokens') (err=$(cat "$WORK/t14c.err"))"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

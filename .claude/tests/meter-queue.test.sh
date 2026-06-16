@@ -198,6 +198,29 @@ else
   no "no metering shape doc to extend at $SHAPEDOC"
 fi
 
+# ── T13 — SUBAGENT-TOKEN CAPTURE ([13.1]). The queue meter harvests tokens
+#          "exactly as the session meter" — so it MUST sum the sibling <session>/
+#          subagent transcripts too, or the queue-boundary entry undercounts the
+#          eval/fix loop the same way meter.sh did before [13.1]. This pins the
+#          two harvesters in lockstep on subagent inclusion (same fixture shape as
+#          meter.test.sh's T14: main cache_read 100 + subagent 900 = 1000; model
+#          from the main transcript only). HOME overridden, slug computed via
+#          pwd -P so the path matches under macOS /var symlink resolution. ──
+P13=$(make_plane); LOG13="$P13/.claude/metering/metering.ndjson"
+FH13="$WORK/home.$RANDOM"; SID13="99999999-8888-7777-6666-555555555555"
+slug13=$(cd "$P13" && pwd -P | sed 's#/#-#g'); base13="$FH13/.claude/projects/$slug13"
+mkdir -p "$base13/$SID13/subagents"
+printf '%s\n' '{"type":"assistant","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}' \
+  > "$base13/$SID13.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":0}}}' \
+  > "$base13/$SID13/subagents/agent-x.jsonl"
+( cd "$P13" && HOME="$FH13" CLAUDE_CODE_SESSION_ID="$SID13" bash "$SCRIPT" capture \
+    --deliverable 9.4 --outcome landed --files 1 --insertions 1 --deletions 0 --wallclock 0.5 ) \
+    >/dev/null 2>"$WORK/t13.err"
+tail -1 "$LOG13" | jq -e '.tokens.cache_read == 1000 and .model == "claude-main"' >/dev/null 2>&1 \
+  && ok "queue harvest INCLUDES subagent burn (cache_read 1000) and model from main (lockstep with meter.sh)" \
+  || no "queue meter must capture subagents like the session meter: got $(tail -1 "$LOG13" | jq -c '{tokens,model}') (err=$(cat "$WORK/t13.err"))"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -52,7 +52,7 @@ are explicit nulls, never omissions).
 | `runtime_session` | string \| null  | the Claude Code runtime session id (`CLAUDE_CODE_SESSION_ID`) — the transcript harvest key; null if absent. |
 | `deliverable_ids` | array<string>   | the deliverable ID(s) this session served, e.g. `["9.1"]` or `["9.1","9.4"]`; `["session-scalar"]` when no single ID applies. |
 | `model`           | string \| null  | model identifier, harvested from the transcript's last assistant message; null when unharvestable.  |
-| `tokens`          | object \| null  | token counts **by class** — `{input, output, cache_read, cache_creation}` — summed from the transcript's per-message `usage` objects. `null` when the transcript is unreachable. |
+| `tokens`          | object \| null  | token counts **by class** — `{input, output, cache_read, cache_creation}` — summed from the per-message `usage` objects across the main transcript **and the subagent transcripts the session spawned** (see [13.1] below). `null` when the transcript is unreachable. |
 | `dollars`         | null            | **always null** on the current rung — token-only, no guessed price table (pricing tables drift; the spec forbids a guessed conversion). |
 | `spike_c_rung`    | string          | the harvest rung this entry achieved (see below): `"B"` when tokens were harvested, `"degraded"` when not. |
 | `perf`            | object          | mechanical performance fields the boundary affords (see below).                                  |
@@ -73,6 +73,31 @@ without agent I/O. Probe result: **yes for tokens, no for dollars.**
 - **Dollars are not mechanically present** (no price field on the transcript;
   pricing tables drift). Per Spike C's ladder, the dollar axis sits at **rung C**
   — token-only, `dollars: null`, no guessed conversion.
+
+### [13.1] — subagent-token completeness (the eval/fix spike)
+
+**Finding: the harvested token total INCLUDES subagent-reviewer burn.** The
+subagents a session spawns — the `evaluator`/`reviewer` of the eval/fix loop, lane
+builders, workflow agents — do **not** write into the main `<session>.jsonl`. Each
+writes its own transcript under the **sibling `<session>/` directory tree**
+(`<session>/subagents/agent-*.jsonl`, `<session>/workflows/…`), carrying the
+identical per-message `usage` object. A harvest that read only the main transcript
+would systematically **undercount** real burn — and the missing burn is precisely
+the eval/fix review loop, the dominant turn-variance the projection ([13.3]) must
+predict. Measured on a review-heavy session, the main transcript alone captured
+only **~71%** of true `cache_read` burn; the subagent transcripts added a further
+**~1.4×**.
+
+So the harvest sums the main transcript **plus every `*.jsonl` under the sibling
+`<session>/` tree** (`.meta.json` sidecars excluded; no sidechain double-count —
+this runtime externalizes subagents to their own files rather than inlining them).
+This is a **captured** boundary, not a disclosed exclusion: the meter sees the
+subagent burn. The **`model`** field, by contrast, is read from the **main
+transcript only** — it names the session's model, never a subagent's. The same
+harvest is used by both the session meter (`meter.sh`) and the queue-boundary meter
+(`meter-queue.sh`), kept in lockstep. *(Research-preview surface — re-verify the
+sibling-tree layout if the runtime's transcript shape shifts; the `find`-recursive
+harvest also picks up `workflows/` transcripts as they appear.)*
 
 So: attribution rung **B**, denomination **C** (token-only). The fields the
 attribution affords — `tokens` by class and `model` — are harvested; `dollars`
@@ -135,7 +160,7 @@ dollars are never settable by a caller.
 | `runtime_session`  | string \| null  | the Claude Code runtime session id (`CLAUDE_CODE_SESSION_ID`) — the transcript harvest key; null if absent. |
 | `footprint`        | object          | the diff footprint the GATE computed — `{files, insertions, deletions}`. **Reused, not recomputed.**    |
 | `model`            | string \| null  | model id, harvested from the transcript's last assistant message; null when unharvestable.              |
-| `tokens`           | object \| null  | token counts by class — `{input, output, cache_read, cache_creation}` — harvested from the transcript; `null` when unreachable (same Spike C rung B as the session meter). |
+| `tokens`           | object \| null  | token counts by class — `{input, output, cache_read, cache_creation}` — harvested from the transcript **and the session's subagent transcripts**, exactly as the session meter ([13.1]); `null` when unreachable (same Spike C rung B). |
 | `dollars`          | null            | **always null** — token-only rung, no guessed price table.                                              |
 | `spike_c_rung`     | string          | `"B"` when tokens were harvested, `"degraded"` when not.                                                |
 | `perf`             | object          | mechanical performance fields the boundary affords.                                                     |

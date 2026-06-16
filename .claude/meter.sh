@@ -45,7 +45,11 @@
 # dollars at C (token-only, no guessed price table). Token counts by class are
 # harvested mechanically from the Claude Code runtime transcript
 # (~/.claude/projects/<cwd-slug>/<CLAUDE_CODE_SESSION_ID>.jsonl), which carries a
-# per-assistant-message `usage` object. The transcript is a research-preview
+# per-assistant-message `usage` object — PLUS every *.jsonl under the sibling
+# <session>/ tree, where the subagents a session spawns (evaluator/reviewer, lane
+# and workflow agents) write their own transcripts ([13.1]): a session-scalar
+# total includes that subagent burn, not just the main transcript. The transcript
+# is a research-preview
 # surface: if it is unreachable (no session id, no file, jq can't sum it), the
 # writer takes the DESIGNED degradation (Rule 15) — tokens=null, model from the
 # transcript if any, spike_c_rung="degraded" — and the log still gets its
@@ -148,22 +152,48 @@ fi
 # --- Spike C harvest: tokens by class + model, from the runtime transcript ----
 # Rung B (session-scalar token attribution); dollars at C (token-only). The
 # transcript is named by the Claude Code runtime session id under a cwd-derived
-# project slug. A research-preview surface: any miss degrades to tokens=null.
+# project slug. The MAIN session transcript is <session>.jsonl; the subagents a
+# session spawns (evaluator/reviewer, lane builders, workflow agents) write their
+# OWN transcripts under the SIBLING <session>/ directory tree (subagents/,
+# workflows/), each carrying the identical per-message `usage` object. A session-
+# scalar token total MUST include that subagent burn ([13.1]): the eval/fix
+# review loop is the dominant turn-variance the projection must predict, and it
+# lives entirely in those sub-transcripts — harvesting only the main transcript
+# undercounts real burn (measured ~1.4x on a review-heavy session). So the harvest
+# sums the main transcript PLUS every *.jsonl under the sibling <session>/ tree.
+# The MODEL, by contrast, is read from the MAIN transcript ONLY — it names the
+# session's model, never a subagent's. A research-preview surface: any miss
+# degrades to tokens=null.
 TOKENS_JSON="null"
 MODEL_JSON="null"
 RUNTIME_SESSION="${CLAUDE_CODE_SESSION_ID:-}"
 RUNG="degraded"   # upgraded to "B" once tokens are summed
 TRANSCRIPT=""
+SUBAGENT_TREE=""
 if [ -n "$RUNTIME_SESSION" ]; then
   SLUG=$(pwd -P | sed 's#/#-#g')
   CAND="$HOME/.claude/projects/$SLUG/$RUNTIME_SESSION.jsonl"
   [ -f "$CAND" ] && TRANSCRIPT="$CAND"
+  # the sibling <session>/ tree holding subagents/, workflows/, … (may be absent)
+  CANDTREE="$HOME/.claude/projects/$SLUG/$RUNTIME_SESSION"
+  [ -d "$CANDTREE" ] && SUBAGENT_TREE="$CANDTREE"
 fi
 if [ -n "$TRANSCRIPT" ]; then
-  # Sum the per-message usage objects by class. Missing fields default to 0; a
-  # transcript with no usage lines yields zeros (still a valid harvest). This is
-  # extraction over the transcript, NOT aggregation into a derived field — the
-  # four class counts are the raw evidence the boundary affords.
+  # Token sources: the main transcript + every *.jsonl under the sibling
+  # <session>/ tree (the subagent/workflow transcripts). NUL-safe (read -d '') so
+  # a HOME with spaces is fine, and bash-3.2 compatible (no mapfile). The
+  # .meta.json sidecars are excluded by the *.jsonl filter. No sidechain double-
+  # count: this runtime EXTERNALIZES subagents to their own files (the main
+  # transcript carries no isSidechain usage); re-verify if the layout shifts.
+  TOKEN_FILES=("$TRANSCRIPT")
+  if [ -n "$SUBAGENT_TREE" ]; then
+    while IFS= read -r -d '' f; do TOKEN_FILES+=("$f"); done \
+      < <(find "$SUBAGENT_TREE" -name '*.jsonl' -type f -print0 2>/dev/null)
+  fi
+  # Sum the per-message usage objects by class across ALL token sources. Missing
+  # fields default to 0; no usage lines anywhere yields null (still a valid
+  # harvest). This is extraction over the transcripts, NOT aggregation into a
+  # derived field — the four class counts are the raw evidence the boundary affords.
   TOKENS_JSON=$(jq -s '
       [ .[] | (.message.usage // .usage) | select(. != null) ] as $u
       | if ($u | length) == 0 then null
@@ -173,10 +203,11 @@ if [ -n "$TRANSCRIPT" ]; then
           cache_read:     ([ $u[].cache_read_input_tokens // 0 ]| add),
           cache_creation: ([ $u[].cache_creation_input_tokens // 0 ] | add)
         } end
-    ' "$TRANSCRIPT" 2>/dev/null) || TOKENS_JSON="null"
+    ' "${TOKEN_FILES[@]}" 2>/dev/null) || TOKENS_JSON="null"
   [ -n "$TOKENS_JSON" ] || TOKENS_JSON="null"
   if [ "$TOKENS_JSON" != "null" ]; then RUNG="B"; fi
-  # model id: the last assistant message's model (mechanical, from the transcript)
+  # model id: the last assistant message's model — from the MAIN transcript ONLY
+  # (the session's model, never a subagent's), mechanical, from the transcript.
   MODEL_JSON=$(jq -s '
       [ .[] | select((.type // "") == "assistant") | (.message.model // .model) | select(. != null) ]
       | last // null
