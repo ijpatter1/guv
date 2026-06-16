@@ -831,6 +831,20 @@ echo "$DOC3" | jq -e '.basis.n == 4 and .basis.observed_mean_tokens_per_session 
   && ok "[13.6] slice-tagged samples and migrated legacy deltas coexist (n=4, mean 8.5M)" \
   || no "[13.6] mixed log mis-counted: expected n=4 mean=8500000, got n=$(echo "$DOC3" | jq -c '.basis.n'), mean=$(echo "$DOC3" | jq -c '.basis.observed_mean_tokens_per_session')"
 
+# ── T_SLICE_NONMONOTONE — a NON-MONOTONE legacy series (a later cumulative SMALLER
+# than the earlier — pruned subagent files, an out-of-order append) yields a NEGATIVE
+# delta that is NOT a real per-session burn. observed_rate() drops it rather than
+# fabricate a negative sample (Rule 15). Series 10M then 5M: the first (10M) is the
+# since-process-start slice (kept), the −5M delta is dropped → n=1, mean=10M. This
+# pins the reader-side drop the monotone fixtures never exercise.
+I4=$(mk_instance); write_tracker "$I4"
+add_legacy_cumulative "$I4" "tx-nonmono" 10000000
+add_legacy_cumulative "$I4" "tx-nonmono"  5000000
+DOC4=$( cd "$I4" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC4" | jq -e '.basis.n == 1 and .basis.observed_mean_tokens_per_session == 10000000' >/dev/null 2>&1 \
+  && ok "[13.6] a non-monotone legacy delta is DROPPED, not counted as a negative sample (n=1, mean=10M)" \
+  || no "[13.6] negative legacy delta must be dropped: expected n=1 mean=10M, got n=$(echo "$DOC4" | jq -c '.basis.n'), mean=$(echo "$DOC4" | jq -c '.basis.observed_mean_tokens_per_session')"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -gt 0 ] && exit 1

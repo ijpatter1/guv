@@ -130,6 +130,17 @@ it reads slice-tagged entries directly, excludes `unbounded_cumulative`, and
 **differences legacy cumulative entries per `runtime_session`** at read time — recovering
 the real per-session deltas from the existing history without a destructive migration.
 
+**Consumer migration status (follow-up, [13.6] scoped the read-side fix to
+`observed_rate()`).** Two other readers of `tokens` are NOT yet slice-aware:
+`emit-metrics.sh` ([9.5], the aggregate emitter) and `budget-gate.sh` ([9.3]). For
+**new** slice entries they are correct (a sum of per-session slices IS the total burn),
+but over the **legacy** cumulative entries they double-count, and they do not exclude
+`unbounded_cumulative`. They need the same read-time migration `observed_rate()` got
+before their totals over historical or mixed logs are slice-correct — `budget-gate`'s
+belongs naturally to **[13.5]** (the budget-gate↔projection join). Until then, read
+`emit-metrics` initiative totals over a log containing pre-[13.6] entries with that
+caveat in mind.
+
 **Balloon detection — declared, never stopped.** When a deliverable's slice spanned
 **more compaction cycles than its sizing** (`compaction_cycles >` the deliverable's
 sized sessions from [13.2]), the meter declares a loud `BALLOON:` line the handoff

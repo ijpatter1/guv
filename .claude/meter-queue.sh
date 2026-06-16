@@ -223,10 +223,15 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
   fi
   # compaction cycles the slice spanned: real isCompactSummary==true events in the
   # MAIN transcript with ts >= the prior capture (all when since_process_start).
+  # Compare on the second-precision prefix (first 19 chars, YYYY-MM-DDTHH:MM:SS):
+  # the metering ts is whole-second (date -u) while the transcript timestamp is
+  # millisecond — lexically "00.000Z" < "00Z", so a same-second event would sort
+  # before the boundary and be wrongly dropped. Truncating both makes the bound exact.
   if [ -n "$TRANSCRIPT" ]; then
     COMPACTION_CYCLES=$(jq -rs --arg since "$PRIOR_TS" '
-      [ .[] | select(.isCompactSummary == true)
-            | select($since == "" or ((.timestamp // "") >= $since)) ] | length
+      ($since | .[0:19]) as $s
+      | [ .[] | select(.isCompactSummary == true)
+            | select($s == "" or ((.timestamp // "") | .[0:19]) >= $s) ] | length
     ' "$TRANSCRIPT" 2>/dev/null)
     case "$COMPACTION_CYCLES" in ''|*[!0-9]*) COMPACTION_CYCLES="null" ;; esac
   fi
@@ -291,15 +296,20 @@ echo "[meter-queue] appended $DELIVERABLE ($OUTCOME) rung=$RUNG -> $LOG"
 # deliverable sized to N sessions (≈N context windows, [13.2]) whose landing slice
 # spanned MORE compaction cycles than that ballooned past its sizing. Declare it
 # loudly (the handoff surfaces this) but exit 0 — a fuzzy deliverable-budget breach
-# is a human call, never a mid-flight stop ([13.5]). Degradation-safe (Rule 15): no
-# compaction signal or no sized budget → no declaration. ([14.1] hardens the read.)
-if [ "$COMPACTION_CYCLES" != "null" ]; then
+# is a human call, never a mid-flight stop ([13.5]). Genuinely silent (Rule 15):
+# no compaction signal, a since_process_start slice (its count spans the whole
+# process, not this deliverable), or no EXPLICITLY sized deliverable (the sidecar
+# has the id — never estimate.sh's default-1 for an unsized id). ([14.1] hardens it.)
+if [ "$COMPACTION_CYCLES" != "null" ] && [ "$SLICE_BASIS" != "since_process_start" ]; then
   EST_SH="$(cd "$(dirname "$0")" && pwd)/estimate.sh"
-  SIZED_WINDOWS=$(bash "$EST_SH" get "$DELIVERABLE" "docs/estimates.json" 2>/dev/null)
-  case "$SIZED_WINDOWS" in
-    ''|*[!0-9]*) : ;;  # unsized → no budget, no declaration
-    *) if [ "$COMPACTION_CYCLES" -gt "$SIZED_WINDOWS" ]; then
-         echo "[meter-queue] BALLOON: $DELIVERABLE spanned $COMPACTION_CYCLES compaction cycle(s) vs a sized budget of $SIZED_WINDOWS window-span(s) — declared for human review, not stopped ([13.5] fuzzy semantics)" >&2
-       fi ;;
-  esac
+  SIDECAR="docs/estimates.json"
+  if [ -f "$SIDECAR" ] && jq -e --arg k "$DELIVERABLE" 'has($k)' "$SIDECAR" >/dev/null 2>&1; then
+    SIZED_WINDOWS=$(bash "$EST_SH" get "$DELIVERABLE" "$SIDECAR" 2>/dev/null)
+    case "$SIZED_WINDOWS" in
+      ''|*[!0-9]*) : ;;  # malformed estimate → no budget, no declaration
+      *) if [ "$COMPACTION_CYCLES" -gt "$SIZED_WINDOWS" ]; then
+           echo "[meter-queue] BALLOON: $DELIVERABLE spanned $COMPACTION_CYCLES compaction cycle(s) vs a sized budget of $SIZED_WINDOWS window-span(s) — declared for human review, not stopped ([13.5] fuzzy semantics)" >&2
+         fi ;;
+    esac
+  fi
 fi

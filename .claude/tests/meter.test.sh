@@ -471,7 +471,7 @@ grep -qiE 'balloon|ballooned' "$WORK/t18.out" "$WORK/t18.err" 2>/dev/null \
 # ── T18c — NO false balloon within sizing: a deliverable sized to 2 sessions
 # whose slice spanned 1 compaction cycle is within tolerance — no declaration,
 # silent success (a reviewer-asked-for-gaps defensive over-fire is its own failure,
-# Rule 3). Also pins the unsized/session-scalar path: no budget → no balloon.
+# Rule 3).
 P18c=$(make_project); LOG18c="$P18c/.claude/metering/metering.ndjson"
 FH18c="$WORK/home.$RANDOM"; SID18c="18c18c18-1111-2222-3333-444444444444"
 mk_transcript_compaction "$P18c" "$FH18c" "$SID18c" 1 "2026-06-16T12:30:00.000Z"
@@ -482,6 +482,57 @@ printf '%s\n' '{"13.6":{"sessions":2,"fraction":0.9,"size":"heavy"}}' > "$P18c/d
 grep -qiE 'balloon' "$WORK/t18c.out" "$WORK/t18c.err" 2>/dev/null \
   && no "[13.6] false balloon: 1 cycle within a 2-session budget must NOT declare a breach" \
   || ok "[13.6] no false balloon when the slice is within its sized window budget (silent success)"
+
+# ── T18d — UNSIZED deliverable: NO balloon even past 1 cycle. estimate.sh get
+# defaults an unsized id to 1, so a budget MUST key on explicit sizing (the sidecar
+# carries the id), never the default — else every unsized deliverable "breaches" at
+# 2 cycles. A deliverable absent from the sidecar gets no budget → genuinely silent.
+# RED against keying the budget on estimate.sh's default-1 (would declare 3 > 1).
+P18d=$(make_project); LOG18d="$P18d/.claude/metering/metering.ndjson"
+FH18d="$WORK/home.$RANDOM"; SID18d="18d18d18-1111-2222-3333-444444444444"
+mk_transcript_compaction "$P18d" "$FH18d" "$SID18d" 3 "2026-06-16T12:30:00.000Z"
+mkdir -p "$P18d/.claude/metering"
+seed_prior "$LOG18d" "$SID18d" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}'
+printf '%s\n' '{"99.99":1}' > "$P18d/docs/estimates.json"   # sidecar exists but does NOT size 13.6
+( cd "$P18d" && HOME="$FH18d" CLAUDE_CODE_SESSION_ID="$SID18d" bash "$SCRIPT" capture --deliverables "13.6" ) >"$WORK/t18d.out" 2>"$WORK/t18d.err"
+tail -1 "$LOG18d" | jq -e '.compaction_cycles == 3' >/dev/null 2>&1 \
+  && ! grep -qiE 'balloon' "$WORK/t18d.out" "$WORK/t18d.err" 2>/dev/null \
+  && ok "[13.6] an UNSIZED deliverable past threshold declares NO balloon (budget keys on explicit sizing, not estimate.sh's default-1)" \
+  || no "[13.6] unsized deliverable must stay silent: cycles=$(tail -1 "$LOG18d" | jq -c '.compaction_cycles') out=$(cat "$WORK/t18d.out") err=$(cat "$WORK/t18d.err")"
+
+# ── T18e — since_process_start: NO balloon. On the FIRST capture of a transcript the
+# compaction count spans the WHOLE process (no prior bound), not this deliverable's
+# slice — so it is not attributable to one deliverable's budget. A sized deliverable
+# captured first with many compactions must NOT declare a balloon (the feature's own
+# honesty discipline: the token slice discloses since_process_start; the balloon must
+# honor it too). RED against a guard that excludes only session-scalar/unsized.
+P18e=$(make_project); LOG18e="$P18e/.claude/metering/metering.ndjson"
+FH18e="$WORK/home.$RANDOM"; SID18e="18e18e18-1111-2222-3333-444444444444"
+mk_transcript_compaction "$P18e" "$FH18e" "$SID18e" 8 "2026-06-16T12:30:00.000Z"   # 8 process-wide compactions
+mkdir -p "$P18e/.claude/metering"                                                   # NO prior entry → since_process_start
+printf '%s\n' '{"13.6":{"sessions":1,"fraction":0.9,"size":"heavy"}}' > "$P18e/docs/estimates.json"
+( cd "$P18e" && HOME="$FH18e" CLAUDE_CODE_SESSION_ID="$SID18e" bash "$SCRIPT" capture --deliverables "13.6" ) >"$WORK/t18e.out" 2>"$WORK/t18e.err"
+E18e=$(tail -1 "$LOG18e")
+echo "$E18e" | jq -e '.slice_basis == "since_process_start"' >/dev/null 2>&1 \
+  && ! grep -qiE 'balloon' "$WORK/t18e.out" "$WORK/t18e.err" 2>/dev/null \
+  && ok "[13.6] a since_process_start first capture declares NO balloon (whole-process count not attributable to one deliverable)" \
+  || no "[13.6] since_process_start must not balloon: basis=$(echo "$E18e" | jq -c '.slice_basis') out=$(cat "$WORK/t18e.out") err=$(cat "$WORK/t18e.err")"
+
+# ── T18f — SLICE-BOUNDARY ts precision: a compaction in the SAME SECOND as the prior
+# capture is counted. The metering ts is whole-second (date -u, "…09:00:00Z"); the
+# transcript timestamp is millisecond ("…09:00:00.500Z"). A naive string compare puts
+# "…00.500Z" < "…00Z" (the '.' sorts before 'Z'), wrongly excluding the boundary
+# event. The fix compares the second-precision prefix, so the bound is exact. RED
+# against the naive compare (would count 0).
+P18f=$(make_project); LOG18f="$P18f/.claude/metering/metering.ndjson"
+FH18f="$WORK/home.$RANDOM"; SID18f="18f18f18-1111-2222-3333-444444444444"
+mk_transcript_compaction "$P18f" "$FH18f" "$SID18f" 2 "2026-06-16T09:00:00.500Z"  # same second as prior ts
+mkdir -p "$P18f/.claude/metering"
+seed_prior "$LOG18f" "$SID18f" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}'
+( cd "$P18f" && HOME="$FH18f" CLAUDE_CODE_SESSION_ID="$SID18f" bash "$SCRIPT" capture --deliverables "13.6" ) >/dev/null 2>"$WORK/t18f.err"
+tail -1 "$LOG18f" | jq -e '.compaction_cycles == 2' >/dev/null 2>&1 \
+  && ok "[13.6] a same-second compaction is counted (second-precision boundary, not dropped by the ms-vs-s string compare)" \
+  || no "[13.6] same-second compaction must count: got $(tail -1 "$LOG18f" | jq -c '.compaction_cycles') (err=$(cat "$WORK/t18f.err"))"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

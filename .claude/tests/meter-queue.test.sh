@@ -303,6 +303,23 @@ QE16=$(tail -1 "$LOG16")
   && ok "[13.6] queue meter counts compaction cycles (3) and declares a balloon loudly, exit 0 (lockstep)" \
   || no "[13.6] queue balloon detection wrong: rc=$QRC cycles=$(echo "$QE16" | jq -c '.compaction_cycles') out=$(cat "$WORK/qt16.out") err=$(cat "$WORK/qt16.err")"
 
+# ── T16b — UNSIZED landing: NO balloon even past 1 cycle (lockstep with meter.sh
+# T18d). The budget keys on explicit sizing (the sidecar carries the id), never
+# estimate.sh's default-1 for an unsized id. A landed deliverable absent from the
+# sidecar stays silent.
+P16b=$(make_plane); LOG16b="$P16b/.claude/metering/metering.ndjson"
+FH16b="$WORK/home.$RANDOM"; SID16b="16b6b6b6-1111-2222-3333-444444444444"
+mk_compaction_transcript "$P16b" "$FH16b" "$SID16b" 3 "2026-06-16T12:30:00.000Z"
+mkdir -p "$P16b/.claude/metering" "$P16b/docs"
+seed_prior_q "$LOG16b" "$SID16b" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}'
+printf '%s\n' '{"99.99":1}' > "$P16b/docs/estimates.json"   # sidecar does NOT size 9.4
+( cd "$P16b" && HOME="$FH16b" CLAUDE_CODE_SESSION_ID="$SID16b" bash "$SCRIPT" capture \
+    --deliverable 9.4 --outcome landed --files 1 --insertions 1 --deletions 0 --wallclock 0.5 ) >"$WORK/qt16b.out" 2>"$WORK/qt16b.err"
+tail -1 "$LOG16b" | jq -e '.compaction_cycles == 3' >/dev/null 2>&1 \
+  && ! grep -qiE 'balloon' "$WORK/qt16b.out" "$WORK/qt16b.err" 2>/dev/null \
+  && ok "[13.6] queue: an UNSIZED landing past threshold declares NO balloon (lockstep with the session meter)" \
+  || no "[13.6] queue unsized landing must stay silent: cycles=$(tail -1 "$LOG16b" | jq -c '.compaction_cycles') err=$(cat "$WORK/qt16b.err")"
+
 # ── T17 — LOCKSTEP BY CONSTRUCTION: the bounded-slice harvest block is BYTE-IDENTICAL
 # between meter.sh and meter-queue.sh. The two harvesters "share the bounded harvest"
 # ([13.6] acceptance); rather than risk drift between two copies, the shared logic is

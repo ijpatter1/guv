@@ -271,10 +271,15 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
   fi
   # compaction cycles the slice spanned: real isCompactSummary==true events in the
   # MAIN transcript with ts >= the prior capture (all when since_process_start).
+  # Compare on the second-precision prefix (first 19 chars, YYYY-MM-DDTHH:MM:SS):
+  # the metering ts is whole-second (date -u) while the transcript timestamp is
+  # millisecond — lexically "00.000Z" < "00Z", so a same-second event would sort
+  # before the boundary and be wrongly dropped. Truncating both makes the bound exact.
   if [ -n "$TRANSCRIPT" ]; then
     COMPACTION_CYCLES=$(jq -rs --arg since "$PRIOR_TS" '
-      [ .[] | select(.isCompactSummary == true)
-            | select($since == "" or ((.timestamp // "") >= $since)) ] | length
+      ($since | .[0:19]) as $s
+      | [ .[] | select(.isCompactSummary == true)
+            | select($s == "" or ((.timestamp // "") | .[0:19]) >= $s) ] | length
     ' "$TRANSCRIPT" 2>/dev/null)
     case "$COMPACTION_CYCLES" in ''|*[!0-9]*) COMPACTION_CYCLES="null" ;; esac
   fi
@@ -357,15 +362,25 @@ echo "[meter] appended $SESSION ($(printf '%s' "$DELIVERABLES_JSON" | jq -r 'joi
 # (≈N context windows, [13.2]) whose slice spanned MORE compaction cycles than that
 # ballooned past its sizing. Declare it loudly (the handoff surfaces this) but exit
 # 0 — a deliverable-budget breach is fuzzy, a human call, never a mid-flight stop
-# ([13.5] semantics). Degradation-safe (Rule 15): no compaction signal (null) or no
-# sized budget (session-scalar / unsized) → no declaration; absence of a signal is
-# never a fabricated breach. ([14.1] hardens the compaction read across runtimes.)
-if [ "$COMPACTION_CYCLES" != "null" ]; then
+# ([13.5] semantics). Genuinely silent (Rule 15, no fabricated breach) when:
+#   • no compaction signal (COMPACTION_CYCLES null), OR
+#   • a since_process_start slice — its count spans the WHOLE process, not this
+#     deliverable's work, so it is not attributable to one deliverable's budget, OR
+#   • no EXPLICITLY sized deliverable. A budget must key on REAL sizing (the sidecar
+#     carries the id), never estimate.sh's default-1 for an unsized id — else every
+#     unsized deliverable "breaches" at 2 cycles. session-scalar is likewise no budget.
+# ([14.1] hardens the compaction read across runtimes.)
+if [ "$COMPACTION_CYCLES" != "null" ] && [ "$SLICE_BASIS" != "since_process_start" ]; then
   SIZED_WINDOWS=0; HAVE_BUDGET=0
   EST_SH="$(cd "$(dirname "$0")" && pwd)/estimate.sh"
+  SIDECAR="docs/estimates.json"
   for did in $(printf '%s' "$DELIVERABLES_JSON" | jq -r '.[]'); do
     case "$did" in session-scalar) continue ;; esac
-    e=$(bash "$EST_SH" get "$did" "docs/estimates.json" 2>/dev/null)
+    # only an EXPLICITLY sized deliverable carries a budget to breach (the sidecar
+    # has the id) — estimate.sh get defaults an unsized id to 1, which must NOT
+    # arm a balloon. No sidecar / unsized id -> no budget, genuinely silent.
+    { [ -f "$SIDECAR" ] && jq -e --arg k "$did" 'has($k)' "$SIDECAR" >/dev/null 2>&1; } || continue
+    e=$(bash "$EST_SH" get "$did" "$SIDECAR" 2>/dev/null)
     case "$e" in ''|*[!0-9]*) continue ;; esac
     SIZED_WINDOWS=$((SIZED_WINDOWS + e)); HAVE_BUDGET=1
   done
