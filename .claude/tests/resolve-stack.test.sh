@@ -147,6 +147,88 @@ JG=$(propose "$PLAIN/ops")
   && ok "split: marker on a non-'-guv'-named dir is still detected (roots.code=../app)" \
   || no "split: detection must key on the marker, not the name (got roots.code '$(field "$JG" .roots.code)')"
 
+# (h) BUG 2 — the per-language detail must read the sibling's manifest from $TARGET,
+# not $DIR (the stackless control plane). Under `set -euo pipefail` a NODE sibling
+# is the regression: the detection line prints, then a `jq … "$DIR/package.json"`
+# read of an absent file exits non-zero and the whole resolver dies 2 with NO
+# proposal. The rust case above passes even with the bug (its branch reads via
+# has()→$TARGET), so it cannot guard this — a node sibling is the mutation-killer.
+NSPLIT="$WORK/node-split"; mkdir -p "$NSPLIT/svc"; mk_control_plane "$NSPLIT/svc-guv"
+cat > "$NSPLIT/svc/package.json" <<'JSON'
+{"name":"svc","private":false,"scripts":{"test":"vitest","build":"tsc"},"devDependencies":{"prettier":"^3"}}
+JSON
+( bash "$RESOLVER" "$NSPLIT/svc-guv" >/dev/null 2>&1 ); NSPLIT_RC=$?
+[ "$NSPLIT_RC" -eq 0 ] \
+  && ok "split(node): resolver exits 0 (no detect-then-die from a \$DIR manifest read)" \
+  || no "split(node): resolver must exit 0, got $NSPLIT_RC (BUG 2 — \$DIR vs \$TARGET manifest read)"
+JN=$(propose "$NSPLIT/svc-guv")
+[ -n "$JN" ] \
+  && ok "split(node): a proposal is emitted (not swallowed by the failed \$DIR read)" \
+  || no "split(node): no proposal emitted (resolver died before stdout)"
+[ "$(field "$JN" .language)" = node ] \
+  && ok "split(node): language resolved from the sibling (node)" \
+  || no "split(node): language must be node from sibling (got '$(field "$JN" .language)')"
+[ "$(field "$JN" .roots.code)" = "../svc" ] \
+  && ok "split(node): roots.code → sibling (../svc)" \
+  || no "split(node): roots.code must be '../svc' (got '$(field "$JN" .roots.code)')"
+# the package-manager/script/prettier/private reads all key off $TARGET now:
+[ "$(field "$JN" .commands.test)" = "npm test" ] \
+  && ok "split(node): commands.test read from the sibling's scripts (\$TARGET)" \
+  || no "split(node): commands.test must be 'npm test' from sibling (got '$(field "$JN" .commands.test)')"
+[ "$(field "$JN" .commands.format)" = "npx prettier --write" ] \
+  && ok "split(node): prettier detected from the sibling's devDependencies (\$TARGET)" \
+  || no "split(node): format must be prettier from sibling (got '$(field "$JN" .commands.format)')"
+echo "$JN" | jq -e '.guards | index("npm-publish")' >/dev/null \
+  && ok "split(node): npm-publish guard read from the sibling's .private (\$TARGET)" \
+  || no "split(node): npm-publish guard must come from the sibling (private=false)"
+if [ "$HAVE_JSONSCHEMA" -eq 1 ]; then
+  printf '%s' "$JN" | validates \
+    && ok "split(node): detected proposal validates against the schema" \
+    || no "split(node): detected proposal must validate against project.schema.json"
+fi
+# python sibling variant (the $DIR pyproject grep at line ~244):
+PSPLIT="$WORK/py-split"; mkdir -p "$PSPLIT/api"; mk_control_plane "$PSPLIT/api-guv"
+printf '[project]\nname="api"\n' > "$PSPLIT/api/pyproject.toml"; touch "$PSPLIT/api/uv.lock"
+JPY=$(propose "$PSPLIT/api-guv")
+[ "$(field "$JPY" .language)" = python ] && [ "$(field "$JPY" .roots.code)" = "../api" ] \
+  && ok "split(python): language+roots.code resolved from sibling (../api)" \
+  || no "split(python): must resolve python from sibling (got lang '$(field "$JPY" .language)', code '$(field "$JPY" .roots.code)')"
+echo "$JPY" | jq -e '.guards | index("pypi-publish")' >/dev/null \
+  && ok "split(python): pypi-publish guard read from the sibling's pyproject (\$TARGET)" \
+  || no "split(python): pypi-publish guard must come from the sibling"
+
+# ── BUG 1 — a CONSUMER-scaffolded split (manifest signal, no run-core-tests.sh) ──
+# The maintainer marker (.claude/run-core-tests.sh) is written ONLY by
+# setup-control-plane.sh, never by the consumer scaffold (scaffold-shell.sh), so a
+# consumer split used to be undetectable. The detection oracle is generalized to a
+# UNIVERSAL control-plane signal: a stackless .claude/ dir whose .claude/project.json
+# declares roots.code pointing at a sibling (not '.') — the shape BOTH the maintainer
+# AND the consumer scaffolds write. The marker stays a recognized signal (back-compat),
+# so every fixture above still detects.
+#   (i) consumer-shape plane: a manifest with a named-map roots.code, NO marker file.
+CONS="$WORK/consumer-split"; mkdir -p "$CONS/prod/.claude" "$CONS/prod-guv/.claude"
+printf '{"name":"prod"}\n' > "$CONS/prod/package.json"   # the sibling code repo (node stack)
+# the plane: NO run-core-tests.sh; a split manifest (the scaffold-split.sh shape)
+cat > "$CONS/prod-guv/.claude/project.json" <<'JSON'
+{"$schema":"./project.schema.json","name":"prod","language":"shell","packageManager":null,"roots":{"control":".","code":{"prod":{"path":"../prod"}},"codePrimary":"prod"},"commands":{"test":null,"build":null,"lint":null,"format":null,"dev":null,"install":null},"scaffoldCheck":"test -d \"../prod/.claude\"","readyCheck":null,"formatExtensions":[],"guards":[],"ceremony":"phased"}
+JSON
+JC=$(propose "$CONS/prod-guv")
+bash "$RESOLVER" "$CONS/prod-guv" 2>&1 >/dev/null | grep -qi 'control-plane/code split' \
+  && ok "consumer-split: detected via the manifest signal (no run-core-tests.sh marker)" \
+  || no "consumer-split: a consumer-scaffolded plane (manifest roots.code → sibling) must be detected"
+[ "$(field "$JC" .roots.code)" = "../prod" ] \
+  && ok "consumer-split: roots.code → sibling (../prod), proposal emitted" \
+  || no "consumer-split: roots.code must be '../prod' (got '$(field "$JC" .roots.code)')"
+#   (j) the universal signal does NOT over-fire: a stackless .claude/ dir whose
+#       manifest is single-repo (roots.code='.') is NOT a control plane → exit 2.
+SR="$WORK/stackless-single"; mkdir -p "$SR/.claude"
+cat > "$SR/.claude/project.json" <<'JSON'
+{"$schema":"./project.schema.json","name":"x","language":"shell","packageManager":null,"roots":{"control":".","code":"."},"commands":{"test":null,"build":null,"lint":null,"format":null,"dev":null,"install":null},"scaffoldCheck":"test -d .claude","readyCheck":null,"formatExtensions":[],"guards":[],"ceremony":"phased"}
+JSON
+( bash "$RESOLVER" "$SR" >/dev/null 2>&1 ); [ $? -eq 2 ] \
+  && ok "consumer-split: a stackless single-repo manifest (roots.code='.') does NOT fire detection (exit 2)" \
+  || no "consumer-split: a roots.code='.' manifest must not be read as a control plane"
+
 # ── greenfield proactive split proposal ([11.5]) ────────────────────────────
 # [11.4] detects an EXISTING split (both repos on disk). [11.5] adds the
 # PROACTIVE proposal: pointed at a GREENFIELD product (no stack files yet), the

@@ -145,26 +145,54 @@ has_stack() {
     || compgen -G "$d/*.csproj" >/dev/null 2>&1 || compgen -G "$d/*.sln" >/dev/null 2>&1
 }
 
-# ── Control-plane / code split detection ([11.4]) ───────────────────────────
-# A control plane (created by setup-control-plane.sh) carries the guv core in
-# .claude/ but has NO code stack of its own — its code lives in a SIBLING repo.
-# Pointed at such a control root the resolver would otherwise exit 2 (no stack
-# here). Detect the split deterministically from STRUCTURE, never from the dir's
-# NAME: scripts must not re-derive the control-plane naming convention (which
-# setup-control-plane.sh owns) by name — the manifest is the sole machine pointer,
-# and name-based discovery is banned (docs-sweep T6). The structural marker is
-# unambiguous: setup-control-plane.sh writes .claude/run-core-tests.sh into EVERY
-# control plane and into NO code repo (it is not part of the core that ships into
-# .claude/), so its presence — over a
-# stackless .claude/ dir — means "this is a control plane." That tells us a split
-# exists; the code repo is then the SIBLING that carries a stack. To stay
-# deterministic (rule 12 — no judgment) we retarget only when EXACTLY ONE sibling
-# bears a stack; zero or several is ambiguous and falls through to the exit-2 loud
-# stop (rule 15) rather than guessing. A DIR with its own stack is a single repo
-# and never enters this branch, so a stack-bearing repo that merely sits beside
-# others is untouched.
+# Is the given stackless .claude/ dir a guv CONTROL PLANE (its code lives in a
+# sibling, so a split exists)? Two recognized signals, OR'd — both STRUCTURAL,
+# never name-based (the manifest/marker is the machine pointer; name discovery is
+# banned, docs-sweep T6):
+#   (1) the UNIVERSAL manifest signal — .claude/project.json declares roots.code
+#       pointing somewhere OTHER than '.' (resolved via the shared roots.sh, so a
+#       string OR a named-map roots.code both work). This is the signal BOTH the
+#       maintainer (setup-control-plane.sh: roots.code="../guv") AND the consumer
+#       (scaffold-split.sh: roots.code={name:{path:"../name"}}) scaffolds write —
+#       a single-repo plane has roots.code='.' and never matches, so it cannot
+#       over-fire. This is the [11.5]-fix half: a consumer-scaffolded split, which
+#       carries the manifest but NOT run-core-tests.sh, is now detectable.
+#   (2) the legacy MARKER signal — .claude/run-core-tests.sh. setup-control-plane.sh
+#       writes this into every dogfooding plane and into no code repo; it predates
+#       the manifest signal and is kept for back-compat (a maintainer plane created
+#       before this change, and the marker-based test/UAT fixtures, still detect
+#       even with no manifest on disk).
+ROOTS_SH="$(cd "$(dirname "$0")" && pwd)/roots.sh"
+is_control_plane() {
+  local d="$1" code
+  [ -d "$d/.claude" ] || return 1
+  # (2) legacy marker — cheap, no jq, keeps marker-only fixtures detecting.
+  [ -f "$d/.claude/run-core-tests.sh" ] && return 0
+  # (1) universal manifest signal: roots.code resolves to a non-'.' path. roots.sh
+  # is the sole shape-aware resolver (string vs named map); a bad/absent manifest
+  # or a single-repo '.' is NOT a control plane (it returns 1 / '.').
+  [ -f "$ROOTS_SH" ] && [ -f "$d/.claude/project.json" ] || return 1
+  code=$(ROOTS_MANIFEST="$d/.claude/project.json" bash "$ROOTS_SH" path 2>/dev/null) || return 1
+  [ -n "$code" ] && [ "$code" != "." ]
+}
+
+# ── Control-plane / code split detection ([11.4], [11.5]) ───────────────────
+# A control plane (created by setup-control-plane.sh OR the consumer scaffold-
+# split.sh) carries the guv core in .claude/ but has NO code stack of its own —
+# its code lives in a SIBLING repo. Pointed at such a control root the resolver
+# would otherwise exit 2 (no stack here). Detect the split deterministically from
+# STRUCTURE, never from the dir's NAME (name-based discovery is banned, docs-sweep
+# T6 — the manifest/marker is the sole machine pointer). is_control_plane() above
+# carries the two recognized structural signals (the universal manifest signal +
+# the legacy marker); both maintainer and consumer planes match, a single-repo
+# never does. That a split EXISTS is the signal; the code repo is then the SIBLING
+# that carries a stack. To stay deterministic (rule 12 — no judgment) we retarget
+# only when EXACTLY ONE sibling bears a stack; zero or several is ambiguous and
+# falls through to the exit-2 loud stop (rule 15) rather than guessing. A DIR with
+# its own stack is a single repo and never enters this branch (the has_stack guard),
+# so a stack-bearing repo that merely sits beside others is untouched.
 DIR_ABS="$(cd "$DIR" && pwd)"
-if ! has_stack "$DIR" && [ -d "$DIR/.claude" ] && [ -f "$DIR/.claude/run-core-tests.sh" ]; then
+if ! has_stack "$DIR" && is_control_plane "$DIR"; then
   # Find the sibling(s) that carry a code stack. Iterate immediate siblings of the
   # control plane (its parent's children, minus itself) — a structural scan, not a
   # name match. Collect every stack-bearing sibling so we can require exactly one.
@@ -181,7 +209,7 @@ if ! has_stack "$DIR" && [ -d "$DIR/.claude" ] && [ -f "$DIR/.claude/run-core-te
     # roots.code is the relative path from the control plane to the code repo —
     # the same shape setup-control-plane.sh writes (os.path.relpath).
     ROOT_CODE="../$(basename "$SIBLING")"
-    log "Detected a control-plane/code split: '$(basename "$DIR_ABS")' is a stackless control plane (run-core-tests.sh present); resolving the stack from sibling code repo '$(basename "$SIBLING")'."
+    log "Detected a control-plane/code split: '$(basename "$DIR_ABS")' is a stackless control plane (a split manifest or the run-core-tests.sh marker is present); resolving the stack from sibling code repo '$(basename "$SIBLING")'."
   fi
 fi
 
@@ -207,12 +235,12 @@ if has package.json; then
   elif has yarn.lock;         then PM="yarn"
   elif has bun.lockb;         then PM="bun"
   elif has package-lock.json; then PM="npm"
-  else PM=$(jq -r '.packageManager // empty' "$DIR/package.json" 2>/dev/null | sed 's/@.*//'); PM="${PM:-npm}"
+  else PM=$(jq -r '.packageManager // empty' "$TARGET/package.json" 2>/dev/null | sed 's/@.*//'); PM="${PM:-npm}"
   fi
   PACKAGE_MANAGER="$PM"
   CMD_INSTALL="$PM install"   # remediation when node_modules is absent
   # propose commands from package.json scripts
-  SCRIPTS=$(jq -r '(.scripts // {}) | keys[]' "$DIR/package.json" 2>/dev/null || true)
+  SCRIPTS=$(jq -r '(.scripts // {}) | keys[]' "$TARGET/package.json" 2>/dev/null || true)
   hasscript() { echo "$SCRIPTS" | grep -qx "$1"; }
   runner() { case "$PM" in npm) echo "npm run $1";; *) echo "$PM run $1";; esac; }
   if hasscript test; then case "$PM" in npm) CMD_TEST="npm test";; *) CMD_TEST="$PM test";; esac; fi
@@ -220,13 +248,13 @@ if has package.json; then
   hasscript lint  && CMD_LINT="$(runner lint)"
   hasscript dev   && CMD_DEV="$(runner dev)"
   # formatter: prettier if present as a dep or config
-  if jq -e '((.devDependencies // {}) + (.dependencies // {})) | has("prettier")' "$DIR/package.json" >/dev/null 2>&1 \
+  if jq -e '((.devDependencies // {}) + (.dependencies // {})) | has("prettier")' "$TARGET/package.json" >/dev/null 2>&1 \
      || has .prettierrc || has .prettierrc.json || has .prettierrc.js || has prettier.config.js; then
     CMD_FORMAT="npx prettier --write"
   fi
   FMT_EXT=(js jsx ts tsx json css scss md html yml yaml)
   # publish guard unless explicitly private
-  if ! jq -e '.private == true' "$DIR/package.json" >/dev/null 2>&1; then GUARDS+=("npm-publish"); fi
+  if ! jq -e '.private == true' "$TARGET/package.json" >/dev/null 2>&1; then GUARDS+=("npm-publish"); fi
 
 elif has pyproject.toml || has requirements.txt; then
   LANGUAGE="python"
@@ -241,7 +269,7 @@ elif has pyproject.toml || has requirements.txt; then
   CMD_FORMAT="ruff format"  # auto-format hook appends the file path
   FMT_EXT=(py pyi md json yml yaml toml)
   # publish guard if it declares a distributable project
-  if has pyproject.toml && grep -qE '^\[project\]|^\[tool\.poetry\]' "$DIR/pyproject.toml" 2>/dev/null; then GUARDS+=("pypi-publish"); fi
+  if has pyproject.toml && grep -qE '^\[project\]|^\[tool\.poetry\]' "$TARGET/pyproject.toml" 2>/dev/null; then GUARDS+=("pypi-publish"); fi
 
 elif has Cargo.toml; then
   LANGUAGE="rust"; PACKAGE_MANAGER="cargo"
@@ -249,7 +277,7 @@ elif has Cargo.toml; then
   CMD_TEST="cargo test"; CMD_BUILD="cargo build"; CMD_LINT="cargo clippy"
   CMD_FORMAT="rustfmt"      # per-file; cargo fmt is whole-project
   FMT_EXT=(rs)
-  grep -qE '^\[package\]' "$DIR/Cargo.toml" 2>/dev/null && GUARDS+=("cargo-publish")
+  grep -qE '^\[package\]' "$TARGET/Cargo.toml" 2>/dev/null && GUARDS+=("cargo-publish")
 
 elif has go.mod; then
   LANGUAGE="go"; PACKAGE_MANAGER="go"
@@ -385,7 +413,7 @@ log "Proposed: language=$LANGUAGE packageManager=$PACKAGE_MANAGER guards=[${GUAR
 log "This is a PROPOSAL. Confirm or override before writing .claude/project.json."
 log "roots default to single-repo ('.'); set roots.code for a control-plane split."
 if [ "$CEREMONY" = "phased" ]; then
-  log "ceremony=phased — a live DAG-grammar tracker was detected at $DIR/docs/PHASE_STATUS.md; adopt the existing plan (next/phase), do not impose onboard scaffold."
+  log "ceremony=phased — a live DAG-grammar tracker was detected at $TARGET/docs/PHASE_STATUS.md; adopt the existing plan (next/phase), do not impose onboard scaffold."
 elif [ -n "$MALFORMED_TRACKER" ]; then
   log "WARNING: a phase tracker exists at $MALFORMED_TRACKER but is MALFORMED — it carries **[N.M]** IDs yet the resolver cannot parse it (run 'bash .claude/resolve-ready.sh $MALFORMED_TRACKER' to see the offenders). This repo is clearly mid-plan-but-broken, NOT pre-scaffold. ceremony stays 'onboard' so a proposal is still produced, but DO NOT scaffold over it: fix the tracker and re-run, or confirm deliberately that onboarding should clobber the broken plan (rule 15 — refuse-and-report over a silent overwrite)."
 else
