@@ -254,6 +254,101 @@ if [ -f "$SHAPE" ]; then
     || no "shape doc must state the never-in-the-tracker rationale"
 fi
 
+# ════ T10 — CONTEXT-FRACTION ([13.2]): a deliverable is sized to a fraction of the
+#           [9.2] occupancy budget through a rubric, not a bare integer guess. The
+#           sidecar carries the fraction ALONGSIDE the integer session count; the
+#           rubric maps light/medium/heavy to fractions, and `get` still returns the
+#           integer (so the projection's quantity reader is transparent to the shape). ════
+# the rubric is published as data — the documented size -> fraction map.
+RUB=$(bash "$SCRIPT" rubric 2>/dev/null)
+echo "$RUB" | jq -e '.light == 0.35 and .medium == 0.5 and .heavy == 0.9' >/dev/null 2>&1 \
+  && ok "rubric: light/medium/heavy map to fractions of the occupancy budget (0.35/0.5/0.9)" \
+  || no "rubric must map light=0.35 medium=0.5 heavy=0.9 (got: $RUB)"
+
+S="$(fresh_sidecar t10)"; rm -f "$S"
+bash "$SCRIPT" set-sized 9.6 medium "$S" >/dev/null 2>&1 \
+  && ok "set-sized: ratifies a deliverable through the rubric (medium)" \
+  || no "set-sized 9.6 medium should succeed"
+# the integer session count is still readable by `get` — projection's quantity
+# half is unchanged (a sized deliverable is one session by construction).
+[ "$(bash "$SCRIPT" get 9.6 "$S" 2>/dev/null)" = "1" ] \
+  && ok "get: a sized deliverable reads back 1 session (one deliverable ≈ one session)" \
+  || no "get on a sized entry should return the integer session count (1), got: $(bash "$SCRIPT" get 9.6 "$S" 2>/dev/null)"
+# the NEW data — the context-fraction — is recorded alongside it.
+[ "$(bash "$SCRIPT" fraction 9.6 "$S" 2>/dev/null)" = "0.5" ] \
+  && ok "fraction: the sized context-fraction is recorded alongside the integer (medium -> 0.5)" \
+  || no "fraction 9.6 should be 0.5, got: $(bash "$SCRIPT" fraction 9.6 "$S" 2>/dev/null)"
+[ "$(bash "$SCRIPT" size 9.6 "$S" 2>/dev/null)" = "medium" ] \
+  && ok "size: the rubric class is recorded (medium)" \
+  || no "size 9.6 should be medium, got: $(bash "$SCRIPT" size 9.6 "$S" 2>/dev/null)"
+bash "$SCRIPT" validate "$S" >/dev/null 2>&1 \
+  && ok "validate: a sized (object-form) sidecar passes the shape contract" \
+  || no "a well-formed sized sidecar should validate"
+
+# ════ T11 — THE BALLOON DISCIPLINE ([13.2]): a balloon is SPLIT, never stored as N.
+#           The engine refuses to ratify a balloon — the discipline that keeps
+#           "one deliverable ≈ one session" true by construction. ════
+S="$(fresh_sidecar t11)"; rm -f "$S"
+OUT=$(bash "$SCRIPT" set-sized 9.7 balloon "$S" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -qi 'split' \
+  && ok "set-sized: a balloon is REFUSED (exit 5) with a split instruction — not stored as N" \
+  || no "set-sized 9.7 balloon must be refused with a split message (rc=$RC: $OUT)"
+[ ! -f "$S" ] || ! jq -e 'has("9.7")' "$S" >/dev/null 2>&1 \
+  && ok "set-sized: the refused balloon wrote nothing (no N>1 entry created)" \
+  || no "a refused balloon must not be recorded"
+# an unknown size word is refused too (the rubric is a closed set).
+OUT=$(bash "$SCRIPT" set-sized 9.7 enormous "$S" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && ok "set-sized: an unknown size word is refused (the rubric is closed)" \
+  || no "set-sized 9.7 enormous should be refused (rc=$RC: $OUT)"
+# validate rejects a STORED balloon (fraction > 1) and other out-of-shape objects.
+echo '{"9.7":{"sessions":1,"fraction":1.5,"size":"heavy"}}' > "$WORK/bad-frac.json"
+bash "$SCRIPT" validate "$WORK/bad-frac.json" >/dev/null 2>&1 \
+  && no "validate must reject a fraction > 1 (a stored balloon)" \
+  || ok "validate: a fraction > 1 is rejected (a balloon is never stored)"
+echo '{"9.7":{"sessions":1,"fraction":0.5,"size":"jumbo"}}' > "$WORK/bad-size.json"
+bash "$SCRIPT" validate "$WORK/bad-size.json" >/dev/null 2>&1 \
+  && no "validate must reject an unknown size class" \
+  || ok "validate: an unknown size class is rejected"
+echo '{"9.7":{"fraction":0.5,"size":"medium"}}' > "$WORK/bad-nosess.json"
+bash "$SCRIPT" validate "$WORK/bad-nosess.json" >/dev/null 2>&1 \
+  && no "validate must reject a sized object missing its session count" \
+  || ok "validate: a sized object missing sessions is rejected"
+
+# ════ T12 — BACK-COMPAT ([13.2]): a legacy integer-only estimate still resolves, and
+#           a sidecar mixing legacy integers with sized objects validates and reads. ════
+echo '{"9.1":1,"9.7":2}' > "$WORK/legacy.json"
+bash "$SCRIPT" validate "$WORK/legacy.json" >/dev/null 2>&1 \
+  && ok "back-compat: a legacy integer-only sidecar still validates" \
+  || no "a legacy integer sidecar must still validate"
+[ "$(bash "$SCRIPT" get 9.7 "$WORK/legacy.json" 2>/dev/null)" = "2" ] \
+  && ok "back-compat: get on a legacy integer returns the integer (2)" \
+  || no "get on a legacy integer should return 2"
+[ -z "$(bash "$SCRIPT" fraction 9.7 "$WORK/legacy.json" 2>/dev/null)" ] \
+  && ok "back-compat: a legacy entry has no fraction (fraction reads empty, not an error)" \
+  || no "fraction on a legacy integer should be empty"
+# a MIXED sidecar (the migration state) is valid and both forms resolve.
+echo '{"9.1":1,"9.6":{"sessions":1,"fraction":0.35,"size":"light"}}' > "$WORK/mixed.json"
+bash "$SCRIPT" validate "$WORK/mixed.json" >/dev/null 2>&1 \
+  && ok "back-compat: a mixed legacy+sized sidecar validates (the migration state is legal)" \
+  || no "a mixed sidecar must validate"
+[ "$(bash "$SCRIPT" get 9.1 "$WORK/mixed.json" 2>/dev/null)" = "1" ] \
+  && [ "$(bash "$SCRIPT" get 9.6 "$WORK/mixed.json" 2>/dev/null)" = "1" ] \
+  && [ "$(bash "$SCRIPT" fraction 9.6 "$WORK/mixed.json" 2>/dev/null)" = "0.35" ] \
+  && ok "back-compat: both legacy and sized entries resolve in one sidecar" \
+  || no "mixed sidecar: legacy get=1, sized get=1, sized fraction=0.35 must all hold"
+
+# ════ T13 — the rubric + split discipline are TAUGHT in the planning doors ([13.2]) ════
+grep -qiE 'rubric|light.*medium.*heavy|context.?fraction|context.window' "$PI" \
+  && ok "plan.md teaches the context-sizing rubric" || no "plan.md must teach the sizing rubric"
+grep -q 'set-sized' "$PI" && ok "plan.md ratifies the fraction through set-sized" \
+  || no "plan.md must route sizing through set-sized"
+grep -qi 'split' "$PI" && ok "plan.md teaches splitting a balloon (not recording N>1)" \
+  || no "plan.md must teach the balloon-splits-not-N discipline"
+grep -qiE 'rubric|context.?fraction|set-sized' "$RP" \
+  && ok "replan.md teaches the rubric / fraction on insert" || no "replan.md must teach the rubric on insert"
+grep -qi 'split' "$RP" && ok "replan.md teaches splitting a balloon on insert" \
+  || no "replan.md must teach the balloon-split discipline"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -gt 0 ] && exit 1

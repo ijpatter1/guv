@@ -70,11 +70,14 @@ Read the grammar section of the phase-docs skill (plugin-shipped,
   then draft the complete deliverable wording: leading `**[N.M]**`, scope, trailing
   `` `[deps: …]` `` expressing its *logical* position (the line always lands at the
   phase's end; deps carry the sequence). Draft its `- *Acceptance:*` sub-bullet for
-  REQUIREMENTS too. Also draft its **session estimate** ([9.6]): you are reading the
-  scope and acceptance to draft the line anyway, so propose the estimate in the same
-  breath — **default 1** (guv pushes deliverables session-sized), and flag it
-  as a **balloon** if the scope reads as multi-session. The estimate is *not* part of
-  the wording and never enters the tracker — it rides the **sidecar**, keyed by ID
+  REQUIREMENTS too. Also **size it through the rubric** ([9.6], [13.2]): you are reading
+  the scope and acceptance to draft the line anyway, so judge what **fraction of a
+  session's context budget** ([9.2] setpoint) it occupies — **light ≈ 0.35 / medium ≈
+  0.5 / heavy ≈ 0.9** (`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh rubric`). If the scope would exceed
+  **one** session it is a **balloon** — **SPLIT it** into deliverables that each fit one
+  session (a split *is* a `/guv:replan`: reword the original to its narrowed scope + insert
+  the carved-out parts), never insert it as an N > 1 estimate. The sizing is *not* part
+  of the wording and never enters the tracker — it rides the **sidecar**, keyed by ID
   (`"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md`).
 - **For a new phase (the section header):** the engine inserts *deliverables* but
   does **not** create the `## Phase N` header — it is the one tracker mutation the
@@ -146,20 +149,22 @@ forever; the tracker syncs from it; ARCHITECTURE follows where touched:
    edit** — the docs move together or not at all; surface the engine's message.
 3. **`docs/ARCHITECTURE.md`** — update only where the mutation touches recorded
    architecture (a new component, a changed data flow); skip cleanly otherwise.
-4. **The estimate sidecar** ([9.6], inserts only) — record the estimate the user
+4. **The estimate sidecar** ([9.6], [13.2], inserts only) — record the sizing the user
    ratified in Step 3, through the helper and **never** through the tracker engine:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set <ID> <N>   # the ratified estimate; default N is 1
+   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set-sized <ID> <light|medium|heavy>   # ratify via the rubric
    ```
 
-   Estimates are **interpretation**, not evidence: they live in the sidecar
+   `set-sized` records the context-fraction alongside the (always-1) session count;
+   a balloon was split in Step 2, so it never reaches here (`set-sized` refuses
+   `balloon`). Estimates are **interpretation**, not evidence: they live in the sidecar
    (`docs/estimates.json`), keyed by ID, **never in a tracker line or token**. This
    is by design — an estimate edit costs no grammar change, no contract change, and
    **leaves the tracker byte-identical**, which is exactly why the estimate does *not*
    pass through `replan.sh` (the tracker-mutation engine never sees it). A descope,
    abandon, or reword does not touch estimates — only an insert acquires one; an
-   estimate revision is a bare `estimate.sh set`, no `/guv:replan` needed.
+   estimate revision is a bare `estimate.sh set-sized` (or legacy `set`), no `/guv:replan` needed.
 
 ## Step 5 — Verify and report
 

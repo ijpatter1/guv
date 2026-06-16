@@ -66,16 +66,29 @@ Extract and present a summary for the user to confirm — identity, phases, deli
   `max_phase + 1` from Step 1 (or 1 on a fresh project).
 - **Constraints/invariants** the spec declares, if any — these carry into REQUIREMENTS'
   Dependencies & Risk Notes.
-- **Session estimates** ([9.6]): you are reading every deliverable's wording and
-  acceptance here anyway, so propose a session estimate per deliverable in the same
-  breath. guv pushes deliverables toward session-sized, so the **default is
-  1** — propose 1 unless the scope genuinely reads as multi-session, and **flag any
-  balloon** (estimate > 1) explicitly so the user sees it. Estimates are
-  interpretation, not plan state: they go in the **sidecar**, never in a deliverable
-  line (`"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md` documents the shape; the tracker stays
-  byte-identical regardless of estimates). The user **ratifies the estimates in this
-  same confirm gate** as the plan itself — present them as a column of the summary
-  (ID → estimate, balloons marked), and fold any adjustment into the confirmation.
+- **Session estimates, sized by the rubric** ([9.6], [13.2]): you are reading every
+  deliverable's wording and acceptance here anyway, so size each one in the same
+  breath. Don't guess a bare integer — judge what **fraction of a session's context
+  budget** (the [9.2] occupancy setpoint) the deliverable will occupy, using the
+  **rubric**: **light ≈ 0.35**, **medium ≈ 0.5**, **heavy ≈ 0.9** (`bash
+  "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh rubric` is the map). Calibrate against the dogfooded shape of
+  each class: **light** is a focused change — an investigation or a small edit plus
+  a test or two; **medium** is a new field/behavior with its doc, a caller
+  integration, and tests; **heavy** is a core change across several files with
+  logic, tests, a shape doc, the plugin mirror, and an eval pass. The judgment
+  (which class) is yours; the helper maps the class to the stored fraction
+  deterministically. The discipline is the point: a deliverable that would exceed
+  **one** session's budget is a **balloon** — **SPLIT it** into deliverables that
+  each fit one session, never record it as N > 1 (`set-sized` refuses a balloon); a
+  deliverable judged *near* a full session is sized **heavy** (and watched), not
+  left between classes. So "one deliverable ≈ one session" holds by construction,
+  and the projection's quantity takeoff is honest.
+  Estimates are interpretation, not plan state: they go in the **sidecar**, never in
+  a deliverable line (`"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md` documents the dual-form shape; the
+  tracker stays byte-identical regardless of estimates). The user **ratifies the
+  sizing in this same confirm gate** as the plan itself — present them as a column of
+  the summary (ID → size class → fraction; any balloon shown as "split"), and fold
+  any adjustment into the confirmation.
 
 **Wait for the user to confirm or adjust before writing any files.** The confirmation
 covers the plan *and* its estimates — one gate, both ratified.
@@ -111,18 +124,21 @@ Follow the phase-docs skill structures, in order, into `${roots.control}/docs/`:
    with the same current/target framing.
 3. **PHASE_STATUS.md** — deliverables copied **verbatim** from the new REQUIREMENTS,
    all ⬜, Current Phase = the first new phase.
-4. **The estimate sidecar** ([9.6]) — record the estimates the user ratified in Step 2.
-   This is a **separate file** (`docs/estimates.json` by default), keyed by deliverable
-   ID, written **only** through the helper — never a tracker line, so the tracker stays
-   byte-identical to REQUIREMENTS:
+4. **The estimate sidecar** ([9.6], [13.2]) — record the sizing the user ratified in
+   Step 2. This is a **separate file** (`docs/estimates.json` by default), keyed by
+   deliverable ID, written **only** through the helper — never a tracker line, so the
+   tracker stays byte-identical to REQUIREMENTS:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set <ID> <N>   # once per deliverable; default N is 1
+   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set-sized <ID> <light|medium|heavy>   # ratify via the rubric
    ```
 
-   A deliverable left at the default 1 may be `set` for completeness or left unset
-   (an unrecorded ID reads as 1). Validate the result: `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh
-   validate`. The shape and rationale live in `"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md`.
+   `set-sized` records the context-fraction alongside the (always-1) session count.
+   A balloon has no class — if a deliverable would exceed one session, **split it**
+   (it should already have been split in Step 2); `set-sized` refuses `balloon`
+   rather than letting an N > 1 estimate slip in. Validate the result: `bash
+   "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh validate`. The shape and rationale live in
+   `"${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.shape.md`.
 
 ## Step 6 — Ceremony transition
 
