@@ -275,6 +275,10 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
   # the metering ts is whole-second (date -u) while the transcript timestamp is
   # millisecond — lexically "00.000Z" < "00Z", so a same-second event would sort
   # before the boundary and be wrongly dropped. Truncating both makes the bound exact.
+  # The bound is inclusive (ts >= the prior capture's second), so a compaction in the
+  # exact boundary second can be counted in two consecutive slices — harmless here,
+  # since compaction_cycles is an advisory per-slice signal, not a summed accounting
+  # quantity (and the exclusive alternative would re-introduce the drop above).
   if [ -n "$TRANSCRIPT" ]; then
     COMPACTION_CYCLES=$(jq -rs --arg since "$PRIOR_TS" '
       ($since | .[0:19]) as $s
@@ -369,6 +373,9 @@ echo "[meter] appended $SESSION ($(printf '%s' "$DELIVERABLES_JSON" | jq -r 'joi
 #   • no EXPLICITLY sized deliverable. A budget must key on REAL sizing (the sidecar
 #     carries the id), never estimate.sh's default-1 for an unsized id — else every
 #     unsized deliverable "breaches" at 2 cycles. session-scalar is likewise no budget.
+# An unbounded_cumulative slice, by contrast, REMAINS balloon-eligible: only the token
+# VALUE degraded — it still had a prior capture, so its compaction window is
+# slice-bounded and its count is attributable to this deliverable's budget.
 # ([14.1] hardens the compaction read across runtimes.)
 if [ "$COMPACTION_CYCLES" != "null" ] && [ "$SLICE_BASIS" != "since_process_start" ]; then
   SIZED_WINDOWS=0; HAVE_BUDGET=0

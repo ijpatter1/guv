@@ -258,6 +258,14 @@ deterministic-op wall-clock, reads the suite-runtime artifact, and appends the
 line. The log is append-only; nothing here rewrites it. The emitted shape is
 documented in `.claude/metering-log.md`.
 
+**If the writer emits a `BALLOON:` line** (a [13.6] balloon: the deliverable's slice
+spanned more compaction cycles than its [13.2] sizing — a fuzzy deliverable-budget
+breach), record it in the handoff artifact under **Issues & Technical Debt** (or
+**Session Notes**), verbatim. Like the budget-gate breach in Step 6c, a balloon is a
+human signal — it must reach the *written* record a person reads later, not only the
+live session output. A balloon never stops the handoff (exit 0); it is declared, not
+gated.
+
 ## Step 6c — Run the Budget Gate at the Exit Boundary
 
 The [9.3] tension gate runs at the session **exit** boundary — the second of the

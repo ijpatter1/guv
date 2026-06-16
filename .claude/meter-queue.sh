@@ -227,6 +227,10 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
   # the metering ts is whole-second (date -u) while the transcript timestamp is
   # millisecond — lexically "00.000Z" < "00Z", so a same-second event would sort
   # before the boundary and be wrongly dropped. Truncating both makes the bound exact.
+  # The bound is inclusive (ts >= the prior capture's second), so a compaction in the
+  # exact boundary second can be counted in two consecutive slices — harmless here,
+  # since compaction_cycles is an advisory per-slice signal, not a summed accounting
+  # quantity (and the exclusive alternative would re-introduce the drop above).
   if [ -n "$TRANSCRIPT" ]; then
     COMPACTION_CYCLES=$(jq -rs --arg since "$PRIOR_TS" '
       ($since | .[0:19]) as $s
@@ -299,7 +303,9 @@ echo "[meter-queue] appended $DELIVERABLE ($OUTCOME) rung=$RUNG -> $LOG"
 # is a human call, never a mid-flight stop ([13.5]). Genuinely silent (Rule 15):
 # no compaction signal, a since_process_start slice (its count spans the whole
 # process, not this deliverable), or no EXPLICITLY sized deliverable (the sidecar
-# has the id — never estimate.sh's default-1 for an unsized id). ([14.1] hardens it.)
+# has the id — never estimate.sh's default-1 for an unsized id). An
+# unbounded_cumulative slice REMAINS eligible: only the token value degraded, its
+# compaction window is still slice-bounded (it had a prior capture). ([14.1] hardens it.)
 if [ "$COMPACTION_CYCLES" != "null" ] && [ "$SLICE_BASIS" != "since_process_start" ]; then
   EST_SH="$(cd "$(dirname "$0")" && pwd)/estimate.sh"
   SIDECAR="docs/estimates.json"
