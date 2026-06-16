@@ -6,10 +6,11 @@
 # heart-of-the-deliverable invariants this suite defends:
 #
 #   1. STRUCTURAL SPINE, n=0: with no landings yet the projection is computed
-#      ANYWAY (no refusal state) — a range × a basis claim (structural) × a scope
-#      claim (cost to COMPLETE, not total). The spine is quantity (ratified
-#      sessions over remaining work, from the resolver + the estimate sidecar) ×
-#      unit rate (the session envelope: a measured floor, the occupancy ceiling).
+#      ANYWAY (no refusal state) — a floor-anchored lower-bound band × a basis
+#      claim (structural, bound=lower_bound_only) × a scope claim (cost to
+#      COMPLETE, not total). The spine is quantity (ratified sessions over remaining
+#      work, from the resolver + the estimate sidecar) × unit rate (the measured
+#      THROUGHPUT floor; occupancy is informational, never the cost unit — [12.1]).
 #   2. LOCAL BLEND: as landings accrue in THIS control plane's metering log, the
 #      projection shifts toward the observed rate; the blend WEIGHT moves as
 #      samples accrue (more samples -> more weight on observed). History is a
@@ -152,9 +153,10 @@ echo "$DOC" | jq -e '.basis.n == 0' >/dev/null 2>&1 \
   && ok "n=0: the basis records n=0 (zero landings consulted)" \
   || no "n=0 basis.n must be 0 (got: $(echo "$DOC" | jq -c '.basis.n'))"
 
-# A RANGE: low <= high, both positive numbers (a band, not a point estimate).
+# A token band (low <= high, both positive). At n=0 [12.1] this is a lower-bound
+# POINT (low == high == remaining×floor) — asserted precisely just below.
 echo "$DOC" | jq -e '.range.low_tokens <= .range.high_tokens and .range.low_tokens > 0' >/dev/null 2>&1 \
-  && ok "n=0: the output is a RANGE (low <= high, both positive)" \
+  && ok "n=0: the output is a token band (low <= high, both positive)" \
   || no "the projection must carry a token range with low <= high (got: $(echo "$DOC" | jq -c '.range'))"
 
 # SCOPE claim: cost to COMPLETE (remaining), not total — stated on the document.
@@ -169,18 +171,26 @@ echo "$DOC" | jq -e '.spine.quantity.remaining_sessions == 6' >/dev/null 2>&1 \
   && ok "spine quantity = ratified sessions over REMAINING work (2+3+1=6)" \
   || no "remaining_sessions must sum the estimates of remaining deliverables (got: $(echo "$DOC" | jq -c '.spine.quantity'))"
 
-# The unit rate is the envelope: a measured floor bounded above by the occupancy
-# ceiling. floor <= ceiling, both positive.
-echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens > 0 and .spine.unit_rate.ceiling_tokens >= .spine.unit_rate.floor_tokens' >/dev/null 2>&1 \
-  && ok "unit rate is the envelope: measured floor <= occupancy ceiling, both positive" \
-  || no "the envelope must carry floor<=ceiling, both positive (got: $(echo "$DOC" | jq -c '.spine.unit_rate'))"
+# [12.1] throughput-native: the structural unit rate is the MEASURED floor (a true
+# lower bound on a session's THROUGHPUT). The occupancy threshold is emitted only
+# as an informational reference, NEVER as the cost ceiling (occupancy is a
+# point-in-time stock; cost-to-complete is cumulative throughput).
+echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens > 0 and (.spine.unit_rate.occupancy_reference_tokens|type=="number")' >/dev/null 2>&1 \
+  && ok "unit rate is the measured floor; occupancy is an informational reference, not the cost ceiling" \
+  || no "the unit rate must carry a positive floor + an informational occupancy reference (got: $(echo "$DOC" | jq -c '.spine.unit_rate'))"
 
-# The range is quantity × envelope: low = remaining × floor, high = remaining × ceiling.
+# [12.1] n=0: with NO throughput history the projection is a floor-anchored LOWER
+# BOUND — the band is a point at remaining × floor (low == high), and the basis
+# discloses it has no observed throughput ceiling yet (no occupancy ceiling
+# masquerading as a cost ceiling, no fabricated turn-count multiplier).
 echo "$DOC" | jq -e '
   (.spine.quantity.remaining_sessions * .spine.unit_rate.floor_tokens) == .range.low_tokens
-  and (.spine.quantity.remaining_sessions * .spine.unit_rate.ceiling_tokens) == .range.high_tokens' >/dev/null 2>&1 \
-  && ok "the range is quantity × envelope (low=remaining×floor, high=remaining×ceiling)" \
-  || no "the range must be the takeoff × the unit-rate band (got range=$(echo "$DOC" | jq -c '.range'))"
+  and .range.low_tokens == .range.high_tokens' >/dev/null 2>&1 \
+  && ok "n=0: the range is a floor-anchored lower bound (low==high==remaining×floor)" \
+  || no "n=0 range must be a point at remaining×floor (got range=$(echo "$DOC" | jq -c '.range'), floor=$(echo "$DOC" | jq -r '.spine.unit_rate.floor_tokens'))"
+echo "$DOC" | jq -e '.basis.bound == "lower_bound_only"' >/dev/null 2>&1 \
+  && ok "n=0: the basis discloses a lower-bound-only claim (no observed throughput ceiling yet)" \
+  || no "n=0 basis.bound must be \"lower_bound_only\" (got: $(echo "$DOC" | jq -c '.basis'))"
 
 # Denomination follows Spike C's rung (tokens) — never a guessed dollar conversion.
 echo "$DOC" | jq -e '.range.denomination == "tokens"' >/dev/null 2>&1 \
@@ -253,14 +263,14 @@ awk -v a="$BLEND6_RATE" -v b="$BLEND_RATE" 'BEGIN{ exit !(a <= b) }' \
 # (rising when observed >> ceiling, falling when observed << floor). At n=0 the
 # band is unchanged (purely structural) — guarded by T1 above.
 
-# (high) observed burn FAR ABOVE the occupancy ceiling (throughput >> stock):
-# the high edge must rise above the structural remaining×ceiling, and the center
+# (high) observed burn FAR ABOVE the floor lower bound (real throughput): the
+# high edge must rise above the n=0 structural remaining×floor, and the center
 # must sit inside the band.
 HB=$(mk_instance); write_tracker "$HB"
 bash "$HB/.claude/estimate.sh" set 9.7 2 "$HB/docs/estimates.json" >/dev/null 2>&1
 bash "$HB/.claude/estimate.sh" set 9.8 3 "$HB/docs/estimates.json" >/dev/null 2>&1
 HB_STRUCT=$( cd "$HB" && bash .claude/projection.sh project 2>/dev/null )
-HB_HIGH0=$(echo "$HB_STRUCT" | jq -r '.range.high_tokens')   # structural high = remaining×ceiling
+HB_HIGH0=$(echo "$HB_STRUCT" | jq -r '.range.high_tokens')   # n=0 structural high = remaining×floor
 # three landings whose per-session burn dwarfs the ceiling (throughput scale),
 # varying so observed min<mean<max (a real band, not a degenerate point).
 add_landing "$HB" 9.1 4000000
@@ -269,8 +279,8 @@ add_landing "$HB" 9.1 5000000
 HB_DOC=$( cd "$HB" && bash .claude/projection.sh project 2>/dev/null )
 HB_HIGH=$(echo "$HB_DOC" | jq -r '.range.high_tokens')
 awk -v a="$HB_HIGH" -v b="$HB_HIGH0" 'BEGIN{ exit !(a > b) }' \
-  && ok "BAND: observed burn above the ceiling RAISES the range high edge (it tracks throughput, not the occupancy stock)" \
-  || no "the range high edge must rise toward observed burn (structural high=$HB_HIGH0, blended high=$HB_HIGH)"
+  && ok "BAND: observed burn above the floor RAISES the range high edge (it tracks throughput, not the occupancy stock)" \
+  || no "the range high edge must rise toward observed burn (n=0 structural high=$HB_HIGH0, blended high=$HB_HIGH)"
 # coherence: the central blended estimate (remaining × blended_tokens) lies INSIDE
 # its own reported range — the bug was a center hundreds of × outside its band.
 echo "$HB_DOC" | jq -e '
@@ -311,12 +321,13 @@ echo "$HB_DOC" | jq -e '
   and (.spine.quantity.remaining_sessions * .spine.unit_rate.blended_high_tokens) == .range.high_tokens' >/dev/null 2>&1 \
   && ok "BAND: the document is SELF-RECONCILABLE — range = remaining × emitted blended_{low,high}_tokens" \
   || no "the range must reconcile from the emitted blended band-edge rates (unit_rate=$(echo "$HB_DOC" | jq -c '.spine.unit_rate'), range=$(echo "$HB_DOC" | jq -c '.range'))"
-# at n=0 the emitted blended edges equal the structural floor/ceiling (so the
-# structural relationship reads off directly too).
+# [12.1] at n=0 BOTH emitted blended edges equal the floor — the band is a
+# floor-anchored lower-bound point, the occupancy ceiling is retired from the
+# cost path (it no longer forms the high edge).
 echo "$HB_STRUCT" | jq -e '.spine.unit_rate.blended_low_tokens == .spine.unit_rate.floor_tokens
-  and .spine.unit_rate.blended_high_tokens == .spine.unit_rate.ceiling_tokens' >/dev/null 2>&1 \
-  && ok "BAND: at n=0 the emitted blended edges equal the structural floor/ceiling" \
-  || no "n=0 blended edges must equal floor/ceiling (got: $(echo "$HB_STRUCT" | jq -c '.spine.unit_rate'))"
+  and .spine.unit_rate.blended_high_tokens == .spine.unit_rate.floor_tokens' >/dev/null 2>&1 \
+  && ok "BAND: at n=0 BOTH blended edges equal the floor (lower-bound point; no occupancy ceiling in the band)" \
+  || no "n=0 blended edges must both equal the floor (got: $(echo "$HB_STRUCT" | jq -c '.spine.unit_rate'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T_FOREIGN — NO INPUT PATH TO FOREIGN HISTORY (the grep-assert)
@@ -500,7 +511,7 @@ jq -cn --arg ts "$PB_BANK_TS" \
     basis:{claim:"structural", n:0, observed_weight:0, observed_mean_tokens_per_session:0},
     scope:{claim:"guv-mediated cost to complete (remaining work, not total)"},
     spine:{quantity:{remaining_sessions:2, default_estimate_ids:[]},
-           unit_rate:{floor_tokens:10000, ceiling_tokens:150000, blended_tokens:10000}}}' \
+           unit_rate:{floor_tokens:10000, occupancy_reference_tokens:150000, blended_tokens:10000}}}' \
   > "$PB_CALIB"
 # TWO distinct sessions BEFORE the bank (already-spent work, out of scope)…
 add_landing_at "$PB" 9.1 6000 "session-2026-06-05-001" "2026-06-05T00:00:00Z"
@@ -537,7 +548,7 @@ jq -cn --arg ts "$PBR_BANK_TS" \
     basis:{claim:"structural", n:0, observed_weight:0, observed_mean_tokens_per_session:0},
     scope:{claim:"guv-mediated cost to complete (remaining work, not total)"},
     spine:{quantity:{remaining_sessions:2, default_estimate_ids:[]},
-           unit_rate:{floor_tokens:10000, ceiling_tokens:150000, blended_tokens:10000}}}' \
+           unit_rate:{floor_tokens:10000, occupancy_reference_tokens:150000, blended_tokens:10000}}}' \
   > "$PBR_CALIB"
 # TWO sessions BEFORE the bank at a LOW burn (3000 tokens each, already-spent)…
 add_landing_at "$PBR" 9.1 3000 "session-2026-06-05-001" "2026-06-05T00:00:00Z"
@@ -550,6 +561,69 @@ PBRGRADE=$( cd "$PBR" && bash .claude/projection.sh grade 2>/dev/null )
 echo "$PBRGRADE" | jq -e '.rate_error.actual_tokens_per_session == 90000' >/dev/null 2>&1 \
   && ok "POST-BANK: rate_error actual tokens/session counts only POST-BANK burn (90000, not the whole-log 32000)" \
   || no "rate_error.actual_tokens_per_session must be bounded to post-bank sessions (got: $(echo "$PBRGRADE" | jq -c '.rate_error'))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_GRADE_BLENDED — [12.1] grade's rate_error uses the BLENDED forecast, not the floor
+# ════════════════════════════════════════════════════════════════════════════
+# Pre-[12.1] grade compared the structural floor (occupancy-scale) against actual
+# throughput — incoherent, the same stock-vs-flow mismatch the live range had. [12.1]
+# grades the BLENDED central rate the forecast actually committed. Here: landings
+# accrue BEFORE the bank so the banked blended rate differs from the floor; the grade
+# must report that blended rate as the envelope, not the raw floor.
+GBL=$(mk_instance)
+bash "$GBL/.claude/estimate.sh" set 9.7 2 "$GBL/docs/estimates.json" >/dev/null 2>&1
+cat > "$GBL/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 9 — The Meter**
+
+## Phase 9 — The Meter
+
+_Goal: meter cost at every boundary._
+
+- ✅ **[9.1]** Session-boundary cost capture `[deps: none]`
+- 🔄 **[9.7]** Projection `[deps: 9.1]`
+MD
+# three PRE-bank landings at a high throughput (stamped in the past so they precede
+# the bank): the blended forecast rises well above the structural floor.
+add_landing_at "$GBL" 9.1 9000000 "session-2020-01-01-001" "2020-01-01T00:00:00Z"
+add_landing_at "$GBL" 9.1 9000000 "session-2020-01-02-001" "2020-01-02T00:00:00Z"
+add_landing_at "$GBL" 9.1 9000000 "session-2020-01-03-001" "2020-01-03T00:00:00Z"
+( cd "$GBL" && bash .claude/projection.sh bank ) >/dev/null 2>&1
+GBL_BLENDED=$(jq -rs '[ .[] | select(.kind=="forecast") ] | last | .spine.unit_rate.blended_tokens' "$GBL/.claude/metering/calibration.ndjson")
+GBL_FLOOR=$(jq -rs '[ .[] | select(.kind=="forecast") ] | last | .spine.unit_rate.floor_tokens' "$GBL/.claude/metering/calibration.ndjson")
+# a POST-bank landing (stamped in the future) — the in-scope outcome.
+add_landing_at "$GBL" 9.7 12000000 "session-2099-01-01-001" "2099-01-01T00:00:00Z"
+GBLGRADE=$( cd "$GBL" && bash .claude/projection.sh grade 2>/dev/null )
+echo "$GBLGRADE" | jq -e --argjson b "$GBL_BLENDED" '.rate_error.envelope_tokens == $b' >/dev/null 2>&1 \
+  && ok "GRADE: rate_error envelope is the BANKED BLENDED rate the forecast committed (not the raw floor)" \
+  || no "grade must grade the blended forecast (envelope should be $GBL_BLENDED, got: $(echo "$GBLGRADE" | jq -c '.rate_error'))"
+awk -v b="$GBL_BLENDED" -v f="$GBL_FLOOR" 'BEGIN{ exit !(b > f) }' \
+  && ok "GRADE: the banked blended rate ($GBL_BLENDED) exceeds the structural floor ($GBL_FLOOR) — non-vacuous" \
+  || no "the blended forecast must differ from the floor for this test to mean anything (blended=$GBL_BLENDED floor=$GBL_FLOOR)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_GRADE_LEGACY — a forecast banked WITHOUT blended_tokens falls back to the floor
+# ════════════════════════════════════════════════════════════════════════════
+# [12.1]'s grade reads `.spine.unit_rate.blended_tokens // .floor_tokens` — the
+# Rule-15 designed degradation for a legacy forecast banked before blended_tokens
+# existed. Exercise the FALLBACK arm directly: hand-bank a forecast whose unit_rate
+# has floor_tokens but NO blended_tokens; grade must report the floor as the envelope.
+LG=$(mk_instance)
+LG_CALIB="$LG/.claude/metering/calibration.ndjson"
+jq -cn --arg ts "2026-06-10T00:00:00Z" \
+  '{kind:"forecast", banked_at:$ts, schema:"guv.projection.v1", generated:$ts,
+    range:{low_tokens:20000, high_tokens:20000, denomination:"tokens"},
+    basis:{claim:"structural", bound:"lower_bound_only", n:0, observed_weight:0, observed_mean_tokens_per_session:0},
+    scope:{claim:"guv-mediated cost to complete (remaining work, not total)"},
+    spine:{quantity:{remaining_sessions:2, default_estimate_ids:[]},
+           unit_rate:{floor_tokens:10000, occupancy_reference_tokens:150000}}}' \
+  > "$LG_CALIB"
+add_landing_at "$LG" 9.7 50000 "session-2099-01-01-001" "2099-01-01T00:00:00Z"
+LGGRADE=$( cd "$LG" && bash .claude/projection.sh grade 2>/dev/null )
+echo "$LGGRADE" | jq -e '.rate_error.envelope_tokens == 10000' >/dev/null 2>&1 \
+  && ok "GRADE (legacy): a forecast with no blended_tokens falls back to floor_tokens (Rule-15 degradation)" \
+  || no "grade must fall back to floor_tokens for a legacy forecast (got: $(echo "$LGGRADE" | jq -c '.rate_error'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T7 — DEPS-AMEND FOLLOWS BY RECOMPUTATION: change remaining work, projection reflects it
@@ -642,32 +716,36 @@ if [ -f "$SHAPE" ]; then
   grep -qiE 'quantity error|rate error|two.*error|separable' "$SHAPE" \
     && ok "shape doc names the two separable close-time errors" \
     || no "shape doc must name quantity error and rate error"
+  grep -qiE 'throughput' "$SHAPE" && grep -qiE 'occupanc' "$SHAPE" \
+    && ok "shape doc names the throughput-vs-occupancy (flow vs stock) distinction ([12.1])" \
+    || no "shape doc must explain the cost unit is throughput, not occupancy ([12.1])"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-# T_FLOOR_CLAMP — the floor is bounded above by the ceiling (no inverted range)
+# T_OCCUPANCY_INFORMATIONAL — [12.1] occupancy no longer clamps the floor
 # ════════════════════════════════════════════════════════════════════════════
-# The spec: the envelope floor is "bounded above by [9.2]'s occupancy threshold".
-# A heavy-doc consumer fork with a LOW occupancy.threshold setpoint could measure
-# a floor that EXCEEDS the ceiling — which, unclamped, emits low_tokens >
-# high_tokens (an inverted, nonsensical range). The floor must clamp to the
-# ceiling so the band can never invert.
+# Pre-[12.1] the envelope floor was "bounded above by the occupancy threshold" and
+# clamped to it, because the band ran floor..ceiling. [12.1] retires occupancy from
+# the cost path: the floor is the MEASURED throughput lower bound and stands on its
+# own; the occupancy threshold is informational only. So a LOW occupancy setpoint
+# must NOT cap the measured floor, and the range still never inverts (both edges
+# anchor on the floor).
 I=$(mk_instance); write_tracker "$I"
 bash "$I/.claude/estimate.sh" set 9.7 2 "$I/docs/estimates.json" >/dev/null 2>&1
-# Force the ceiling BELOW the measured floor (~10k tokens from the 40k chars of
-# docs mk_instance plants): a tiny occupancy.threshold setpoint.
+# A tiny occupancy.threshold setpoint, BELOW the ~10k measured floor (40k chars of
+# docs mk_instance plants): pre-[12.1] this would have clamped the floor to 3000.
 jq '.occupancy={threshold:3000}' "$I/.claude/project.json" > "$I/.claude/project.json.tmp" \
   && mv "$I/.claude/project.json.tmp" "$I/.claude/project.json"
 DOC=$( cd "$I" && bash .claude/projection.sh project 2>/dev/null )
 
 echo "$DOC" | jq -e '.range.low_tokens <= .range.high_tokens' >/dev/null 2>&1 \
-  && ok "floor>ceiling: the range never inverts (low <= high)" \
-  || no "floor must clamp to ceiling so low <= high (got range=$(echo "$DOC" | jq -c '.range'))"
+  && ok "occupancy<floor: the range never inverts (low <= high)" \
+  || no "the range must not invert (got range=$(echo "$DOC" | jq -c '.range'))"
 
-echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens == .spine.unit_rate.ceiling_tokens
-  and .spine.unit_rate.ceiling_tokens == 3000' >/dev/null 2>&1 \
-  && ok "floor>ceiling: the floor is clamped to the ceiling (bounded above)" \
-  || no "the floor must clamp to ceiling=3000 (got floor=$(echo "$DOC" | jq -c '.spine.unit_rate.floor_tokens'), ceiling=$(echo "$DOC" | jq -c '.spine.unit_rate.ceiling_tokens'))"
+echo "$DOC" | jq -e '.spine.unit_rate.floor_tokens > .spine.unit_rate.occupancy_reference_tokens
+  and .spine.unit_rate.occupancy_reference_tokens == 3000' >/dev/null 2>&1 \
+  && ok "occupancy<floor: the floor is NOT clamped to occupancy (occupancy is the informational reference=3000)" \
+  || no "the floor must stand on its own with occupancy informational=3000 (got floor=$(echo "$DOC" | jq -c '.spine.unit_rate.floor_tokens'), occ=$(echo "$DOC" | jq -c '.spine.unit_rate.occupancy_reference_tokens'))"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

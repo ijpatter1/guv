@@ -15,25 +15,35 @@
 #              todo ⬜ + in_progress 🔄 + human_gated 🔒);
 #              deliverables lacking a ratified estimate project at the DEFAULT (1)
 #              and are DISCLOSED in default_estimate_ids.
-#   unit rate = the SESSION ENVELOPE — the fixed overhead a session carries,
-#              measured by tokenizing the actual control-plane docs a session
-#              loads (CLAUDE.md + .claude/rules/*.md), as the FLOOR, bounded ABOVE
-#              by [9.2]'s occupancy threshold as the CEILING. Floor is MEASURED;
-#              ceiling is a SETPOINT (manifest occupancy.threshold, else the
-#              window-relative default the [9.2]/[10.6] meter ships).
-#   range    = quantity × envelope: low = remaining × floor, high = remaining ×
-#              ceiling. Denomination follows Spike C's rung — TOKENS — never a
-#              guessed dollar conversion (pricing tables drift; the spec forbids
-#              the guess, exactly as [9.1]'s dollars stays null).
+#   unit rate = per-session cumulative THROUGHPUT ([12.1]) — the burn the [9.1]
+#              meter captures (input + output + cache_read + cache_creation summed
+#              across every turn), the unit a [9.3] budget is set in. The structural
+#              anchor is the MEASURED FLOOR — the fixed overhead a session loads at
+#              least once (tokenize CLAUDE.md + .claude/rules/*.md), a true LOWER
+#              BOUND on throughput. The [9.2] occupancy threshold is NOT the cost
+#              ceiling: occupancy is a point-in-time STOCK (bounded by the window),
+#              throughput is cumulative FLOW (unbounded, cache_read-dominated) — the
+#              wrong unit by orders of magnitude. Occupancy is carried only as an
+#              informational reference (occupancy_reference_tokens), never in the range.
+#   range    = quantity × the throughput band. At n=0 (no history) the band is a
+#              floor-anchored LOWER BOUND — a point at remaining × floor with
+#              basis.bound="lower_bound_only": there is no observed throughput
+#              ceiling yet and guv refuses to fabricate one (no turn-count
+#              multiplier). Denomination follows Spike C's rung — TOKENS — never a
+#              guessed dollar conversion (pricing tables drift; the spec forbids the
+#              guess, exactly as [9.1]'s dollars stays null).
 #
 # THE LOCAL BLEND ────────────────────────────────────────────────────────────────
-# Local observed rates blend into the unit rate as landings accrue. The observed
-# rate is the mean per-session token burn over THIS control plane's metering log
-# (.claude/metering/metering.ndjson — the [9.1] raw evidence). The blend WEIGHT
-# moves with the sample count (more landings -> more weight on observed): a plain
-# arithmetic weight n/(n+K) over the count, K a smoothing constant. History is a
-# WEIGHTED INPUT, never the foundation — at n=0 the weight is 0 and the spine is
-# purely structural; the structure never disappears, it is corrected in-flight.
+# Local observed THROUGHPUT blends into the unit rate as landings accrue. The
+# observed rate is the per-session token burn over THIS control plane's metering
+# log (.claude/metering/metering.ndjson — the [9.1] raw evidence): the mean drives
+# the central rate, the min/max drive the band EDGES. The blend WEIGHT moves with
+# the sample count (more landings -> more weight on observed): a plain arithmetic
+# weight n/(n+K) over the count, K a smoothing constant. All three edges anchor on
+# the floor and migrate toward observed throughput by the same weight, so the band
+# is corrected in-flight as one. History is a WEIGHTED INPUT, never the foundation —
+# at n=0 the weight is 0 and the spine is the floor-anchored lower bound; the
+# structure never disappears, it is corrected in-flight.
 #
 # NO FOREIGN HISTORY ─────────────────────────────────────────────────────────────
 # The ONLY inputs are THIS control plane's own artifacts: its metering log, its
@@ -88,11 +98,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RESOLVER="$SCRIPT_DIR/resolve-ready.sh"
 ESTIMATE="$SCRIPT_DIR/estimate.sh"
 
-# ── window-relative occupancy ceiling (mirrors the [9.2]/[10.6] meter) ──────────
-# The envelope CEILING is the occupancy threshold: the manifest setpoint if
-# present, else the documented window-relative default. We cannot see a live
-# model here (no transcript context at projection time), so the default is the
-# standard-window fallback the meter ships: 3/4 of the standard 200000 window.
+# ── window-relative occupancy REFERENCE (mirrors the [9.2]/[10.6] meter) ─────────
+# [12.1] the occupancy threshold is the manifest setpoint if present, else the
+# documented window-relative default. We cannot see a live model here (no transcript
+# context at projection time), so the default is the standard-window fallback the
+# meter ships: 3/4 of the standard 200000 window. This value is carried as an
+# INFORMATIONAL reference only (occupancy is a point-in-time stock, not a cost
+# ceiling) — it never enters the throughput range.
 STANDARD_WINDOW=200000
 CALM_FRACTION_NUM=3
 CALM_FRACTION_DEN=4
@@ -162,7 +174,9 @@ envelope_floor() {
   printf '%s' "$tok"
 }
 
-# ── the envelope CEILING: the occupancy threshold (setpoint, else default) ──────
+# ── the occupancy REFERENCE: the occupancy threshold (setpoint, else default) ───
+# [12.1] informational only — the [9.2] linkage stays visible, but it is never the
+# cost ceiling. (Function name kept for the call site; the value is occ_ref.)
 envelope_ceiling() {
   local t
   t=$(jq -r '.occupancy.threshold // empty' "$MANIFEST" 2>/dev/null)
@@ -216,14 +230,16 @@ observed_rate() {
 # ── compute the projection document (shared by project / bank) ──────────────────
 # Pure read over the local artifacts; emits one guv.projection.v1 JSON document.
 compute_projection() {
-  local floor ceiling
+  # [12.1] the cost-to-complete is denominated in cumulative session THROUGHPUT,
+  # not point-in-time occupancy. The structural unit rate is the MEASURED floor —
+  # the doc overhead a session loads at least once, a true lower bound on its
+  # throughput. The [9.2] occupancy threshold is NOT a cost ceiling (it bounds a
+  # point-in-time stock, not cumulative flow); it is carried only as an
+  # informational reference and never enters the range. No clamp: the floor stands
+  # on its own (coupling it to occupancy was the old occupancy-as-ceiling model).
+  local floor occ_ref
   floor=$(envelope_floor)
-  ceiling=$(envelope_ceiling)
-  # The floor is "bounded above by [9.2]'s occupancy threshold" (the spec wording):
-  # a measured fixed overhead that exceeds the ceiling setpoint is a degenerate
-  # config (overhead alone above the calm threshold). Clamp so the band can never
-  # invert (low <= high) — the floor is evidence, the ceiling is its upper bound.
-  [ "$floor" -gt "$ceiling" ] && floor="$ceiling"
+  occ_ref=$(envelope_ceiling)
 
   # quantity takeoff: sum ratified estimates over remaining work; disclose the
   # deliverables that fell back to the default.
@@ -251,43 +267,46 @@ EOF
   case "$omin" in ''|*[!0-9]*) omin=0 ;; esac
   case "$omax" in ''|*[!0-9]*) omax=0 ;; esac
 
-  # The structural per-session rate is the floor (the measured fixed overhead is
-  # the structural unit rate; the ceiling is the structural band's upper edge).
-  # blended = (1-w)*structural + w*observed, w = n/(n+K). Integer arithmetic via
-  # the weight numerator/denominator to stay pure-bash + deterministic. The SAME
-  # weight applies to the CENTER and to BOTH BAND EDGES, so the whole band is
-  # "corrected in-flight" toward observed throughput — not just the central rate
-  # while the band stays frozen at occupancy scale (the incoherence BUG 3 fixes:
-  # a blended central rate is throughput-scale but a static floor..ceiling band is
-  # occupancy-scale, so the center landed hundreds of × outside its own range).
+  # [12.1] the structural anchor for ALL THREE edges is the floor (the one measured
+  # throughput-relevant quantity). blended = (1-w)*floor + w*observed, w = n/(n+K),
+  # the SAME weight on the centre (->observed_mean) and both edges (->observed
+  # min/max). Integer arithmetic via the weight num/den to stay pure-bash +
+  # deterministic.
+  #   n=0 (no history): all three collapse to the floor — the projection is a
+  #        floor-anchored LOWER BOUND (a point at remaining×floor), and the basis
+  #        discloses bound="lower_bound_only": there is NO observed throughput
+  #        ceiling yet and we refuse to fabricate one (no turn-count multiplier —
+  #        the same no-guess discipline that keeps [9.1]'s dollars null). The first
+  #        banked session establishes the scale.
+  #   n>0: the band is the observed throughput spread (min..max), blended from the
+  #        floor; basis bound="observed_range". With floor as the common anchor and
+  #        min<=mean<=max, the band never inverts and the centre always lies inside.
   weight_num=$n
   weight_den=$((n + BLEND_K))
-  local basis_claim blended_rate blended_low_rate blended_high_rate observed_weight_str
+  local basis_claim basis_bound blended_rate blended_low_rate blended_high_rate observed_weight_str
   if [ "$n" -eq 0 ]; then
-    # n=0: purely structural — center = floor, band = floor..ceiling (occupancy).
     basis_claim="structural"
+    basis_bound="lower_bound_only"
     blended_rate="$floor"
     blended_low_rate="$floor"
-    blended_high_rate="$ceiling"
+    blended_high_rate="$floor"
     observed_weight_str="0"
   else
     basis_claim="blended"
-    # center: (floor*(den-num) + observed_mean*num) / den
+    basis_bound="observed_range"
+    # (floor*(den-num) + observed*num) / den — centre toward mean, edges toward min/max.
     blended_rate=$(( (floor * (weight_den - weight_num) + mean * weight_num) / weight_den ))
-    # band edges migrate by the same weight: low toward observed min, high toward
-    # observed max. floor<=ceiling (clamped) and min<=mean<=max => the band never
-    # inverts and the center always lies inside it (coherent document).
     blended_low_rate=$(( (floor * (weight_den - weight_num) + omin * weight_num) / weight_den ))
-    blended_high_rate=$(( (ceiling * (weight_den - weight_num) + omax * weight_num) / weight_den ))
+    blended_high_rate=$(( (floor * (weight_den - weight_num) + omax * weight_num) / weight_den ))
     # observed weight as a decimal string for the document (num/den)
     observed_weight_str=$(awk -v a="$weight_num" -v b="$weight_den" 'BEGIN{ printf "%.4f", a/b }')
   fi
 
-  # the range: quantity × the (possibly blended) envelope band. low = remaining ×
-  # the low edge, high = remaining × the high edge. At n=0 these are the structural
-  # floor/ceiling; once landings accrue the edges have migrated toward observed
-  # throughput, so the reported range and the central blended rate stay in the
-  # same unit and the same universe.
+  # the range: quantity × the (possibly blended) throughput band. low = remaining ×
+  # the low edge, high = remaining × the high edge. At n=0 both edges are the floor
+  # (a lower-bound point); once landings accrue the edges migrate toward observed
+  # throughput, so the reported range and the central blended rate stay in the same
+  # unit (throughput) and the same universe.
   local low high
   low=$((remaining_sessions * blended_low_rate))
   high=$((remaining_sessions * blended_high_rate))
@@ -301,13 +320,14 @@ EOF
     --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson remaining_sessions "$remaining_sessions" \
     --argjson floor "$floor" \
-    --argjson ceiling "$ceiling" \
+    --argjson occ_ref "$occ_ref" \
     --argjson blended "$blended_rate" \
     --argjson blended_low "$blended_low_rate" \
     --argjson blended_high "$blended_high_rate" \
     --argjson low "$low" \
     --argjson high "$high" \
     --arg basis "$basis_claim" \
+    --arg bound "$basis_bound" \
     --argjson n "$n" \
     --arg ow "$observed_weight_str" \
     --argjson observed_mean "$mean" \
@@ -318,6 +338,7 @@ EOF
       range: { low_tokens: $low, high_tokens: $high, denomination: "tokens" },
       basis: {
         claim: $basis,
+        bound: $bound,
         n: $n,
         observed_weight: ($ow | tonumber),
         observed_mean_tokens_per_session: $observed_mean
@@ -332,7 +353,7 @@ EOF
         },
         unit_rate: {
           floor_tokens: $floor,
-          ceiling_tokens: $ceiling,
+          occupancy_reference_tokens: $occ_ref,
           blended_tokens: $blended,
           blended_low_tokens: $blended_low,
           blended_high_tokens: $blended_high
@@ -381,7 +402,13 @@ case "$SUB" in
     # already-done work and were never in the forecast's scope. We bound on the
     # banked forecast's own timestamp (banked_at, falling back to generated).
     EST_SESSIONS=$(printf '%s' "$FORECAST" | jq -r '.spine.quantity.remaining_sessions')
-    ENVELOPE=$(printf '%s' "$FORECAST" | jq -r '.spine.unit_rate.floor_tokens')
+    # [12.1] rate layer: grade the BLENDED central rate the forecast actually
+    # committed (the cost it predicted), against actual post-bank throughput — both
+    # in the same throughput unit. NOT the raw floor (occupancy-scale pre-[12.1],
+    # which made rate_error incoherent — the same stock-vs-flow mismatch the range
+    # had). Fallback to floor_tokens for a legacy forecast banked before
+    # blended_tokens existed (designed degradation, Rule 15).
+    ENVELOPE=$(printf '%s' "$FORECAST" | jq -r '.spine.unit_rate.blended_tokens // .spine.unit_rate.floor_tokens')
     BANK_TS=$(printf '%s' "$FORECAST" | jq -r '.banked_at // .generated // empty')
     if [ -f "$LOG" ]; then
       # distinct post-bank sessions: meter entries whose ts is at/after the bank
