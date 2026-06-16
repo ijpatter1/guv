@@ -80,11 +80,20 @@ never as the cost itself.
   **inferences/session** (hundreds — the granularity at which cumulative flow
   accrues). The eval/fix term's **distribution sets the band**: the **low** edge is
   `base_build` alone (a **clean run**, no fix iterations), the **high** edge adds the
-  **fix-heavy** eval/fix loop (grounded in [13.1]'s now-in-scope subagent-reviewer
-  burn). The coefficients are calibrated against the forensic per-deliverable deltas
-  (real throughput ≈ 70–350M/session, mean ~150M): at the real 800k setpoint,
-  `occupancy_budget = 320 000` and turns `220/470/1090` give structural
-  `70.4M / 150.4M / 348.8M` — squarely in that band.
+  **fix-heavy** eval/fix loop. At the real 800k setpoint, `occupancy_budget = 320 000`
+  and turns `220/470/1090` give structural `70.4M / 150.4M / 348.8M` — in the forensic
+  band (≈70–350M/session, mean ~150M).
+  - **Calibration vs measurement** (which inputs are evidence, which are modeled): the
+    forensic deltas independently ground the **working-set fraction** (≈0.375 observed,
+    rounded to 0.4) and the **token band**. `expected_turns` is the **fitted free
+    parameter** — `turns_central` is chosen so `occupancy_budget × turns` reproduces the
+    forensic *mean* (320 000 × 470 = 150.4M; the forensics' own main-only estimate is
+    ~360 inferences/session, of which 470 is the subagent-inclusive analog). The base/eval
+    **split** (220 + 250/870) and the band **spread** are a **modeling assumption** shaped
+    to the 70–350M envelope; [13.1]'s now-in-scope subagent burn grounds the *direction*
+    (fix-heavy sessions cost more), not the exact turn counts. A measured per-session
+    inference-count distribution would refine the split — the exact reconcile lands the
+    *product* on the evidence, not three independently measured factors.
 - The **floor** (the *fixed overhead* a session loads at least once — tokenizing the
   rendered `CLAUDE.md` plus the natively-loaded `.claude/rules/*.md`, the deterministic
   **chars/4** heuristic, Rule 12) and the raw **occupancy reference** ([9.2] threshold,

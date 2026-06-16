@@ -135,10 +135,22 @@ BLEND_K=3
 #     to the floor rather than collapsing the rate to 0 (Rule 15).
 #   • expected_turns = BASE_BUILD_TURNS + an eval/fix term whose DISTRIBUTION sets the
 #     band: the low edge is base_build alone (a clean run, no fix iterations), the high
-#     edge adds the fix-heavy eval/fix loop (grounded in [13.1]'s now-in-scope subagent
-#     burn). "Turns" = inferences/session (hundreds; the unit cumulative flow counts).
+#     edge adds the fix-heavy eval/fix loop. "Turns" = inferences/session (hundreds;
+#     the unit cumulative flow counts).
 # At the real 800k setpoint: occupancy_budget=320000; turns 220/470/1090 → structural
-# 70.4M / 150.4M / 348.8M — squarely in the forensic band.
+# 70.4M / 150.4M / 348.8M — in the forensic band.
+#
+# CALIBRATION vs MEASUREMENT — be honest about which is which (Rule 10). The forensic
+# evidence independently grounds TWO inputs: the working-set fraction (≈0.375 observed,
+# ~300k/800k — rounded to 0.4) and the target token band (70–350M/session, mean ~150M).
+# expected_turns is the FITTED free parameter: turns_central is chosen so occupancy_budget
+# × turns reproduces the forensic MEAN (320000 × 470 = 150.4M; the forensics' own main-only
+# estimate is ~360 inferences/session, of which 470 is the subagent-inclusive analog). The
+# base/eval SPLIT (220 + 250/870) and the band SPREAD are a MODELING ASSUMPTION shaped to
+# reproduce the 70–350M envelope — [13.1]'s now-in-scope subagent burn grounds the
+# DIRECTION (fix-heavy sessions burn more), not the exact turn counts. A measured per-session
+# inference-count distribution would refine the split. So the exact reconcile lands the
+# PRODUCT on the evidence; it is not independent triangulation of three measured factors.
 WORKING_SET_FRACTION_NUM=2          # occupancy_budget = setpoint × 2/5 = 0.4 × setpoint
 WORKING_SET_FRACTION_DEN=5
 BASE_BUILD_TURNS=220                 # clean-run inferences (the band's LOW edge)
