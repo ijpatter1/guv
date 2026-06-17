@@ -95,6 +95,23 @@ covers the plan *and* its estimates — one gate, both ratified.
 
 ## Step 3 — Archive the completed predecessor (if Step 1 found one)
 
+First, **grade the closing initiative** ([13.4]) — the close-time settlement of the
+forecast lineage it banked. This reads the banked forecasts, grades the opening
+(plan-boundary) forecast against what actually happened, splits the miss into its two
+layers (quantity vs rate), and banks the grade so the local record learns:
+
+```bash
+bash .claude/projection.sh grade
+```
+
+Record the two-error grade in the closing session's handoff / the lineage header.
+**Best-effort, never a gate (Rule 15):** a predecessor that banked no forecast (a
+pre-[13.4] initiative) exits 4 with "no banked forecast to grade" — note "no forecast
+to grade" and continue; do not block archival on it. The banked grade also closes the
+lineage window, so the new initiative's opening forecast (Step 5) re-banks cleanly.
+
+Then archive:
+
 ```bash
 bash .claude/archive-initiative.sh --archive "<prior-initiative-name>"
 ```
@@ -139,6 +156,20 @@ Follow the phase-docs skill structures, in order, into `${roots.control}/docs/`:
    rather than letting an N > 1 estimate slip in. Validate the result: `bash
    .claude/estimate.sh validate`. The shape and rationale live in
    `.claude/estimate.shape.md`.
+
+5. **The opening forecast** ([13.4]) — with the tracker and sidecar now written, bank
+   the opening projection: the cost-to-complete forecast for the whole new initiative,
+   made at plan time (n=0 structural, no landings yet). Banked at the `plan` boundary,
+   it is the lineage's opening entry — the forecast the initiative-close grade later
+   settles ("how good was the plan?"):
+
+   ```bash
+   bash .claude/projection.sh bank --at plan
+   ```
+
+   Idempotent — re-running /plan for this same initiative does not double-bank (the
+   grade in Step 3 closed the predecessor's window, so this `--at plan` re-banks for
+   the new initiative rather than colliding with the predecessor's opening forecast).
 
 ## Step 6 — Ceremony transition
 

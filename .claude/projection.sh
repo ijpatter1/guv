@@ -65,6 +65,13 @@
 # estimated vs actual) and rate error (envelope vs actual tokens/session) — so a
 # miss NAMES ITS LAYER, and banks the grade back into the calibration record.
 #
+# ([13.4]) The bank/grade calls are WIRED INTO THE LIFECYCLE COMMANDS — /plan banks
+# the opening forecast (`--at plan`) and grades at initiative close, /handoff banks at
+# each phase boundary (`--at phase-N`) — so the projection is banked when made, never
+# by a manual call. Under a plugin install those commands are guv:-namespaced
+# (/guv:plan, /guv:handoff); this script ships byte-identical, so the bare names here
+# are the canonical references, decoded once.
+#
 # DETERMINISTIC (Rule 12). The projection is ARITHMETIC over logged data — no LLM,
 # no judgment, no agent input. Tokenization is the standard chars/4 heuristic (a
 # deterministic transform, the same approximation [9.1]'s consumers use), not a
@@ -72,14 +79,22 @@
 #
 # Usage:
 #   bash .claude/projection.sh project [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P]
-#   bash .claude/projection.sh bank    [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P]
+#   bash .claude/projection.sh bank    [--at BOUNDARY] [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P]
 #   bash .claude/projection.sh grade   [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P]
 #
 #   project  emit the projection JSON document to stdout (READ-ONLY).
 #   bank     compute the projection and APPEND it as a forecast to the calibration
-#            record (the only write to the record other than grade).
-#   grade    close-time: grade the latest banked forecast against the outcome,
-#            emit the two-error grade to stdout, and bank it (kind="grade").
+#            record (the only write to the record other than grade). [13.4] --at
+#            BOUNDARY tags the forecast with the lifecycle boundary it was banked
+#            at (e.g. `plan`, `phase-9`) — the lineage key. Banking at a boundary
+#            is IDEMPOTENT: re-banking the SAME boundary is a no-op (no double-bank
+#            on a re-run), while a different boundary appends (the lineage accrues).
+#            A bank with no --at is unconditionally appended (the manual escape hatch).
+#   grade    close-time: read the forecast lineage and grade the OPENING (plan-
+#            boundary) forecast against the outcome — degrading to the latest
+#            forecast when none was banked at `plan` — emit the two-error grade
+#            (naming the lineage entry it read in graded_forecast) to stdout, and
+#            bank it (kind="grade").
 #
 #   Paths default root-relative (cwd = the project root, the sibling convention
 #   every guv spine script carries); --root overrides the base for all defaults.
@@ -158,12 +173,12 @@ EVAL_FIX_TURNS_TYPICAL=250          # + typical eval/fix loop → central = 470
 EVAL_FIX_TURNS_HEAVY=870            # + fix-heavy eval/fix loop → high = 1090
 
 # ── arg parse ───────────────────────────────────────────────────────────────────
-[ $# -ge 1 ] || die 2 "usage: bash .claude/projection.sh project|bank|grade [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P]"
+[ $# -ge 1 ] || die 2 "usage: bash .claude/projection.sh project|bank|grade [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P] [--at BOUNDARY]"
 SUB="$1"; shift
 case "$SUB" in project|bank|grade) ;; *) die 2 "unknown subcommand '$SUB' (only: project, bank, grade)" ;; esac
 
 ROOT="."
-TRACKER=""; LOG=""; SIDECAR=""; CALIB=""
+TRACKER=""; LOG=""; SIDECAR=""; CALIB=""; AT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --root)        ROOT="${2:-}"; shift 2 ;;
@@ -171,6 +186,7 @@ while [ $# -gt 0 ]; do
     --log)         LOG="${2:-}"; shift 2 ;;
     --sidecar)     SIDECAR="${2:-}"; shift 2 ;;
     --calibration) CALIB="${2:-}"; shift 2 ;;
+    --at)          AT="${2:-}"; shift 2 ;;
     *) die 2 "unknown argument '$1'" ;;
   esac
 done
@@ -468,23 +484,64 @@ case "$SUB" in
     ;;
 
   bank)
+    # [13.4] idempotent at a named boundary: re-banking the SAME --at boundary is
+    # a no-op (the lineage carries ONE forecast per boundary; re-invoking /plan or
+    # re-running a phase-completion handoff must not double-bank). Append-only is
+    # preserved — a prior boundary's line is never rewritten. A bank with no --at
+    # (the manual escape hatch) is unconditionally appended, exactly as before.
+    #
+    # The dedup window is THIS initiative: a `grade` line marks an initiative close,
+    # so forecasts before the most recent grade belong to a CLOSED initiative and do
+    # not collide with a new one's identically-named boundary (a fresh initiative's
+    # `--at plan` must re-bank, not silently no-op against the predecessor's `plan`
+    # forecast in the accumulating ledger).
+    if [ -n "$AT" ] && [ -f "$CALIB" ] \
+       && jq -e --arg b "$AT" -s '
+            (map(.kind) | rindex("grade")) as $g
+            | (if $g == null then . else .[($g + 1):] end)
+            | any(.[]; (.kind // "") == "forecast" and (.boundary // "") == $b)
+          ' "$CALIB" >/dev/null 2>&1; then
+      echo "[projection] forecast for boundary '$AT' already banked this initiative -> $CALIB (idempotent no-op)"
+      exit 0
+    fi
     PROJ=$(compute_projection) || die 4 "failed to compute the projection to bank"
+    # tag the forecast with the boundary it was banked at (the lineage key) when
+    # one was named; a manual bank stays untagged, identical to the legacy shape.
     LINE=$(printf '%s' "$PROJ" | jq -c \
       --arg kind "forecast" \
       --arg banked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{kind:$kind, banked_at:$banked_at, schema:.schema, generated:.generated,
-        range:.range, basis:.basis, scope:.scope, spine:.spine}') \
+      --arg boundary "$AT" \
+      '{kind:$kind, banked_at:$banked_at}
+       + (if $boundary == "" then {} else {boundary:$boundary} end)
+       + {schema:.schema, generated:.generated,
+          range:.range, basis:.basis, scope:.scope, spine:.spine}') \
       || die 4 "failed to assemble the banked forecast (jq error)"
     bank_line "$LINE"
-    echo "[projection] banked forecast -> $CALIB"
+    echo "[projection] banked forecast${AT:+ (boundary: $AT)} -> $CALIB"
     ;;
 
   grade)
     # Close-time grading: compare the latest banked FORECAST against the OUTCOME
     # in the local metering log, and split the miss into its two layers.
     [ -f "$CALIB" ] || die 4 "no calibration record at $CALIB — nothing banked to grade (bank a forecast first)"
-    FORECAST=$(jq -cs '[ .[] | select(.kind=="forecast") ] | last // empty' "$CALIB" 2>/dev/null)
+    # [13.4] read the forecast lineage and grade the OPENING (plan-boundary)
+    # forecast — its scope was the whole remaining initiative, which is what a
+    # close-time grade honestly grades ("how good was the plan?"), not the last
+    # phase-boundary snapshot (closest to actual, least informative). Degrade to
+    # the most recent forecast when no plan-boundary forecast was banked (a legacy
+    # record, or manual banks with no --at) — a designed fallback, not a guess
+    # (Rule 15).
+    FORECAST=$(jq -cs '
+      [ .[] | select(.kind=="forecast") ] as $f
+      | ( [ $f[] | select(.boundary=="plan") ] | last )   # the opening forecast, if banked
+        // ( $f | last )                                    # else the most recent (degradation)
+        // empty' "$CALIB" 2>/dev/null)
     [ -n "$FORECAST" ] || die 4 "no banked forecast in $CALIB to grade against"
+    # name the lineage entry this grade read, so "the grade reads the lineage" is
+    # visible in the grade itself ("unlabeled" for a legacy/manual forecast banked
+    # without a boundary tag).
+    GRADED_BOUNDARY=$(printf '%s' "$FORECAST" | jq -r '.boundary // "unlabeled"')
+    GRADED_AT=$(printf '%s' "$FORECAST" | jq -r '.banked_at // .generated // empty')
 
     # quantity layer: estimated sessions (the forecast's takeoff) vs ACTUAL
     # sessions. The takeoff was REMAINING work AT BANK TIME, so the comparison is
@@ -540,10 +597,15 @@ case "$SUB" in
       --argjson est_sessions "$EST_SESSIONS" \
       --argjson actual_sessions "$ACTUAL_SESSIONS" \
       --argjson envelope "$ENVELOPE" \
-      --argjson actual_rate "$ACTUAL_RATE" '
+      --argjson actual_rate "$ACTUAL_RATE" \
+      --arg graded_boundary "$GRADED_BOUNDARY" \
+      --arg graded_at "$GRADED_AT" '
       {
         schema: $schema,
         generated: $generated,
+        # which lineage entry this grade read — the boundary it was banked at and
+        # when ([13.4]: the close-time grade reads the forecast lineage).
+        graded_forecast: { boundary: $graded_boundary, banked_at: $graded_at },
         # TWO SEPARABLE errors — a miss names its LAYER.
         quantity_error: {
           estimated_sessions: $est_sessions,

@@ -952,6 +952,112 @@ awk -v c="$BM_CENT" -v p="$BM_PRIOR" -v o="$BM_OBS" 'BEGIN{ exit !(c > p && c < 
   && ok "[13.3] the blend corrects the modeled prior: blended_central lies BETWEEN the prior and observed mean" \
   || no "[13.3] blended central must sit between the modeled prior and observed mean (prior=$BM_PRIOR blended=$BM_CENT observed=$BM_OBS)"
 
+# ════════════════════════════════════════════════════════════════════════════
+# T_BANK_AT — [13.4] banking at a named boundary is idempotent (no double-bank)
+# ════════════════════════════════════════════════════════════════════════════
+# [13.4] auto-banks the projection at lifecycle boundaries (/plan, each phase
+# boundary, initiative close). Re-running a boundary — re-invoking /plan, or
+# re-running a phase-completion handoff — must NOT append a second forecast for
+# that boundary, or the lineage would carry duplicates and a re-run would inflate
+# the record. The boundary identity (`--at <token>`) is the idempotency key:
+# append-only (a prior boundary's line is never rewritten) AND idempotent on the
+# boundary (re-banking the SAME boundary is a no-op). A DIFFERENT boundary still
+# appends — that is the lineage accruing.
+BA=$(mk_instance); write_tracker "$BA"
+bash "$BA/.claude/estimate.sh" set 9.7 2 "$BA/docs/estimates.json" >/dev/null 2>&1
+BA_CALIB="$BA/.claude/metering/calibration.ndjson"
+( cd "$BA" && bash .claude/projection.sh bank --at phase-9 ) >/dev/null 2>&1
+# the forecast records the boundary it was banked at (the lineage tag).
+BA_N1=$(jq -s '[ .[] | select(.kind=="forecast" and .boundary=="phase-9") ] | length' "$BA_CALIB" 2>/dev/null)
+[ "$BA_N1" = "1" ] \
+  && ok "BANK --at: a boundary bank records its boundary tag and appends ONE forecast" \
+  || no "bank --at must tag the forecast with its boundary and append once (phase-9 lines=$BA_N1)"
+# idempotent: re-banking the SAME boundary does not append a second line.
+( cd "$BA" && bash .claude/projection.sh bank --at phase-9 ) >/dev/null 2>&1
+BA_N2=$(jq -s '[ .[] | select(.kind=="forecast" and .boundary=="phase-9") ] | length' "$BA_CALIB" 2>/dev/null)
+[ "$BA_N2" = "1" ] \
+  && ok "BANK --at: re-banking the SAME boundary is a no-op (idempotent — no double-bank)" \
+  || no "re-banking the same boundary must not double-bank (phase-9 lines after re-run=$BA_N2)"
+# idempotent bank exits 0 (a no-op is success, not an error) so a re-run never fails the ceremony.
+BA_RC=$( cd "$BA" && bash .claude/projection.sh bank --at phase-9 >/dev/null 2>&1; echo $? )
+[ "$BA_RC" = "0" ] \
+  && ok "BANK --at: the idempotent no-op exits 0 (a re-run never fails the lifecycle step)" \
+  || no "an idempotent re-bank must exit 0 (got rc=$BA_RC)"
+# a DIFFERENT boundary appends — the lineage accrues.
+( cd "$BA" && bash .claude/projection.sh bank --at phase-10 ) >/dev/null 2>&1
+BA_TOT=$(jq -s '[ .[] | select(.kind=="forecast") ] | length' "$BA_CALIB" 2>/dev/null)
+[ "$BA_TOT" = "2" ] \
+  && ok "BANK --at: a DIFFERENT boundary appends — the forecast lineage accrues" \
+  || no "a different boundary must append a new forecast (total forecasts=$BA_TOT)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_LINEAGE_GRADE — [13.4] the close-time grade reads the OPENING forecast lineage
+# ════════════════════════════════════════════════════════════════════════════
+# The calibration record accrues a forecast lineage (one per boundary). At
+# initiative close the grade reads it — and grades the OPENING (plan-boundary)
+# forecast, whose scope was the whole remaining initiative, because that is the
+# forecast a close-time grade honestly grades ("how good was the plan?"), not the
+# last phase-boundary snapshot (closest to actual, least informative). The grade
+# NAMES which lineage entry it read (graded_forecast.boundary), so "the grade
+# reads the lineage" is verifiable, not asserted.
+LG=$(mk_instance); write_tracker "$LG"
+bash "$LG/.claude/estimate.sh" set 9.7 2 "$LG/docs/estimates.json" >/dev/null 2>&1
+LG_CALIB="$LG/.claude/metering/calibration.ndjson"
+( cd "$LG" && bash .claude/projection.sh bank --at plan )     >/dev/null 2>&1   # opening forecast
+( cd "$LG" && bash .claude/projection.sh bank --at phase-9 )  >/dev/null 2>&1   # a later boundary
+LG_NF=$(jq -s '[ .[] | select(.kind=="forecast") | .boundary ] | unique | length' "$LG_CALIB" 2>/dev/null)
+[ "$LG_NF" = "2" ] \
+  && ok "LINEAGE: the calibration record accrues a forecast per boundary (plan + phase-9)" \
+  || no "the lineage must accrue one forecast per distinct boundary (distinct boundaries=$LG_NF)"
+LGGRADE=$( cd "$LG" && bash .claude/projection.sh grade 2>/dev/null )
+echo "$LGGRADE" | jq -e '.graded_forecast.boundary == "plan"' >/dev/null 2>&1 \
+  && ok "GRADE: the close-time grade reads the OPENING (plan) forecast from the lineage and names it" \
+  || no "grade must read+name the plan-boundary forecast from the lineage (got: $(echo "$LGGRADE" | jq -c '.graded_forecast'))"
+# the two-layer error structure is unchanged (regression guard over the lineage read).
+echo "$LGGRADE" | jq -e 'has("quantity_error") and has("rate_error")' >/dev/null 2>&1 \
+  && ok "GRADE: reading the lineage preserves the two-layer error structure (quantity + rate)" \
+  || no "grade over a lineage must still emit quantity_error and rate_error (got: $(echo "$LGGRADE" | jq -c 'keys'))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_BANK_AT_REOPEN — [13.4] a grade (initiative close) reopens the dedup window
+# ════════════════════════════════════════════════════════════════════════════
+# The calibration record accumulates across initiatives (append-only). Idempotency
+# is scoped to THIS initiative — a grade line marks a close — so a NEW initiative's
+# `--at plan` must re-bank, not silently no-op against the predecessor's `plan`
+# forecast still in the ledger. Without this scoping the second initiative would
+# have NO opening forecast (a silent drop). Sequence: bank plan → grade (close) →
+# bank plan again must APPEND.
+RO=$(mk_instance); write_tracker "$RO"
+bash "$RO/.claude/estimate.sh" set 9.7 2 "$RO/docs/estimates.json" >/dev/null 2>&1
+RO_CALIB="$RO/.claude/metering/calibration.ndjson"
+( cd "$RO" && bash .claude/projection.sh bank --at plan ) >/dev/null 2>&1   # initiative 1 opens
+( cd "$RO" && bash .claude/projection.sh grade )          >/dev/null 2>&1   # initiative 1 closes (grade line)
+( cd "$RO" && bash .claude/projection.sh bank --at plan ) >/dev/null 2>&1   # initiative 2 opens — must re-bank
+RO_PLANS=$(jq -s '[ .[] | select(.kind=="forecast" and .boundary=="plan") ] | length' "$RO_CALIB" 2>/dev/null)
+[ "$RO_PLANS" = "2" ] \
+  && ok "REOPEN: a grade (close) reopens the window — a new initiative re-banks --at plan (no silent drop)" \
+  || no "a grade must reopen the dedup window so the next initiative re-banks (plan forecasts=$RO_PLANS, expected 2)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_WIRING — [13.4] the lifecycle banks/grades through the engine (no manual call)
+# ════════════════════════════════════════════════════════════════════════════
+# The wiring lives in the skill procedures (the meter.sh-capture convention): the
+# bank/grade calls are documented steps the skill runs, not a manual invocation.
+# This guards that the three boundaries are wired — /plan banks the opening
+# forecast and grades the closing initiative; /handoff banks at the phase
+# boundary — so the engine is actually reached by the lifecycle, not just present.
+PLAN_SKILL="$CLAUDE_DIR/skills/plan/SKILL.md"
+HANDOFF_SKILL="$CLAUDE_DIR/skills/handoff/SKILL.md"
+{ [ -f "$PLAN_SKILL" ] && grep -qE 'projection\.sh bank --at plan' "$PLAN_SKILL"; } \
+  && ok "WIRING: /plan banks the opening forecast (projection.sh bank --at plan)" \
+  || no "the /plan skill must wire the opening-forecast bank (projection.sh bank --at plan)"
+{ [ -f "$PLAN_SKILL" ] && grep -qE 'projection\.sh grade' "$PLAN_SKILL"; } \
+  && ok "WIRING: /plan grades the closing initiative at archive (projection.sh grade)" \
+  || no "the /plan skill must wire the close-time grade (projection.sh grade) before archival"
+{ [ -f "$HANDOFF_SKILL" ] && grep -qE 'projection\.sh bank --at phase' "$HANDOFF_SKILL"; } \
+  && ok "WIRING: /handoff banks at the phase boundary (projection.sh bank --at phase-<N>)" \
+  || no "the /handoff phase-completion path must wire the boundary bank (projection.sh bank --at phase-<N>)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -gt 0 ] && exit 1

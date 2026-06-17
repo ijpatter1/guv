@@ -1,4 +1,4 @@
-# Projection — shape ([9.7]; throughput-native unit model [12.1]; occupancy×turns structural prior [13.3])
+# Projection — shape ([9.7]; throughput-native unit model [12.1]; occupancy×turns structural prior [13.3]; auto-banked into the lifecycle [13.4])
 
 The **projection** is guv's estimate of the **cost to complete** the live
 initiative: a **range** carrying a **basis claim** and a **scope claim**. It is
@@ -185,9 +185,35 @@ paths.
 ## Banked forecasts and close-time grading
 
 Every projection can be **banked** — appended as a `kind:"forecast"` line to the
-calibration record (append-only NDJSON, like the metering log). At initiative
-close, **grading** compares the banked forecast against the outcome and emits
-**two separable errors** so a miss **names its layer**:
+calibration record (append-only NDJSON, like the metering log).
+
+([13.4]) Banking is **wired into the lifecycle**, not left to a manual call — the
+projection is banked **when made**, at three boundaries the skills run as documented
+steps (the `meter.sh capture` convention, not a hook):
+
+- **`/plan` → `bank --at plan`** — the **opening forecast** (n=0 structural), the cost
+  to complete the whole new initiative.
+- **`/handoff` phase-completion → `bank --at phase-<N>`** — a **gradeable
+  mid-initiative forecast**, the landings so far folded into the blend.
+- **`/plan` initiative close → `grade`** (before archival) — the close-time settlement.
+
+The `--at <boundary>` token tags the forecast with its boundary — the **lineage key**.
+Banking at a boundary is **idempotent**: re-banking the **same** boundary is a no-op
+(re-invoking `/plan`, or re-running a phase-completion handoff, never double-banks),
+while a **different** boundary appends (the lineage accrues, one forecast per boundary).
+A bank with **no `--at`** is unconditionally appended — the manual escape hatch,
+untagged and identical to the legacy shape. The dedup window is **this initiative**: a
+`grade` line marks a close, so a new initiative's `--at plan` re-banks rather than
+colliding with the predecessor's `plan` forecast still in the accumulating ledger.
+
+At initiative close, **grading** reads the forecast **lineage** and grades the
+**opening (plan-boundary) forecast** — its scope was the whole remaining initiative,
+which is what a close-time grade honestly grades ("how good was the plan?"), not the
+last phase-boundary snapshot (closest to actual, least informative). It degrades to
+the most recent forecast when none was banked at `plan` (a legacy record, or manual
+banks, Rule 15). The grade **names the lineage entry it read** in `graded_forecast`
+(`{boundary, banked_at}`), so "the grade reads the lineage" is visible in the grade
+itself. It then emits **two separable errors** so a miss **names its layer**:
 
 - **quantity error** — `estimated_sessions` (the forecast's takeoff) vs
   `actual_sessions` (distinct sessions in the local metering log occurring
@@ -221,10 +247,11 @@ projection's quantity and grows its range — purely by recomputation.
 | Command | Effect |
 | --- | --- |
 | `project` | emit the projection JSON document to stdout (**read-only**) |
-| `bank` | compute the projection and **append** it as a forecast to the calibration record |
-| `grade` | close-time: grade the latest banked forecast, emit the two-error grade, and bank it |
+| `bank [--at B]` | compute the projection and **append** it as a forecast to the calibration record; `--at B` tags the boundary (the lineage key) and makes the bank **idempotent** per boundary ([13.4]) |
+| `grade` | close-time: read the lineage, grade the **opening (plan-boundary)** forecast (degrading to the latest), emit the two-error grade naming the entry read, and bank it ([13.4]) |
 
 All three accept `--tracker`, `--log`, `--sidecar`, `--calibration`, and `--root`
-overrides; defaults are root-relative (cwd = the project root, the sibling
-convention every guv spine script carries). Pure bash + jq; no new runtime
-dependency.
+overrides; `bank` additionally accepts `--at <boundary>` (the lifecycle boundary the
+forecast is banked at — e.g. `plan`, `phase-9`). Defaults are root-relative (cwd = the
+project root, the sibling convention every guv spine script carries). Pure bash + jq;
+no new runtime dependency.

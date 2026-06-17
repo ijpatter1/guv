@@ -315,7 +315,21 @@ distinctly — "N human-gated (awaiting `docs/manual/`)" — under **Blocked** i
 the handoff artifact with the manual artifact named, never silently folded into
 the dependency-blocked count.
 
-If the phase is complete, generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage (the evaluator handles that) or spec alignment (the product reviewer handles that), but real-world workflows from start to finish.
+If the phase is complete, **first bank the phase-boundary forecast** ([13.4]) — a
+gradeable mid-initiative projection of the cost to complete the rest of the
+initiative, made at this phase boundary with the landings so far folded into the
+blend:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/projection.sh bank --at phase-<N>
+```
+
+Substitute the completed phase number for `<N>` (e.g. `--at phase-9`). Idempotent —
+re-running the handoff for this same completed phase does not double-bank. The entry
+joins the forecast lineage the initiative-close grade reads; no manual `bank` call is
+needed, here or anywhere in the lifecycle.
+
+Then generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage (the evaluator handles that) or spec alignment (the product reviewer handles that), but real-world workflows from start to finish.
 
 ### Generating the UAT Plan
 
