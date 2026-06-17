@@ -1001,22 +1001,82 @@ BA_TOT=$(jq -s '[ .[] | select(.kind=="forecast") ] | length' "$BA_CALIB" 2>/dev
 # NAMES which lineage entry it read (graded_forecast.boundary), so "the grade
 # reads the lineage" is verifiable, not asserted.
 LG=$(mk_instance); write_tracker "$LG"
+# Make the two forecasts DISTINGUISHABLE by their takeoff, so the grade's
+# estimated_sessions proves WHICH forecast was graded — not just its label (Rule 8:
+# verify the consequence, not the tag). Plan-time: all three open (9.7,9.8,9.9) with
+# estimates 2+3+1(default) = remaining_sessions 6. Phase-boundary (below): only 9.9
+# open = remaining_sessions 1. The two takeoffs (6 vs 1) are the discriminator.
 bash "$LG/.claude/estimate.sh" set 9.7 2 "$LG/docs/estimates.json" >/dev/null 2>&1
+bash "$LG/.claude/estimate.sh" set 9.8 3 "$LG/docs/estimates.json" >/dev/null 2>&1
 LG_CALIB="$LG/.claude/metering/calibration.ndjson"
-( cd "$LG" && bash .claude/projection.sh bank --at plan )     >/dev/null 2>&1   # opening forecast
-( cd "$LG" && bash .claude/projection.sh bank --at phase-9 )  >/dev/null 2>&1   # a later boundary
+( cd "$LG" && bash .claude/projection.sh bank --at plan ) >/dev/null 2>&1          # opening forecast (takeoff 6)
+# advance to the phase boundary: 9.7 + 9.8 land, leaving only 9.9 open, so the
+# phase-9 forecast's takeoff is 1 — distinct from the plan-time 6.
+cat > "$LG/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 9 — The Meter**
+
+## Phase 9 — The Meter
+
+_Goal: meter cost at every boundary._
+
+- ✅ **[9.1]** Session-boundary cost capture `[deps: none]`
+- ✅ **[9.7]** Projection `[deps: 9.1]`
+- ✅ **[9.8]** A ready deliverable `[deps: 9.1]`
+- ⬜ **[9.9]** A blocked deliverable `[deps: 9.8]`
+MD
+( cd "$LG" && bash .claude/projection.sh bank --at phase-9 ) >/dev/null 2>&1       # later forecast (takeoff 1)
 LG_NF=$(jq -s '[ .[] | select(.kind=="forecast") | .boundary ] | unique | length' "$LG_CALIB" 2>/dev/null)
 [ "$LG_NF" = "2" ] \
   && ok "LINEAGE: the calibration record accrues a forecast per boundary (plan + phase-9)" \
   || no "the lineage must accrue one forecast per distinct boundary (distinct boundaries=$LG_NF)"
 LGGRADE=$( cd "$LG" && bash .claude/projection.sh grade 2>/dev/null )
-echo "$LGGRADE" | jq -e '.graded_forecast.boundary == "plan"' >/dev/null 2>&1 \
-  && ok "GRADE: the close-time grade reads the OPENING (plan) forecast from the lineage and names it" \
-  || no "grade must read+name the plan-boundary forecast from the lineage (got: $(echo "$LGGRADE" | jq -c '.graded_forecast'))"
+# CONSEQUENCE, not label: grade's estimated_sessions is the PLAN-time takeoff (6),
+# not the phase-boundary takeoff (1) — proof it read+graded the OPENING forecast,
+# whose scope was the whole initiative. A wrong selection (the latest) would read 1.
+echo "$LGGRADE" | jq -e '.graded_forecast.boundary == "plan" and .quantity_error.estimated_sessions == 6' >/dev/null 2>&1 \
+  && ok "GRADE: reads+grades the OPENING (plan) forecast — estimated_sessions is the plan-time takeoff (6), not the phase-9 takeoff (1)" \
+  || no "grade must grade the plan forecast's takeoff, not a later boundary's (got: $(echo "$LGGRADE" | jq -c '{boundary:.graded_forecast.boundary, est:.quantity_error.estimated_sessions}'))"
 # the two-layer error structure is unchanged (regression guard over the lineage read).
 echo "$LGGRADE" | jq -e 'has("quantity_error") and has("rate_error")' >/dev/null 2>&1 \
   && ok "GRADE: reading the lineage preserves the two-layer error structure (quantity + rate)" \
   || no "grade over a lineage must still emit quantity_error and rate_error (got: $(echo "$LGGRADE" | jq -c 'keys'))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_GRADE_DEGRADE — [13.4] no plan forecast → grade degrades to the LATEST, names it
+# ════════════════════════════════════════════════════════════════════════════
+# The realistic inaugural-initiative state: only phase boundaries were banked, no
+# `plan` forecast (a pre-[13.4] project, or one whose opening forecast predates the
+# wiring). grade must DEGRADE to the most recent forecast and NAME it — a designed
+# fallback (Rule 15), not a die. Two phase forecasts, no plan → grade reads phase-7.
+DG=$(mk_instance); write_tracker "$DG"
+bash "$DG/.claude/estimate.sh" set 9.7 2 "$DG/docs/estimates.json" >/dev/null 2>&1
+( cd "$DG" && bash .claude/projection.sh bank --at phase-6 ) >/dev/null 2>&1
+( cd "$DG" && bash .claude/projection.sh bank --at phase-7 ) >/dev/null 2>&1
+DGGRADE=$( cd "$DG" && bash .claude/projection.sh grade 2>/dev/null )
+echo "$DGGRADE" | jq -e '.graded_forecast.boundary == "phase-7"' >/dev/null 2>&1 \
+  && ok "GRADE DEGRADE: with no plan forecast, grade reads the LATEST boundary forecast and names it (phase-7)" \
+  || no "grade must degrade to the most recent forecast when no plan forecast exists (got: $(echo "$DGGRADE" | jq -c '.graded_forecast'))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_AT_NOVALUE — [13.4] a value-less --at fails loud, never spins (Rule 15)
+# ════════════════════════════════════════════════════════════════════════════
+# A bare `shift 2` on a single remaining positional leaves it in place — an infinite
+# loop. A value-less trailing flag must be a loud usage error (exit 2), not a silent
+# hang (the worst Rule-15 failure: neither a designed degradation nor a loud stop).
+NV=$(mk_instance); write_tracker "$NV"
+NV_RC=$( cd "$NV" && bash .claude/projection.sh bank --at >/dev/null 2>&1; echo $? )
+[ "$NV_RC" = "2" ] \
+  && ok "ARG: a value-less trailing --at fails loud (exit 2), never spins (Rule 15)" \
+  || no "bank --at with no value must exit 2, not hang or succeed (got rc=$NV_RC)"
+# the guard is ONE alternation over every value-taking flag, not an --at special-case
+# — pin a sibling so a future split that drops a flag is caught (the pattern was the
+# pre-existing hang [13.4] fixed wholesale).
+NV_RC2=$( cd "$NV" && bash .claude/projection.sh project --root >/dev/null 2>&1; echo $? )
+[ "$NV_RC2" = "2" ] \
+  && ok "ARG: the value-less guard covers every value flag (a sibling --root also exits 2)" \
+  || no "the shared value-guard must cover all flags, not just --at (project --root rc=$NV_RC2)"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T_BANK_AT_REOPEN — [13.4] a grade (initiative close) reopens the dedup window
@@ -1048,9 +1108,13 @@ RO_PLANS=$(jq -s '[ .[] | select(.kind=="forecast" and .boundary=="plan") ] | le
 # boundary — so the engine is actually reached by the lifecycle, not just present.
 PLAN_SKILL="$CLAUDE_DIR/skills/plan/SKILL.md"
 HANDOFF_SKILL="$CLAUDE_DIR/skills/handoff/SKILL.md"
+INIT_SKILL="$CLAUDE_DIR/skills/init-project/SKILL.md"
 { [ -f "$PLAN_SKILL" ] && grep -qE 'projection\.sh bank --at plan' "$PLAN_SKILL"; } \
   && ok "WIRING: /plan banks the opening forecast (projection.sh bank --at plan)" \
   || no "the /plan skill must wire the opening-forecast bank (projection.sh bank --at plan)"
+{ [ -f "$INIT_SKILL" ] && grep -qE 'projection\.sh bank --at plan' "$INIT_SKILL"; } \
+  && ok "WIRING: /init-project banks the greenfield opening forecast (projection.sh bank --at plan)" \
+  || no "the /init-project skill must wire the greenfield opening-forecast bank (projection.sh bank --at plan)"
 { [ -f "$PLAN_SKILL" ] && grep -qE 'projection\.sh grade' "$PLAN_SKILL"; } \
   && ok "WIRING: /plan grades the closing initiative at archive (projection.sh grade)" \
   || no "the /plan skill must wire the close-time grade (projection.sh grade) before archival"

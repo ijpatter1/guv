@@ -180,13 +180,21 @@ case "$SUB" in project|bank|grade) ;; *) die 2 "unknown subcommand '$SUB' (only:
 ROOT="."
 TRACKER=""; LOG=""; SIDECAR=""; CALIB=""; AT=""
 while [ $# -gt 0 ]; do
+  # Every flag here takes a value. A value-less TRAILING flag must fail loud, not
+  # spin: a bare `shift 2` on a single remaining positional leaves it in place, so
+  # the loop never advances — an infinite hang, the worst Rule-15 failure (a silent
+  # non-stop is neither a designed degradation nor a loud stop). Guard once, here.
   case "$1" in
-    --root)        ROOT="${2:-}"; shift 2 ;;
-    --tracker)     TRACKER="${2:-}"; shift 2 ;;
-    --log)         LOG="${2:-}"; shift 2 ;;
-    --sidecar)     SIDECAR="${2:-}"; shift 2 ;;
-    --calibration) CALIB="${2:-}"; shift 2 ;;
-    --at)          AT="${2:-}"; shift 2 ;;
+    --root|--tracker|--log|--sidecar|--calibration|--at)
+      [ $# -ge 2 ] || die 2 "$1 requires a value" ;;
+  esac
+  case "$1" in
+    --root)        ROOT="$2"; shift 2 ;;
+    --tracker)     TRACKER="$2"; shift 2 ;;
+    --log)         LOG="$2"; shift 2 ;;
+    --sidecar)     SIDECAR="$2"; shift 2 ;;
+    --calibration) CALIB="$2"; shift 2 ;;
+    --at)          AT="$2"; shift 2 ;;
     *) die 2 "unknown argument '$1'" ;;
   esac
 done

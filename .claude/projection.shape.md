@@ -191,8 +191,10 @@ calibration record (append-only NDJSON, like the metering log).
 projection is banked **when made**, at three boundaries the skills run as documented
 steps (the `meter.sh capture` convention, not a hook):
 
-- **`/plan` → `bank --at plan`** — the **opening forecast** (n=0 structural), the cost
-  to complete the whole new initiative.
+- **`/plan` (or `/init-project` greenfield) → `bank --at plan`** — the **opening
+  forecast** (n=0 structural), the cost to complete the whole new initiative. The
+  greenfield door banks against default estimates (disclosed) since it does not yet
+  ratify per-deliverable sizing (a [13.2] follow-up).
 - **`/handoff` phase-completion → `bank --at phase-<N>`** — a **gradeable
   mid-initiative forecast**, the landings so far folded into the blend.
 - **`/plan` initiative close → `grade`** (before archival) — the close-time settlement.
@@ -233,7 +235,13 @@ itself. It then emits **two separable errors** so a miss **names its layer**:
   blend reads the full observed history.
 
 The grade is banked back (`kind:"grade"`) so the **local** calibration record
-learns from the close.
+learns from the close. Unlike a boundary forecast, the grade is **append-only and
+not idempotent by design**: it is an *outcome measurement*, not a banked forecast —
+re-running it after more sessions have landed legitimately yields a *different*
+grade, and the record honestly accrues each measurement. (The bank dedup window keys
+on the **latest** `grade` line, so an extra grade only reopens the next initiative's
+window — it never corrupts the lineage.) The per-boundary idempotency the acceptance
+requires is a property of `bank`, not `grade`.
 
 ## `/replan` follows by recomputation
 

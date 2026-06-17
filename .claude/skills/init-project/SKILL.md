@@ -147,6 +147,26 @@ current-state/target-state framing.
 Write `docs/PHASE_STATUS.md` per the phase-docs skill, copying every deliverable
 **verbatim** from the REQUIREMENTS.md you just generated, all ⬜.
 
+### Step 5b — Bank the opening forecast ([13.4])
+
+With the tracker written and the manifest `phased`, bank the **opening forecast** —
+the cost-to-complete projection for the whole new project, made at project open (n=0
+structural, no landings yet). It is the greenfield analog of `/plan`'s opening
+forecast and is banked at the same `plan` boundary, so the lineage starts at the
+opening forecast and a future initiative-close `grade` settles it ("how good was the
+plan?"):
+
+```bash
+bash .claude/projection.sh bank --at plan
+```
+
+Idempotent — re-running this door does not double-bank. Greenfield init does not yet
+ratify per-deliverable sizing (the [13.2] rubric step `/plan` runs), so this takeoff
+leans on the **default** estimate (1 per deliverable) and **discloses** it in
+`spine.quantity.default_estimate_ids` — an honest opening forecast, sharpened as
+estimates are ratified and landings accrue. (Ratifying sizing here is a [13.2]
+follow-up, out of [13.4]'s scope.)
+
 ### Step 6 — Render CLAUDE.md
 
 The manifest was already written in Step 2. Now **render the inert template into a live
