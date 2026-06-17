@@ -286,6 +286,16 @@ for the person's decision. The machinery never raises a setpoint; raising the
 ceiling is a human commit to `budgets.{initiative,session}.tokens` in
 `project.json` (the commit is the provenance — no approval flow, no side channel).
 
+**If the gate emits a `[budget-gate] FORESEEN BREACH` line** (a [13.5] foreseen
+breach: burn-to-date plus the projection's cost-to-complete is forecast to exceed the
+initiative budget — exit **0**, not a stop), record it in the handoff artifact under
+**Issues & Technical Debt** (or **Blocked**), verbatim. Like the [13.6] balloon in
+Step 6b, a foreseen breach is a **declaration, not a hard stop** — a deliverable
+budget is fuzzy (the projection is a range), so the gate does **not** pause for it;
+it is a human signal for the **extend / harvest / re-plan** call at this boundary. It
+must reach the *written* record a person reads later, not only the live output. Do
+not stop the handoff for it (it exited 0); do surface it.
+
 ## Step 7 — Update Phase Status
 
 **Phased projects only.** Read `ceremony` from `.claude/project.json`. If it is not

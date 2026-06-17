@@ -69,14 +69,16 @@ mk_project() {
   printf '# handoff\n' > "$d/docs/sessions/session-2026-06-14-001.md"
   # Metering log: one prior-session entry carrying iextra burn, one current-
   # session entry carrying sburn. tokens split across classes to prove the gate
-  # sums classes, not just input_tokens.
+  # sums classes, not just input_tokens. Entries carry the post-[13.6]
+  # slice_basis:"per_deliverable" — bounded per-session slices, summed directly
+  # (the go-forward shape the slice-aware burn reads; [13.5]).
   local h r
   h=$((sburn / 2)); r=$((sburn - sburn / 2))
   {
     jq -nc --argjson t "$iextra" \
-      '{schema:"guv.meter.v1",session:"session-2026-06-14-001",deliverable_ids:["9.0"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},perf:{}}'
+      '{schema:"guv.meter.v1",session:"session-2026-06-14-001",deliverable_ids:["9.0"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",perf:{}}'
     jq -nc --argjson a "$h" --argjson b "$r" \
-      '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.3"],tokens:{input:$a,output:0,cache_read:$b,cache_creation:0},perf:{}}'
+      '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.3"],tokens:{input:$a,output:0,cache_read:$b,cache_creation:0},slice_basis:"per_deliverable",perf:{}}'
   } > "$d/.claude/metering/metering.ndjson"
   echo "$d"
 }
@@ -363,6 +365,150 @@ HOUT2=$( cd "$HP2" && printf '%s' '{"hook_event_name":"SessionStart","source":"s
 grep -qE 'budget-gate\.sh.*exit' "$HANDOFF_SKILL" 2>/dev/null \
   && ok "the session-close path (handoff skill) invokes budget-gate.sh at the EXIT boundary" \
   || no "the gate is NOT wired at session exit (the header's exit claim is unbacked)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# [13.5] BUDGET-GATE READS THE PROJECTION — tension on the FORECAST, not just burn
+# ════════════════════════════════════════════════════════════════════════════
+# A project carrying the projection's inputs (tracker + estimate sidecar), so the
+# gate's [13.5] foreseen check has a LIVE projection to read. Burn lands as a bounded
+# per-session slice. The caller sets the budget AFTER reading the projection's
+# cost-to-complete, so the assertions are robust to the [13.3] rate constants.
+#   mk_proj <session_burn>  -> echoes the dir (no budget set yet)
+mk_proj() {
+  local sburn="$1"
+  local d; d=$(mktemp -d "$WORK/pj.XXXXXX")
+  mkdir -p "$d/.claude/metering" "$d/.claude/rules" "$d/docs/sessions"
+  jq -nc '{name:"x",language:"shell",roots:{control:".",code:"."},commands:{},scaffoldCheck:"true",ceremony:"phased"}' > "$d/.claude/project.json"
+  printf '# handoff\n' > "$d/docs/sessions/session-2026-06-15-001.md"
+  # a realistic floor so the projection's structural rate is stable
+  head -c 24000 /dev/zero | tr '\0' 'x' > "$d/CLAUDE.md"
+  head -c 16000 /dev/zero | tr '\0' 'y' > "$d/.claude/rules/guv-core.md"
+  cat > "$d/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 13 — Operationalize**
+
+## Phase 13 — Operationalize
+
+- ✅ **[13.1]** done `[deps: none]`
+- ⬜ **[13.4]** open `[deps: none]`
+- ⬜ **[13.5]** open `[deps: none]`
+MD
+  bash "$ROOT/.claude/estimate.sh" set 13.4 1 "$d/docs/estimates.json" >/dev/null 2>&1
+  bash "$ROOT/.claude/estimate.sh" set 13.5 1 "$d/docs/estimates.json" >/dev/null 2>&1
+  jq -nc --argjson t "$sburn" \
+    '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["13.4"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",perf:{}}' \
+    > "$d/.claude/metering/metering.ndjson"
+  echo "$d"
+}
+set_init_budget() { jq --argjson b "$2" '.budgets = {initiative:{tokens:$b}}' "$1/.claude/project.json" > "$1/.b" && mv "$1/.b" "$1/.claude/project.json"; }
+# the projection's central cost-to-complete = remaining_sessions × blended rate
+proj_ctc() { ( cd "$1" && bash "$ROOT/.claude/projection.sh" project 2>/dev/null ) | jq -r '(.spine.quantity.remaining_sessions // 0) * (.spine.unit_rate.blended_tokens // 0)'; }
+
+# ── FORESEEN BREACH: projected cost-to-complete + burn exceeds the setpoint ──
+# burn-to-date alone is WITHIN budget (no actual breach), but burn + projected
+# cost-to-complete would exceed the initiative setpoint. The gate must DECLARE the
+# foreseen breach loudly — and NOT stop (exit 0): a deliverable-budget breach is
+# fuzzy (the projection is a range), a signal for a human at the boundary, never a
+# mid-flight hard stop.
+PF=$(mk_proj 10000000)                       # 10M burn-to-date (bounded slice)
+CTC=$(proj_ctc "$PF")
+set_init_budget "$PF" $(( 10000000 + CTC / 2 ))   # burn(10M) < budget < burn+CTC
+FOUT=$(gate "$PF" exit); FRC=$?
+echo "$FOUT" | grep -qi 'foreseen' \
+  && ok "[13.5] FORESEEN: the gate declares the projected breach (burn + cost-to-complete > setpoint)" \
+  || no "[13.5] the gate must declare a foreseen breach (out='$FOUT')"
+[ "$FRC" -eq 0 ] \
+  && ok "[13.5] FORESEEN is a DECLARATION, not a stop (exit 0 — never a mid-flight hard stop)" \
+  || no "[13.5] a foreseen breach must NOT stop the session (exit 0); got rc=$FRC"
+# the declaration carries the burn + the projection so a human can decide
+echo "$FOUT" | grep -q "10000000" \
+  && ok "[13.5] FORESEEN surfaces burn-to-date and the projection (the human's decision inputs)" \
+  || no "[13.5] the foreseen declaration must surface the burn + projection (out='$FOUT')"
+
+# ── WITHIN BUDGET (even projected): silent ──
+PW=$(mk_proj 10000000); CTCW=$(proj_ctc "$PW")
+set_init_budget "$PW" $(( 10000000 + CTCW * 3 ))   # setpoint far above burn + CTC
+WOUT=$(gate "$PW" exit); WRC=$?
+[ "$WRC" -eq 0 ] && [ -z "$WOUT" ] \
+  && ok "[13.5] within budget (even projected): silent (no foreseen banner, exit 0)" \
+  || no "[13.5] within projected budget must be silent (rc=$WRC out='$WOUT')"
+
+# ── NEVER AUTO-RAISES on a foreseen breach (the manifest is byte-identical) ──
+PR=$(mk_proj 10000000); CTCR=$(proj_ctc "$PR"); set_init_budget "$PR" $(( 10000000 + CTCR / 2 ))
+PRE=$(cd "$PR" && shasum .claude/project.json)
+gate "$PR" exit >/dev/null 2>&1
+POST=$(cd "$PR" && shasum .claude/project.json)
+[ "$PRE" = "$POST" ] \
+  && ok "[13.5] a foreseen breach raises NO setpoint (manifest byte-identical after the gate)" \
+  || no "[13.5] the gate must never mutate the budget on a foreseen breach"
+
+# ── DEGRADES when no projection is available (no tracker) ──
+# A budget but NO tracker -> no projection to read; the foreseen check degrades
+# silently to burn-only (no crash, no fabricated breach; Rule 15). Burn << budget.
+PD=$(mk_project '{"initiative":{"tokens":100000000}}' 10000 0)   # no tracker
+DOUT=$(gate "$PD" exit); DRC=$?
+[ "$DRC" -eq 0 ] && [ -z "$DOUT" ] \
+  && ok "[13.5] absent projection -> foreseen check degrades silently to burn-only (no crash)" \
+  || no "[13.5] absent projection must degrade to burn-only silently (rc=$DRC out='$DOUT')"
+
+# ── SLICE-AWARE burn: legacy cumulative entries are DIFFERENCED, not raw-summed ──
+# [13.6] made entries bounded per-session slices; legacy (pre-[13.6]) entries are
+# cumulative running totals, migrated to per-session deltas at read time. budget-gate
+# (disclosed in [13.6] as not-yet-slice-aware) must read burn the same way: a session
+# whose legacy cumulatives are 40000 then 100000 has burn 100000 (deltas 40000+60000),
+# NOT the raw sum 140000. With a 120000 session budget the slice-aware burn (100000) is
+# WITHIN -> silent; a raw sum (140000) would falsely breach.
+SL=$(mk_project '{"session":{"tokens":120000}}' 0 0)
+cat > "$SL/.claude/metering/metering.ndjson" <<'NDJSON'
+{"schema":"guv.meter.v1","session":"session-2026-06-15-001","runtime_session":"rs1","deliverable_ids":["9.3"],"tokens":{"input":40000,"output":0,"cache_read":0,"cache_creation":0},"perf":{}}
+{"schema":"guv.meter.v1","session":"session-2026-06-15-001","runtime_session":"rs1","deliverable_ids":["9.3"],"tokens":{"input":100000,"output":0,"cache_read":0,"cache_creation":0},"perf":{}}
+NDJSON
+SLOUT=$(gate "$SL" exit); SLRC=$?
+[ "$SLRC" -eq 0 ] && [ -z "$SLOUT" ] \
+  && ok "[13.5] slice-aware: legacy cumulatives are differenced (burn 100000, not raw 140000) -> within 120000, silent" \
+  || no "[13.5] burn must difference legacy cumulatives, not raw-sum them (rc=$SLRC out='$SLOUT')"
+
+# ── SLICE-AWARE burn: unbounded_cumulative entries are EXCLUDED ──
+# A slice_basis:"unbounded_cumulative" entry (the [13.6] disclosed degradation) is NOT
+# a per-session slice and must not count toward burn — else one cumulative snapshot
+# fabricates a breach. A 10000 bounded slice + a 999999999 unbounded entry has burn
+# 10000 (within a 100000 budget) -> silent; counting the unbounded entry would breach.
+UB=$(mk_project '{"session":{"tokens":100000}}' 0 0)
+cat > "$UB/.claude/metering/metering.ndjson" <<'NDJSON'
+{"schema":"guv.meter.v1","session":"session-2026-06-15-001","deliverable_ids":["9.3"],"tokens":{"input":10000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+{"schema":"guv.meter.v1","session":"session-2026-06-15-001","runtime_session":"rs2","deliverable_ids":["9.3"],"tokens":{"input":999999999,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"unbounded_cumulative","perf":{}}
+NDJSON
+UBOUT=$(gate "$UB" exit); UBRC=$?
+[ "$UBRC" -eq 0 ] && [ -z "$UBOUT" ] \
+  && ok "[13.5] slice-aware: unbounded_cumulative entries are excluded from burn (no fabricated breach)" \
+  || no "[13.5] unbounded_cumulative must not count toward burn (rc=$UBRC out='$UBOUT')"
+
+# ── SLICE-AWARE burn: a legacy runtime_session SPANNING sessions differences correctly ──
+# The SESSION-scoped read must difference legacy cumulatives over the FULL series and
+# THEN keep the current session's deltas — NOT filter by session first (which drops the
+# baseline, so the first survivor counts its FULL cumulative, reintroducing the ~4.6×
+# inflation the migration killed — observed on the live log at ~21.6×). rs1 spans a
+# PRIOR session (cumulative 40000) and the CURRENT session (cumulative 100000); the
+# current session's burn is the DELTA 60000, not the raw 100000. With an 80000 session
+# budget, 60000 is within -> silent; the baseline-loss bug computes 100000 and breaches.
+XS=$(mk_project '{"session":{"tokens":80000}}' 0 0)
+cat > "$XS/.claude/metering/metering.ndjson" <<'NDJSON'
+{"schema":"guv.meter.v1","session":"session-2026-06-14-001","runtime_session":"rs1","deliverable_ids":["9.3"],"tokens":{"input":40000,"output":0,"cache_read":0,"cache_creation":0},"perf":{}}
+{"schema":"guv.meter.v1","session":"session-2026-06-15-001","runtime_session":"rs1","deliverable_ids":["9.3"],"tokens":{"input":100000,"output":0,"cache_read":0,"cache_creation":0},"perf":{}}
+NDJSON
+XSOUT=$(gate "$XS" exit); XSRC=$?
+[ "$XSRC" -eq 0 ] && [ -z "$XSOUT" ] \
+  && ok "[13.5] slice-aware: a cross-session legacy runtime_session differences over the FULL series (current burn 60000, not raw 100000) -> within 80000, silent" \
+  || no "[13.5] cross-session legacy must difference full-series then filter (baseline-loss inflates SESSION_BURN); rc=$XSRC out='$XSOUT'"
+
+# ── the handoff RECORDS a foreseen breach (the acceptance: declared in the handoff) ──
+# A foreseen breach exits 0 (no stop), so it reaches the written record only if the
+# session-close path captures it — like the [13.6] balloon. The handoff skill must
+# document recording the gate's FORESEEN line.
+grep -qi 'FORESEEN BREACH' "$HANDOFF_SKILL" 2>/dev/null \
+  && ok "[13.5] the handoff skill records a FORESEEN declaration (it reaches the written handoff, not just live output)" \
+  || no "[13.5] the handoff must capture the gate's FORESEEN declaration (acceptance: declared in the session handoff)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
