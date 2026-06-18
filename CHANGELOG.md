@@ -5,6 +5,40 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.6.0 — 2026-06-18
+
+Minor release (0.x): **Phase 13 — the meter operationalized and calibrated, on a
+throughput-native projection.** Cost is denominated in throughput (not occupancy); each
+deliverable's burn is a bounded per-session slice rather than the cumulative transcript;
+the structural rate is modeled (occupancy × turns) not floored; the projection auto-banks
+across the lifecycle and grades at close; the budget-gate tensions the forecast, not just
+the burn; and plan-time estimates are sized to a context budget via a dual-form sidecar.
+
+### Added
+
+- **Plan-time context-sizing** ([13.2]) — `estimate.sh` dual-form sidecar (legacy integer OR
+  sized `{sessions,fraction,size}`) + `set-sized`, ratifying against a light/medium/heavy
+  rubric keyed to a fraction of the session budget; a >1-session deliverable is a balloon to
+  SPLIT, not estimate as N. `/plan` and `/replan` teach the rubric.
+- **Per-deliverable cost metering** ([13.6]) — burn recorded as a bounded transcript slice
+  across the compaction cycles a deliverable spans, each entry self-describing its slice basis.
+- **Projection auto-banking** ([13.4]) — forecasts bank at `/plan` + each phase boundary and
+  grade at close; idempotent, append-only.
+- **Subagent-reviewer burn capture** ([13.1]) in the meter harvest.
+
+### Changed
+
+- **Throughput-native projection** ([12.1]) — throughput is the unit; occupancy retired to
+  an informational reference.
+- **Modeled structural rate** ([13.3]) — n=0 rate = `occupancy_budget × expected_turns`, a
+  real central estimate superseding the doc-overhead floor.
+- **Budget-gate reads the projection** ([13.5]) — tensions cost-to-complete vs the plan-time
+  budget; a breach can be FORESEEN and declared, not only detected after the burn.
+
+### Fixed
+
+- **Projection band coherence** ([9.7]) — blend the range edges, not just the centre.
+
 ## 0.5.0 — 2026-06-16
 
 Minor release (0.x): **Phase 9 (the meter) and Phase 11 (multi-repo topology) complete.**
