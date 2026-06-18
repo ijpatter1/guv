@@ -96,6 +96,17 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/continuation-checkpoint.sh"
+          }
+        ]
+      }
     ]
   }
 }

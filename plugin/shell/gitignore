@@ -33,6 +33,9 @@ sandbox/tmp/
 .worktrees/
 # guv lane failure reports + collected lane outputs (lane-dispatch.sh — scratch)
 .lane-reports/
+# guv continuation checkpoint (continuation-checkpoint.sh PreCompact hook — a
+# resume breadcrumb rewritten on every compaction; runtime artifact, not tracked)
+.claude/continuation-checkpoint.json
 # guv-core-end
 
 # ─────────────────────────────────────────────
