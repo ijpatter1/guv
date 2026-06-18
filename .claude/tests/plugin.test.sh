@@ -599,6 +599,20 @@ if [ -f "$BUILD" ]; then
     else
       no "suite must exit 0 AND visibly skip when maintainers/build-plugin.sh is absent"
     fi
+    # T16c — the inner self-invocation must SKIP the run-plugin-tests reconstruction
+    # (T18): it is build-independent, the outer run covers it, and re-running it in
+    # every self-invocation tripled the battery's heaviest op. The positive grep
+    # (skip marker present) is load-bearing; the negative grep guards against the
+    # gate silently falling through and ALSO running the reconstruction. It targets
+    # the outer T18 success line's UNIQUE "in plugin layout" phrasing — the elif
+    # rebuild branch's "...runs the shipped suite green ([10.3])" omits it — so the
+    # negative half can't false-pass on a future branch-structure change.
+    if echo "$INNER" | grep -q "skipping run-plugin-tests.sh reconstruction" \
+       && ! echo "$INNER" | grep -q "runs the shipped suite green in plugin layout"; then
+      ok "inner self-invocation skips the redundant run-plugin-tests reconstruction (battery cost)"
+    else
+      no "inner self-invocation must skip the run-plugin-tests reconstruction (build-independent; outer covers it)"
+    fi
     # T16b — same proof for the plugin-deleted fork (README's deletion note)
     INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_TEST_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
     if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
@@ -720,19 +734,30 @@ if [ -d "$PLUGIN/tests" ]; then
   [ "$T18_LEAK" -eq 0 ] && ok "no named maintainer-only suite in committed plugin/tests/"
   RUNNER="$PLUGIN/tests/run-plugin-tests.sh"
   if [ -x "$RUNNER" ]; then
-    # stderr captured to a temp file (mktemp, never $ROOT) — writing into the
-    # git-tracked repo root would dirty the working tree on a crash between the
-    # run and the cleanup. Matches the elif mktemp branch and the runner heredoc.
-    T18_ERR=$(mktemp)
-    if bash "$RUNNER" >/dev/null 2>"$T18_ERR"; then
-      ok "run-plugin-tests.sh runs the shipped suite green in plugin layout (committed tree)"
+    if [ -n "${PLUGIN_TEST_INNER:-}" ]; then
+      # Inner self-invocation (the T16/T16b consumer-fork probes): SKIP the
+      # reconstruction. run-plugin-tests.sh is BUILD-INDEPENDENT — it runs the
+      # committed plugin/ regardless of the consumer-fork condition being probed —
+      # so the outer run already covers it. Re-running it inside every self-
+      # invocation only re-paid the battery's single heaviest op (a full shipped-
+      # suite reconstruction) for zero added coverage; the inner runs exist to
+      # prove the suite still exits 0 + skips, not to re-exercise the runner.
+      echo "  - PLUGIN_TEST_INNER: skipping run-plugin-tests.sh reconstruction (build-independent; covered by the outer run)"
     else
-      no "the shipped suite must run green via run-plugin-tests.sh (a suite can't resolve its scripts in plugin layout?)"
+      # stderr captured to a temp file (mktemp, never $ROOT) — writing into the
+      # git-tracked repo root would dirty the working tree on a crash between the
+      # run and the cleanup. Matches the elif mktemp branch and the runner heredoc.
+      T18_ERR=$(mktemp)
+      if bash "$RUNNER" >/dev/null 2>"$T18_ERR"; then
+        ok "run-plugin-tests.sh runs the shipped suite green in plugin layout (committed tree)"
+      else
+        no "the shipped suite must run green via run-plugin-tests.sh (a suite can't resolve its scripts in plugin layout?)"
+      fi
+      [ -s "$T18_ERR" ] \
+        && no "run-plugin-tests.sh emitted to stderr: $(head -c 200 "$T18_ERR")" \
+        || ok "run-plugin-tests.sh reconstruction is stderr-clean (committed tree)"
+      rm -f "$T18_ERR"
     fi
-    [ -s "$T18_ERR" ] \
-      && no "run-plugin-tests.sh emitted to stderr: $(head -c 200 "$T18_ERR")" \
-      || ok "run-plugin-tests.sh reconstruction is stderr-clean (committed tree)"
-    rm -f "$T18_ERR"
   else
     no "plugin/tests/run-plugin-tests.sh must ship executable"
   fi
