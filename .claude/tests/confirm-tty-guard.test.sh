@@ -203,26 +203,37 @@ else
   no "the /manual scaffold must declare SKIP=0 alongside PASS/FAIL (got decls: '$SCAFFOLD_DECLS') — confirm()'s skip path increments SKIP"
 fi
 
-# T6 — BEHAVIORAL: a generated script (scaffold counter decls + shipped confirm(),
-# NO author-supplied SKIP=0) under `set -u` must run a non-interactive human gate
-# WITHOUT aborting on "unbound variable" — it prints ⊘ SKIPPED, tallies the skip,
-# and exits cleanly. This is what proves the inherited scaffold works out of the box;
-# a structural SKIP=0 grep alone would pass even if the decl were in dead prose.
+# T6 — BEHAVIORAL: a generated script copies the scaffold's counter decls plus the
+# shipped verify()/confirm() helpers and runs under the scaffold's OWN posture —
+# `set -euo pipefail`, NOT a weaker `set -u`. Two distinct aborts must not happen:
+#   1. set -u — confirm()'s skip path must not hit an unbound SKIP (T5 ships SKIP=0).
+#   2. set -e — every counter bumps via `X=$((X+1))` (status 0), never the
+#      post-increment `((X++))`, which returns the OLD value and so EXITS 1 the first
+#      time a counter is still 0 — aborting the whole script under set -e. This test
+#      is the regression guard for that latent bug: revert ANY increment to `((X++))`
+#      and the first bump (PASS 0→1, FAIL 0→1, or SKIP 0→1) aborts here and fails T6.
+# It exercises all three counter-mutating routes a generated script has — a passing
+# verify() (PASS path), a failing verify() (FAIL path), and a non-interactive confirm()
+# (SKIP path) — under the real posture, then prints the tally. A weak `set -u`-only sim
+# would pass even with the `((X++))` bug, so it must run the scaffold's set -euo pipefail.
 GEN_OUT="$(bash -c '
-  set -u
+  set -euo pipefail
   '"$SCAFFOLD_DECLS"'
+  '"$VERIFY_SRC"'
   '"$CONFIRM_SRC"'
+  verify "true"  "passing check"  >/dev/null
+  verify "false" "failing check"  >/dev/null
   confirm "Does the inherited human gate report cleanly?" "inherited human gate"
   printf "DONE PASS=%s FAIL=%s SKIP=%s\n" "$PASS" "$FAIL" "$SKIP"
 ' < /dev/null 2>&1)"
 GEN_EXIT=$?
 if [ "$GEN_EXIT" -eq 0 ] \
    && ! printf '%s\n' "$GEN_OUT" | grep -qi 'unbound variable' \
-   && printf '%s\n' "$GEN_OUT" | grep -qi 'SKIP' \
-   && printf '%s\n' "$GEN_OUT" | grep -q 'DONE PASS=0 FAIL=0 SKIP=1'; then
-  ok "a generated script (scaffold decls + shipped confirm(), no author SKIP=0) runs a non-interactive gate cleanly: ⊘ SKIPPED, SKIP=1, exit 0"
+   && printf '%s\n' "$GEN_OUT" | grep -qi 'SKIPPED' \
+   && printf '%s\n' "$GEN_OUT" | grep -q 'DONE PASS=1 FAIL=1 SKIP=1'; then
+  ok "a generated script (scaffold decls + shipped verify()/confirm()) runs all three counter paths under set -euo pipefail cleanly: ⊘ SKIPPED, PASS=1 FAIL=1 SKIP=1, exit 0"
 else
-  no "a generated script must NOT crash on confirm()'s skip path — expected clean SKIPPED tally, got exit=$GEN_EXIT out=$(printf '%s' "$GEN_OUT" | tr '\n' '|')"
+  no "a generated script must run verify()/confirm() counter paths under set -euo pipefail without aborting — expected PASS=1 FAIL=1 SKIP=1 exit 0, got exit=$GEN_EXIT out=$(printf '%s' "$GEN_OUT" | tr '\n' '|')"
 fi
 
 echo ""

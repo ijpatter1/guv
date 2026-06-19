@@ -362,15 +362,15 @@ confirm() {
   # is no one to answer, so a `read` at EOF would fall through to the pass branch
   # (guv's own vacuous-guard lesson). Guard it: SKIP, never ✓ pass.
   if [ ! -t 0 ] || [ -n "${GUV_NON_INTERACTIVE:-}" ] || [ -n "${CI:-}" ]; then
-    echo "  ⊘ SKIPPED (non-interactive — no human to judge): $2"; ((SKIP++))
+    echo "  ⊘ SKIPPED (non-interactive — no human to judge): $2"; SKIP=$((SKIP+1))
     return
   fi
   read -p "  Pass? [Y/n] " -n 1 -r
   echo ""
   if [[ $REPLY =~ ^[Nn]$ ]]; then
-    echo "  ✗ $2"; ((FAIL++))
+    echo "  ✗ $2"; FAIL=$((FAIL+1))
   else
-    echo "  ✓ $2"; ((PASS++))
+    echo "  ✓ $2"; PASS=$((PASS+1))
   fi
 }
 

@@ -94,9 +94,9 @@ PASS=0; FAIL=0; SKIP=0   # SKIP counts human-judgment gates skipped under no TTY
 
 verify() {
   if eval "$1"; then
-    echo "  ✓ $2"; ((PASS++))
+    echo "  ✓ $2"; PASS=$((PASS+1))
   else
-    echo "  ✗ $2"; ((FAIL++))
+    echo "  ✗ $2"; FAIL=$((FAIL+1))
   fi
 }
 
