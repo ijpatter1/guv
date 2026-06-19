@@ -368,6 +368,124 @@ grep -q '\*\*Amendments:\*\*' "$PD" && ok "phase-docs defines the amendment-reco
   || no "phase-docs SKILL.md must define the Amendments block"
 grep -q '/replan' "$PD" && ok "phase-docs names /replan as the mutation door" || no "phase-docs must name /replan"
 
+# ════ T11 — phase-close guard: a lone spike-gating deliverable never freezes
+# its phase mid-grooming, so the gated build set inserts without a reopen dance.
+# This regresses the lived [14.1]→[14.2]–[14.6] scenario: Phase 14 held ONLY the
+# spike [14.1]; flipping it ✅ used to tally the phase complete and freeze it,
+# forcing reopen-insert-reflip to groom the build set in. The designed path:
+# (a) a lone-deliverable phase is NOT auto-tallied complete (the build set can
+# still be inserted), and (b) an explicit `phase-close` step seals a genuinely
+# finished lone-deliverable phase deliberately and loudly — never silently. ════
+
+# A phase whose ONLY deliverable is the gating spike, marked ✅, mirrors the
+# moment Phase 14 had just [14.1] done and [14.2]–[14.6] not yet groomed in.
+cat > "$WORK/spike.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 14 — Setpoint loop**
+> Last updated: 2026-06-17, session-2026-06-17-003
+
+---
+
+## Phase 13 — Prior
+
+_Goal: done._
+
+- ✅ **[13.1]** Prior thing `[deps: none]` (2026-06-12, session-x)
+
+---
+
+## Phase 14 — Setpoint loop
+
+_Goal: hold context in the zone._
+
+- ✅ **[14.1]** Compaction-control runtime spike — gates the rest of Phase 14 `[deps: none]` (2026-06-17, session-2026-06-17-003)
+MD
+sfresh() { cp "$WORK/spike.md" "$WORK/sp.md"; printf '%s\n' "$WORK/sp.md"; }
+
+# (a) The guard does NOT freeze a lone-✅-deliverable phase: it is mutable.
+T="$(sfresh)"
+OUT=$(bash "$SCRIPT" guard 14 "$T" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && ok "phase-close: lone-spike phase is NOT tallied complete (guard passes)" \
+  || no "guard 14 (lone ✅ spike) should exit 0, not freeze (rc=$RC: $OUT)"
+
+# …so the gated build set inserts directly — no reopen-insert-reflip dance.
+T="$(sfresh)"
+OUT=$(bash "$SCRIPT" insert "$SESH" insert '**[14.2]** Setpoint `[deps: 14.1]`' "$T" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && grep -q '^- ⬜ \*\*\[14\.2\]\*\* Setpoint `\[deps: 14\.1\]`$' "$T" \
+  && ok "phase-close: gated build set inserts into the spike-gated phase (no reopen)" \
+  || no "[14.2] should insert directly behind the lone ✅ spike (rc=$RC: $OUT)"
+RES=$(bash "$SRC/resolve-ready.sh" "$T" 2>&1); RC=$?
+# The spike is ✅, so the freshly-groomed build deliverable is READY (its only
+# dep is satisfied) — grooming behind a done spike makes the build dispatchable.
+[ "$RC" -eq 0 ] && echo "$RES" | grep -E '^ready=' | grep -q '14.2' \
+  && ok "phase-close: post-insert tracker resolves, build ready behind the done spike" \
+  || no "[14.2] should resolve ready behind the ✅ spike (rc=$RC: $RES)"
+
+# A genuinely-finished multi-deliverable phase still freezes — invariant intact.
+T="$(fresh)"
+OUT=$(bash "$SCRIPT" guard 5 "$T" 2>&1); RC=$?
+[ "$RC" -eq 6 ] && ok "phase-close: multi-deliverable completed phase still frozen (invariant kept)" \
+  || no "completed multi-deliverable phase 5 must still refuse (rc=$RC: $OUT)"
+
+# (b) An explicit phase-close SEALS a lone-deliverable phase deliberately, and
+# after the seal the phase freezes (a genuinely-done micro-phase, sealed loud).
+T="$(sfresh)"
+OUT=$(bash "$SCRIPT" phase-close "$SESH" 14 "$T" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && ok "phase-close: explicit close of a finished lone-deliverable phase exits 0" \
+  || no "phase-close 14 should succeed on a finished lone-deliverable phase (rc=$RC: $OUT)"
+grep -qE "^> - $DATE_RE — phase-close \[14\] \($SESH\)" "$T" \
+  && ok "phase-close: seal records op, phase, session, dated" || no "phase-close record missing/misshapen: $(grep '^> -' "$T")"
+OUT=$(bash "$SCRIPT" guard 14 "$T" 2>&1); RC=$?
+[ "$RC" -eq 6 ] && echo "$OUT" | grep -qi "immutable" \
+  && ok "phase-close: a sealed lone-deliverable phase then refuses mutation" \
+  || no "guard 14 after phase-close should exit 6 immutable (rc=$RC: $OUT)"
+RES=$(bash "$SRC/resolve-ready.sh" "$T" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && ok "phase-close: the seal record is inert to the resolver" \
+  || no "phase-close record should not trip the resolver (rc=$RC: $RES)"
+
+# phase-close refuses a phase that still has OPEN work (cannot seal mid-build).
+T="$(sfresh)"
+bash "$SCRIPT" insert "$SESH" insert '**[14.2]** Setpoint `[deps: 14.1]`' "$T" >/dev/null 2>&1
+OUT=$(bash "$SCRIPT" phase-close "$SESH" 14 "$T" 2>&1); RC=$?
+[ "$RC" -eq 6 ] && echo "$OUT" | grep -qiE "open|not (yet )?(complete|done)" \
+  && ok "phase-close: refuses a phase with open deliverables (loud, not silent)" \
+  || no "phase-close on an open phase should exit 6 naming the open work (rc=$RC: $OUT)"
+
+# phase-close refuses a multi-deliverable phase — it auto-tallies, no manual seal.
+T="$(fresh)"
+OUT=$(bash "$SCRIPT" phase-close "$SESH" 5 "$T" 2>&1); RC=$?
+[ "$RC" -eq 6 ] && ok "phase-close: multi-deliverable phase needs no manual seal (refused)" \
+  || no "phase-close on a multi-deliverable phase should exit 6 (rc=$RC: $OUT)"
+
+# phase-close is idempotent-safe: a second seal is refused (append-only).
+T="$(sfresh)"
+bash "$SCRIPT" phase-close "$SESH" 14 "$T" >/dev/null 2>&1
+OUT=$(bash "$SCRIPT" phase-close "$SESH" 14 "$T" 2>&1); RC=$?
+[ "$RC" -eq 6 ] && cmp -s <(grep -c '^> - ' "$T") <(echo 1) \
+  && ok "phase-close: a second seal is refused, one record only" \
+  || no "double phase-close should exit 6 leaving one record (rc=$RC: $OUT)"
+
+# phase-close usage discipline: unknown phase, missing session, missing tracker.
+T="$(sfresh)"
+OUT=$(bash "$SCRIPT" phase-close "$SESH" 99 "$T" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && echo "$OUT" | grep -q "99" && ok "phase-close: unknown phase exits 5, named" \
+  || no "phase-close 99 should exit 5 naming it (rc=$RC: $OUT)"
+OUT=$(bash "$SCRIPT" phase-close "" 14 "$T" 2>&1); RC=$?
+[ "$RC" -eq 2 ] && ok "phase-close: empty session exits 2 (the record must name it)" \
+  || no "phase-close empty session should exit 2 (rc=$RC: $OUT)"
+OUT=$(bash "$SCRIPT" phase-close "$SESH" 14 "$WORK/absent.md" 2>&1); RC=$?
+[ "$RC" -eq 4 ] && ok "phase-close: missing tracker exits 4" || no "phase-close missing tracker should exit 4 (rc=$RC: $OUT)"
+
+# The /replan command shell documents the spike-gated phase-close path.
+if [ -f "$CMD" ]; then
+  grep -qi "phase-close" "$CMD" && ok "replan.md documents the phase-close step" \
+    || no "replan.md must document phase-close (the spike-gated designed path)"
+fi
+grep -qi "phase-close\|spike-gated\|lone-deliverable" "$PD" \
+  && ok "phase-docs documents the lone-deliverable / phase-close rule" \
+  || no "phase-docs must document the lone-deliverable phase-close rule"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -gt 0 ] && exit 1
