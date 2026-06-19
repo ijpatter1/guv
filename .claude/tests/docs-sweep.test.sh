@@ -144,15 +144,50 @@ fi
 
 # T6 — no script resolves a control plane by name. Two layers:
 #   (a) no '*-guv' glob in any shipped script, anywhere;
-#   (b) '-guv' as a constructed name appears in scripts ONLY in the sanctioned
+#   (b) a CONSTRUCTED '-guv' name appears in scripts ONLY in the sanctioned
 #       CREATION defaults — maintainers/setup-control-plane.sh (the maintainer
 #       dogfooding plane) and .claude/scaffold-split.sh (the consumer split
 #       scaffold, [11.5]; its plugin-built copy ships at plugin/scripts/). Both
 #       CONSTRUCT the <product>-guv name as a creation default offered to a
 #       human; neither DISCOVERS a plane by name (the ban this lint enforces).
-# Test fixtures (.claude/tests/) are excluded — they build -guv-named dirs to
-# test the default itself.
-SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" 2>/dev/null; ls "$ROOT/Makefile" "$ROOT/plugin/shell/Makefile" 2>/dev/null)
+#
+# Precision ([15.3]): layer (b) bans a name CONSTRUCTION, not the substring
+# '-guv'. A construction is a glob ('*-guv') or a built name — a parameter
+# expansion / command substitution / variable directly abutting '-guv'
+# ('${x}-guv', '$(…)-guv', '$NAME-guv'). It is NOT ordinary vocabulary: the word
+# 'non-guv', a bash '${x:-guv…}' default-operator abutting guv, or a templated
+# '<product>-guv' in prose all carry '-guv' but construct no name, so they must
+# not trip the guard (a bare-substring grep punished them — the over-match this
+# narrows). Literal fixture names ('widget-guv') are indistinguishable from prose
+# words by pattern, so they are handled by directory exclusion below, not here.
+#
+# Test fixtures are excluded by directory: BOTH the source suite tree
+# (.claude/tests/) AND its shipped plugin mirror (plugin/tests/) build -guv-named
+# dirs to test the default itself. Excluding only .claude/tests/ would redden the
+# battery once the mirror is built ([15.3]).
+GUV_CONSTRUCT_RE='(\*|\}|\))-guv|\$[A-Za-z_][A-Za-z0-9_]*-guv'
+# The ONE implementation of the name-construction predicate. Input: file paths.
+# Output: the paths whose contents CONSTRUCT a '-guv' name (glob or built name),
+# skipping prose/operator vocabulary. The teeth self-check and both layer-(b)
+# uses below share it, so a revert to a bare-substring grep breaks the teeth, not
+# just the (currently vocabulary-free) real tree (Rule 8).
+guv_name_construction() { grep -lE "$GUV_CONSTRUCT_RE" "$@" 2>/dev/null; }
+# Teeth, encoded (not a one-off check): the narrowing must keep catching a real
+# discovery glob and a built name, while no longer punishing 'non-guv' prose or a
+# '${x:-guv}' default operator. Both directions, per the [15.3] acceptance.
+T6_TEETH=$(mktemp -d)
+printf 'for d in *-guv; do :; done\n'   > "$T6_TEETH/glob.sh"
+printf 'PLANE="$PARENT/$NAME-guv"\n'    > "$T6_TEETH/construct.sh"
+printf '# a note about non-guv tooling\n' > "$T6_TEETH/prose.sh"
+printf 'X="${MODE:-guvdefault}"\n'      > "$T6_TEETH/defop.sh"
+T6_CAUGHT=$(guv_name_construction "$T6_TEETH"/*.sh | xargs -n1 basename 2>/dev/null | sort | tr '\n' ' ')
+rm -rf "$T6_TEETH"
+if [ "$T6_CAUGHT" = "construct.sh glob.sh " ]; then
+  ok "T6 teeth: name-construction guard catches a *-guv glob and a \${x}-guv name, but not 'non-guv'/\${x:-guv} vocabulary"
+else
+  no "T6 name-construction guard mis-scoped — caught: [$T6_CAUGHT] (want exactly: construct.sh glob.sh)"
+fi
+SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" -not -path "$ROOT/plugin/tests/*" 2>/dev/null; ls "$ROOT/Makefile" "$ROOT/plugin/shell/Makefile" 2>/dev/null)
 GLOB_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\*-guv' 2>/dev/null || true)
 if [ -z "$GLOB_HITS" ]; then
   ok "no shipped script globs for *-guv (no name-based discovery)"
@@ -161,13 +196,13 @@ else
 fi
 # The sanctioned creation defaults: the maintainer plane setup and the consumer
 # split scaffold (and its plugin/scripts/ build copy). Both construct the name;
-# neither discovers by it.
-NAME_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\-guv' 2>/dev/null \
+# neither discovers by it. Only true constructions are weighed (guv_name_construction).
+NAME_HITS=$(guv_name_construction $SCRIPT_DIRS \
   | grep -vE 'maintainers/setup-control-plane\.sh|(\.claude|plugin/scripts)/scaffold-split\.sh' || true)
 if [ -z "$NAME_HITS" ]; then
   ok "-guv name construction confined to the sanctioned creation defaults (setup-control-plane.sh, scaffold-split.sh)"
 else
-  no "-guv in scripts outside the sanctioned defaults — offenders: $(echo "$NAME_HITS" | tr '\n' ' ')"
+  no "-guv name construction outside the sanctioned defaults — offenders: $(echo "$NAME_HITS" | tr '\n' ' ')"
 fi
 
 # T7 — README.template.md (the consumer project's README source) never carries
