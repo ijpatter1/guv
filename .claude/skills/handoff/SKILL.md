@@ -317,6 +317,22 @@ Otherwise update `docs/PHASE_STATUS.md` to reflect the current state of the phas
 **Phased projects only — and conditional within them.** If `ceremony` is not
 `phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, ❌, or 🔒, skip to Step 9.
 
+**Defer to the engine's completion notion for a lone-deliverable phase ([15.7]).**
+This phase-completion check is a sibling of the engine's `phase_completed`
+(`.claude/replan.sh`) and `archive-initiative.sh` — all three must agree.
+Where the current phase holds a **single** deliverable, "all ✅" is **not**
+enough: a lone-deliverable phase whose one deliverable is ✅/❌ is the
+**spike-gated** shape mid-grooming (a lone gating spike flipped ✅ before its
+gated build set is groomed in), and the engine treats it as **open until
+SEALED** — sealed by an explicit `phase-close` record. So a lone-✅ phase counts
+as phase-complete here **only once it carries that seal**
+(`> - DATE — phase-close [N] (session)` in the tracker header). If the current
+phase is lone-deliverable, all-done, but **not** sealed, do **not** bank the
+forecast or generate UAT — instead **prompt to seal it first**
+(`bash .claude/replan.sh phase-close <session> <phase>`), then proceed once
+sealed. The **multi-deliverable** path is unchanged: ≥2 deliverables, all ✅/❌,
+is phase-complete exactly as before (those auto-tally — there is no manual seal).
+
 The 🔒 marker is **human-gated / awaiting-manual** — a deliverable blocked on
 out-of-sandbox human or manual work (the kind `/manual` writes to
 `docs/manual/`), not on a dependency. When you tally markers (phase-completion

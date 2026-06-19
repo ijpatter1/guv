@@ -402,6 +402,136 @@ OUT=$(run "$P" --archive plan-as-data); RC=$?
   && ok "grammar archive: exit 0, tokens frozen verbatim" \
   || no "grammar tracker should archive with tokens intact (rc=$RC: $OUT)"
 
+# ── Spike-gated lone-deliverable phase ([15.7] completion-oracle reconcile) ──
+# The engine's phase_completed treats a phase whose *single* deliverable is ✅/❌
+# as "open until SEALED" — sealed by an explicit `phase-close [N]` amendment
+# record. archive-initiative is a SIBLING completion oracle reasoning at the
+# initiative level; it must agree. A lone-deliverable FINAL phase that is ✅ but
+# NOT sealed has zero open-marker lines, so the old incomplete_lines() check read
+# it as COMPLETE/archivable — exactly the stranding the carve exists to prevent,
+# reachable through the archive door. These pin: unsealed lone phase → INCOMPLETE
+# (not archivable); after a phase-close seal record → COMPLETE (archivable).
+# Writes a tracker whose FINAL phase holds a single ✅ deliverable. $2 = sealed?
+write_lone_phase_tracker() {
+  local p="$1" sealed="$2"
+  local seal=""
+  [ "$sealed" = "sealed" ] && seal='> - 2026-06-19 — phase-close [7] (session-2026-06-19-001) — lone-deliverable phase sealed'
+  cat > "$p/docs/PHASE_STATUS.md" <<MD
+# Phase Status Tracker
+
+> **Current Phase: 7 — Spike**
+>
+> **Amendments:**
+$seal
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment \`[deps: none]\`
+- ✅ **[6.2]** Ready-frontier resolver \`[deps: 6.1]\`
+
+## Phase 7 — Spike
+
+- ✅ **[7.1]** Gating spike — gates the rest of Phase 7 \`[deps: none]\`
+MD
+}
+
+# T18 — a lone-deliverable FINAL phase that is ✅ but UNSEALED is NOT COMPLETE:
+# --check exits 3 (INCOMPLETE) naming the unsealed lone phase, and --archive
+# refuses (exit 3) leaving the files in place. This is the RED case the fix
+# closes — before the fix, zero open-marker lines read as COMPLETE/archivable.
+P=$(make_project complete); write_lone_phase_tracker "$P" unsealed
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] && echo "$OUT" | grep -q "status=INCOMPLETE" && echo "$OUT" | grep -q "Phase 7" \
+  && ok "lone unsealed phase: --check exit 3 INCOMPLETE, names the unsealed phase" \
+  || no "an unsealed lone-deliverable phase must read INCOMPLETE, not COMPLETE (rc=$RC: $OUT)"
+OUT=$(run "$P" --archive spike); RC=$?
+[ "$RC" -eq 3 ] && [ -f "$P/docs/PHASE_STATUS.md" ] \
+  && ok "lone unsealed phase: --archive refuses (exit 3), files in place" \
+  || no "--archive should refuse an unsealed lone-deliverable phase (rc=$RC: $OUT)"
+
+# T19 — once the lone phase carries an explicit phase-close seal record, both
+# oracles agree it is done: --check exits 0 COMPLETE, --archive succeeds. This
+# mirrors the engine's phase_sealed predicate exactly (a phase-close [N] record).
+P=$(make_project complete); write_lone_phase_tracker "$P" sealed
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q "status=COMPLETE" && echo "$OUT" | grep -q "max_phase=7" \
+  && ok "lone sealed phase: --check exit 0 COMPLETE (seal record honored)" \
+  || no "a SEALED lone-deliverable phase must read COMPLETE (rc=$RC: $OUT)"
+OUT=$(run "$P" --archive spike); RC=$?
+[ "$RC" -eq 0 ] && [ -f "$P/docs/initiatives/001-spike/PHASE_STATUS.md" ] \
+  && ok "lone sealed phase: --archive succeeds (exit 0)" \
+  || no "a SEALED lone-deliverable phase should archive (rc=$RC: $OUT)"
+
+# T20 — a lone-deliverable phase that is NOT the final phase but still ✅/unsealed
+# is equally open: a mid-tracker lone-spike phase blocks the initiative-COMPLETE
+# determination just as the engine keeps it mutable. (Phase 6 lone+unsealed, with
+# a later multi-deliverable phase fully done.)
+P=$(make_project complete)
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 8 — Wrap**
+
+## Phase 6 — Spike
+
+- ✅ **[6.1]** Gating spike `[deps: none]`
+
+## Phase 8 — Wrap
+
+- ✅ **[8.1]** Thing one `[deps: none]`
+- ✅ **[8.2]** Thing two `[deps: 8.1]`
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] && echo "$OUT" | grep -q "Phase 6" \
+  && ok "lone unsealed non-final phase: INCOMPLETE, names the lone phase" \
+  || no "a mid-tracker lone unsealed phase must block COMPLETE (rc=$RC: $OUT)"
+
+# T21 — a lone-deliverable phase that is ❌ (descoped) and unsealed is likewise
+# open: the engine's phase_completed treats a lone ❌/unsealed phase as not-done,
+# and ❌ already counts as incomplete here, so this stays INCOMPLETE — pinned so
+# the new predicate does not accidentally read a lone ❌ as sealed/done.
+P=$(make_project complete)
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 7 — Spike**
+
+## Phase 6 — Plan
+
+- ✅ **[6.1]** Thing `[deps: none]`
+
+## Phase 7 — Spike
+
+- ❌ **[7.1]** Abandoned spike (descoped 2026-06-19: pivoted) `[deps: none]`
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] \
+  && ok "lone ❌ unsealed phase: INCOMPLETE (not silently read as done)" \
+  || no "a lone ❌ unsealed phase must read INCOMPLETE (rc=$RC: $OUT)"
+
+# T22 — a LEGACY (token-free) lone-✅-final-phase tracker is unaffected: the
+# spike-gated carve is a grammar-mode notion (phase-close records live in the
+# grammar lifecycle), so a legacy tracker with one ✅ in its final phase still
+# reads COMPLETE exactly as before — the new predicate must not regress LEGACY.
+P=$(make_project complete)
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 5 — Wrap-up**
+
+## Phase 4 — Build
+
+- ✅ Deliverable A
+
+## Phase 5 — Wrap-up
+
+- ✅ Deliverable C
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q "status=COMPLETE" \
+  && ok "LEGACY lone-✅ final phase: COMPLETE unchanged (carve is grammar-only)" \
+  || no "a LEGACY lone-deliverable phase must still read COMPLETE (rc=$RC: $OUT)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
