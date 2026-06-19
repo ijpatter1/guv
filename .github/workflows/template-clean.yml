@@ -35,19 +35,38 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run all bash test suites
         run: |
-          # stderr is captured per suite and ANY output there fails the run —
-          # a green summary above a parse error is how a vacuous guard slipped
-          # two review gates (see maintainers/RELEASING.md, checklist step 1).
+          # The same gate the generated run-core-tests.sh enforces ([15.1]): a
+          # suite fails the run on ANY of nonzero rc, ANY stderr byte, OR a
+          # failure-shaped stdout verdict (a green summary above a parse error,
+          # or a suite that reported its own failure on stdout but forgot to exit
+          # nonzero, is how a vacuous guard slipped two review gates — see
+          # maintainers/RELEASING.md, checklist step 1). Each suite runs under a
+          # per-suite timeout so a hang fails LOUD with a named timeout, never a
+          # silent stall (Rule 15). Serial here by design — the CI reference is
+          # the simple form; the local battery adds the bounded parallel pool.
           fail=0
           for t in .claude/tests/*.test.sh; do
-            echo "== $(basename "$t") =="
-            err=$(mktemp)
-            bash "$t" 2>"$err" || fail=1
+            b="$(basename "$t")"
+            echo "== $b =="
+            err=$(mktemp); out=$(mktemp)
+            timeout -k 5 300 bash "$t" >"$out" 2>"$err"; rc=$?
+            cat "$out"
+            if [ "$rc" = "124" ] || [ "$rc" = "137" ]; then
+              echo "[timeout] $b TIMED OUT after 300s (rc=$rc) — failing the run (a hang, not slowness)"
+              fail=1
+            elif [ "$rc" != "0" ]; then
+              fail=1
+            fi
             if [ -s "$err" ]; then
-              echo "[stderr] $(basename "$t") wrote to stderr — failing the run:"
+              echo "[stderr] $b wrote to stderr — failing the run:"
               cat "$err"
               fail=1
             fi
-            rm -f "$err"
+            if grep -q '✗' "$out" \
+               || grep -qE 'Results:[[:space:]]*[0-9]+[[:space:]]*passed,[[:space:]]*[1-9][0-9]*[[:space:]]*failed' "$out"; then
+              echo "[stdout] $b reported a FAILURE on stdout while exit was $rc — failing the run"
+              fail=1
+            fi
+            rm -f "$err" "$out"
           done
           exit "$fail"

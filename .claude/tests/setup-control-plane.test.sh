@@ -273,17 +273,29 @@ else
   no "runner: stderr from a suite must fail the run (rc=$RC)"
 fi
 
-# T7 — the CI workflow's inline test loop carries the same stderr gate (it is
-# the third copy of the loop — the generator-emitted runner above is the
-# behaviorally-tested reference; this drift guard keeps the CI copy honest).
+# T7 — the CI workflow's inline test loop carries the same gate (it is the third
+# copy of the loop — the generator-emitted runner above is the behaviorally-tested
+# reference; this drift guard keeps the CI copy honest). [15.1] extended it to all
+# three legs: the stderr capture, the per-suite timeout, AND the stdout-only-
+# failure detector — a CI edit that drops any leg fails here.
 # Conditional: forks may delete .github/ along with the rest of maintainer CI.
 CI_YML="$(cd "$(dirname "$REAL_SCRIPT")/.." && pwd)/.github/workflows/template-clean.yml"
 if [ -f "$CI_YML" ]; then
   grep -q '\[stderr\]' "$CI_YML" && grep -q '2>"\$err"' "$CI_YML" \
     && ok "CI test loop carries the stderr gate (capture + fail markers present)" \
     || no "CI inline loop drifted from the runner: per-suite stderr capture/fail missing"
+  # [15.1] fix (a): the CI loop bounds each suite with a timeout (a hang fails
+  # loud, not a 6-hour Actions stall).
+  grep -qE 'timeout .*bash "\$t"' "$CI_YML" && grep -q '\[timeout\]' "$CI_YML" \
+    && ok "CI test loop carries the per-suite timeout gate ([15.1] fix a)" \
+    || no "CI inline loop must bound each suite with timeout (a hang must fail loud, not stall CI)"
+  # [15.1] fix (c): the CI loop catches a stdout-only failure (the same detector
+  # the generated runner uses — a ✗ line or a nonzero failed-count verdict).
+  grep -q '\[stdout\]' "$CI_YML" && grep -q "Results:\[\[:space:\]\]" "$CI_YML" \
+    && ok "CI test loop carries the stdout-only-failure detector ([15.1] fix c)" \
+    || no "CI inline loop must catch a stdout-only failure (the [15.1] gate-integrity hole)"
 else
-  echo "  - .github workflow absent (fork) — CI stderr-gate drift guard skips"
+  echo "  - .github workflow absent (fork) — CI gate drift guard skips"
 fi
 
 # T8 — --sync refreshes the generated test runner (the same entry as T5's
@@ -620,6 +632,208 @@ SKIP_OUT=$(cd "$D77" && bash .claude/tests/setup-control-plane.test.sh 2>&1); SK
   && ok "[7.7] plane shape: maintainers-dependent suite skips cleanly, exit 0" \
   || no "[7.7] a maintainers suite run from a plane must skip, not fail (rc=$SKIP_RC)"
 fi  # SCP_TEST_INNER guard ([7.7] block)
+
+# ── [15.1] — core-test battery hardening and gate integrity ─────────────────
+# THE credibility-load-bearing property: the generated run-core-tests.sh can no
+# longer report green over a suite that did not pass. Three coupled guards,
+# exercised against the REAL generated runner (build a scratch plane, plant
+# pathological suites under its roots.code, run the runner, assert the verdict).
+# Outer-run only — these stand up real fixtures + run suites concurrently, so the
+# T10b inner self-invocations must not multiply the cost or re-stand the planes.
+if [ -z "${SCP_TEST_INNER:-}" ]; then
+# A scratch plane whose roots.code points at a fixture code repo we control, so
+# we can drop pathological suites into <code>/.claude/tests/ and run the real
+# generated runner against them. make_guv already ships the real roots.sh; we add
+# a manifest naming an absolute roots.code (the resolver returns the string as the
+# primary) and a code repo with a .claude/tests/ dir.
+mk_battery_plane() {  # echoes "<plane-dir>|<code-dir>"
+  local h d code
+  h=$(make_guv)
+  d="$WORK/battery-$RANDOM"
+  code="$WORK/battery-code-$RANDOM"
+  mkdir -p "$code/.claude/tests"
+  run_setup "$h" "$d"
+  # Point the generated runner's resolver at our fixture code repo. The runner
+  # sources roots.sh and calls roots_code_path, which reads roots.code from the
+  # plane manifest as the primary string — set it to the fixture's absolute path.
+  jq --arg c "$code" '.roots.code = $c' "$d/.claude/project.json" > "$d/.claude/project.json.tmp" \
+    && mv "$d/.claude/project.json.tmp" "$d/.claude/project.json"
+  echo "$d|$code"
+}
+plant_suite() {  # $1=code-dir $2=name $3=body
+  printf '%s' "$3" > "$1/.claude/tests/$2"
+}
+BATT_OUT=""  # set by run_battery; read directly (NOT via $(...) which would
+BATT_RC=0    # swallow BATT_RC in a subshell). Globals on purpose.
+run_battery() {  # $1=plane-dir [$2=timeout-override] ; sets BATT_OUT + BATT_RC
+  local of; of=$(mktemp)
+  if [ -n "${2:-}" ]; then
+    ( cd "$1" && CORE_TEST_TIMEOUT="$2" bash .claude/run-core-tests.sh ) >"$of" 2>&1
+  else
+    ( cd "$1" && bash .claude/run-core-tests.sh ) >"$of" 2>&1
+  fi
+  BATT_RC=$?
+  BATT_OUT=$(cat "$of"); rm -f "$of"
+}
+
+# T11 — positive control: a clean passing suite leaves the battery green. If this
+# fails the rest of the [15.1] block is meaningless (the runner can't even pass).
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "clean.test.sh" $'#!/bin/bash\necho "  ✓ all good"\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+run_battery "$BP"
+[ "$BATT_RC" -eq 0 ] \
+  && ok "[15.1] battery: a clean passing suite keeps the run green (positive control)" \
+  || no "[15.1] battery must pass a clean suite (rc=$BATT_RC: $(printf '%s' "$BATT_OUT" | tail -2))"
+
+# T11a — fix (c) stdout-only-failure blindness: a suite that announces its FAILURE
+# only on stdout AND lies with exit 0 must NOT yield a green battery. This is the
+# exact hole that once let a red suite show green (roots-map.test.sh writes its ✗
+# to stdout); the gate must catch the failure verdict on stdout, not only rc/stderr.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "stdout-fail.test.sh" $'#!/bin/bash\necho "  \xe2\x9c\x97 this assertion FAILED"\necho "Results: 0 passed, 1 failed"\nexit 0\n'
+run_battery "$BP"
+if [ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -qi 'stdout-fail.test.sh'; then
+  ok "[15.1] fix(c): a stdout-only failure (exit 0) fails the battery and names the suite"
+else
+  no "[15.1] fix(c): a suite failing on stdout-only must fail the run (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | tail -3))"
+fi
+
+# T11b — fix (c) the verdict line: a suite reporting "N failed" with N>0 on stdout
+# while exiting 0 must also fail, even without a ✗ glyph (the Results line is the
+# other universal failure signal across the suite set).
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "results-fail.test.sh" $'#!/bin/bash\necho "Results: 3 passed, 2 failed"\nexit 0\n'
+run_battery "$BP"
+[ "$BATT_RC" -ne 0 ] \
+  && ok "[15.1] fix(c): a 'Results: N passed, M failed' (M>0) verdict fails the run despite exit 0" \
+  || no "[15.1] fix(c): a nonzero failed-count verdict on stdout must fail the run (rc=$BATT_RC)"
+
+# T11c — fix (c) NO false positives: the failure-shaped stdout detector must NOT
+# trip on a clean suite that merely PRINTS the words (a 'Results: N passed, 0
+# failed' line, the ✓ glyph). A detector that reads "0 failed" as a failure
+# would red the whole battery — this is the regression that keeps the gate usable.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "zero-failed.test.sh" $'#!/bin/bash\necho "  \xe2\x9c\x93 ok"\necho "Results: 5 passed, 0 failed"\nexit 0\n'
+run_battery "$BP"
+[ "$BATT_RC" -eq 0 ] \
+  && ok "[15.1] fix(c): a clean 'Results: N passed, 0 failed' suite stays green (no false positive)" \
+  || no "[15.1] fix(c): the stdout detector must not trip on a 0-failed verdict (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | tail -3))"
+
+# T11d — fix (c) the rc/stderr gate is preserved: a suite that exits nonzero, and
+# one that writes to stderr, both still fail. These are the original gate's two
+# legs — the stdout closure must add to them, never replace them.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "rc-fail.test.sh" $'#!/bin/bash\necho "  \xe2\x9c\x93 looks ok on stdout"\nexit 1\n'
+run_battery "$BP"
+[ "$BATT_RC" -ne 0 ] \
+  && ok "[15.1] gate: a nonzero exit still fails the run (rc leg preserved)" \
+  || no "[15.1] gate: a nonzero-exit suite must fail the run (rc=$BATT_RC)"
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "stderr-fail.test.sh" $'#!/bin/bash\necho "  \xe2\x9c\x93 ok"\necho "boom: a parse error" >&2\nexit 0\n'
+run_battery "$BP"
+if [ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -q '\[stderr\]'; then
+  ok "[15.1] gate: a passing suite that writes to stderr still fails (stderr leg preserved)"
+else
+  no "[15.1] gate: any stderr byte must fail the run (rc=$BATT_RC)"
+fi
+
+# T11e — fix (a) per-suite timeout: a HUNG suite must fail the battery LOUD with a
+# NAMED timeout, distinguishable from sandbox slowness — never a silent stall
+# (Rule 15). Skipped only where no timeout binary exists (the runner must then
+# degrade to a documented serial path, asserted in T11i).
+HAVE_TIMEOUT=0
+command -v timeout >/dev/null 2>&1 && HAVE_TIMEOUT=1
+command -v gtimeout >/dev/null 2>&1 && HAVE_TIMEOUT=1
+if [ "$HAVE_TIMEOUT" -eq 1 ]; then
+  IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+  plant_suite "$BC" "clean.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+  plant_suite "$BC" "hang.test.sh" $'#!/bin/bash\nsleep 600\n'
+  # Bound the per-suite timeout low so the test itself is fast; the runner reads
+  # the override from the environment (CORE_TEST_TIMEOUT) so the suite can pin it.
+  T_START=$(date +%s)
+  run_battery "$BP" 2
+  T_END=$(date +%s)
+  if [ "$BATT_RC" -ne 0 ] \
+     && printf '%s' "$BATT_OUT" | grep -qi 'hang.test.sh' \
+     && printf '%s' "$BATT_OUT" | grep -qi 'timed out\|timeout'; then
+    ok "[15.1] fix(a): a hung suite fails the battery LOUD with a named timeout (not a silent stall)"
+  else
+    no "[15.1] fix(a): a hang must fail loud naming the suite + timeout (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | tail -3))"
+  fi
+  # The hang must not have stalled the whole run — the timeout bounds it.
+  [ $((T_END - T_START)) -lt 60 ] \
+    && ok "[15.1] fix(a): the timeout bounds wall-clock (hung suite did not stall the run)" \
+    || no "[15.1] fix(a): a hung suite stalled the run past the per-suite bound ($((T_END - T_START))s)"
+else
+  echo "  - no timeout/gtimeout on PATH — fix(a) hang test skipped (degradation asserted in T11i)"
+fi
+
+# T11f — fix (b) bounded parallel pool with deterministic aggregation: suites run
+# concurrently (wall-clock toward the slowest, not the sum), and the aggregated
+# output is DETERMINISTIC and applies the identical gate. Three independent
+# clean suites that each sleep should finish in well under their serial sum.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+for n in a b c; do
+  plant_suite "$BC" "slow-$n.test.sh" $'#!/bin/bash\nsleep 2\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+done
+T_START=$(date +%s)
+run_battery "$BP"
+T_END=$(date +%s)
+[ "$BATT_RC" -eq 0 ] \
+  && ok "[15.1] fix(b): independent clean suites pass under the parallel pool" \
+  || no "[15.1] fix(b): clean concurrent suites must pass (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | tail -3))"
+# Serial would be ~6s; parallel should be ~2-3s. Assert strictly under the sum.
+[ $((T_END - T_START)) -lt 5 ] \
+  && ok "[15.1] fix(b): wall-clock drops toward the slowest suite (parallel, $((T_END - T_START))s < serial 6s)" \
+  || no "[15.1] fix(b): suites did not run concurrently ($((T_END - T_START))s ≈ serial sum — pool not enabled)"
+# Determinism: each suite's banner appears in the aggregated output regardless
+# of completion order (the serial aggregation pass orders by suite name).
+printf '%s' "$BATT_OUT" | grep -q 'slow-a.test.sh' \
+  && printf '%s' "$BATT_OUT" | grep -q 'slow-b.test.sh' \
+  && printf '%s' "$BATT_OUT" | grep -q 'slow-c.test.sh' \
+  && ok "[15.1] fix(b): every suite's output is present in the deterministic aggregation" \
+  || no "[15.1] fix(b): aggregated output must carry every suite's banner (got: $(printf '%s' "$BATT_OUT" | grep -c '==') headers)"
+# Determinism, stronger: the serial aggregation orders banners by suite NAME, so
+# two runs of the same set produce byte-identical banner ORDER regardless of which
+# concurrent suite finished first — the property that makes the parallel run safe.
+ORDER1=$(printf '%s' "$BATT_OUT" | grep '^== ')
+run_battery "$BP"
+ORDER2=$(printf '%s' "$BATT_OUT" | grep '^== ')
+[ "$ORDER1" = "$ORDER2" ] && printf '%s' "$ORDER1" | grep -q 'slow-a' \
+  && ok "[15.1] fix(b): banner ORDER is deterministic across runs (name-sorted aggregation)" \
+  || no "[15.1] fix(b): aggregation order must be deterministic (run1≠run2 — nondeterministic output)"
+
+# T11g — fix (b) the gate is identical under parallelism: a failure mixed among
+# passing suites is still caught (the concurrency must not lose a verdict). Run a
+# failing suite alongside clean ones and assert the whole run goes red and names it.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "ok-1.test.sh" $'#!/bin/bash\nsleep 1\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC" "ok-2.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC" "bad.test.sh" $'#!/bin/bash\necho "  \xe2\x9c\x97 a real failure"\necho "Results: 0 passed, 1 failed"\nexit 1\n'
+run_battery "$BP"
+[ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -qi 'bad.test.sh' \
+  && ok "[15.1] fix(b): a failure among concurrent passes still fails the run and names it" \
+  || no "[15.1] fix(b): concurrency must not lose a verdict (rc=$BATT_RC)"
+
+# T11h — fix (c) trailing-post-runner-command masking: the runner's exit status is
+# the gate verdict and nothing may follow it. A background-run battery whose own
+# last act is the runner must not be able to mask a suite failure behind a
+# trailing command. Assert the generated runner ENDS with `exit` on the aggregated
+# status (no command after it) — a structural guard on the heredoc text.
+RUNNER_SRC="$BP/.claude/run-core-tests.sh"
+LAST_NONBLANK=$(grep -vE '^\s*$|^\s*#' "$RUNNER_SRC" | tail -1)
+printf '%s' "$LAST_NONBLANK" | grep -qE '^\s*exit ' \
+  && ok "[15.1] fix(c): the runner's final statement is its exit (no trailing command can mask the verdict)" \
+  || no "[15.1] fix(c): the runner must END on exit \$status — a trailing command masks the gate (last line: $LAST_NONBLANK)"
+
+# T11i — fix (a) graceful degradation when no timeout binary exists: the runner
+# must not break — it runs the suite (no bound) and announces the missing binary
+# rather than silently dropping the timeout protection (Rule 15: a designed path,
+# announced). Asserted via the heredoc carrying the degradation notice.
+grep -qiE 'timeout.*(not (found|available)|absent|unavailable)|no timeout' "$RUNNER_SRC" \
+  && ok "[15.1] fix(a): the runner announces a missing timeout binary (degradation is designed + loud)" \
+  || no "[15.1] fix(a): a missing timeout binary must be announced, not silently unbounded"
+fi  # SCP_TEST_INNER guard ([15.1] block)
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
