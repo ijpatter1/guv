@@ -65,6 +65,22 @@ has 'conversational' \
   && ok "documents the [14.5] recovery ladder (size-under-window primary; assess → re-spawn fallback)" \
   || no "must document [14.5] lane recovery (no re-injection → size-under-window / re-spawn via lane-recovery.sh)"
 
+# T10 — the SKILL bullet mirrors the SPLIT's IN-PLACE protected-prose clause ([15.5]):
+# an in-place edit to protected prose (README/CHANGELOG/*.template) is orchestrator JOIN
+# work, distinct from an append-only docFragment. The runbook's single-writer JOIN
+# section must say this so the SKILL and the workflow SPLIT do not contradict. Match on a
+# SINGLE line that ties "in-place" to the protected-prose surface — so the unrelated
+# "resumed in place" / "in-place continue" recovery wording can't satisfy the check.
+grep -qiE 'in.?place.*(README|CHANGELOG|\.template)|(README|CHANGELOG|\.template).*in.?place' "$S" \
+  && ok "runbook ties an IN-PLACE edit to the protected-prose surface (README/CHANGELOG/.template)" \
+  || no "runbook must address an IN-PLACE edit to protected prose (README/CHANGELOG/.template)"
+grep -qiE 'in.?place.*docfragment|docfragment.*in.?place' "$S" \
+  && ok "runbook distinguishes the in-place edit from an append-only docFragment" \
+  || no "runbook must distinguish the in-place edit from an append-only docFragment"
+has '8d3edc5' \
+  && ok "runbook cites the 8d3edc5 in-place-flip precedent" \
+  || no "runbook must cite the 8d3edc5 precedent (the orchestrator JOIN in-place flip)"
+
 # T9 — plugin namespacing (guards the agent-namespacing pass in
 # maintainers/build-plugin.sh): the BUILT plugin runbook namespaces @lane-builder ->
 # @guv:lane-builder (agents resolve only as guv:<name> under a plugin install). Source

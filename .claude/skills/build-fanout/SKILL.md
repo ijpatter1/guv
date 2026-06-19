@@ -151,7 +151,13 @@ The JOIN is the single writer of the shared surface:
 - **the trackers** (`docs/PHASE_STATUS.md`, `docs/REQUIREMENTS.md`) — plan mutation is
   `/replan` only, never a lane edit;
 - **docFragment-target prose** (CHANGELOG/README) — assembled serially at the join from
-  lane outputs, never edited directly by a lane;
+  lane outputs, never edited directly by a lane. Note the three-way split for protected
+  prose: an APPEND-only addition is a lane docFragment; an **in-place** edit to protected prose (README / CHANGELOG / *.template — e.g.
+  a "recommended"→"default" flip or a topology-section rewrite) is an **orchestrator JOIN
+  commit**, *not* a lane edit and *not* a docFragment (docFragments only append — an
+  in-place rewrite cannot be one), so its absence from a lane is structurally
+  orchestrator-owned, not a Rule-10 gap (precedent: commit 8d3edc5 reframed the topology
+  prose in one orchestrator commit);
 - **the derived `plugin/` rebuild** — `maintainers/build-plugin.sh` regenerates it at
   the join (a source-only lane cannot verify the derived tree).
 
