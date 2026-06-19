@@ -268,7 +268,7 @@ bash "$HELPER" new --log "$HF" --category friction \
   --summary "bad routing" --severity minor --routing sideways >/dev/null 2>&1 \
   && no "new should REJECT an unknown routing" || ok "new rejects an unknown routing"
 [ "$(wc -l < "$HF" | tr -d ' ')" = "$LINES_BEFORE" ] \
-  && ok "rejected `new` writes nothing (log line count unchanged)" || no "a rejected new must not append"
+  && ok "rejected new writes nothing (log line count unchanged)" || no "a rejected new must not append"
 
 # T13 — `list` surfaces open entries (id present); a triaged entry leaves the list.
 bash "$HELPER" list --log "$HF" 2>/dev/null | grep -qF "$(echo "$NEW_ENTRY" | jq -r .id)" \
@@ -367,6 +367,20 @@ if [ -z "${FEEDBACK_TEST_INNER:-}" ]; then
   else
     no "suite must exit 0 and visibly skip plugin-copy guards when plugin/ is absent"
   fi
+
+  # T21 — stderr-clean guard (the empty-stderr gate): the project runner
+  # .claude/run-core-tests.sh FAILS any suite that writes to stderr, yet this
+  # suite self-reports green (the ok/no condition evaluates first). A leak —
+  # e.g. an unescaped backtick in a double-quoted assertion string running a
+  # word as a command — would therefore slip a green summary but FAIL the
+  # battery at the join. Re-run the suite (FEEDBACK_TEST_INNER guards recursion,
+  # as T10 above) capturing stderr ALONE and assert it is empty, so a future
+  # leak fails LOUDLY here instead of silently downstream. (Sibling: T7 in
+  # feedback-submit.test.sh, "happy-path run keeps stderr clean".)
+  FEEDBACK_TEST_INNER=1 bash "$SELF" >/dev/null 2>"$WORK/t21.err"
+  [ ! -s "$WORK/t21.err" ] \
+    && ok "suite run keeps stderr clean (empty-stderr gate)" \
+    || no "suite wrote to stderr (will fail the battery at the join): $(cat "$WORK/t21.err")"
 fi
 
 echo ""
