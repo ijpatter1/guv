@@ -43,7 +43,13 @@ jobs:
           # maintainers/RELEASING.md, checklist step 1). Each suite runs under a
           # per-suite timeout so a hang fails LOUD with a named timeout, never a
           # silent stall (Rule 15). Serial here by design — the CI reference is
-          # the simple form; the local battery adds the bounded parallel pool.
+          # the simple form; the local battery adds a bounded parallel pool with a
+          # SERIAL CARVE: two suites (plugin.test.sh, ship-suite.test.sh) write to
+          # / build from the SHARED LIVE SOURCE TREE at fixed paths and must not
+          # overlap (audit: maintainers/BATTERY-HERMETICITY.md). This serial loop
+          # SUBSUMES that carve — every suite runs alone — so the lockstep with the
+          # local runners holds; a future parallel CI form would have to replicate
+          # the carve rather than glob all suites concurrently.
           fail=0
           for t in .claude/tests/*.test.sh; do
             b="$(basename "$t")"

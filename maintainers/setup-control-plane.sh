@@ -180,12 +180,19 @@ write_runner() {
 #      LOUD with a NAMED timeout (rc 124), distinguishable from sandbox slowness,
 #      never a silent stall (Rule 15). No timeout binary on PATH is a designed,
 #      ANNOUNCED degradation: the suite runs unbounded rather than breaking.
-#  (b) BOUNDED PARALLEL POOL + DETERMINISTIC SERIAL AGGREGATION — suites run
-#      concurrently (≤ CORE_TEST_JOBS at once), each writing its own out/err/rc;
-#      a serial pass then replays them IN SORTED NAME ORDER and applies the
-#      identical gate, so wall-clock drops toward the single slowest suite while
-#      the output and verdict stay deterministic. (Safe because every suite is
-#      hermetic — each builds fixtures under its own mktemp dir; audited [15.1].)
+#  (b) BOUNDED PARALLEL POOL + SERIAL CARVE + DETERMINISTIC AGGREGATION — most
+#      suites run concurrently (≤ CORE_TEST_JOBS at once), each writing its own
+#      out/err/rc; a final pass then replays them IN SORTED NAME ORDER under the
+#      identical gate, so wall-clock drops toward the slowest while the output and
+#      verdict stay deterministic. NOT every suite is hermetic: the audit
+#      ([15.1] — maintainers/BATTERY-HERMETICITY.md) found two suites that write
+#      to / build from the SHARED LIVE SOURCE TREE at fixed (non-mktemp) paths —
+#      plugin.test.sh plants throwaway fixtures into the repo's .claude/ and
+#      builds reading it; ship-suite.test.sh builds the plugin reading that same
+#      source. Run concurrently they corrupt each other's build (planted fixtures
+#      / a skill-name-collision exit 2) → an intermittently flaky battery. Those
+#      suites (SERIAL_SET) are carved OUT of the pool and run ONE AT A TIME; the
+#      genuinely-hermetic remainder stays parallel.
 #  (c) NO EXIT-MASKING / NO STDOUT-ONLY BLINDNESS — the gate fails a suite on ANY
 #      of: nonzero rc, ANY stderr byte, OR a failure-shaped STDOUT verdict (a ✗
 #      line, or "Results: N passed, M failed" with M>0) even when the suite lied
@@ -251,8 +258,17 @@ run_one() {  # $1 = suite path  $2 = scratch key
   printf '%s\n' "$?" > "$WORKDIR/$key.rc"
 }
 
+# ── fix (b): the AUDITED serial set (the shared-live-source-tree writers) ──
+# These suites mutate / build from the repo's live .claude/ at fixed paths, so
+# they MUST NOT overlap each other or any other suite. Audit + rationale:
+# maintainers/BATTERY-HERMETICITY.md. A new suite that writes to the shared live
+# tree is enrolled by adding its basename here (one edit, mirrored in the plugin
+# runner and the CI loop's comment — the three copies stay in lockstep).
+SERIAL_SET=" plugin.test.sh ship-suite.test.sh "
+
 # Collect the suites in a stable, sorted order — the deterministic spine of both
-# the launch list and the aggregation pass.
+# the launch list and the aggregation pass. The serial carve is applied at launch
+# time below (the SERIAL_SET membership test), so collection stays one list.
 SUITES=()
 while IFS= read -r t; do SUITES+=("$t"); done < <(
   for t in "$CODE"/.claude/tests/*.test.sh; do [ -e "$t" ] && printf '%s\n' "$t"; done | LC_ALL=C sort
@@ -263,9 +279,17 @@ if [ "${#SUITES[@]}" -eq 0 ]; then
   exit 4
 fi
 
-# Launch under a bounded pool: at most $JOBS suites in flight at once.
+# Serial carve FIRST: the shared-live-tree suites run strictly one at a time,
+# before the pool, so neither they nor the pool ever touch the live source tree
+# concurrently. (Sequential foreground runs — no & — guarantee non-overlap.)
+for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) run_one "${SUITES[$i]}" "$i" ;; esac
+done
+
+# Launch the HERMETIC remainder under a bounded pool: at most $JOBS in flight.
 running=0
 for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) continue ;; esac
   run_one "${SUITES[$i]}" "$i" &
   running=$((running + 1))
   if [ "$running" -ge "$JOBS" ]; then

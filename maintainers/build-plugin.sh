@@ -332,11 +332,17 @@ fi
 #  (a) per-suite timeout — a hung shipped suite fails LOUD with a named timeout
 #      (rc 124), never a silent stall; a missing timeout binary degrades to an
 #      announced unbounded run (Rule 15).
-#  (b) bounded parallel pool + deterministic serial aggregation — suites run
-#      concurrently (≤ POOL_JOBS), each into its own out/err/rc; a serial pass
-#      replays them in sorted name order so wall-clock drops toward the slowest
-#      while output + verdict stay deterministic. (The shipped suites are the same
-#      hermetic set the core battery audited.)
+#  (b) bounded parallel pool + serial carve + deterministic aggregation — most
+#      suites run concurrently (≤ POOL_JOBS), each into its own out/err/rc; a
+#      final pass replays them in sorted name order so wall-clock drops toward the
+#      slowest while output + verdict stay deterministic. The shared-live-source
+#      suites (SERIAL_SET — plugin.test.sh, ship-suite.test.sh; audit in
+#      maintainers/BATTERY-HERMETICITY.md) are carved OUT of the pool and run one
+#      at a time, since they write to / build from the live source tree at fixed
+#      paths and would corrupt each other's build under concurrency. (Both happen
+#      to be maintainer-only, so they rarely reach the SHIPPED partition — the
+#      carve is applied identically here to keep the three runner copies in
+#      lockstep, never assuming the partition excludes them.)
 #  (c) no exit-masking / no stdout-only blindness — the gate fails a suite on ANY
 #      of: nonzero rc, ANY stderr byte, or a failure-shaped stdout verdict (a ✗
 #      line or "Results: N passed, M failed" with M>0) even at exit 0. The runner's
@@ -356,6 +362,10 @@ fi
 case "$POOL_JOBS" in ''|*[!0-9]*) POOL_JOBS=4 ;; esac
 [ "$POOL_JOBS" -lt 1 ] && POOL_JOBS=1
 
+# the AUDITED serial set (shared-live-source-tree writers) — kept in lockstep with
+# the core runner. maintainers/BATTERY-HERMETICITY.md is the audit of record.
+SERIAL_SET=" plugin.test.sh ship-suite.test.sh "
+
 # collect the reconstructed suites in stable sorted order — the spine of the
 # launch list and the aggregation pass
 SUITES=()
@@ -374,9 +384,16 @@ run_one() {  # $1 = suite path  $2 = scratch key
   printf '%s\n' "$?" > "$WORK/$key.rc"
 }
 
-# bounded pool — at most $POOL_JOBS suites in flight at once
+# serial carve FIRST: shared-live-tree suites run strictly one at a time, before
+# the pool, so the live source tree is never touched concurrently.
+for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) run_one "${SUITES[$i]}" "rps-$i" ;; esac
+done
+
+# bounded pool — the HERMETIC remainder, at most $POOL_JOBS suites in flight
 running=0
 for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) continue ;; esac
   run_one "${SUITES[$i]}" "rps-$i" &
   running=$((running + 1))
   if [ "$running" -ge "$POOL_JOBS" ]; then

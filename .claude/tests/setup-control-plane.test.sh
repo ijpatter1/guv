@@ -294,6 +294,19 @@ if [ -f "$CI_YML" ]; then
   grep -q '\[stdout\]' "$CI_YML" && grep -q "Results:\[\[:space:\]\]" "$CI_YML" \
     && ok "CI test loop carries the stdout-only-failure detector ([15.1] fix c)" \
     || no "CI inline loop must catch a stdout-only failure (the [15.1] gate-integrity hole)"
+  # [15.1] fix (b) lockstep CARVE: the local battery splits a serial set out of the
+  # parallel pool (plugin.test.sh + ship-suite.test.sh write to / build from the
+  # shared live source tree). The CI loop is serial-by-design, which SUBSUMES that
+  # carve (every suite runs alone) — so the lockstep invariant here is that CI
+  # MUST NOT silently switch to a parallel launch ('& ... wait') that would lose
+  # the carve, and its comment must name the carve so the coupling is legible.
+  if grep -qE 'bash "\$t".*&[[:space:]]*$' "$CI_YML"; then
+    no "CI inline loop backgrounds suites ('&') — a parallel CI form must replicate the serial carve (plugin.test.sh + ship-suite.test.sh), not glob all suites concurrently"
+  else
+    grep -qiE 'serial.*(carve|hermet|shared|live source|plugin\.test)' "$CI_YML" \
+      && ok "CI test loop stays serial and documents the shared-live-tree carve coupling ([15.1] fix b lockstep)" \
+      || no "CI inline loop must note the serial carve coupling (plugin.test.sh + ship-suite.test.sh share the live source tree)"
+  fi
 else
   echo "  - .github workflow absent (fork) — CI gate drift guard skips"
 fi
@@ -833,6 +846,85 @@ printf '%s' "$LAST_NONBLANK" | grep -qE '^\s*exit ' \
 grep -qiE 'timeout.*(not (found|available)|absent|unavailable)|no timeout' "$RUNNER_SRC" \
   && ok "[15.1] fix(a): the runner announces a missing timeout binary (degradation is designed + loud)" \
   || no "[15.1] fix(a): a missing timeout binary must be announced, not silently unbounded"
+
+# T11i2 — fix (a) the degradation announcement actually FIRES on the no-timeout
+# path (Major 2). T11e's hang test self-skips where no timeout binary exists, so
+# the loud-stop is unproven on a timeout-less box — closing that coverage void,
+# this test shadows timeout/gtimeout OFF a synthetic PATH and runs the REAL
+# generated runner, asserting the unbounded-degradation WARNING is emitted to the
+# operator (not merely present as heredoc text). A box WITH timeout is exercised
+# by forcing the no-binary branch; a box WITHOUT one runs the same path natively.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "clean.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+# A PATH with only the interpreters the runner needs, but NO timeout/gtimeout, so
+# the runner takes its `[ -z "$TIMEOUT_BIN" ]` branch even where the host has one.
+NOTO_BIN="$WORK/noto-bin-$RANDOM"; mkdir -p "$NOTO_BIN"
+for c in bash sh env cat grep sed printf mktemp dirname basename sort rm mkdir cp mv chmod jq nproc sysctl date sleep wait wc tr head tail cmp; do
+  p=$(command -v "$c" 2>/dev/null) && ln -s "$p" "$NOTO_BIN/$c" 2>/dev/null
+done
+NOTO_OUT=$( cd "$BP" && PATH="$NOTO_BIN" bash .claude/run-core-tests.sh 2>&1 ); NOTO_RC=$?
+if printf '%s' "$NOTO_OUT" | grep -qiE 'no timeout.*UNBOUNDED|UNBOUNDED.*hang' ; then
+  ok "[15.1] fix(a): the unbounded-degradation WARNING fires on the no-timeout path (loud, not a silent coverage void)"
+else
+  no "[15.1] fix(a): a timeout-less run must ANNOUNCE the unbounded degradation at runtime (rc=$NOTO_RC out=$(printf '%s' "$NOTO_OUT" | tail -4))"
+fi
+
+# T11j — fix (b) HERMETICITY CARVE (Critical): parallelism was enabled, but two
+# suites WRITE TO / BUILD FROM the SHARED LIVE SOURCE TREE at fixed (non-mktemp)
+# paths — plugin.test.sh plants throwaway fixtures into $ROOT/.claude and builds
+# reading it; ship-suite.test.sh builds the plugin reading the same live source.
+# They CANNOT run concurrently (the build picks up the planted fixtures or hits
+# the skill-name-collision exit 2 → intermittent flake). The runner must carve
+# these into a SERIAL pass while keeping the genuinely-hermetic suites parallel.
+# Behavioral proof: plant suites named exactly plugin.test.sh and ship-suite.test.sh
+# that DETECT concurrency (each marks itself "running", sleeps, then fails if the
+# other was running in the same window). If they were serialized they never
+# overlap → both pass; if they were thrown in the parallel pool they overlap →
+# at least one fails. A third generic suite stays in the pool. Red until the
+# carve lands.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+# Concurrency-detector body: $1 = this suite's tag. Writes a per-suite "live"
+# marker into the SHARED code-repo .claude dir (NOT mktemp — exactly the
+# shared-live-tree hazard the carve resolves), sleeps so an overlapping run is
+# observable, then fails if a sibling serial suite was concurrently live.
+CONC_BODY='#!/bin/bash
+set -u
+SHARED="$(cd "$(dirname "$0")/.." && pwd)"   # the code repo .claude (shared live tree)
+SELFTAG="__TAG__"
+SIB="$([ "$SELFTAG" = serialA ] && echo serialB || echo serialA)"
+: > "$SHARED/conc.$SELFTAG.live"
+sleep 1
+if [ -e "$SHARED/conc.$SIB.live" ]; then
+  echo "  ✗ serial suites $SELFTAG and $SIB overlapped — NOT serialized"
+  echo "Results: 0 passed, 1 failed"
+  rm -f "$SHARED/conc.$SELFTAG.live"
+  exit 1
+fi
+rm -f "$SHARED/conc.$SELFTAG.live"
+echo "Results: 1 passed, 0 failed"
+exit 0
+'
+plant_suite "$BC" "plugin.test.sh"     "${CONC_BODY/__TAG__/serialA}"
+plant_suite "$BC" "ship-suite.test.sh" "${CONC_BODY/__TAG__/serialB}"
+# a genuinely-hermetic generic suite that stays parallel — its presence proves the
+# carve removes only the named suites, not the whole pool.
+plant_suite "$BC" "generic.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+run_battery "$BP"
+if [ "$BATT_RC" -eq 0 ] && ! printf '%s' "$BATT_OUT" | grep -qi 'overlapped'; then
+  ok "[15.1] fix(b): the shared-live-tree suites (plugin.test.sh, ship-suite.test.sh) run SERIALLY (no fixture-collision under concurrency)"
+else
+  no "[15.1] fix(b): shared-live-tree-writing suites must be carved into the serial pass — they overlapped under the pool (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'overlap\|serial\|Results' | tail -4))"
+fi
+
+# T11k — fix (b) the carve is keyed by the AUDITED serial set, declared in the
+# runner heredoc itself (structural guard): the generator must name the live-tree
+# suites so a future suite added to the shared-tree-writing set is enrolled by
+# editing one list, and the carve can be read at the source. Red until the set
+# exists.
+grep -qE 'plugin\.test\.sh' "$RUNNER_SRC" && grep -qE 'ship-suite\.test\.sh' "$RUNNER_SRC" \
+  && grep -qiE 'serial' "$RUNNER_SRC" \
+  && ok "[15.1] fix(b): the runner declares the audited SERIAL set (plugin.test.sh, ship-suite.test.sh)" \
+  || no "[15.1] fix(b): the runner must declare the serial set naming the shared-live-tree suites (audit not encoded)"
 fi  # SCP_TEST_INNER guard ([15.1] block)
 
 echo ""
