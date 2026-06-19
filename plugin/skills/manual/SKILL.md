@@ -90,13 +90,13 @@ echo "Step 2: Doing the next thing..."
 echo ""
 echo "═══ Verification ═══"
 
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIP=0   # SKIP counts human-judgment gates skipped under no TTY (a confirm() gate — see /guv:handoff — increments it)
 
 verify() {
   if eval "$1"; then
-    echo "  ✓ $2"; ((PASS++))
+    echo "  ✓ $2"; PASS=$((PASS+1))
   else
-    echo "  ✗ $2"; ((FAIL++))
+    echo "  ✗ $2"; FAIL=$((FAIL+1))
   fi
 }
 
@@ -107,7 +107,7 @@ verify 'test -f /tmp/output/result.json' \
   "Output file created"
 
 echo ""
-echo "Results: $PASS passed, $FAIL failed"
+echo "Results: $PASS passed, $FAIL failed, $SKIP skipped"
 
 # ── Report ───────────────────────────────────────────
 if [ "$FAIL" -eq 0 ]; then

@@ -42,6 +42,42 @@ done_count() { grep -cE '^\s*-\s*✅' "$TRACKER"; }
 max_phase() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+' | sort -n | tail -1; }
 min_phase() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+' | sort -n | head -1; }
 
+# ── Spike-gated lone-deliverable carve ([15.7]) ──
+# A sibling completion oracle must agree with the engine. replan.sh's
+# phase_completed treats a phase whose *single* deliverable is ✅/❌ (no open
+# ⬜/🔄/🔒) as "open until SEALED" — sealed by an explicit `phase-close [N]`
+# amendment record — so a lone gating spike flipped ✅ before its gated build set
+# is groomed in does NOT auto-tally complete. Without this, a lone-✅ unsealed
+# phase has zero open-marker lines, so incomplete_lines() would read the whole
+# initiative as COMPLETE/archivable — the precise stranding the carve prevents,
+# reached through the archive door. The predicate below mirrors the engine's
+# (replan.sh: phase_completed + phase_sealed) exactly: per phase, count the
+# deliverable lines; if exactly one and none is open and the phase carries no
+# phase-close seal record, that phase is open. LEGACY (token-free) trackers have
+# no IDs to match and no phase-close records, so they read as before.
+ID_PHASE_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
+DATE_RE='[0-9]{4}-[0-9]{2}-[0-9]{2}'
+phase_numbers() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+'; }
+phase_sealed() { grep -qE "^> - $DATE_RE — phase-close \[$1\] " "$TRACKER"; }
+# Emits the '## Phase N …' header of each lone-deliverable phase that is done
+# (all ✅/❌, no open marker) yet not sealed — i.e. open by the engine's notion.
+# Skips any phase whose lone deliverable carries a marker incomplete_lines()
+# already reports (⬜|🔄|🔒|❌): those phases are listed by that sibling, so
+# re-emitting the header here would double-list the one blocker. Only a lone-✅
+# unsealed phase has ZERO incomplete-marker lines — the gap this fills.
+unsealed_lone_phases() {
+  local n lines nlines
+  for n in $(phase_numbers); do
+    lines=$(grep -E "^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*\*\*\[$n\.[0-9]+\]\*\*" "$TRACKER")
+    [ -n "$lines" ] || continue                       # LEGACY / no ID'd bullets
+    echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄|🔒|❌)' && continue   # already in incomplete_lines()
+    nlines=$(echo "$lines" | grep -c '.')
+    [ "$nlines" -eq 1 ] || continue                   # not a lone-deliverable phase
+    phase_sealed "$n" && continue                     # deliberately sealed → done
+    grep -E "^##+ Phase $n([^0-9]|\$)" "$TRACKER" | head -1
+  done
+}
+
 # A tracker with no marker bullets at all, or no "## Phase N" headers, is not a
 # tracker this script can reason about — fail loud rather than read it as done.
 malformed() {
@@ -112,6 +148,19 @@ validate() {
   return 0
 }
 
+# Everything that blocks initiative-COMPLETE: open-marker lines PLUS lone-
+# deliverable phases that are done but not yet sealed (the [15.7] carve — see
+# unsealed_lone_phases). One list so --check names every blocker and --archive
+# refuses on any of them.
+incomplete_all() {
+  local inc lone
+  inc=$(incomplete_lines)
+  lone=$(unsealed_lone_phases)
+  printf '%s' "$inc"
+  [ -n "$inc" ] && [ -n "$lone" ] && printf '\n'
+  printf '%s' "$lone"
+}
+
 check() {
   if [ ! -f "$TRACKER" ]; then
     echo "status=NONE"
@@ -119,7 +168,7 @@ check() {
   fi
   validate || return 5
   local inc
-  inc=$(incomplete_lines)
+  inc=$(incomplete_all)
   if [ -n "$inc" ]; then
     echo "status=INCOMPLETE"
     echo "$inc"
@@ -138,9 +187,9 @@ archive() {
   fi
   validate || return 5
   local inc
-  inc=$(incomplete_lines)
+  inc=$(incomplete_all)
   if [ -n "$inc" ] && [ "$force" != "--force" ]; then
-    echo "status=INCOMPLETE — refusing to archive. Finish these or re-run with --force to abandon:" >&2
+    echo "status=INCOMPLETE — refusing to archive. Finish these (an unsealed lone-deliverable phase needs phase-close) or re-run with --force to abandon:" >&2
     echo "$inc" >&2
     return 3
   fi

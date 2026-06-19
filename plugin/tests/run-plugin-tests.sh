@@ -71,11 +71,108 @@ if [ "$SHIPPED" -eq 0 ]; then
   exit 2
 fi
 
+# ── gate integrity ([15.1]): the plugin battery shares the core runner's three
+# coupled guards, so a shipped suite that hangs, errors to stderr, or reports a
+# stdout-only failure can never show green here either.
+#  (a) per-suite timeout — a hung shipped suite fails LOUD with a named timeout
+#      (rc 124), never a silent stall; a missing timeout binary degrades to an
+#      announced unbounded run (Rule 15).
+#  (b) bounded parallel pool + serial carve + deterministic aggregation — most
+#      suites run concurrently (≤ POOL_JOBS), each into its own out/err/rc; a
+#      final pass replays them in sorted name order so wall-clock drops toward the
+#      slowest while output + verdict stay deterministic. The shared-live-source
+#      suites (SERIAL_SET — plugin.test.sh, ship-suite.test.sh; audit in
+#      maintainers/BATTERY-HERMETICITY.md) are carved OUT of the pool and run one
+#      at a time, since they write to / build from the live source tree at fixed
+#      paths and would corrupt each other's build under concurrency. (Both happen
+#      to be maintainer-only, so they rarely reach the SHIPPED partition — the
+#      carve is applied identically here to keep the three runner copies in
+#      lockstep, never assuming the partition excludes them.)
+#  (c) no exit-masking / no stdout-only blindness — the gate fails a suite on ANY
+#      of: nonzero rc, ANY stderr byte, or a failure-shaped stdout verdict (a ✗
+#      line or "Results: N passed, M failed" with M>0) even at exit 0. The runner's
+#      final statement is its exit on the aggregated verdict.
+TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN="gtimeout"
+fi
+SUITE_TIMEOUT="${PLUGIN_TEST_TIMEOUT:-300}"
+[ -z "$TIMEOUT_BIN" ] && echo "[run-plugin-tests] no timeout/gtimeout on PATH — suites run UNBOUNDED (a hang will not be caught; install coreutils to restore the per-suite timeout guard)"
+POOL_JOBS="${PLUGIN_TEST_JOBS:-}"
+if [ -z "$POOL_JOBS" ]; then
+  POOL_JOBS=$( { command -v nproc >/dev/null 2>&1 && nproc; } \
+            || { command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu; } \
+            || echo 4 )
+fi
+case "$POOL_JOBS" in ''|*[!0-9]*) POOL_JOBS=4 ;; esac
+[ "$POOL_JOBS" -lt 1 ] && POOL_JOBS=1
+
+# the AUDITED serial set (shared-live-source-tree writers) — kept in lockstep with
+# the core runner. maintainers/BATTERY-HERMETICITY.md is the audit of record.
+SERIAL_SET=" plugin.test.sh ship-suite.test.sh "
+
+# collect the reconstructed suites in stable sorted order — the spine of the
+# launch list and the aggregation pass
+SUITES=()
+while IFS= read -r t; do SUITES+=("$t"); done < <(
+  for t in "$REC/tests"/*.test.sh; do [ -e "$t" ] && printf '%s\n' "$t"; done | LC_ALL=C sort
+)
+
+run_one() {  # $1 = suite path  $2 = scratch key
+  local t="$1" key="$2"
+  if [ -n "$TIMEOUT_BIN" ]; then
+    "$TIMEOUT_BIN" -k 5 "$SUITE_TIMEOUT" bash "$t" \
+      >"$WORK/$key.out" 2>"$WORK/$key.err"
+  else
+    bash "$t" >"$WORK/$key.out" 2>"$WORK/$key.err"
+  fi
+  printf '%s\n' "$?" > "$WORK/$key.rc"
+}
+
+# serial carve FIRST: shared-live-tree suites run strictly one at a time, before
+# the pool, so the live source tree is never touched concurrently.
+for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) run_one "${SUITES[$i]}" "rps-$i" ;; esac
+done
+
+# bounded pool — the HERMETIC remainder, at most $POOL_JOBS suites in flight
+running=0
+for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) continue ;; esac
+  run_one "${SUITES[$i]}" "rps-$i" &
+  running=$((running + 1))
+  if [ "$running" -ge "$POOL_JOBS" ]; then
+    wait -n 2>/dev/null || wait
+    running=$((running - 1))
+  fi
+done
+wait
+
+# deterministic SERIAL aggregation under the identical gate
 PASS_SUITES=0; FAIL_SUITES=0; FAILED_NAMES=""
-for t in "$REC/tests"/*.test.sh; do
-  b="$(basename "$t")"
+for i in "${!SUITES[@]}"; do
+  t="${SUITES[$i]}"; b="$(basename "$t")"
   echo "── $b ──"
-  if bash "$t"; then
+  cat "$WORK/rps-$i.out" 2>/dev/null
+  rc=$(cat "$WORK/rps-$i.rc" 2>/dev/null || echo 1)
+  suite_failed=0
+  if [ "$rc" = "124" ] || [ "$rc" = "137" ]; then
+    echo "[timeout] $b TIMED OUT after ${SUITE_TIMEOUT}s (rc=$rc) — failing the run (a hang, not slowness)"
+    suite_failed=1
+  elif [ "$rc" != "0" ]; then
+    suite_failed=1
+  fi
+  if [ -s "$WORK/rps-$i.err" ]; then
+    echo "[stderr] $b wrote to stderr — failing the run:"
+    cat "$WORK/rps-$i.err"
+    suite_failed=1
+  fi
+  if grep -q '✗' "$WORK/rps-$i.out" 2>/dev/null \
+     || grep -qE 'Results:[[:space:]]*[0-9]+[[:space:]]*passed,[[:space:]]*[1-9][0-9]*[[:space:]]*failed' "$WORK/rps-$i.out" 2>/dev/null; then
+    echo "[stdout] $b reported a FAILURE on stdout while exit was $rc — failing the run"
+    suite_failed=1
+  fi
+  if [ "$suite_failed" -eq 0 ]; then
     PASS_SUITES=$((PASS_SUITES + 1))
   else
     FAIL_SUITES=$((FAIL_SUITES + 1))
@@ -90,4 +187,5 @@ if [ "$FAIL_SUITES" -eq 0 ]; then
 else
   echo "Plugin-layout suites: $PASS_SUITES passed, $FAIL_SUITES failed —$FAILED_NAMES"
 fi
-[ "$FAIL_SUITES" -eq 0 ]
+# the verdict IS the exit, and nothing follows it (no trailing-command masking)
+exit "$([ "$FAIL_SUITES" -eq 0 ] && echo 0 || echo 1)"

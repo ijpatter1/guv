@@ -77,9 +77,12 @@
 #   --manifest    override the manifest path (tests; default .claude/project.json).
 #
 # Output: an ACTUAL-burn breach prints the decision gate to stdout (the burn profile
-# + the extend/harvest/kill choice) and exits 3 — the PAUSE. A FORESEEN breach ([13.5])
-# prints a declaration to stdout and exits 0 — a signal, not a stop. Within budget /
-# absent budget / no log: silent, exit 0.
+# + the extend/harvest/kill choice) and exits 3 — the PAUSE, headed "[budget-gate]
+# BREACH …". A FORESEEN overrun ([13.5]) prints a declaration to stdout and exits 0
+# — a signal, not a stop, headed "[budget-gate] FORESEEN OVERRUN …" ([15.6]: the
+# signal header leads with words distinct from the stop's so a skim tells them apart;
+# "BREACH" names the exit-3 stop alone). Within budget / absent budget / no log:
+# silent, exit 0.
 #
 # Exit: 0 within budget, absent budget, no measurable burn, OR a FORESEEN breach
 #         ([13.5] — declared on stdout for the handoff, never a stop)
@@ -177,8 +180,9 @@ if [ -f "$LOG" ]; then
   # samples. A negative legacy delta (out-of-order / pruned) is dropped, never a
   # fabricated burn (Rule 15). This is the SAME read projection.sh observed_rate()
   # uses — the unit honesty that keeps a cumulative snapshot from inflating burn
-  # ~4.6× (the forensic bug, docs/notes/meter-forensics.md). A raw sum of cumulative
-  # snapshots is exactly the over-count that bug produced.
+  # ~4.6× (the forensic bug found during guv's own development; the analysis is a
+  # maintainer artifact, not a doc shipped in this code repo — [15.6]). A raw sum of
+  # cumulative snapshots is exactly the over-count that bug produced.
   burn_sum() {  # $1 = a jq boolean selecting the entries to sum (post-schema)
     jq -rs "
       def burn: (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0);
@@ -253,7 +257,7 @@ if [ -z "$BREACH_KIND" ]; then
         PROJECTED_TOTAL=$((INITIATIVE_BURN + CTC))
         if [ "$PROJECTED_TOTAL" -ge "$INITIATIVE_BUDGET" ]; then
           cat <<EOF
-[budget-gate] FORESEEN BREACH ${WHERE} — the initiative is PROJECTED to exceed its budget.
+[budget-gate] FORESEEN OVERRUN ${WHERE} — the initiative is PROJECTED to exceed its budget.
 
   forecast profile
     burn to date:          ${INITIATIVE_BURN} tokens

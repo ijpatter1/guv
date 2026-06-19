@@ -64,7 +64,8 @@ const REPORT_SCHEMA = {
 const SPLIT = `RESPONSIBILITY SPLIT — grade accordingly. This is ONE lane of a fan-out.
 - The LANE owns SOURCE only: red/green TDD confined to its worktree.
 - The JOIN (lane-dispatch.sh, run AFTER this gate) owns the derived plugin/ tree (rebuilt at the join), the drift battery, and the assembly of shared prose (CHANGELOG/README) from docFragments.
-So do NOT flag as a lane defect: a missing plugin/ rebuild, a prose delta routed through a docFragment instead of a direct edit, or any other join-owned step. Grade the lane's SOURCE work against its acceptance criteria. The two of you must not contradict on this split.`
+- IN-PLACE protected-prose edits are the JOIN's, not a lane's: an in-place edit to protected prose (README / CHANGELOG / *.template — e.g. a "recommended"→"default" flip or a topology-section rewrite) is an ORCHESTRATOR JOIN commit, NOT a lane edit and NOT an append-only docFragment (docFragments only APPEND; an in-place rewrite cannot be expressed as one). Precedent: commit 8d3edc5 reframed the topology prose in README + the templates as a single orchestrator commit, outside any lane.
+So do NOT flag as a lane defect: a missing plugin/ rebuild, a prose delta routed through a docFragment instead of a direct edit, the ABSENCE from a lane of an in-place protected-prose edit (it is structurally orchestrator-owned — its absence is not a Rule-10 gap), or any other join-owned step. Grade the lane's SOURCE work against its acceptance criteria. The two of you must not contradict on this split.`
 
 // ── parse the lane list (single- and multi-lane both drive) ──
 const laneIds = (typeof args === 'string'

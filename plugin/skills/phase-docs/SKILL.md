@@ -232,6 +232,17 @@ whole semantic set since [7.6] repealed the forward-cross-phase-dep rule).
   Immutability is phase-grained: a ✅ deliverable in an *open* phase may still
   be reworded (the amendment record keeps the audit trail) but never descoped;
   its wording freezes when its phase completes.
+- A phase with all deliverables ✅/❌ auto-tallies complete — *except* a
+  **lone-deliverable phase**, which stays mutable so a **spike-gated phase**
+  (one gating spike flipped ✅ before its gated build set is groomed in) does
+  not freeze and strand the build set ([15.7], lived in [14.1]→[14.2]–[14.6]).
+  Groom the gated build set in behind the spike (`insert`), and the phase
+  tallies on its own once it holds ≥2 done deliverables. A genuinely-finished
+  *single*-deliverable phase is sealed deliberately by the explicit
+  **phase-close** step (`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/replan.sh phase-close <session> <phase>`),
+  recorded as `> - DATE — phase-close [N] (session)` — distinct from the
+  auto-tally, refused while the phase has open work (Rule 15: the designed seal,
+  never a silent strand).
 - Insert appends the next ordinal at the end of its phase (max+1 discipline) —
   deps express its logical position, not list placement.
 - Descope marks the line ❌ with a dated note; the line survives. Deletion

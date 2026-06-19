@@ -49,14 +49,14 @@ When generating a handoff artifact:
 - Mark deliverables with clear status indicators: ✅ complete, 🔄 in progress, ⬜ not started, ❌ blocked
 - When marking something complete, add the date and the session reference (e.g., "✅ 2026-03-25, session-2026-03-25-001"). These completion annotations are tracker-local: in a grammar tracker (see the `phase-docs` skill, "Tracker grammar") they go **after** the `` `[deps: …]` `` token, and they never sync back to REQUIREMENTS
 - When marking something blocked, note what it's blocked on
-- When a phase is fully complete (all deliverables ✅), add a completion date to the phase header
+- When a phase is fully complete (all deliverables ✅), add a completion date to the phase header. **Lone-deliverable carve ([15.7]):** a phase holding a *single* deliverable is "fully complete" only once it is **SEALED** — sealed by an explicit `phase-close` record (`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/replan.sh phase-close <session> <phase>`), not merely by its one deliverable going ✅. This mirrors the engine (`replan.sh` `phase_completed`/`phase_sealed`) and its sibling oracles (`archive-initiative.sh`, the `handoff` skill's phase-completion step): a lone gating spike flipped ✅ before its gated build set is groomed in is **open until sealed**, so do not stamp a completion date on it until the seal record exists. The **multi-deliverable** rule is unchanged — ≥2 deliverables, all ✅, is fully complete with no manual seal
 - Never remove or reorder deliverables — the list should match `docs/REQUIREMENTS.md` exactly. IDs and deps tokens are part of the deliverable wording and sync verbatim with it; structural changes follow the grammar's append-only rules (insert appends the next ordinal at phase end, descope marks ❌ with a dated note, deletion does not exist)
 
 ### Reading Phase Status
 
 When determining what to work on:
 
-1. Find the current phase (the one with deliverables that aren't all ✅)
+1. Find the current phase (the one with deliverables that aren't all ✅) — and note the lone-deliverable carve ([15.7]): a phase whose *single* deliverable is ✅ but that is **not** yet sealed (no `phase-close` record) is still the **current/open** phase, not a completed one, so it stays mutable until sealed (mirrors the engine and its sibling oracles; the multi-deliverable rule is unchanged)
 2. Look for 🔄 items first — these are in progress and should be finished before starting new work
 3. Look for ❌ items — check if blockers have been resolved
 4. Then look for ⬜ items. In a grammar tracker (deliverables carry `**[N.M]**` IDs and `` `[deps: …]` `` tokens — see the `phase-docs` skill, "Tracker grammar"), the deps tokens are the dependency source: a ⬜ item is ready when all its deps are ✅, and document order is presentation only. In a LEGACY (token-free) tracker, the ordering in REQUIREMENTS.md reflects dependency order, as before

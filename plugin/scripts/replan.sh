@@ -16,6 +16,7 @@
 # Usage:
 #   bash .claude/replan.sh next-ordinal PHASE [TRACKER]
 #   bash .claude/replan.sh guard TARGET [TRACKER]            # TARGET = N or N.M
+#   bash .claude/replan.sh phase-close SESSION PHASE [TRACKER]
 #   bash .claude/replan.sh insert SESSION OP WORDING [TRACKER]
 #   bash .claude/replan.sh descope SESSION OP ID NOTE [TRACKER]
 #   bash .claude/replan.sh reword SESSION OP ID WORDING [TRACKER [SUMMARY]]
@@ -37,6 +38,10 @@
 # Every mutation appends an amendment record to the tracker header
 # (format defined in the phase-docs skill, "Amendment records"):
 #   > - YYYY-MM-DD — OP [IDs] (SESSION)[ — detail]
+# phase-close ([15.7]) records under a bare phase ordinal — > - DATE —
+# phase-close [N] (SESSION) — … — the deliberate seal of a finished lone-
+# deliverable (spike-gated) phase, distinct from the auto-tally of a normal
+# multi-deliverable phase; the guard reads this record back to freeze the phase.
 #
 # Exit: 0 ok · 2 usage · 4 no tracker · 5 MALFORMED (validation failed,
 #       unknown target, sync drift) · 6 REFUSED (completed phase, LEGACY
@@ -48,10 +53,11 @@ RESOLVER="$DIR/resolve-ready.sh"
 
 ID_RE='\*\*\[[0-9]+\.[0-9]+\]\*\*'
 DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
+DATE_RE='[0-9]{4}-[0-9]{2}-[0-9]{2}'
 LEAD_RE="^[[:space:]]*-[[:space:]]*(✅|🔄|⬜|❌|🔒)[[:space:]]*$ID_RE"
 VERBS="reorder split merge insert descope abandon deps-amend"
 
-usage() { echo "usage: bash .claude/replan.sh next-ordinal|guard|insert|descope|reword|sync-check … (header comment has the arity)" >&2; exit 2; }
+usage() { echo "usage: bash .claude/replan.sh next-ordinal|guard|phase-close|insert|descope|reword|sync-check … (header comment has the arity)" >&2; exit 2; }
 die2() { echo "status=USAGE — $1" >&2; exit 2; }
 die4() { echo "status=NONE — no tracker at $1" >&2; exit 4; }
 die5() { echo "status=MALFORMED — $1" >&2; exit 5; }
@@ -85,13 +91,32 @@ id_line()      { marker_bullets "$1" | grep -E "^[[:space:]]*-[[:space:]]*(✅|�
 # (⬜, 🔄, or 🔒) — all ✅/❌. 🔒 is human-gated OPEN work (it counts toward the
 # open phase in the resolver), so a phase still holding a 🔒 is NOT complete and
 # stays mutable. Completed phases are immutable.
+#
+# Exception — the spike-gated lone-deliverable carve ([15.7]): a phase whose
+# *single* deliverable is marked done is NOT auto-tallied complete. That shape
+# is the spike-gated phase mid-grooming — a lone gating spike flipped ✅ before
+# its gated build set is groomed in (lived in [14.1]→[14.2]–[14.6]). Auto-
+# freezing it forced a reopen-insert-reflip dance to land the build set. So the
+# build set inserts freely while the phase is lone, and a genuinely-finished
+# lone-deliverable micro-phase is sealed DELIBERATELY by an explicit
+# `phase-close` record (Rule 15: the designed path, never a silent strand). The
+# multi-deliverable invariant is untouched — ≥2 deliverables, all ✅/❌, freezes
+# exactly as before.
 phase_completed() {
-  local lines
+  local lines n
   lines=$(marker_bullets "$1" | grep -E "\*\*\[$2\.[0-9]+\]\*\*")
   [ -n "$lines" ] || return 1
   echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄|🔒)' && return 1
+  n=$(echo "$lines" | grep -c '.')
+  # Lone-deliverable phase: complete only once explicitly sealed (phase-close).
+  [ "$n" -eq 1 ] && ! phase_sealed "$1" "$2" && return 1
   return 0
 }
+
+# A lone-deliverable phase is sealed when a `phase-close [N]` amendment record
+# names it in the header — the deliberate, loud, append-only seal that lets a
+# genuinely-finished micro-phase freeze without trapping a mid-grooming one.
+phase_sealed() { grep -qE "^> - $DATE_RE — phase-close \[$2\] " "$1"; }
 
 guard_target() { # tracker, target (N or N.M)
   local t="$1" tgt="$2" phase
@@ -189,6 +214,32 @@ case "$cmd" in
     [ $# -ge 2 ] || usage
     T="${3:-docs/PHASE_STATUS.md}"; need_tracker "$T"; preflight "$T"
     guard_target "$T" "$2"
+    ;;
+
+  # The explicit phase-close step ([15.7]) — distinct from all-done. It seals a
+  # genuinely-finished LONE-deliverable phase deliberately, so its single done
+  # deliverable freezes by intent, not by an auto-tally that would also trap a
+  # spike-gated phase mid-grooming. Refuses if the phase has open work (can't
+  # seal a build still in flight), if the phase is multi-deliverable (those
+  # auto-tally — no manual seal exists for them, by design), or if already
+  # sealed (append-only: the record is written once).
+  phase-close)
+    [ $# -ge 3 ] || usage
+    SESSION="$2"; PHASE="$3"; T="${4:-docs/PHASE_STATUS.md}"
+    [ -n "$SESSION" ] || die2 "SESSION is mandatory — the phase-close record names it"
+    need_tracker "$T"; preflight "$T"
+    phase_exists "$T" "$PHASE" || die5 "no phase $PHASE in $T"
+    PLINES=$(marker_bullets "$T" | grep -E "\*\*\[$PHASE\.[0-9]+\]\*\*")
+    echo "$PLINES" | grep -qE '^\s*-\s*(⬜|🔄|🔒)' \
+      && die6 "phase $PHASE has open deliverables (⬜/🔄/🔒) — groom and finish the gated build set before sealing; a lone-deliverable phase stays mutable until then (the [15.7] spike-gated path)"
+    NDEL=$(echo "$PLINES" | grep -c '.')
+    [ "$NDEL" -eq 1 ] \
+      || die6 "phase $PHASE has $NDEL deliverables — a multi-deliverable phase auto-tallies complete and needs no manual seal; phase-close is for the lone-deliverable (spike-gated) shape only"
+    phase_sealed "$T" "$PHASE" \
+      && die6 "phase $PHASE is already sealed (a phase-close record names it); the seal is append-only and written once"
+    mk_tmp "$T"
+    append_record "phase-close" "$PHASE" "$SESSION" "lone-deliverable phase sealed"
+    commit_tmp "$T"
     ;;
 
   insert)

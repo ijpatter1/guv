@@ -61,6 +61,23 @@ here: a ✅ deliverable in an *open* phase can still be reworded (the amendment
 record keeps the audit trail) but never descoped — done is done; only when its
 whole phase completes does its wording freeze too.
 
+**The spike-gated phase and `phase-close`.** A phase is auto-tallied complete (and
+frozen) the moment its deliverables are all ✅/❌ — *except* a **lone-deliverable
+phase**, which stays mutable. That carve exists for the **spike-gated phase**: when a
+phase's sole deliverable is a gating spike, flipping it ✅ before its gated build set
+is groomed in used to freeze the phase, forcing a reopen-insert-reflip dance to land
+the build set (lived in [14.1]→[14.2]–[14.6]). So a lone-deliverable phase never
+auto-freezes — **groom the gated build set in first** (`insert` each build
+deliverable behind the spike; the spike being ✅ makes them immediately ready), and
+the phase tallies complete on its own once it holds ≥2 deliverables all done. A
+phase that *genuinely* has a single deliverable and is finished is sealed
+deliberately with an explicit **phase-close** step — `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/replan.sh
+phase-close <session> <phase>` — which records `> - DATE — phase-close [N]
+(session)` and freezes the phase by intent. phase-close refuses a phase with open
+work (can't seal mid-build), a multi-deliverable phase (those auto-tally), or an
+already-sealed phase (the seal is append-only). This is a Rule-15 designed path: the
+trap that silently strands a build set is removed; the deliberate seal replaces it.
+
 ## Step 2 — Draft
 
 Read the grammar section of the phase-docs skill (plugin-shipped,

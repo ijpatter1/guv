@@ -286,15 +286,17 @@ for the person's decision. The machinery never raises a setpoint; raising the
 ceiling is a human commit to `budgets.{initiative,session}.tokens` in
 `project.json` (the commit is the provenance — no approval flow, no side channel).
 
-**If the gate emits a `[budget-gate] FORESEEN BREACH` line** (a [13.5] foreseen
-breach: burn-to-date plus the projection's cost-to-complete is forecast to exceed the
+**If the gate emits a `[budget-gate] FORESEEN OVERRUN` line** (a [13.5] foreseen
+overrun: burn-to-date plus the projection's cost-to-complete is forecast to exceed the
 initiative budget — exit **0**, not a stop), record it in the handoff artifact under
 **Issues & Technical Debt** (or **Blocked**), verbatim. Like the [13.6] balloon in
-Step 6b, a foreseen breach is a **declaration, not a hard stop** — a deliverable
+Step 6b, a foreseen overrun is a **declaration, not a hard stop** — a deliverable
 budget is fuzzy (the projection is a range), so the gate does **not** pause for it;
 it is a human signal for the **extend / harvest / re-plan** call at this boundary. It
 must reach the *written* record a person reads later, not only the live output. Do
-not stop the handoff for it (it exited 0); do surface it.
+not stop the handoff for it (it exited 0); do surface it. (The header leads with
+`FORESEEN OVERRUN`, distinct from the actual-burn `[budget-gate] BREACH` stop in this
+step above — a skim tells the signal from the exit-3 pause; [15.6].)
 
 ## Step 7 — Update Phase Status
 
@@ -314,6 +316,22 @@ Otherwise update `docs/PHASE_STATUS.md` to reflect the current state of the phas
 
 **Phased projects only — and conditional within them.** If `ceremony` is not
 `phased`, skip this step entirely. Otherwise check if all deliverables for the current phase are now ✅ in `docs/PHASE_STATUS.md`. If any deliverables are still ⬜, 🔄, ❌, or 🔒, skip to Step 9.
+
+**Defer to the engine's completion notion for a lone-deliverable phase ([15.7]).**
+This phase-completion check is a sibling of the engine's `phase_completed`
+(`"${CLAUDE_PLUGIN_ROOT}"/scripts/replan.sh`) and `archive-initiative.sh` — all three must agree.
+Where the current phase holds a **single** deliverable, "all ✅" is **not**
+enough: a lone-deliverable phase whose one deliverable is ✅/❌ is the
+**spike-gated** shape mid-grooming (a lone gating spike flipped ✅ before its
+gated build set is groomed in), and the engine treats it as **open until
+SEALED** — sealed by an explicit `phase-close` record. So a lone-✅ phase counts
+as phase-complete here **only once it carries that seal**
+(`> - DATE — phase-close [N] (session)` in the tracker header). If the current
+phase is lone-deliverable, all-done, but **not** sealed, do **not** bank the
+forecast or generate UAT — instead **prompt to seal it first**
+(`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/replan.sh phase-close <session> <phase>`), then proceed once
+sealed. The **multi-deliverable** path is unchanged: ≥2 deliverables, all ✅/❌,
+is phase-complete exactly as before (those auto-tally — there is no manual seal).
 
 The 🔒 marker is **human-gated / awaiting-manual** — a deliverable blocked on
 out-of-sandbox human or manual work (the kind `/guv:manual` writes to
@@ -350,15 +368,25 @@ Use the product reviewer's scenarios to produce the UAT artifact. **Follow the s
 1. **If the project is a CLI tool or backend service:** Produce a UAT script at `docs/uat/phase-N-uat.sh`. The script should set up prerequisites, run each scenario, pause for human observation where visual verification is needed, collect pass/fail results, and print a summary. Use the same `verify()` pattern from the `/guv:manual` script template for automated checks. For steps requiring human judgment, use a `confirm()` helper:
 
 ```bash
+PASS=0; FAIL=0; SKIP=0   # the skip path below increments SKIP — declare it with PASS/FAIL or `set -u` aborts the gate
+
 confirm() {
   echo ""
   echo "  → $1"
+  # Human-judgment gate: never auto-pass without a human. With no interactive
+  # terminal (no TTY) — or when an explicit non-interactive flag is set — there
+  # is no one to answer, so a `read` at EOF would fall through to the pass branch
+  # (guv's own vacuous-guard lesson). Guard it: SKIP, never ✓ pass.
+  if [ ! -t 0 ] || [ -n "${GUV_NON_INTERACTIVE:-}" ] || [ -n "${CI:-}" ]; then
+    echo "  ⊘ SKIPPED (non-interactive — no human to judge): $2"; SKIP=$((SKIP+1))
+    return
+  fi
   read -p "  Pass? [Y/n] " -n 1 -r
   echo ""
   if [[ $REPLY =~ ^[Nn]$ ]]; then
-    echo "  ✗ $2"; ((FAIL++))
+    echo "  ✗ $2"; FAIL=$((FAIL+1))
   else
-    echo "  ✓ $2"; ((PASS++))
+    echo "  ✓ $2"; PASS=$((PASS+1))
   fi
 }
 
@@ -366,6 +394,14 @@ confirm() {
 confirm "Does the dashboard show campaign data for all 3 channels?" \
   "Dashboard displays multi-channel data"
 ```
+
+The human-judgment gate **skips** under no TTY (or `GUV_NON_INTERACTIVE` / `CI`)
+rather than auto-passing — a non-interactive run reports each human gate SKIPPED,
+never ✓ passed. Track skips in a `SKIP=0` counter alongside `PASS`/`FAIL` and fold
+them into the results summary (e.g. `Results: $PASS passed, $FAIL failed, $SKIP
+skipped`); a run with any SKIPPED human gate is **not** a clean pass — the human
+judgment is owed, not waived. The mechanical `verify()` checks read no human input
+and are unaffected by this guard.
 
 2. **If the project is a web UI:** Produce a UAT script that automates setup and verification where possible, and uses `confirm()` prompts for visual/interactive checks. Include `open` commands to launch the relevant pages. Structure the script as a guided walkthrough — the human follows along while the script manages state and collects results.
 
