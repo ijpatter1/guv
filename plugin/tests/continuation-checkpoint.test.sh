@@ -216,6 +216,21 @@ run "$H2" "$(payload manual)"
 J=$(cat "$H2/$CKPT" 2>/dev/null)
 [ "$(jq -r '.active_deliverable' <<<"$J" 2>/dev/null)" = "6.2" ] && ok "untagged: an untagged latest commit leaves active = the serial 6.2 (reconcile fires only on a tag)" || no "untagged: active_deliverable should be 6.2 (got $(jq -r '.active_deliverable' <<<"$J" 2>/dev/null))"
 
+# ── Fixture H3: a deliverable tag UNDER an untagged chore commit ([14.6]) — the REAL guv
+# topology: a post-commit `chore(render)` lands ON TOP of the deliverable commit, so the
+# in-flight tag is NOT at HEAD. The reconcile scans recent commits (not just HEAD) and picks
+# the most-recent DELIVERABLE tag, seeing through the chore. Pins the head-1-over-N ordering:
+# a regression that only read HEAD (or reversed the order) would miss the in-flight deliverable.
+H3="$WORK/tag-under-chore"; mkdir -p "$H3/.claude"
+write_tracker "$H3"
+( cd "$H3" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -q -m init \
+    && git commit -q --allow-empty -m 'feat([6.3]): wip on the mutation primitive' \
+    && git commit -q --allow-empty -m 'chore(render): regenerate status views' ) >/dev/null 2>&1
+run "$H3" "$(payload manual)"
+J=$(cat "$H3/$CKPT" 2>/dev/null)
+[ "$(jq -r '.active_deliverable' <<<"$J" 2>/dev/null)" = "6.3" ] && ok "tag-under-chore: reconcile sees through an untagged chore on top to the in-flight [6.3] (the real post-commit-hook topology, not just HEAD)" || no "tag-under-chore: active_deliverable should be 6.3 (got $(jq -r '.active_deliverable' <<<"$J" 2>/dev/null))"
+
 # ── Fixture J: SPLIT topology ([14.6]) — git state is measured against roots.code (the
 # DELIVERABLE repo), NOT the control-plane root the hook runs in. The control plane is CLEAN;
 # the code repo has in-flight work. Pre-fix the hook measured ROOT (the clean control plane)
