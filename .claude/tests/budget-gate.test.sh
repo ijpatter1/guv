@@ -264,6 +264,26 @@ RATIONALE_PRESENT=$(grep -ciE 'provenance|commit|project\.json history|no approv
   && ok "the gate doc names the provenance model (project.json history, no approval flow)" \
   || no "the gate's doc header must state the provenance model (commit history, no approval flow)"
 
+# ── [15.6] NO DANGLING CITATION — the gate cites no doc a fresh install lacks ──
+# The gate cited docs/notes/meter-forensics.md, a CONTROL-PLANE-ONLY forensic doc a
+# fresh code-repo install does NOT have — so the path citation dangles (a reader
+# following it hits nothing). [15.6] requires the citation to stop dangling: either the
+# doc ships in this repo, or the citation is reworded so it does not imply a non-shipped
+# file. Install-agnostic check: the gate source must not carry the path unless the file
+# actually ships here.
+FORENSIC_DOC="$ROOT/docs/notes/meter-forensics.md"
+if [ -f "$FORENSIC_DOC" ]; then
+  ok "[15.6] the forensic doc ships in this repo (docs/notes/meter-forensics.md) — a path citation resolves"
+else
+  grep -nE 'docs/notes/meter-forensics\.md' "$GATE" >/dev/null 2>&1 \
+    && no "[15.6] the gate cites docs/notes/meter-forensics.md but that file does NOT ship — the citation dangles (reword or ship the doc)" \
+    || ok "[15.6] no dangling docs/notes/meter-forensics.md path citation in the gate (it does not imply a non-shipped file)"
+fi
+# positive control: the grep WOULD fire on a planted path line (not a dead regex).
+printf 'see docs/notes/meter-forensics.md for detail\n' | grep -qE 'docs/notes/meter-forensics\.md' \
+  && ok "[15.6] (positive control) the dangling-path grep catches a planted meter-forensics.md path" \
+  || no "[15.6] the dangling-path grep is dead — it would pass even with a dangling citation present"
+
 # ── DEGRADATION ROBUSTNESS (Rule 15: select a path, never invent one) ──
 # A budget set but NO metering log yet (a fresh project): burn is 0, so the gate
 # is silent (0 is within any positive budget). A missing log is not a breach and
@@ -426,6 +446,51 @@ echo "$FOUT" | grep -q "10000000" \
   && ok "[13.5] FORESEEN surfaces burn-to-date and the projection (the human's decision inputs)" \
   || no "[13.5] the foreseen declaration must surface the burn + projection (out='$FOUT')"
 
+# ── [15.6] FORESEEN (a SIGNAL, exit 0) and BREACH (a STOP, exit 3) are
+# ── DISTINGUISHABLE ON THEIR FIRST WORDS ──
+# A person skimming the gate's output must tell a SIGNAL (foreseen overrun, exit 0,
+# session continues) from a STOP (actual-burn breach, exit 3, the loud pause) by the
+# first words of the header alone — not by reading to the end of the line. The bug
+# this kills: both headers led with "[budget-gate] ... BREACH ...", so the leading
+# word a skim catches was identical for the signal and the stop. The fix renames the
+# FORESEEN header so its first significant word DIFFERS from the BREACH header's, and
+# the word "BREACH" no longer appears in the signal (it is reserved for the stop).
+#   first_words = the header line's words AFTER the [budget-gate] tag (the part a
+#   person's eye lands on); compared between the two outputs.
+header_words() {  # <gate output> -> the first header line's words after "[budget-gate]"
+  printf '%s\n' "$1" | grep -m1 '^\[budget-gate\]' | sed -E 's/^\[budget-gate\][[:space:]]*//'
+}
+# An ACTUAL-burn breach fixture (exit 3) to compare against the FORESEEN signal (exit 0).
+PB6=$(mk_project '{"session":{"tokens":100000}}' 150000 0)
+BOUT6=$(gate "$PB6" exit); BRC6=$?
+F_WORDS=$(header_words "$FOUT")     # the FORESEEN signal's leading words
+B_WORDS=$(header_words "$BOUT6")    # the actual BREACH stop's leading words
+# (c1) the two headers' leading words differ — a skim distinguishes signal from stop.
+[ -n "$F_WORDS" ] && [ -n "$B_WORDS" ] && [ "$F_WORDS" != "$B_WORDS" ] \
+  && ok "[15.6] FORESEEN and BREACH headers differ on their first words (signal vs stop, skimmable)" \
+  || no "[15.6] the FORESEEN and BREACH headers must differ on their first words (foreseen='$F_WORDS' breach='$B_WORDS')"
+# (c2) the FIRST word after [budget-gate] is distinct between the two (the eye's anchor).
+F_FIRST=$(printf '%s' "$F_WORDS" | awk '{print $1}')
+B_FIRST=$(printf '%s' "$B_WORDS" | awk '{print $1}')
+[ -n "$F_FIRST" ] && [ -n "$B_FIRST" ] && [ "$F_FIRST" != "$B_FIRST" ] \
+  && ok "[15.6] the FIRST word of each header differs (FORESEEN='$F_FIRST' vs BREACH='$B_FIRST')" \
+  || no "[15.6] the first header word must differ between signal and stop (foreseen='$F_FIRST' breach='$B_FIRST')"
+# (c3) the word "BREACH" is the STOP's alone — the signal's header line does not carry
+# it AT ALL, so "BREACH" in the gate output unambiguously means the exit-3 hard stop.
+# (This is the load-bearing distinction: the pre-[15.6] header read "FORESEEN BREACH",
+# so a skim of the word "BREACH" could not tell the signal from the stop.)
+printf '%s\n' "$F_WORDS" | grep -qi 'breach' \
+  && no "[15.6] the FORESEEN signal header must NOT contain BREACH (reserved for the exit-3 stop); got '$F_WORDS'" \
+  || ok "[15.6] BREACH names the STOP header alone; the FORESEEN signal header omits it"
+# (c3b) and the STOP header DOES still carry BREACH (the word keeps its hard-stop meaning).
+printf '%s\n' "$B_WORDS" | grep -qi 'breach' \
+  && ok "[15.6] the actual-burn STOP header still leads with BREACH (its hard-stop meaning is preserved)" \
+  || no "[15.6] the actual-burn breach header must still name BREACH (got '$B_WORDS')"
+# (c4) the exits remain coupled to the kind: FORESEEN exits 0 (signal), BREACH exits 3 (stop).
+{ [ "$FRC" -eq 0 ] && [ "$BRC6" -eq 3 ]; } \
+  && ok "[15.6] the exit codes still pair with the headers (FORESEEN exit 0 signal, BREACH exit 3 stop)" \
+  || no "[15.6] FORESEEN must exit 0 and BREACH exit 3 (foreseen rc=$FRC breach rc=$BRC6)"
+
 # ── WITHIN BUDGET (even projected): silent ──
 PW=$(mk_proj 10000000); CTCW=$(proj_ctc "$PW")
 set_init_budget "$PW" $(( 10000000 + CTCW * 3 ))   # setpoint far above burn + CTC
@@ -502,13 +567,16 @@ XSOUT=$(gate "$XS" exit); XSRC=$?
   && ok "[13.5] slice-aware: a cross-session legacy runtime_session differences over the FULL series (current burn 60000, not raw 100000) -> within 80000, silent" \
   || no "[13.5] cross-session legacy must difference full-series then filter (baseline-loss inflates SESSION_BURN); rc=$XSRC out='$XSOUT'"
 
-# ── the handoff RECORDS a foreseen breach (the acceptance: declared in the handoff) ──
-# A foreseen breach exits 0 (no stop), so it reaches the written record only if the
+# ── the handoff RECORDS a foreseen overrun (the acceptance: declared in the handoff) ──
+# A foreseen overrun exits 0 (no stop), so it reaches the written record only if the
 # session-close path captures it — like the [13.6] balloon. The handoff skill must
-# document recording the gate's FORESEEN line.
-grep -qi 'FORESEEN BREACH' "$HANDOFF_SKILL" 2>/dev/null \
-  && ok "[13.5] the handoff skill records a FORESEEN declaration (it reaches the written handoff, not just live output)" \
-  || no "[13.5] the handoff must capture the gate's FORESEEN declaration (acceptance: declared in the session handoff)"
+# document recording the gate's FORESEEN line — by the SAME header string the gate
+# emits ([15.6]: the header was renamed away from "FORESEEN BREACH" so a skim
+# distinguishes the signal from the exit-3 stop; the handoff's grep target moves in
+# lockstep with the gate's header, or the documented call-site would dangle).
+grep -qi 'FORESEEN OVERRUN' "$HANDOFF_SKILL" 2>/dev/null \
+  && ok "[15.6] the handoff skill records a FORESEEN OVERRUN declaration (the call-site tracks the renamed gate header)" \
+  || no "[15.6] the handoff must capture the gate's FORESEEN OVERRUN declaration by its renamed header (acceptance: declared in the session handoff)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -437,6 +437,32 @@ echo "$SRC" | grep -qE 'calibration|CALIB' \
   || no "the projection must reference the local calibration record"
 
 # ════════════════════════════════════════════════════════════════════════════
+# T_NO_DANGLING_CITE — [15.6] no citation points at a doc a fresh install lacks
+# ════════════════════════════════════════════════════════════════════════════
+# The projection script cited docs/notes/meter-forensics.md — a CONTROL-PLANE-ONLY
+# forensic doc that a fresh code-repo install does NOT have. A path citation to a file
+# that does not ship dangles: a reader following it hits nothing. [15.6] requires the
+# citation to stop dangling — either ship the finding in a code-repo doc, or reword so
+# the citation does not imply the file ships. The robust, install-agnostic check: the
+# projection source must NOT carry the docs/notes/meter-forensics.md PATH unless that
+# file actually ships in this repo. The forensic FINDINGS (the ≈70–350M numbers) stay
+# inline in the prose — the citation just stops claiming a file the install lacks.
+FORENSIC_DOC="$CLAUDE_DIR/../docs/notes/meter-forensics.md"
+if [ -f "$FORENSIC_DOC" ]; then
+  # the doc was shipped into the code repo — a path citation now RESOLVES, so it is fine.
+  ok "[15.6] the forensic doc ships in this repo (docs/notes/meter-forensics.md) — a path citation resolves"
+else
+  # the doc does NOT ship — no projection citation may point at its path (it would dangle).
+  grep -nE 'docs/notes/meter-forensics\.md' "$SCRIPT" >/dev/null 2>&1 \
+    && no "[15.6] the projection cites docs/notes/meter-forensics.md but that file does NOT ship — the citation dangles (reword or ship the doc)" \
+    || ok "[15.6] no dangling docs/notes/meter-forensics.md path citation in the projection (it does not imply a non-shipped file)"
+fi
+# positive control: the grep WOULD fire on a planted path line (not a dead regex).
+printf 'see docs/notes/meter-forensics.md for detail\n' | grep -qE 'docs/notes/meter-forensics\.md' \
+  && ok "[15.6] (positive control) the dangling-path grep catches a planted meter-forensics.md path" \
+  || no "[15.6] the dangling-path grep is dead — it would pass even with a dangling citation present"
+
+# ════════════════════════════════════════════════════════════════════════════
 # T4 — DEFAULT DISCLOSURE: an unratified deliverable projects at the default and discloses
 # ════════════════════════════════════════════════════════════════════════════
 # In T1's instance, 9.9 had no ratified estimate -> default (1). The projection
@@ -909,17 +935,62 @@ bash "$MR/.claude/estimate.sh" set 9.7 2 "$MR/docs/estimates.json" >/dev/null 2>
 jq '.occupancy={threshold:800000}' "$MR/.claude/project.json" > "$MR/.claude/project.json.tmp" \
   && mv "$MR/.claude/project.json.tmp" "$MR/.claude/project.json"
 MR_DOC=$( cd "$MR" && bash .claude/projection.sh project 2>/dev/null )
+# [15.6] the n=0 band TAILS widened to BRACKET the observed per-session envelope
+# (~37M–628M) — the central coefficient is UNCHANGED. At the real 800k setpoint
+# (occ_budget 320000): turns 115/470/1963 → structural 36.8M / 150.4M / 628.16M, so the
+# band brackets the envelope from OUTSIDE (low 36.8M ≤ 37M, high 628.16M ≥ 628M). The
+# central (470 turns → 150.4M) is byte-identical to the pre-[15.6] value; only the
+# eval/fix tails moved (the low edge down below ~37M, the high edge up above ~628M).
 echo "$MR_DOC" | jq -e '
   .spine.unit_rate.occupancy_budget_tokens == 320000
-  and .spine.unit_rate.structural_low_tokens  == 70400000
+  and .spine.unit_rate.structural_low_tokens  == 36800000
   and .spine.unit_rate.structural_tokens      == 150400000
-  and .spine.unit_rate.structural_high_tokens == 348800000' >/dev/null 2>&1 \
-  && ok "[13.3] RECONCILE: at the real 800k setpoint the modeled rate lands in the forensic band (low 70.4M / central 150.4M / high 348.8M)" \
-  || no "[13.3] the modeled structural rate must reconcile with the forensic per-deliverable band (got: $(echo "$MR_DOC" | jq -c '.spine.unit_rate'))"
+  and .spine.unit_rate.structural_high_tokens == 628160000' >/dev/null 2>&1 \
+  && ok "[15.6] RECONCILE: at the real 800k setpoint the widened band brackets the observed envelope (low 36.8M / central 150.4M / high 628.16M)" \
+  || no "[15.6] the modeled structural band must bracket ~37M–628M with central unchanged (got: $(echo "$MR_DOC" | jq -c '.spine.unit_rate'))"
 # the central estimate sits inside the forensic 70–350M envelope (the meter's real deltas).
 echo "$MR_DOC" | jq -e '.spine.unit_rate.structural_tokens >= 70000000 and .spine.unit_rate.structural_tokens <= 350000000' >/dev/null 2>&1 \
   && ok "[13.3] RECONCILE: the central structural estimate sits inside the forensic 70–350M envelope" \
   || no "[13.3] the central structural estimate must lie in the forensic envelope (got: $(echo "$MR_DOC" | jq -r '.spine.unit_rate.structural_tokens'))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# T_BAND_BRACKETS — [15.6] the n=0 band BRACKETS the observed envelope (~37M–628M)
+# ════════════════════════════════════════════════════════════════════════════
+# The [13.3] band (70.4M–348.8M) under-bracketed the observed per-session envelope:
+# real sessions ran as low as ~37M (a tiny clean fix) and as high as ~628M (a
+# fix-heavy build), so the modeled band failed to contain the tails it claims to
+# model. [15.6] widens the eval/fix TAILS so the n=0 band brackets ~37M–628M — WITHOUT
+# changing the load-bearing CENTRAL coefficient (the product that reconciles the
+# forensic mean ~150M). This test pins BOTH halves of the acceptance: (1) the band
+# brackets the envelope, and (2) the central estimate is byte-unchanged.
+BR=$(mk_instance); write_tracker "$BR"
+bash "$BR/.claude/estimate.sh" set 9.7 2 "$BR/docs/estimates.json" >/dev/null 2>&1
+jq '.occupancy={threshold:800000}' "$BR/.claude/project.json" > "$BR/.claude/project.json.tmp" \
+  && mv "$BR/.claude/project.json.tmp" "$BR/.claude/project.json"
+BR_DOC=$( cd "$BR" && bash .claude/projection.sh project 2>/dev/null )
+# (1) the band brackets the observed envelope: low <= 37M and high >= 628M. The band's
+# job is to CONTAIN the observed tails — the pre-[15.6] band (low 70.4M > 37M, high
+# 348.8M < 628M) failed both ends; the widened band must contain both.
+echo "$BR_DOC" | jq -e '
+  .spine.unit_rate.structural_low_tokens  <= 37000000
+  and .spine.unit_rate.structural_high_tokens >= 628000000' >/dev/null 2>&1 \
+  && ok "[15.6] the n=0 band BRACKETS the observed per-session envelope (low <= 37M, high >= 628M)" \
+  || no "[15.6] the band must bracket ~37M–628M (got low=$(echo "$BR_DOC" | jq -r '.spine.unit_rate.structural_low_tokens'), high=$(echo "$BR_DOC" | jq -r '.spine.unit_rate.structural_high_tokens'))"
+# (2) the LOAD-BEARING CENTRAL is byte-unchanged: turns_central stays 470 and the
+# central structural rate stays 150.4M — the widening moved ONLY the tails. (Pinned
+# explicitly so a future tail tweak that drifts the central is caught.)
+echo "$BR_DOC" | jq -e '
+  .spine.unit_rate.expected_turns.central == 470
+  and .spine.unit_rate.structural_tokens == 150400000' >/dev/null 2>&1 \
+  && ok "[15.6] the central coefficient is UNCHANGED by the widening (turns_central=470, structural_central=150.4M)" \
+  || no "[15.6] the load-bearing central must be byte-unchanged (got turns_central=$(echo "$BR_DOC" | jq -r '.spine.unit_rate.expected_turns.central'), central=$(echo "$BR_DOC" | jq -r '.spine.unit_rate.structural_tokens'))"
+# (3) the band still ORDERS (low < central < high) and the central lies strictly
+# inside — a widened band is still a coherent band, not an inverted one.
+echo "$BR_DOC" | jq -e '
+  .spine.unit_rate.structural_low_tokens < .spine.unit_rate.structural_tokens
+  and .spine.unit_rate.structural_tokens < .spine.unit_rate.structural_high_tokens' >/dev/null 2>&1 \
+  && ok "[15.6] the widened band stays ordered (low < central < high), the central strictly inside" \
+  || no "[15.6] the widened band must stay ordered with the central strictly inside (got: $(echo "$BR_DOC" | jq -c '.spine.unit_rate'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T_BLEND_FROM_MODELED — [13.3] the blend corrects a MEANINGFUL prior, not ≈0

@@ -22,7 +22,7 @@
 #              a session re-reads ~its working set on every inference, so cumulative
 #              FLOW ≈ working_set × turns — the flow reconstruction of the point-in-
 #              time occupancy STOCK. occupancy_budget = the [9.2] setpoint's working
-#              set (≈0.4× the setpoint — meter-forensics B4 — clamped ≥ the measured
+#              set (≈0.4× the setpoint — the forensic B4 finding — clamped ≥ the measured
 #              doc-overhead floor); expected_turns = base_build + an eval/fix term whose
 #              distribution sets the band. The pre-[13.3] anchor was the bare doc floor
 #              (orders of magnitude below real throughput); occupancy now returns ONLY
@@ -140,9 +140,12 @@ BLEND_K=3
 # a session re-reads ~its working set on every inference, so flow ≈ working_set × turns.
 # This replaces the pre-[13.3] doc-overhead floor (an orders-of-magnitude undershoot
 # that made the n=0 prior a bare lower bound and the blend converge from ≈0). The
-# coefficients are calibrated against the forensic per-deliverable deltas
-# (docs/notes/meter-forensics.md B4: real throughput ≈ 70–350M/session, mean ~150M;
-# occupancy_budget ≈ avg working set ≈ 0.4× the setpoint):
+# coefficients are calibrated against the forensic per-deliverable deltas measured
+# during guv's own development (the B4 finding: real throughput ≈ 70–350M/session,
+# mean ~150M, with an observed per-session envelope of ~37M–628M; occupancy_budget ≈
+# avg working set ≈ 0.4× the setpoint). Those numbers are inlined here — the forensic
+# analysis is a maintainer artifact and does not ship in this code repo, so this cites
+# the FINDING, not a file path a fresh install would lack ([15.6]):
 #   • occupancy_budget = occupancy setpoint × WORKING_SET_FRACTION. The avg working set
 #     is ~0.4× the setpoint, NOT the full setpoint (a session sits below the calm
 #     ceiling most of its life). Clamped UP to the measured floor (the doc overhead is
@@ -152,25 +155,40 @@ BLEND_K=3
 #     band: the low edge is base_build alone (a clean run, no fix iterations), the high
 #     edge adds the fix-heavy eval/fix loop. "Turns" = inferences/session (hundreds;
 #     the unit cumulative flow counts).
-# At the real 800k setpoint: occupancy_budget=320000; turns 220/470/1090 → structural
-# 70.4M / 150.4M / 348.8M — in the forensic band.
+# At the real 800k setpoint: occupancy_budget=320000; turns 115/470/1963 → structural
+# 36.8M / 150.4M / 628.16M — bracketing the observed ~37M–628M per-session envelope
+# ([15.6] widened the tails so the band CONTAINS the envelope from outside; the central
+# is unchanged).
 #
 # CALIBRATION vs MEASUREMENT — be honest about which is which (Rule 10). The forensic
 # evidence independently grounds TWO inputs: the working-set fraction (≈0.375 observed,
-# ~300k/800k — rounded to 0.4) and the target token band (70–350M/session, mean ~150M).
-# expected_turns is the FITTED free parameter: turns_central is chosen so occupancy_budget
-# × turns reproduces the forensic MEAN (320000 × 470 = 150.4M; the forensics' own main-only
-# estimate is ~360 inferences/session, of which 470 is the subagent-inclusive analog). The
-# base/eval SPLIT (220 + 250/870) and the band SPREAD are a MODELING ASSUMPTION shaped to
-# reproduce the 70–350M envelope — [13.1]'s now-in-scope subagent burn grounds the
-# DIRECTION (fix-heavy sessions burn more), not the exact turn counts. A measured per-session
+# ~300k/800k — rounded to 0.4) and the target token band (70–350M/session mean ~150M,
+# the wider ~37M–628M per-session envelope at the tails). expected_turns is the FITTED
+# free parameter: turns_central is chosen so occupancy_budget × turns reproduces the
+# forensic MEAN (320000 × 470 = 150.4M; the forensics' own main-only estimate is ~360
+# inferences/session, of which 470 is the subagent-inclusive analog). The base/eval SPLIT
+# (115 + 355/1848) and the band SPREAD are a MODELING ASSUMPTION shaped to BRACKET the
+# ~37M–628M envelope — [13.1]'s now-in-scope subagent burn grounds the DIRECTION
+# (fix-heavy sessions burn more), not the exact turn counts. A measured per-session
 # inference-count distribution would refine the split. So the exact reconcile lands the
 # PRODUCT on the evidence; it is not independent triangulation of three measured factors.
 WORKING_SET_FRACTION_NUM=2          # occupancy_budget = setpoint × 2/5 = 0.4 × setpoint
 WORKING_SET_FRACTION_DEN=5
-BASE_BUILD_TURNS=220                 # clean-run inferences (the band's LOW edge)
-EVAL_FIX_TURNS_TYPICAL=250          # + typical eval/fix loop → central = 470
-EVAL_FIX_TURNS_HEAVY=870            # + fix-heavy eval/fix loop → high = 1090
+# [15.6] the band TAILS are widened to BRACKET the observed per-session envelope
+# (~37M–628M at the 800k setpoint), without moving the load-bearing CENTRAL: the
+# central is the PRODUCT turns_central = BASE_BUILD_TURNS + EVAL_FIX_TURNS_TYPICAL = 470,
+# byte-unchanged (320000 × 470 = 150.4M, the forensic mean). The pre-[15.6] band
+# (turns 220/470/1090 → 70.4M / 150.4M / 348.8M) UNDER-bracketed the observed tails: a
+# tiny clean fix ran as low as ~37M, a fix-heavy build as high as ~628M, so the band
+# failed to CONTAIN the envelope it models. Re-split the same central 470 to lower the
+# low edge BELOW the envelope floor and lengthen the heavy tail ABOVE its ceiling: turns
+# 115/470/1963 → 36.8M / 150.4M / 628.16M, so the band brackets ~37M–628M from outside.
+# Only the eval/fix tails moved (the BASE_BUILD/EVAL_FIX SPLIT is the modeling
+# assumption — Rule 10 honesty: the band SPREAD is fitted to the observed envelope, the
+# central PRODUCT to the forensic mean).
+BASE_BUILD_TURNS=115                 # clean-run inferences (the band's LOW edge → 36.8M, ≤ ~37M)
+EVAL_FIX_TURNS_TYPICAL=355          # + typical eval/fix loop → central = 470 (UNCHANGED)
+EVAL_FIX_TURNS_HEAVY=1848           # + fix-heavy eval/fix loop → high = 1963 (628.16M, ≥ ~628M)
 
 # ── arg parse ───────────────────────────────────────────────────────────────────
 [ $# -ge 1 ] || die 2 "usage: bash .claude/projection.sh project|bank|grade [--tracker P] [--log P] [--sidecar P] [--calibration P] [--root P] [--at BOUNDARY]"
