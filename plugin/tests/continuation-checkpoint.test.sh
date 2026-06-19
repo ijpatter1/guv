@@ -267,6 +267,62 @@ RAC=$(printf '%s' "$RPL" | CLAUDE_PROJECT_DIR="$SPLIT" bash "$RESUME_HOOK" 2>/de
 printf '%s' "$RAC" | grep -qi "code repo" && ok "seam: the resume hook consumes the producer's code_root → breadcrumb names the code repo ([14.6] end-to-end)" || no "seam: resume breadcrumb should name the code repo from the real checkpoint (ctx=$RAC)"
 printf '%s' "$RAC" | grep -q "git -C $CODEREPO" && ok "seam: the resume targets git -C <code_root> = the real roots.code path" || no "seam: resume should target git -C $CODEREPO (ctx=$RAC)"
 
+# ── Fixture K: NAMED-MAP topology ([11.2]/[14.6]) — roots.code as a named MAP, not a string.
+# The shape the string-roots Fixture J could not exercise: a bare `jq -r .roots.code` read
+# returns the serialized map OBJECT, which fails path resolution and silently falls back to the
+# control plane — so git_head/dirty would measure the clean plane and code_root would be null,
+# the exact [14.6] regression for map planes. The fix routes through the roots.sh resolver,
+# which knows the map shape and returns codePrimary's path. These assertions FAIL on the bare
+# read and pass only when the deliverable repo is resolved through the resolver.
+MAPCP="$WORK/map-cp"; mkdir -p "$MAPCP/.claude"
+write_tracker "$MAPCP"
+MAPCODE="$WORK/map-code"; mkdir -p "$MAPCODE"
+( cd "$MAPCODE" && git init -q && git config user.email t@t && git config user.name t \
+    && printf 'src\n' > src.txt && git add -A && git commit -q -m init \
+    && printf 'wip\n' > inflight.txt ) >/dev/null 2>&1   # inflight.txt uncommitted → dirty
+MAPCODE_HEAD=$(git -C "$MAPCODE" rev-parse --short HEAD 2>/dev/null)
+# roots.code as a named MAP keyed by repo name; codePrimary names the default. The path is
+# absolute so the resolver returns it verbatim (the /* normalization branch).
+printf '%s\n' "{\"roots\":{\"code\":{\"primary\":{\"path\":\"$MAPCODE\"}},\"codePrimary\":\"primary\"}}" > "$MAPCP/.claude/project.json"
+# clean control plane, as in J — proving the count came from the code repo, not the root.
+( cd "$MAPCP" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -q -m 'control-plane init' ) >/dev/null 2>&1
+run "$MAPCP" "$(payload manual)"
+K=$(cat "$MAPCP/$CKPT" 2>/dev/null)
+[ "$(jq -r '.git_dirty_paths' <<<"$K" 2>/dev/null)" -ge 1 ] 2>/dev/null && ok "named-map: git_dirty_paths counts the resolved primary code repo, not the clean control plane (resolver knows the map shape)" || no "named-map: git_dirty_paths should be >= 1 from the resolved roots.code primary (got $(jq -r '.git_dirty_paths' <<<"$K" 2>/dev/null))"
+[ "$(jq -r '.git_head' <<<"$K" 2>/dev/null)" = "$MAPCODE_HEAD" ] && ok "named-map: git_head is the resolved primary code repo's HEAD ($MAPCODE_HEAD), not the control plane's (a bare jq .roots.code read would serialize the map and fall back to ROOT)" || no "named-map: git_head should be the code repo HEAD $MAPCODE_HEAD (got $(jq -r '.git_head' <<<"$K" 2>/dev/null))"
+[ "$(jq -r '.code_root' <<<"$K" 2>/dev/null)" = "$MAPCODE" ] && ok "named-map: code_root carries the resolved primary path so the resume targets git -C <code_root>" || no "named-map: code_root should be $MAPCODE (got $(jq -r '.code_root' <<<"$K" 2>/dev/null))"
+
+# ── Fixture L: MALFORMED named-map manifest ([14.6] degradation path, Rule 15). The resolver
+# LOUD-STOPS (a named map WITHOUT codePrimary — "which repo is the default?" is unanswerable),
+# so the hook must NOT silently fall back to the control plane and then report a confident
+# "clean tree" measured against the WRONG repo (the silent-wrong-repo class [14.6] exists to
+# kill, here on the ERROR path). It must surface the failure LOUD and leave the git signal NULL
+# so the resume reads "unavailable", never a fabricated clean tree. These assertions go RED on a
+# hook that degrades-to-ROOT (git_head = the control-plane HEAD, git_dirty_paths = 0/"clean").
+BADCP="$WORK/badmap-cp"; mkdir -p "$BADCP/.claude"
+write_tracker "$BADCP"
+BADCODE="$WORK/badmap-code"; mkdir -p "$BADCODE"
+( cd "$BADCODE" && git init -q && git config user.email t@t && git config user.name t \
+    && printf 'src\n' > src.txt && git add -A && git commit -q -m init \
+    && printf 'wip\n' > inflight.txt ) >/dev/null 2>&1
+# named MAP but NO codePrimary → roots.sh exits non-zero (the default repo is undetermined).
+printf '%s\n' "{\"roots\":{\"code\":{\"primary\":{\"path\":\"$BADCODE\"}}}}" > "$BADCP/.claude/project.json"
+# clean control plane — pre-fix the hook would have measured THIS (its HEAD + 0 dirty) and,
+# via the resume, told the model the working tree was clean.
+( cd "$BADCP" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -q -m 'control-plane init' ) >/dev/null 2>&1
+run "$BADCP" "$(payload manual)"
+L=$(cat "$BADCP/$CKPT" 2>/dev/null)
+[ "$RC" = 0 ] && ok "malformed-map: the hook stays non-blocking (exit 0) — a checkpoint failure never blocks compaction (Rule 15)" || no "malformed-map: hook should exit 0 (got $RC)"
+[ "$(jq -r '.git_head' <<<"$L" 2>/dev/null)" = "null" ] && ok "malformed-map: git_head is NULL, not the control-plane HEAD (no silent wrong-repo measurement)" || no "malformed-map: git_head should be null (got $(jq -r '.git_head' <<<"$L" 2>/dev/null))"
+[ "$(jq -r '.git_dirty_paths' <<<"$L" 2>/dev/null)" = "null" ] && ok "malformed-map: git_dirty_paths is NULL, not a fabricated 0/clean reading (the [14.6] degradation-path fix)" || no "malformed-map: git_dirty_paths should be null (got $(jq -r '.git_dirty_paths' <<<"$L" 2>/dev/null))"
+printf '%s' "$ERR" | grep -q "did not resolve" && ok "malformed-map: the resolution failure is surfaced LOUD on stderr (Rule 15), like the jq-absent rung" || no "malformed-map: expected a loud stderr message naming the resolution failure (got: $ERR)"
+# end-to-end seam: the resume breadcrumb must report git state UNAVAILABLE, NEVER 'clean tree'.
+RAC2=$(printf '%s' "$RPL" | CLAUDE_PROJECT_DIR="$BADCP" bash "$RESUME_HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
+printf '%s' "$RAC2" | grep -qi "unavailable" && ok "malformed-map seam: resume breadcrumb reports git state UNAVAILABLE (not a confident clean tree)" || no "malformed-map seam: resume should say git state unavailable (ctx=$RAC2)"
+printf '%s' "$RAC2" | grep -qi "working tree was clean" && no "malformed-map seam: resume must NOT claim 'working tree was clean' on an unresolved manifest" || ok "malformed-map seam: resume does NOT fabricate a clean-tree claim on the degradation path"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

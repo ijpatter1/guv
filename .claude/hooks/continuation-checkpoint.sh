@@ -81,13 +81,37 @@ fval() { printf '%s' "$FRONTIER" | grep -E "^$1=" | head -1 | sed "s/^$1=//"; }
 # roots.code — the dirty-tree resume crux the Phase-14 dogfood surfaced (the re-injection
 # said "no uncommitted work" with four files in flight in the code repo).
 CODE="$ROOT"
-if [ -f "$ROOT/.claude/project.json" ]; then
-  rc=$(jq -r '.roots.code // "."' "$ROOT/.claude/project.json" 2>/dev/null)
-  case "$rc" in
-    ""|".") CODE="$ROOT" ;;
-    /*)     CODE="$rc" ;;
-    *)      CODE=$(cd "$ROOT/$rc" 2>/dev/null && pwd) || CODE="$ROOT" ;;
-  esac
+CODE_RESOLVED=1
+if [ -f "$BASE/roots.sh" ] && [ -f "$ROOT/.claude/project.json" ]; then
+  # Resolve roots.code through the shared [11.2] resolver, NOT a bare `jq -r .roots.code`
+  # read: roots.code may be a named MAP, where a bare read returns the serialized map object
+  # instead of a path — and the hook then silently falls back to the control plane, the very
+  # split-topology regression [14.6] fixes, reintroduced for map planes. roots-map.test.sh
+  # forbids the bare read for exactly this reason; roots.sh is the one site that knows both the
+  # string and named-map shapes. Pass the manifest by env (the resolver defaults to a cwd-
+  # relative path and this hook may run with cwd != project root, per the WIRING note above).
+  rc=$(ROOTS_MANIFEST="$ROOT/.claude/project.json" bash "$BASE/roots.sh" path 2>/dev/null); rcret=$?
+  if [ "$rcret" -ne 0 ]; then
+    # The resolver LOUD-STOPS (exit != 0) on a MALFORMED manifest — unparseable, a named map
+    # without codePrimary, or an unknown primary (roots.sh's contract: "an unparseable manifest
+    # is a LOUD error, never the fallback"). Do NOT silently fall back to ROOT and then report a
+    # confident "clean tree" measured against the control plane: that is the silent-wrong-repo
+    # class [14.6] exists to kill, on the degradation path. Surface it (Rule 15, like the
+    # jq-absent rung above) and leave the git signal UNRESOLVED so it serializes to null — the
+    # resume then reads "Git state: unavailable (unresolved)" and re-checks, never a fabricated
+    # clean tree. Only the git-state fields null out; every other field still degrades
+    # independently. A VALID single-repo manifest exits 0 here (the resolver returns "."), so
+    # this never fires for the common single-root case.
+    echo "continuation-checkpoint: roots.code did not resolve (malformed manifest) — git signal left null, NOT measured against the control plane (Rule 15)" >&2
+    CODE_RESOLVED=0
+  else
+    # roots_code_path may return a relative path; normalize it against $ROOT exactly as before.
+    case "$rc" in
+      ""|".") CODE="$ROOT" ;;
+      /*)     CODE="$rc" ;;
+      *)      CODE=$(cd "$ROOT/$rc" 2>/dev/null && pwd) || CODE="$ROOT" ;;
+    esac
+  fi
 fi
 
 # active deliverable — RECONCILE the in-flight signal with the resolver serial ([14.6]).
@@ -101,10 +125,15 @@ fi
 # message parse + frontier membership, no judgment (Rule 12). The full lists stay in
 # `frontier` below; this only sharpens the scalar headline.
 ACTIVE=$(fval serial); ACTIVE=${ACTIVE%% *}
-TAG=$(git -C "$CODE" log -20 --format='%s' 2>/dev/null | grep -oE '\[[0-9]+\.[0-9]+\]' | head -1 | tr -d '[]')
-if [ -n "$TAG" ]; then
-  OPEN=" $(fval ready) $(fval in_progress) $(fval blocked | sed 's/:[^ ]*//g') "
-  case "$OPEN" in *" $TAG "*) ACTIVE="$TAG" ;; esac
+# Reconcile only when CODE resolved — the tag is read from the CODE-repo log; on a
+# resolution failure CODE is the control plane, whose commit tags would mis-reconcile
+# ACTIVE (same wrong-repo class as the git signal below). Leave ACTIVE at the serial.
+if [ "$CODE_RESOLVED" = 1 ]; then
+  TAG=$(git -C "$CODE" log -20 --format='%s' 2>/dev/null | grep -oE '\[[0-9]+\.[0-9]+\]' | head -1 | tr -d '[]')
+  if [ -n "$TAG" ]; then
+    OPEN=" $(fval ready) $(fval in_progress) $(fval blocked | sed 's/:[^ ]*//g') "
+    case "$OPEN" in *" $TAG "*) ACTIVE="$TAG" ;; esac
+  fi
 fi
 
 # (3) git HEAD (short) + a dirty-tree signal — measured against CODE (roots.code, the
@@ -115,13 +144,17 @@ fi
 # gating on a real git dir; absent/non-git degrades to empty/null. CODE_ROOT is carried
 # ONLY in the split case (CODE != ROOT) so the resume can point `git -C <code_root>` at the
 # right repo; single-repo leaves it null and the resume wording is unchanged.
-GIT_HEAD=$(git -C "$CODE" rev-parse --short HEAD 2>/dev/null)
-GIT_DIRTY=""
-if git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1; then
-  GIT_DIRTY=$(git -C "$CODE" status --porcelain 2>/dev/null | grep -c .)
+GIT_HEAD=""; GIT_DIRTY=""; CODE_ROOT=""
+if [ "$CODE_RESOLVED" = 1 ]; then
+  GIT_HEAD=$(git -C "$CODE" rev-parse --short HEAD 2>/dev/null)
+  if git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1; then
+    GIT_DIRTY=$(git -C "$CODE" status --porcelain 2>/dev/null | grep -c .)
+  fi
+  [ "$CODE" != "$ROOT" ] && CODE_ROOT="$CODE"
 fi
-CODE_ROOT=""
-[ "$CODE" != "$ROOT" ] && CODE_ROOT="$CODE"
+# CODE_RESOLVED=0 (resolver loud-stopped on a malformed manifest): all three stay empty
+# → null in the envelope → the resume reads "git state unavailable (unresolved)", never a
+# fabricated clean tree measured against the control plane (the [14.6] degradation path).
 
 # (4) budget setpoints — from project.json, the SINGLE source (budget-gate's
 # provenance rule); absent means unlimited → null, gates nothing. The value is

@@ -5,6 +5,40 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.7.0 — 2026-06-19
+
+Minor release (0.x): **Phase 14 — autonomous context management.** A session now holds its
+working context across compactions with no human driving `/compact` or `/clear`: a calibrated
+setpoint fires proactive compaction before the model's hard limit, a PreCompact hook
+checkpoints the in-flight state, and a SessionStart(compact) hook re-injects it so the model
+resumes the active deliverable in place — with a CLAUDE.md-survival floor under the loop and a
+loud-stop fallback ladder. Lane recovery extends the same continuity to build-fanout workers.
+All additive: a plane with no deployed setpoint keeps its prior behavior unchanged.
+
+### Added
+
+- **Compaction setpoint** ([14.2]) — `compaction-setpoint.sh` deploys a human-authored
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (read by Claude Code at launch — a hook cannot set it), and
+  its `check` verb reports the deployed posture; proactive compaction fires at the calibrated
+  window, well before the model's hard limit.
+- **PreCompact checkpoint** ([14.3]) — `continuation-checkpoint.sh` persists the continuation
+  state (active deliverable, code-repo git HEAD + dirty paths, transcript pointer) to
+  `.claude/continuation-checkpoint.json` before compaction proceeds. Schema
+  `guv.continuation-checkpoint/1`.
+- **SessionStart re-injection** ([14.4]) — `continuation-resume.sh` reads the checkpoint on
+  `source=compact` and re-injects the continuation map via
+  `hookSpecificOutput.additionalContext`, so the continuing model resumes in place with no
+  human re-priming.
+- **Lane recovery** ([14.5]) — `lane-recovery.sh` (`detect` / `assess` / `respawn`) recovers a
+  build-fanout lane interrupted by a compaction, with a loud-stop verdict for an unrecoverable
+  lane.
+- **The autonomous setpoint loop** ([14.6]) — the four pieces wired into one self-sustaining
+  loop (compact-at-setpoint → checkpoint → re-inject → continue). The checkpoint reconciles the
+  in-flight deliverable against the resolver pick and measures git on `roots.code` (the
+  deliverable repo), carrying `code_root` as an additive schema field for split topologies; the
+  resume surfaces the setpoint posture. Single-repo planes fall to the unchanged wording.
+- **PreCompact + SessionStart(compact) hook registrations** in the scaffolded `settings.json`.
+
 ## 0.6.0 — 2026-06-18
 
 Minor release (0.x): **Phase 13 — the meter operationalized and calibrated, on a
