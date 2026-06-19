@@ -146,7 +146,7 @@ else
 fi
 # T3b — STRUCTURAL backstop, always runs: the env-flag clause is present in the
 # shipped guard. Pairs with T3 so a refactor that drops the flag (leaving only
-# [ -t 0 ]) is caught even in a headless harness where T3's live-TTY probe can't run.
+# [ -t 0 ]) is caught even in a headless environment where T3's live-TTY probe can't run.
 if printf '%s\n' "$CONFIRM_SRC" | grep -qE 'GUV_NON_INTERACTIVE'; then
   ok "the shipped confirm() guard honours an explicit GUV_NON_INTERACTIVE flag"
 else
@@ -174,6 +174,55 @@ if [ -n "$VERIFY_SRC" ] && printf '%s\n' "$VERIFY_SRC" | grep -q '^verify() {'; 
   fi
 else
   no "could not extract verify() from the /manual template (the documented source of the pattern)"
+fi
+
+# ── T5/T6 — the INHERITED scaffold runs confirm()'s skip path out of the box ──────
+# T2–T4 prove the guard's *logic* by pre-declaring all three counters in the suite.
+# But a generated UAT/manual script does NOT pre-declare them — it inherits whatever
+# the SHIPPED scaffold declares. The /manual script template declares `PASS=0; FAIL=0`
+# and runs `set -euo pipefail`; if it omits `SKIP=0`, confirm()'s skip path hits
+# `SKIP++` on an *undeclared* var and `set -u` aborts with "SKIP: unbound variable" —
+# so a generated script's first non-interactive human gate CRASHES instead of
+# reporting SKIPPED. These tests run confirm() the way a generated script does: with
+# ONLY the counter declarations the scaffold actually ships (extracted, not hardcoded,
+# so the test tracks the scaffold), no author-supplied SKIP=0. They are the in-lane
+# re-gate finding: "all generated scripts inherit it" must mean inherit the SKIPPED
+# tally, not a crash.
+
+# Extract the counter-declaration line(s) the /manual scaffold ships. The scaffold
+# declares them on one line (`PASS=0; FAIL=0`); grep every line that initialises a
+# PASS/FAIL/SKIP counter so the test reflects exactly what a generated script gets —
+# if the scaffold gains `SKIP=0` this picks it up; if it loses `PASS=0` this breaks.
+SCAFFOLD_DECLS="$(grep -E '^(PASS|FAIL|SKIP)=0' "$MANUAL" | head -1)"
+
+# T5 — STRUCTURAL: the /manual scaffold declares SKIP=0 alongside PASS/FAIL, so a
+# generated script that copies confirm() has the counter the skip path increments.
+if printf '%s\n' "$SCAFFOLD_DECLS" | grep -q 'SKIP=0'; then
+  ok "the /manual scaffold declares SKIP=0 alongside PASS/FAIL (generated scripts inherit the counter)"
+else
+  no "the /manual scaffold must declare SKIP=0 alongside PASS/FAIL (got decls: '$SCAFFOLD_DECLS') — confirm()'s skip path increments SKIP"
+fi
+
+# T6 — BEHAVIORAL: a generated script (scaffold counter decls + shipped confirm(),
+# NO author-supplied SKIP=0) under `set -u` must run a non-interactive human gate
+# WITHOUT aborting on "unbound variable" — it prints ⊘ SKIPPED, tallies the skip,
+# and exits cleanly. This is what proves the inherited scaffold works out of the box;
+# a structural SKIP=0 grep alone would pass even if the decl were in dead prose.
+GEN_OUT="$(bash -c '
+  set -u
+  '"$SCAFFOLD_DECLS"'
+  '"$CONFIRM_SRC"'
+  confirm "Does the inherited human gate report cleanly?" "inherited human gate"
+  printf "DONE PASS=%s FAIL=%s SKIP=%s\n" "$PASS" "$FAIL" "$SKIP"
+' < /dev/null 2>&1)"
+GEN_EXIT=$?
+if [ "$GEN_EXIT" -eq 0 ] \
+   && ! printf '%s\n' "$GEN_OUT" | grep -qi 'unbound variable' \
+   && printf '%s\n' "$GEN_OUT" | grep -qi 'SKIP' \
+   && printf '%s\n' "$GEN_OUT" | grep -q 'DONE PASS=0 FAIL=0 SKIP=1'; then
+  ok "a generated script (scaffold decls + shipped confirm(), no author SKIP=0) runs a non-interactive gate cleanly: ⊘ SKIPPED, SKIP=1, exit 0"
+else
+  no "a generated script must NOT crash on confirm()'s skip path — expected clean SKIPPED tally, got exit=$GEN_EXIT out=$(printf '%s' "$GEN_OUT" | tr '\n' '|')"
 fi
 
 echo ""
