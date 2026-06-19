@@ -355,6 +355,14 @@ Use the product reviewer's scenarios to produce the UAT artifact. **Follow the s
 confirm() {
   echo ""
   echo "  → $1"
+  # Human-judgment gate: never auto-pass without a human. With no interactive
+  # terminal (no TTY) — or when an explicit non-interactive flag is set — there
+  # is no one to answer, so a `read` at EOF would fall through to the pass branch
+  # (guv's own vacuous-guard lesson). Guard it: SKIP, never ✓ pass.
+  if [ ! -t 0 ] || [ -n "${GUV_NON_INTERACTIVE:-}" ] || [ -n "${CI:-}" ]; then
+    echo "  ⊘ SKIPPED (non-interactive — no human to judge): $2"; ((SKIP++))
+    return
+  fi
   read -p "  Pass? [Y/n] " -n 1 -r
   echo ""
   if [[ $REPLY =~ ^[Nn]$ ]]; then
@@ -368,6 +376,14 @@ confirm() {
 confirm "Does the dashboard show campaign data for all 3 channels?" \
   "Dashboard displays multi-channel data"
 ```
+
+The human-judgment gate **skips** under no TTY (or `GUV_NON_INTERACTIVE` / `CI`)
+rather than auto-passing — a non-interactive run reports each human gate SKIPPED,
+never ✓ passed. Track skips in a `SKIP=0` counter alongside `PASS`/`FAIL` and fold
+them into the results summary (e.g. `Results: $PASS passed, $FAIL failed, $SKIP
+skipped`); a run with any SKIPPED human gate is **not** a clean pass — the human
+judgment is owed, not waived. The mechanical `verify()` checks read no human input
+and are unaffected by this guard.
 
 2. **If the project is a web UI:** Produce a UAT script that automates setup and verification where possible, and uses `confirm()` prompts for visual/interactive checks. Include `open` commands to launch the relevant pages. Structure the script as a guided walkthrough — the human follows along while the script manages state and collects results.
 
