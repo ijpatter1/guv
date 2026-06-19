@@ -5,6 +5,10 @@
 # (Rule 8), not just "runs without crashing":
 #   - it captures the FOUR continuation fields a post-compaction resume needs:
 #     active deliverable, resolver frontier, git HEAD, and burn/budget;
+#   - the active deliverable RECONCILES the in-flight signal with the resolver serial
+#     ([14.6]): the latest CODE-repo commit's conventional [N.N] tag wins WHILE that
+#     deliverable is still open (committed-but-not-yet-marked-✅ work diverges from the
+#     serial — observed 3× in the Phase-14 dogfood), else it falls to the serial;
 #   - it resolves its base from $CLAUDE_PROJECT_DIR, NEVER the payload `cwd`
 #     ([14.1] finding (e): hook commands run in the launch CWD, not payload cwd);
 #   - every field degrades INDEPENDENTLY when its source is absent (Rule 15) —
@@ -91,6 +95,7 @@ grep -q 'ready=6.2' <<<"$(jq -r '.frontier' <<<"$J" 2>/dev/null)" && ok "full: r
 [ "$(jq -r '.burn.by_initiative.sessions' <<<"$J" 2>/dev/null)" = "1" ] && ok "full: burn = 1 contributing session" || no "full: burn.by_initiative.sessions != 1 (got $(jq -r '.burn.by_initiative.sessions' <<<"$J" 2>/dev/null))"
 [ "$(jq -r '.trigger' <<<"$J" 2>/dev/null)" = "manual" ] && ok "full: trigger captured" || no "full: trigger != manual"
 [ "$(jq -r '.session_id' <<<"$J" 2>/dev/null)" = "sess-9" ] && ok "full: session_id captured" || no "full: session_id != sess-9"
+[ "$(jq -r '.code_root' <<<"$J" 2>/dev/null)" = "null" ] && ok "full: code_root null in single-repo (the [14.6] split field stays absent without roots.code)" || no "full: code_root should be null single-repo (got $(jq -r '.code_root' <<<"$J" 2>/dev/null))"
 
 # ── Auto trigger produces a COMPLETE checkpoint (not just trigger fidelity) ──
 # Acceptance names manual AND auto; assert the auto path yields the full envelope,
@@ -173,6 +178,79 @@ run "$G" "$(payload manual)"
 J=$(cat "$G/$CKPT" 2>/dev/null)
 [ "$(jq -r '.budget.initiative' <<<"$J" 2>/dev/null)" = "null" ] && ok "bad-budget: non-numeric setpoint degrades to null (not crash)" || no "bad-budget: budget.initiative should be null (got $(jq -r '.budget.initiative' <<<"$J" 2>/dev/null))"
 grep -q 'ready=6.2' <<<"$(jq -r '.frontier' <<<"$J" 2>/dev/null)" && ok "bad-budget: other fields survive (frontier still captured — independent degradation)" || no "bad-budget: frontier lost — degradation was not independent"
+
+# ── Fixture H: in-flight reconcile ([14.6]) — the latest CODE commit's [N.N] tag
+# OVERRIDES the resolver serial when that deliverable is still OPEN. The serial (first
+# ready) is 6.2, but a commit tagged [6.3] (also open) means 6.3 is the work actually in
+# flight (committed-but-not-yet-marked-✅) — the fix for the 3×-observed "the resume named
+# the serial pick, not the in-flight deliverable" divergence.
+H="$WORK/inflight"; mkdir -p "$H/.claude"
+write_tracker "$H"
+( cd "$H" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -q -m init \
+    && git commit -q --allow-empty -m 'feat([6.3]): wip on the mutation primitive' ) >/dev/null 2>&1
+run "$H" "$(payload manual)"
+J=$(cat "$H/$CKPT" 2>/dev/null)
+[ "$(jq -r '.active_deliverable' <<<"$J" 2>/dev/null)" = "6.3" ] && ok "inflight: active = the in-flight commit tag [6.3], NOT the serial 6.2 (the [14.6] reconcile)" || no "inflight: active_deliverable should be 6.3 (got $(jq -r '.active_deliverable' <<<"$J" 2>/dev/null))"
+
+# ── Fixture I: a tag for a CLOSED (✅) deliverable falls back to the serial — the
+# in-flight signal only wins while its deliverable is still open; a tag for a just-
+# finished deliverable must NOT resume finished work, so the resolver serial governs.
+I="$WORK/closed-tag"; mkdir -p "$I/.claude"
+write_tracker "$I"
+( cd "$I" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -q -m init \
+    && git commit -q --allow-empty -m 'feat([6.1]): grammar amendment landed' ) >/dev/null 2>&1
+run "$I" "$(payload manual)"
+J=$(cat "$I/$CKPT" 2>/dev/null)
+[ "$(jq -r '.active_deliverable' <<<"$J" 2>/dev/null)" = "6.2" ] && ok "closed-tag: a [6.1]✅ tag is ignored → active falls to the serial 6.2 (don't resume finished work)" || no "closed-tag: active_deliverable should be 6.2 (got $(jq -r '.active_deliverable' <<<"$J" 2>/dev/null))"
+
+# ── Fixture H2: an UNTAGGED latest commit (chore/docs) → the serial governs, unchanged.
+# Pins that the reconcile only fires on a real deliverable tag, not on every commit.
+H2="$WORK/untagged"; mkdir -p "$H2/.claude"
+write_tracker "$H2"
+( cd "$H2" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -q -m init \
+    && git commit -q --allow-empty -m 'chore(render): regenerate status views' ) >/dev/null 2>&1
+run "$H2" "$(payload manual)"
+J=$(cat "$H2/$CKPT" 2>/dev/null)
+[ "$(jq -r '.active_deliverable' <<<"$J" 2>/dev/null)" = "6.2" ] && ok "untagged: an untagged latest commit leaves active = the serial 6.2 (reconcile fires only on a tag)" || no "untagged: active_deliverable should be 6.2 (got $(jq -r '.active_deliverable' <<<"$J" 2>/dev/null))"
+
+# ── Fixture J: SPLIT topology ([14.6]) — git state is measured against roots.code (the
+# DELIVERABLE repo), NOT the control-plane root the hook runs in. The control plane is CLEAN;
+# the code repo has in-flight work. Pre-fix the hook measured ROOT (the clean control plane)
+# and reported git_dirty_paths=0 — so the resume said "clean tree" while a deliverable was
+# mid-flight in roots.code (the dogfooded dirty-tree resume crux). The checkpoint must report
+# the CODE repo's HEAD + dirty count and carry code_root so the resume can target the right repo.
+SPLIT="$WORK/split-cp"; mkdir -p "$SPLIT/.claude"
+write_tracker "$SPLIT"
+CODEREPO="$WORK/split-code"; mkdir -p "$CODEREPO"
+( cd "$CODEREPO" && git init -q && git config user.email t@t && git config user.name t \
+    && printf 'src\n' > src.txt && git add -A && git commit -q -m init \
+    && printf 'wip\n' > inflight.txt ) >/dev/null 2>&1   # inflight.txt uncommitted → dirty
+CODEREPO_HEAD=$(git -C "$CODEREPO" rev-parse --short HEAD 2>/dev/null)
+printf '%s\n' "{\"roots\":{\"code\":\"$CODEREPO\"}}" > "$SPLIT/.claude/project.json"
+# the control plane is itself a CLEAN git repo (0 dirty) — proving the count came from the
+# code repo and not the root the hook runs in.
+( cd "$SPLIT" && git init -q && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -q -m 'control-plane init' ) >/dev/null 2>&1
+run "$SPLIT" "$(payload manual)"
+J=$(cat "$SPLIT/$CKPT" 2>/dev/null)
+[ "$(jq -r '.git_dirty_paths' <<<"$J" 2>/dev/null)" -ge 1 ] 2>/dev/null && ok "split: git_dirty_paths counts the CODE repo's in-flight work, not the clean control plane (the [14.6] dirty-tree fix)" || no "split: git_dirty_paths should be >= 1 from roots.code (got $(jq -r '.git_dirty_paths' <<<"$J" 2>/dev/null))"
+[ "$(jq -r '.git_head' <<<"$J" 2>/dev/null)" = "$CODEREPO_HEAD" ] && ok "split: git_head is the CODE repo's HEAD ($CODEREPO_HEAD), not the control plane's" || no "split: git_head should be the code repo HEAD $CODEREPO_HEAD (got $(jq -r '.git_head' <<<"$J" 2>/dev/null))"
+[ "$(jq -r '.code_root' <<<"$J" 2>/dev/null)" = "$CODEREPO" ] && ok "split: code_root carries roots.code so the resume can target git -C <code_root>" || no "split: code_root should be $CODEREPO (got $(jq -r '.code_root' <<<"$J" 2>/dev/null))"
+
+# ── SEAM ([14.6] end-to-end): the resume hook ([14.4]) consumes THIS producer-written
+# checkpoint. The two unit suites each hand-write their own JSON, so only this run exercises
+# both halves of the loop against the SAME on-disk checkpoint — pinning the code_root field
+# name across the producer→consumer seam. The resume breadcrumb must name the code repo and
+# target git -C <code_root>, proving a split-topology deliverable resumes at the repo holding
+# the in-flight work (the dogfooded crux, fixed at both ends).
+RESUME_HOOK="$(cd "$(dirname "$0")/.." && pwd)/hooks/continuation-resume.sh"
+RPL='{"hook_event_name":"SessionStart","source":"compact","model":"claude-opus-4-8[1m]","session_id":"s","transcript_path":"/tmp/p.jsonl","cwd":"/nowhere"}'
+RAC=$(printf '%s' "$RPL" | CLAUDE_PROJECT_DIR="$SPLIT" bash "$RESUME_HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
+printf '%s' "$RAC" | grep -qi "code repo" && ok "seam: the resume hook consumes the producer's code_root → breadcrumb names the code repo ([14.6] end-to-end)" || no "seam: resume breadcrumb should name the code repo from the real checkpoint (ctx=$RAC)"
+printf '%s' "$RAC" | grep -q "git -C $CODEREPO" && ok "seam: the resume targets git -C <code_root> = the real roots.code path" || no "seam: resume should target git -C $CODEREPO (ctx=$RAC)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

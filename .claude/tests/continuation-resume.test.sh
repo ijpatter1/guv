@@ -11,6 +11,10 @@
 #     + the prior transcript pointer (resume-sufficiency: the continuing model recovers
 #     in-flight state from the dirty files itself; the hook hands a MAP, not a chewed
 #     plan — distilling a "next step" from a transcript is an LLM judgment call, Rule 12);
+#   - it surfaces the [14.2] SETPOINT POSTURE ([14.6] integration): it calls
+#     compaction-setpoint.sh `check` (the programmatic caller [14.2] lacked) and tells the
+#     resuming model which rung it is on — proactive compaction engaged (autonomous) vs the
+#     manual-/compact degrade rung when no setpoint is deployed (the Rule-15 ladder);
 #   - it resolves the root from $CLAUDE_PROJECT_DIR, NEVER the payload cwd (finding e);
 #   - Rule-15 ladder (the [14.1] lever-b ladder, taken not invented): primary
 #     additionalContext → a stdout pointer when jq is absent → (passive) CLAUDE.md-
@@ -185,6 +189,47 @@ ac | grep -qi "none resolved" && ok "fresh: active deliverable degrades to '(non
 run "$H" "$(payload startup)" "$BIN"
 [ "$RC" -eq 0 ] && ok "no-jq/startup: exit 0" || no "no-jq/startup: expected exit 0 (rc=$RC)"
 printf '%s' "$OUT" | grep -q "continuation-checkpoint.json" && ok "no-jq/startup: emits the pointer even on a non-compact source (jq absent → cannot gate on source; documented tradeoff)" || no "no-jq/startup: expected the pointer (out=$OUT)"
+
+# ── L: [14.6] setpoint posture — a DEPLOYED in-band setpoint is surfaced as engaged.
+# This is the programmatic caller for compaction-setpoint.sh `check` that wires [14.2]
+# into the loop: the resuming model learns it is on the autonomous (proactive) rung.
+L="$WORK/setpoint-on"; write_ckpt "$L" "14.4" 0
+jq -n '{env:{CLAUDE_CODE_AUTO_COMPACT_WINDOW:"250000"}}' > "$L/.claude/settings.local.json"
+run "$L" "$(payload compact)"
+ac | grep -qi "setpoint" && ok "setpoint-on: the [14.2] setpoint posture line is re-injected" || no "setpoint-on: no setpoint posture line (ctx=$(ac))"
+ac | grep -qiE "engaged|proactive" && ok "setpoint-on: a deployed in-band setpoint (250000) reads as proactive/engaged ([14.6] wires [14.2] check into the loop)" || no "setpoint-on: deployed setpoint not surfaced as engaged (ctx=$(ac))"
+
+# ── M: NO setpoint deployed → the manual-/compact degrade rung is surfaced (Rule 15) —
+# the autonomous loop tells the resuming model it must self-drive compaction.
+M="$WORK/setpoint-off"; write_ckpt "$M" "14.4" 0
+run "$M" "$(payload compact)"
+ac | grep -qi "setpoint" && ok "setpoint-off: the setpoint posture line is re-injected" || no "setpoint-off: no setpoint posture line (ctx=$(ac))"
+ac | grep -qiE "manual|not deployed|degrade" && ok "setpoint-off: absent setpoint → the manual-/compact degrade rung is surfaced (Rule 15)" || no "setpoint-off: degrade-rung posture missing (ctx=$(ac))"
+
+# ── N: [14.6] split-topology dirty signal — a checkpoint carrying code_root (roots.code, the
+# DELIVERABLE repo) makes the breadcrumb NAME the code repo and target `git -C <code_root>`,
+# so a resuming model sitting in the (clean) control-plane cwd is pointed at the repo that
+# actually holds the in-flight work — the dirty-tree resume crux the dogfood surfaced (a bare
+# "read them (git status)" would have the model inspect the clean control plane and see nothing).
+N="$WORK/split-resume"; mkdir -p "$N/.claude"
+cat > "$N/.claude/continuation-checkpoint.json" <<'JSON'
+{
+  "schema": "guv.continuation-checkpoint/1",
+  "checkpoint_at": "2026-06-18T12:00:00Z",
+  "active_deliverable": "14.6",
+  "frontier": "mode=GRAMMAR\nready=14.6\nserial=14.6",
+  "git_head": "def5678",
+  "git_dirty_paths": 4,
+  "code_root": "/Users/dev/guv",
+  "budget": { "initiative": null, "session": null },
+  "burn": null,
+  "transcript_path": null
+}
+JSON
+run "$N" "$(payload compact)"
+ac | grep -q "4 uncommitted" && ok "split-resume: the dirty count (4) is surfaced" || no "split-resume: dirty count missing (ctx=$(ac))"
+ac | grep -qi "code repo" && ok "split-resume: the breadcrumb names the CODE repo (roots.code), not the control-plane cwd" || no "split-resume: should name the code repo (ctx=$(ac))"
+ac | grep -q "git -C /Users/dev/guv" && ok "split-resume: points the resume at git -C <code_root> — the repo that holds the in-flight work" || no "split-resume: should emit git -C <code_root> (ctx=$(ac))"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -5,6 +5,26 @@
 # context-window cache costs nothing: the ACTIVE DELIVERABLE, the resolver
 # FRONTIER, git HEAD, and the burn/budget posture ([13.6] slice + [13.5] budget).
 #
+# THE END-TO-END LOOP ([14.6]) — this hook is step 1 of the autonomous-context loop that
+# holds working context in the quality zone across a multi-window deliverable with no human
+# driving /compact:
+#   1. compact-at-setpoint — a deployed CLAUDE_CODE_AUTO_COMPACT_WINDOW ([14.2]) fires
+#      PROACTIVE compaction at the calibrated setpoint (verified: ~217k under a 250000 window
+#      on the 1M model), well before the model's hard limit;
+#   2. checkpoint — THIS hook (PreCompact) persists the continuation state to disk;
+#   3. re-inject — continuation-resume.sh ([14.4], SessionStart source=compact) reads the
+#      checkpoint and re-injects it via additionalContext, and surfaces the [14.2] setpoint
+#      posture so the resume knows whether the loop is autonomous or on the manual rung;
+#   4. continue — the model resumes the active deliverable in place from the re-injected MAP.
+# The Rule-15 fallback ladder under the loop (per piece, taken not invented): proactive
+# compaction → operator/loop-driven manual /compact at the setpoint → the CLAUDE.md-survival
+# floor (load-bearing state is re-read every session regardless) → a loud stop + handoff.
+# Two fields here are sharpened specifically for the loop's resume to be correct in guv's
+# split topology: ACTIVE reconciles to the in-flight commit tag (not the bare serial), and
+# git HEAD / dirty are measured against roots.code (the deliverable repo), not the control
+# plane this hook runs in. Dogfooded across the Phase-14 build; the run is recorded in the
+# session handoffs.
+#
 # WIRING ([14.1] finding (e)) — the directory a hook command runs in is the launch
 # CWD, NOT the payload's `cwd` field. So this script resolves the project root from
 # $CLAUDE_PROJECT_DIR (the env var Claude Code exports for exactly this), never from
@@ -53,21 +73,55 @@ CUSTOM=$(jqr '.custom_instructions')
 FRONTIER=""
 [ -f "$BASE/resolve-ready.sh" ] && FRONTIER=$(bash "$BASE/resolve-ready.sh" "$ROOT/docs/PHASE_STATUS.md" 2>/dev/null)
 fval() { printf '%s' "$FRONTIER" | grep -E "^$1=" | head -1 | sed "s/^$1=//"; }
-# active deliverable = the resolver's single "what to work on next" pick (serial:
-# first in-progress 🔄, else first ready). The full in_progress/ready lists are
-# preserved verbatim in `frontier` below, so the scalar stays the one pick.
-ACTIVE=$(fval serial); ACTIVE=${ACTIVE%% *}
-
-# (3) git HEAD (short) + a dirty-tree signal — -C the resolved root. "git HEAD"
-# alone points at the last COMMIT, not the working state; a model resuming mid-
-# deliverable needs to know there is uncommitted work in flight, so capture the
-# count of changed paths too. Distinguish a clean repo (0) from a non-repo (null)
-# by gating on a real git dir. Absent/non-git degrades to empty/null.
-GIT_HEAD=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null)
-GIT_DIRTY=""
-if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-  GIT_DIRTY=$(git -C "$ROOT" status --porcelain 2>/dev/null | grep -c .)
+# roots.code — the DELIVERABLE repo. In guv's split topology the product work-in-flight
+# lives in roots.code (../guv), NOT the control-plane root this hook runs in; "." or absent
+# means single-repo (CODE == ROOT). Resolved ONCE here and used for BOTH the in-flight
+# commit-tag reconcile AND the git HEAD / dirty-tree signal ([14.6]): measuring git state
+# against ROOT made a resume report "clean tree" while a deliverable was mid-flight in
+# roots.code — the dirty-tree resume crux the Phase-14 dogfood surfaced (the re-injection
+# said "no uncommitted work" with four files in flight in the code repo).
+CODE="$ROOT"
+if [ -f "$ROOT/.claude/project.json" ]; then
+  rc=$(jq -r '.roots.code // "."' "$ROOT/.claude/project.json" 2>/dev/null)
+  case "$rc" in
+    ""|".") CODE="$ROOT" ;;
+    /*)     CODE="$rc" ;;
+    *)      CODE=$(cd "$ROOT/$rc" 2>/dev/null && pwd) || CODE="$ROOT" ;;
+  esac
 fi
+
+# active deliverable — RECONCILE the in-flight signal with the resolver serial ([14.6]).
+# The serial (first 🔄 else first ready) is the right "what next" pick, but it diverges
+# from the work ACTUALLY in flight once that work is committed-but-not-yet-marked-✅: the
+# resolver advances past it while a person is still finishing it (observed 3× in the
+# Phase-14 dogfood — every resume named the serial, not the deliverable being built). The
+# in-flight signal is the latest CODE-repo commit's conventional [N.N] tag; it wins WHILE
+# that deliverable is still OPEN (present in the resolver ready/in_progress/blocked), else
+# the serial governs (don't resume a just-finished deliverable). Deterministic — a commit-
+# message parse + frontier membership, no judgment (Rule 12). The full lists stay in
+# `frontier` below; this only sharpens the scalar headline.
+ACTIVE=$(fval serial); ACTIVE=${ACTIVE%% *}
+TAG=$(git -C "$CODE" log -20 --format='%s' 2>/dev/null | grep -oE '\[[0-9]+\.[0-9]+\]' | head -1 | tr -d '[]')
+if [ -n "$TAG" ]; then
+  OPEN=" $(fval ready) $(fval in_progress) $(fval blocked | sed 's/:[^ ]*//g') "
+  case "$OPEN" in *" $TAG "*) ACTIVE="$TAG" ;; esac
+fi
+
+# (3) git HEAD (short) + a dirty-tree signal — measured against CODE (roots.code, the
+# DELIVERABLE repo), NOT the control-plane ROOT. "git HEAD" alone points at the last
+# COMMIT, not the working state; a model resuming mid-deliverable needs to know there is
+# uncommitted work in flight, and in a split topology that work is in roots.code. Capture
+# the count of changed paths there. Distinguish a clean repo (0) from a non-repo (null) by
+# gating on a real git dir; absent/non-git degrades to empty/null. CODE_ROOT is carried
+# ONLY in the split case (CODE != ROOT) so the resume can point `git -C <code_root>` at the
+# right repo; single-repo leaves it null and the resume wording is unchanged.
+GIT_HEAD=$(git -C "$CODE" rev-parse --short HEAD 2>/dev/null)
+GIT_DIRTY=""
+if git -C "$CODE" rev-parse --git-dir >/dev/null 2>&1; then
+  GIT_DIRTY=$(git -C "$CODE" status --porcelain 2>/dev/null | grep -c .)
+fi
+CODE_ROOT=""
+[ "$CODE" != "$ROOT" ] && CODE_ROOT="$CODE"
 
 # (4) budget setpoints — from project.json, the SINGLE source (budget-gate's
 # provenance rule); absent means unlimited → null, gates nothing. The value is
@@ -120,6 +174,7 @@ CKPT_JSON=$(jq -n \
   --arg frontier "$FRONTIER" \
   --arg ghead "$GIT_HEAD" \
   --arg gdirty "$GIT_DIRTY" \
+  --arg croot "$CODE_ROOT" \
   --argjson binit "$BUDGET_INIT" \
   --argjson bsess "$BUDGET_SESS" \
   --argjson burn "$BURN_INIT" \
@@ -134,6 +189,7 @@ CKPT_JSON=$(jq -n \
     frontier: (if $frontier=="" then null else $frontier end),
     git_head: (if $ghead=="" then null else $ghead end),
     git_dirty_paths: (if $gdirty=="" then null else ($gdirty|tonumber) end),
+    code_root: (if $croot=="" then null else $croot end),
     budget: { initiative: $binit, session: $bsess },
     burn: (if $burn == null then null
            else { source: "emit-metrics.sh", by_initiative: $burn } end)

@@ -14,6 +14,12 @@
 # the in-flight git-dirty signal, the budget posture, the prior transcript pointer).
 # On any other source (startup/resume/clear) it emits nothing and exits 0 — re-
 # injecting a stale checkpoint on a normal start would be noise, not continuation.
+# [14.6] adds two loop-closing touches here: it surfaces the [14.2] SETPOINT POSTURE
+# (whether proactive compaction is engaged or the loop is on the manual /compact degrade
+# rung) by calling compaction-setpoint.sh `check` — the programmatic caller [14.2] shipped
+# without; and when the checkpoint carries code_root (a split topology), the git-dirty
+# breadcrumb names the code repo and targets `git -C <code_root>`, so a resume sitting in
+# the clean control-plane cwd is pointed at the repo that actually holds the in-flight work.
 #
 # TWO HOOKS ON ONE COMPACT — on a compact both session-start.sh and this hook emit
 # hookSpecificOutput.additionalContext. Claude Code's documented "Multiple Hooks &
@@ -57,6 +63,14 @@ set -u
 ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 CKPT="$ROOT/.claude/continuation-checkpoint.json"
 
+# Resolve the sibling shared-lib scripts in BOTH install modes (the checkpoint hook's
+# pattern): plugin mode ships this wrapper + the libs together under
+# ${CLAUDE_PLUGIN_ROOT}/scripts/ ($0's own dir); project mode keeps the wrapper in
+# .claude/hooks/ and the libs one level up in .claude/. Probe for the [14.2] script we
+# call for the setpoint posture ([14.6] loop integration).
+DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || DIR="."
+if [ -f "$DIR/compaction-setpoint.sh" ]; then BASE="$DIR"; else BASE="$DIR/.."; fi
+
 # Read the SessionStart payload from stdin.
 INPUT=$(cat)
 
@@ -75,6 +89,8 @@ fi
 # SCOPE GATE — only a post-compaction start is a resume. Anything else: nothing.
 SOURCE=$(printf '%s' "$INPUT" | jq -r '.source // empty' 2>/dev/null)
 [ "$SOURCE" = "compact" ] || exit 0
+# The resuming session's model — passed to the [14.2] check for an authoritative verdict.
+MODEL=$(printf '%s' "$INPUT" | jq -r '.model // empty' 2>/dev/null)
 
 # No checkpoint → nothing to re-inject; the CLAUDE.md-survival floor carries the
 # session (Rule 15 rung 3), and session-start.sh still surfaces the live frontier.
@@ -97,18 +113,39 @@ case "$SCHEMA" in
     exit 0 ;;
 esac
 
+# [14.6] SETPOINT POSTURE — the loop's autonomy rests on a deployed [14.2] compaction
+# setpoint; without one, proactive compaction never fires and the loop is on the manual-
+# /compact degrade rung. Surface which rung this resume is on by calling compaction-
+# setpoint.sh `check` (the programmatic caller [14.2] shipped without). Best-effort: any
+# failure leaves the line empty and the breadcrumb omits it — the posture is advisory and
+# must never block or distort the resume (Rule 15).
+SETPOINT_LINE=""
+if [ -f "$BASE/compaction-setpoint.sh" ]; then
+  SP=$( bash "$BASE/compaction-setpoint.sh" check --root "$ROOT" ${MODEL:+--model "$MODEL"} 2>/dev/null )
+  SP_STATUS=$(printf '%s' "$SP" | sed -n 's/^status=//p' | head -1)
+  SP_VAL=$(printf '%s' "$SP" | sed -n 's/^setpoint=//p' | head -1)
+  case "$SP_STATUS" in
+    ok)
+      SETPOINT_LINE="Compaction setpoint: deployed (${SP_VAL:-?}) and in-band — proactive compaction is engaged; this autonomous loop continues across compactions with no human driving /compact." ;;
+    degrade-active)
+      SETPOINT_LINE="Compaction setpoint: NOT deployed — proactive compaction is not engaged (the [14.2] degrade rung); drive /compact manually at the setpoint, or deploy CLAUDE_CODE_AUTO_COMPACT_WINDOW to .claude/settings.local.json to make the loop autonomous (Rule 15)." ;;
+  esac
+fi
+
 # Build the human-readable continuation breadcrumb from the checkpoint fields — the
 # MAP the continuing model resumes from (see RESUME-SUFFICIENCY above).
-CTX=$(printf '%s' "$CJSON" | jq -r '
+CTX=$(printf '%s' "$CJSON" | jq -r --arg setpoint "$SETPOINT_LINE" '
   "guv continuation — resuming after a compaction; state re-injected from the [14.3] checkpoint" +
     (if .checkpoint_at then " (written " + .checkpoint_at + ")" else "" end) + ":",
   "",
   "You were working on: " + (.active_deliverable // "(none resolved at checkpoint)") + ".",
   (if .git_head == null and .git_dirty_paths == null
      then "Git state: unavailable at checkpoint (non-git or unresolved) — no in-flight-work signal."
-     else "Git HEAD at checkpoint: " + (.git_head // "(unknown)") +
+     else (if .code_root then "Git HEAD (code repo " + .code_root + ") at checkpoint: " else "Git HEAD at checkpoint: " end) + (.git_head // "(unknown)") +
        (if (.git_dirty_paths // 0) > 0
-          then " — " + (.git_dirty_paths|tostring) + " uncommitted path(s) in flight at checkpoint; read them (git status / git diff) to recover the in-flight working state before continuing."
+          then " — " + (.git_dirty_paths|tostring) + " uncommitted path(s) in flight at checkpoint"
+               + (if .code_root then " in the code repo (roots.code); read them (git -C " + .code_root + " status / diff)" else "; read them (git status / git diff)" end)
+               + " to recover the in-flight working state before continuing."
           else " — working tree was clean at checkpoint (no uncommitted work)." end)
      end),
   (if (.budget.initiative // null) != null or (.budget.session // null) != null
@@ -116,6 +153,7 @@ CTX=$(printf '%s' "$CJSON" | jq -r '
           ", session=" + ((.budget.session // "unset")|tostring) +
           " (burn re-derives live this session via the entry-tension gate)."
      else empty end),
+  (if $setpoint != "" then $setpoint else empty end),
   (if .transcript_path
      then "Prior transcript (for deeper in-flight detail if the dirty files are not enough): " + .transcript_path + "."
      else empty end),
