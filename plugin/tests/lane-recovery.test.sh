@@ -137,6 +137,30 @@ run -- assess 14.5 --dir "$LE"
 printf '%s' "$OUT" | grep -q 'recovery=fail' && ok "no-output: a lane that returned nothing → recovery=fail (Rule 10, never a silent skip)" || no "no-output: expected recovery=fail (got: $OUT)"
 [ "$RC" -ne 0 ] && ok "no-output: non-zero exit" || no "no-output: expected non-zero exit (rc=$RC)"
 
+# A lane that DECLARED FAILURE is a loud stop even if a stray checkpoint is also
+# present — a declared failure (hit a wall) must never be silently re-spawned. The
+# loud stop OUTRANKS the recovery rung (Rule 15: failure selects the safe designed
+# path). [14.5] dual-review — the evaluator's assess-precedence finding: the lane-
+# builder contract says a real failure writes status=failed and NO checkpoint, so
+# this combination is a contract violation, and the code must resolve it to the stop.
+LFC="$WORK/assess-failed-and-ckpt"; make_lane "$LFC" dirty >/dev/null
+run -- checkpoint 14.5 --dir "$LFC" --note "stray checkpoint beside a failure"
+write_output "$LFC" failed
+run -- assess 14.5 --dir "$LFC"
+printf '%s' "$OUT" | grep -q 'recovery=fail' && ok "precedence: status=failed beats a stray checkpoint → recovery=fail (a declared failure is never silently re-spawned)" || no "precedence: failed must outrank a checkpoint (got: $OUT)"
+[ "$RC" -ne 0 ] && ok "precedence: failed+checkpoint exits non-zero (loud stop, not a re-spawn)" || no "precedence: expected non-zero exit (rc=$RC)"
+
+# A lane that returned output with an UNRECOGNISED status (neither ok nor failed) and
+# no checkpoint is a loud stop too — but the reason must NAME the offending status,
+# not misreport it as "the lane returned nothing" (it DID return output). [14.5]
+# dual-review — the evaluator's diagnostic-honesty finding (Rule 10: an accurate loud
+# stop the parent/loop can act on, not a misleading one).
+LUS="$WORK/assess-unknown-status"; make_lane "$LUS" >/dev/null; write_output "$LUS" complete
+run -- assess 14.5 --dir "$LUS"
+printf '%s' "$OUT" | grep -q 'recovery=fail' && ok "unknown-status: an unrecognised status → recovery=fail (loud stop)" || no "unknown-status: expected recovery=fail (got: $OUT)"
+{ printf '%s' "$OUT" | grep -qi "unrecognized status" && printf '%s' "$OUT" | grep -q "complete"; } && ok "unknown-status: the reason NAMES the status ('complete'), not 'returned nothing' (Rule 10 honesty)" || no "unknown-status: the reason should name the status 'complete', not misreport no output (got: $OUT)"
+[ "$RC" -ne 0 ] && ok "unknown-status: non-zero exit (loud stop)" || no "unknown-status: expected non-zero exit (rc=$RC)"
+
 # A MALFORMED checkpoint (and no ok output) is a loud NAMED stop, never a guessed verdict (Rule 15).
 LM="$WORK/assess-malformed"; make_lane "$LM" >/dev/null
 printf 'not json{{{\n' > "$LM/.lane-checkpoint.json"

@@ -97,7 +97,10 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/lane-recovery.sh assess <id> --dir <worktre
 - `recovery=respawn` — the lane hit its window and left a `.lane-checkpoint.json`.
   Re-dispatch a **fresh** `@guv:lane-builder` into the **same** worktree, seeded with the
   checkpoint `note=` (recovery = re-spawn, **not** in-place continue), then re-assess.
-  If a lane needs repeated re-spawns it was mis-sized — split it (`/guv:replan`).
+  If a lane needs repeated re-spawns it was mis-sized — split it (`/guv:replan`). The
+  checkpoint is orchestrator scratch, exactly like the `.lane-output.json` sidecar:
+  the JOIN ignores it in the dirty gate and clears it when the re-spawned lane lands,
+  so it never rides the commit and you never clear it by hand ([14.5] seam).
 - `recovery=fail` (non-zero exit) — a real failure or a silent lane: a **loud stop**,
   not a re-spawn. Fix it conversationally; do not gate or land it.
 

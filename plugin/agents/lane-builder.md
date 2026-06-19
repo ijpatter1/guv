@@ -65,6 +65,8 @@ continue.
   `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/lane-recovery.sh checkpoint <id> --note "<what's done; where to resume>"` —
   and stop. The presence of that checkpoint tells the orchestrator to re-dispatch a
   **fresh** lane-builder seeded from your note. Do **not** also write `status: ok`.
+  (The checkpoint is orchestrator scratch — the JOIN clears it when the re-spawn
+  lands, just like the sidecar; you never clean it up.)
 - **A real failure is different from running out of room.** If you hit a wall you
   can't build past, write `.lane-output.json` with `status: failed` and **no**
   checkpoint, and say why in `notes` — that is a loud stop for a human, not a

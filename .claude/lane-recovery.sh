@@ -128,6 +128,8 @@ case "$VERB" in
     need_jq assess
     OUTF="$DIR/$OUT_NAME"; CKF="$DIR/$CKPT_NAME"
 
+    # The parent's verdict, in PRECEDENCE order (the order is the contract):
+    #
     # (1) A FINISHED lane LANDS — proceed to the gate, no re-spawn. status=ok wins
     # over any leftover checkpoint (a completed lane is done regardless).
     STATUS=""
@@ -137,10 +139,21 @@ case "$VERB" in
       exit 0
     fi
 
-    # (2) A self-checkpointed lane RE-SPAWNS — it hit its window and persisted a
-    # checkpoint; the parent re-dispatches a FRESH subagent seeded from it (re-spawn,
-    # not in-place continue). A checkpoint that is present but unparseable / wrong
-    # schema is a loud NAMED stop — never a guessed verdict (Rule 15).
+    # (2) A lane that DECLARED FAILURE is a loud STOP (designed path, Rule 15) — and
+    # this OUTRANKS a checkpoint. A lane that hit a wall it cannot build past wrote
+    # status=failed and (per its contract) no checkpoint; honour the declared failure
+    # over any stray checkpoint rather than silently re-spawning it. The loud stop is
+    # the safe rung whenever both signals contradict (Rule 10/15).
+    if [ "$STATUS" = "failed" ]; then
+      echo "recovery=fail deliverable=$ID reason=lane reported status=failed — loud stop, fix conversationally"
+      exit 6
+    fi
+
+    # (3) A self-checkpointed lane RE-SPAWNS — it ran out of window and persisted a
+    # checkpoint (and did NOT declare ok or failed); the parent re-dispatches a FRESH
+    # subagent seeded from it (re-spawn, not in-place continue). A checkpoint that is
+    # present but unparseable / wrong schema is a loud NAMED stop — never a guessed
+    # verdict (Rule 15).
     if [ -f "$CKF" ]; then
       jq -e . "$CKF" >/dev/null 2>&1 || die5 "lane $ID checkpoint at $CKF is not valid JSON — cannot assess (no guessed verdict)"
       SC=$(jq -r '.schema // empty' "$CKF" 2>/dev/null)
@@ -150,10 +163,12 @@ case "$VERB" in
       exit 0
     fi
 
-    # (3) A FAILED or SILENT lane is a loud STOP (designed path, Rule 15), never a
-    # re-spawn and never a silent skip (Rule 10).
-    if [ "$STATUS" = "failed" ]; then
-      echo "recovery=fail deliverable=$ID reason=lane reported status=failed — loud stop, fix conversationally"
+    # (4) No actionable signal — the lane returned output with a status we do not
+    # recognise, or returned nothing at all. Both are a loud STOP (Rule 10/15), never
+    # a silent skip; NAME which, so the parent/loop is not misdirected (an unrecognised
+    # status is not "the lane returned nothing" — it returned something we can't act on).
+    if [ -n "$STATUS" ]; then
+      echo "recovery=fail deliverable=$ID reason=lane output has unrecognized status='$STATUS' — loud stop, fix conversationally"
     else
       echo "recovery=fail deliverable=$ID reason=no lane output and no checkpoint — the lane returned nothing"
     fi

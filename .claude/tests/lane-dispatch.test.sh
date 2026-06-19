@@ -569,6 +569,33 @@ OUT=$(run confine 7.A stray); RC=$?
   && ok "back-compat: a stray token on a string plane is a usage error (exit 2), not a misroute (exit 4)" \
   || no "single-repo must treat a stray token as usage (exit 2), never a misroute (rc=$RC): $OUT"
 
+# ── T22 — [14.5] the lane↔JOIN recovery seam: a re-spawned lane that left a
+#         recovery checkpoint still harvests, and the checkpoint never rides the land.
+# The [14.5] fallback rung writes .lane-checkpoint.json to the lane worktree
+# (lane-recovery.sh checkpoint) so a FRESH re-spawned builder can resume. When that
+# re-spawned builder then finishes (status:ok), the leftover checkpoint must NOT trip
+# harvest's dirty gate — it is orchestrator scratch, exactly like the .lane-output.json
+# sidecar — else the recovery path [14.5] exists to provide dead-ends at the JOIN with
+# a misleading reason=dirty. This is the integration the unit tests can't see: it
+# composes the real lane-recovery.sh checkpoint with lane-dispatch.sh harvest.
+setup
+mklane create 7.A respawned
+laneexec 7.A base.txt "A-done-after-respawn" ok CHANGELOG.md
+# the fallback rung left a real recovery checkpoint in the worktree
+bash "$CLAUDE_DIR/lane-recovery.sh" checkpoint 7.A \
+  --dir "$CODE/.worktrees/lane-7.A" --note "resumed: tests green, impl done" >/dev/null 2>&1
+[ -f "$CODE/.worktrees/lane-7.A/.lane-checkpoint.json" ] \
+  || no "T22 precondition: the recovery checkpoint must exist in the worktree"
+OUT=$(run harvest 7.A); RC=$?
+[ $RC -eq 0 ] && echo "$OUT" | grep -q "harvest=ok" \
+  && ok "[14.5] seam: a re-spawned lane's leftover recovery checkpoint does not trip the dirty gate (it harvests ok)" \
+  || no "[14.5] seam: harvest must not refuse a re-spawned lane for its recovery checkpoint (rc=$RC): $OUT"
+# and the checkpoint is cleared on ok-harvest — exactly like the sidecar — so it
+# never lingers into the land or a spurious later re-assess.
+[ ! -f "$CODE/.worktrees/lane-7.A/.lane-checkpoint.json" ] \
+  && ok "[14.5] seam: the recovery checkpoint is cleared on ok-harvest (worktree lands clean, like the sidecar)" \
+  || no "[14.5] seam: harvest must clear the recovery checkpoint on ok (it lingered into the land)"
+
 # ── T14 — .lane-reports/ is gitignored in the guv-core block (no scratch leak) ──
 ROOT="$(cd "$CLAUDE_DIR/.." && pwd)"
 if grep -q '^# guv-core-start' "$ROOT/.gitignore" 2>/dev/null; then

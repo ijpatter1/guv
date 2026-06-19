@@ -77,6 +77,7 @@ QUEUE="$HERE/merge-queue.sh"
 METER_QUEUE="$HERE/meter-queue.sh"   # [9.4] queue-boundary burn profile (emit mode)
 REPORTS=".lane-reports"          # durable, in the control plane (survives cleanup)
 SIDECAR=".lane-output.json"
+CKPT=".lane-checkpoint.json"     # [14.5] recovery scratch — ignored by the dirty gate, cleared with the sidecar
 
 die() { echo "lane-dispatch: $2" >&2; exit "$1"; }
 
@@ -205,12 +206,16 @@ lane_artifact_advisory() {  # $1 = branch
   return 0
 }
 
-# Real dirtiness = uncommitted work EXCLUDING the orchestrator sidecar. Porcelain
-# lines are "XY <path>", so anchor the sidecar match on the path tail, not column 0.
+# Real dirtiness = uncommitted work EXCLUDING the orchestrator scratch sidecars: the
+# .lane-output.json (lane → join) AND the .lane-checkpoint.json a re-spawned lane's
+# [14.5] fallback rung leaves behind. Neither is the lane's deliverable, so neither is
+# "dirt" the JOIN should refuse — without this, a re-spawned lane that FINISHED ok would
+# be rejected reason=dirty for its own recovery breadcrumb (the [14.5] path dead-ending
+# at the join). Porcelain lines are "XY <path>", so anchor the match on the path tail.
 lane_realdirty() {  # id -> count of non-sidecar porcelain lines
   local wt="$CODE/.worktrees/${NS}lane-$1"
   [ -d "$wt" ] || { echo 0; return; }
-  git -C "$wt" status --porcelain 2>/dev/null | grep -vE '\.lane-output\.json$' | grep -c .
+  git -C "$wt" status --porcelain 2>/dev/null | grep -vE '\.lane-(output|checkpoint)\.json$' | grep -c .
 }
 
 # confine: returns 0 confined, 1 drift (prints offenders).
@@ -299,11 +304,13 @@ do_harvest() {  # $1=id
     report=$(capture_report "$id" "docFragment target escapes the repo or names a single-writer tracker")
     echo "harvest=refused lane=$id reason=bad-docfragment-target report=$report"; return 6
   fi
-  # ok: collect the structured output to staging, then clear the sidecar so the
-  # worktree lands clean through the queue.
+  # ok: collect the structured output to staging, then clear the scratch sidecars —
+  # the .lane-output.json AND any [14.5] recovery checkpoint a re-spawn left behind —
+  # so the worktree lands clean through the queue and no stale checkpoint survives to
+  # mislead a later re-assess.
   mkdir -p "$REPORTS/staging"
   cp "$wt/$SIDECAR" "$REPORTS/staging/$id.json"
-  rm -f "$wt/$SIDECAR"
+  rm -f "$wt/$SIDECAR" "$wt/$CKPT"
   lane_artifact_advisory "$br"   # non-fatal hygiene warning (UAT-F2)
   echo "harvest=ok lane=$id branch=$br output=$REPORTS/staging/$id.json"
   return 0
