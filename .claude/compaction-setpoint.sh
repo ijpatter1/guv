@@ -33,9 +33,17 @@
 #   window_low  = one standard window (200000)  — the anti-thrash floor: compacting below
 #                                                a standard window of working context
 #                                                risks compacting away the active deliverable
-#   window_high = max(2× standard window, working_set), capped below the model limit
-#                                                — above this the working set drifts toward
-#                                                degradation/cost with diminishing return
+#   window_high = 2× the standard window (400000) — above this the working set drifts toward
+#                                                degradation/cost with diminishing return. The
+#                                                [13.3] working_set raises this ceiling ONLY
+#                                                when it EXCEEDS 2× standard (occupancy.threshold
+#                                                > ~1M); on current models the anchor governs
+#                                                and the occupancy-derived working_set is a
+#                                                loose UPPER reference — it overestimates: the
+#                                                validated 250000 window triggers at ~217000,
+#                                                below the modeled working_set, so the band is
+#                                                anchored on the empirically-calm standard
+#                                                window, not stretched to the modeled set.
 # The operator authors the exact value within the band (doctrine: setpoints are human-
 # authored, the mechanism just places them). 250000 is the dogfood-validated value on the
 # 1M model and falls inside the band.
@@ -49,7 +57,9 @@
 #       Verify the DEPLOYED CLAUDE_CODE_AUTO_COMPACT_WINDOW (settings.local.json overrides
 #       settings.json). In band → status=ok. Absent → status=degrade-active (the DESIGNED
 #       manual/handoff degrade, exit 0 — absence is a path, not a failure). Malformed or
-#       out-of-band → a NAMED loud stop (non-zero, Rule 10).
+#       out-of-band → a NAMED loud stop (non-zero, Rule 10). Pass --model or --window for an
+#       authoritative verdict; with neither, check infers the mode from the deployed value
+#       itself (a thrash-low value could misclassify) — the [14.6] loop passes the model.
 #
 # DEGRADATION (Rule 15 — the [14.1] lever-a ladder, TAKEN not invented):
 #   1. PRIMARY — deploy the window; proactive compaction fires; [14.3] checkpoints and
@@ -127,13 +137,22 @@ resolve_setpoint_S() {
 # WORKING_SET, WIN_LOW, WIN_HIGH from MODE + S + MODEL_WINDOW.
 compute_band() {
   WORKING_SET=$(( S * WORKING_SET_NUM / WORKING_SET_DEN ))
-  WIN_LOW="$STANDARD_WINDOW"
-  WIN_HIGH=$(( STANDARD_WINDOW * 2 ))
-  [ "$WORKING_SET" -gt "$WIN_HIGH" ] && WIN_HIGH="$WORKING_SET"
   # Never recommend a window that reaches the model limit (a window ≥ the limit is inert).
   local cap=$(( MODEL_WINDOW * 3 / 4 ))
+  # A model whose 3/4 cap cannot even host the anti-thrash floor is too small for a
+  # calibrated window above that floor — a NAMED loud stop, never a degenerate sub-floor
+  # band emitted as if it were a deploy recommendation (Rule 10/15).
+  if [ "$cap" -lt "$STANDARD_WINDOW" ]; then
+    die 5 "model window $MODEL_WINDOW is too small to host a compaction window above the anti-thrash floor ($STANDARD_WINDOW) — rely on the model default and the manual/handoff degrade (Rule 15)"
+  fi
+  WIN_LOW="$STANDARD_WINDOW"
+  WIN_HIGH=$(( STANDARD_WINDOW * 2 ))
+  # The [13.3] working_set raises the ceiling ONLY when it exceeds the 2x-standard anchor
+  # (i.e. occupancy.threshold > ~1M). On current models the anchor dominates and the
+  # occupancy-derived working_set is a loose UPPER reference (it overestimates — the
+  # dogfood-validated 250000 window triggers at ~217000, below the modeled working_set).
+  [ "$WORKING_SET" -gt "$WIN_HIGH" ] && WIN_HIGH="$WORKING_SET"
   [ "$WIN_HIGH" -gt "$cap" ] && WIN_HIGH="$cap"
-  [ "$WIN_LOW"  -gt "$cap" ] && WIN_LOW="$cap"
 }
 
 # Read the deployed CLAUDE_CODE_AUTO_COMPACT_WINDOW from the settings env block.
@@ -163,7 +182,7 @@ if [ "$VERB" = "recommend" ]; then
     printf 'window_high=%s\n' "$WIN_HIGH"
     printf 'recommend=deploy\n'
     printf 'validated_reference=%s\n' "$VALIDATED_REFERENCE"
-    printf 'basis=floor=one standard window (%s, anti-thrash); ceiling=max(2x standard window, the [13.3] working_set); the trigger fires at ~87%% of the window (the ~13%% autocompact buffer); author the exact value within the band like a budget setpoint — %s is the dogfood-validated value on this 1M model. Deploy it to .claude/settings.local.json {"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"<value>"}}.\n' \
+    printf 'basis=floor=one standard window (%s, anti-thrash); ceiling=2x the standard window — the [13.3] working_set (setpoint x 0.4) raises this ceiling ONLY when it exceeds 2x standard (occupancy.threshold > ~1M), so on current models the standard-window anchor governs and the occupancy-derived working_set is a loose UPPER reference (it overestimates: the validated 250000 window triggers at ~217000, below the modeled working_set); the trigger fires at ~87%% of the window (the ~13%% autocompact buffer); author the exact value within the band like a budget setpoint — %s is the dogfood-validated value on this 1M model. Deploy it to .claude/settings.local.json {"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"<value>"}}.\n' \
       "$STANDARD_WINDOW" "$VALIDATED_REFERENCE"
   else
     printf 'recommend=optional\n'

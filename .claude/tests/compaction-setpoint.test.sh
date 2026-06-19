@@ -9,7 +9,10 @@
 #   - `recommend` DERIVES a window band deterministically (Rule 12) from the model
 #     window + the [13.3] quality-zone setpoint (working_set = setpoint × 0.4), so the
 #     deployed value is grounded, not a magic number — and the band CONTAINS the
-#     dogfood-validated 250000 on the 1M model;
+#     dogfood-validated 250000 on the 1M model; the [13.3]→band coupling is LIVE, not
+#     dormant — when working_set exceeds the 2× anchor it DRIVES the ceiling (R7);
+#   - a model window too small to host the anti-thrash floor is a NAMED loud stop, never
+#     a degenerate sub-floor band emitted as recommend=deploy (R8/C8, Rule 10/15);
 #   - on a standard (≤ standard-window) model `recommend` degrades to `optional` —
 #     the model already auto-compacts at its boundary, so a larger window is inert
 #     (the [14.1] lever-a finding), and the active path is the model default + manual;
@@ -107,6 +110,23 @@ run -- recommend --window 1000000 --root "$M"
 [ "$(field quality_setpoint)" = "500000" ] && ok "recommend: quality_setpoint=500000 read from the manifest occupancy.threshold" || no "recommend: quality_setpoint=$(field quality_setpoint) (expected 500000)"
 [ "$(field working_set)" = "200000" ] && ok "recommend: working_set tracks the manifest setpoint (500000 × 0.4 = 200000)" || no "recommend: working_set=$(field working_set) (expected 200000)"
 
+# R7: Rule-8 pin on the [13.3] coupling. R2/R6 only check the INTERMEDIATE working_set;
+# they would still pass if the working_set were severed from the band. Here the setpoint
+# is chosen so working_set (440000) EXCEEDS the 2× anchor (400000) and must DRIVE
+# window_high — if the coupling is cut, window_high stays 400000 and this fails (so the
+# test can actually catch a regression of the [13.3]→band link, not just its inputs).
+run -- recommend --window 2000000 --setpoint 1100000
+[ "$(field working_set)" = "440000" ] && ok "recommend/coupling: working_set=440000 (1100000 × 0.4)" || no "recommend/coupling: working_set=$(field working_set) (expected 440000)"
+[ "$(field window_high)" = "440000" ] && ok "recommend/coupling: window_high=440000 — the [13.3] working_set LIFTS the ceiling above the 400000 anchor (the coupling is live, not dormant)" || no "recommend/coupling: window_high=$(field window_high) (expected 440000 — working_set must drive the ceiling here)"
+
+# R8: an extended model whose 3/4 cap cannot host the anti-thrash floor (200000 < cap)
+# → NAMED loud stop, never a degenerate sub-floor band emitted as recommend=deploy
+# (Rule 10/15). --window 250000 → cap=187500 < 200000.
+run -- recommend --window 250000
+[ "$RC" -ne 0 ] && ok "recommend/too-small: non-zero — a model window too small to host the floor is a loud stop" || no "recommend/too-small: expected non-zero (rc=$RC out=$OUT)"
+printf '%s' "$ERR" | grep -q "200000" && ok "recommend/too-small: loud stop names the anti-thrash floor (200000)" || no "recommend/too-small: stderr should name the floor (err=$ERR)"
+printf '%s' "$OUT" | grep -q "recommend=deploy" && no "recommend/too-small: must NOT emit recommend=deploy for a degenerate band" || ok "recommend/too-small: no false recommend=deploy emitted"
+
 echo "── check ─────────────────────────────────────────────────────────────────────"
 
 # C1: a deployed in-band setpoint on an extended model → status=ok, exit 0.
@@ -153,6 +173,13 @@ printf '%s' "$ERR" | grep -qi "jq" && ok "check/no-jq: loud stop names jq" || no
 ENV="$WORK/envroot"; deploy "$ENV" settings.local.json 250000
 OUT=$( CLAUDE_PROJECT_DIR="$ENV" bash "$CSP" check --model 'claude-opus-4-8[1m]' 2>/dev/null ); RC=$?
 [ "$(field setpoint)" = "250000" ] && ok "check/finding-e: resolved root from \$CLAUDE_PROJECT_DIR (read the deployed 250000)" || no "check/finding-e: setpoint=$(field setpoint) (expected 250000)"
+
+# C8: the degenerate-band guard is SHARED — check on a too-small model window also loud-stops
+# (rather than verifying against a sub-floor band). --window 250000 → cap=187500 < 200000.
+TOOSMALL="$WORK/toosmall"; deploy "$TOOSMALL" settings.local.json 220000
+run -- check --root "$TOOSMALL" --window 250000
+[ "$RC" -ne 0 ] && ok "check/too-small: non-zero — a model window too small to host the floor is a loud stop, not a verdict" || no "check/too-small: expected non-zero (rc=$RC out=$OUT)"
+printf '%s' "$ERR" | grep -q "200000" && ok "check/too-small: loud stop names the anti-thrash floor (200000)" || no "check/too-small: stderr should name the floor (err=$ERR)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
