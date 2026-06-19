@@ -477,10 +477,11 @@ OUT=$(bash "$SCRIPT" phase-close "" 14 "$T" 2>&1); RC=$?
 OUT=$(bash "$SCRIPT" phase-close "$SESH" 14 "$WORK/absent.md" 2>&1); RC=$?
 [ "$RC" -eq 4 ] && ok "phase-close: missing tracker exits 4" || no "phase-close missing tracker should exit 4 (rc=$RC: $OUT)"
 
-# The /replan command shell documents the spike-gated phase-close path.
+# The replan SKILL ($CMD = skills/replan/SKILL.md) documents the spike-gated
+# phase-close path.
 if [ -f "$CMD" ]; then
-  grep -qi "phase-close" "$CMD" && ok "replan.md documents the phase-close step" \
-    || no "replan.md must document phase-close (the spike-gated designed path)"
+  grep -qi "phase-close" "$CMD" && ok "replan SKILL documents the phase-close step" \
+    || no "replan SKILL must document phase-close (the spike-gated designed path)"
 fi
 grep -qi "phase-close\|spike-gated\|lone-deliverable" "$PD" \
   && ok "phase-docs documents the lone-deliverable / phase-close rule" \

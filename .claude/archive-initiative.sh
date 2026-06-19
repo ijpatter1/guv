@@ -61,12 +61,16 @@ phase_numbers() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+'; }
 phase_sealed() { grep -qE "^> - $DATE_RE — phase-close \[$1\] " "$TRACKER"; }
 # Emits the '## Phase N …' header of each lone-deliverable phase that is done
 # (all ✅/❌, no open marker) yet not sealed — i.e. open by the engine's notion.
+# Skips any phase whose lone deliverable carries a marker incomplete_lines()
+# already reports (⬜|🔄|🔒|❌): those phases are listed by that sibling, so
+# re-emitting the header here would double-list the one blocker. Only a lone-✅
+# unsealed phase has ZERO incomplete-marker lines — the gap this fills.
 unsealed_lone_phases() {
   local n lines nlines
   for n in $(phase_numbers); do
     lines=$(grep -E "^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*\*\*\[$n\.[0-9]+\]\*\*" "$TRACKER")
     [ -n "$lines" ] || continue                       # LEGACY / no ID'd bullets
-    echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄|🔒)' && continue   # has open work
+    echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄|🔒|❌)' && continue   # already in incomplete_lines()
     nlines=$(echo "$lines" | grep -c '.')
     [ "$nlines" -eq 1 ] || continue                   # not a lone-deliverable phase
     phase_sealed "$n" && continue                     # deliberately sealed → done

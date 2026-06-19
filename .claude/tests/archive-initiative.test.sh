@@ -509,6 +509,16 @@ OUT=$(run "$P" --check); RC=$?
   && ok "lone ❌ unsealed phase: INCOMPLETE (not silently read as done)" \
   || no "a lone ❌ unsealed phase must read INCOMPLETE (rc=$RC: $OUT)"
 
+# T21b — the lone-❌ unsealed phase must be listed exactly ONCE, not double-listed.
+# incomplete_lines() already reports the ❌ bullet; unsealed_lone_phases() must NOT
+# independently re-emit the '## Phase 7' header for the same phase, or --check (and
+# --archive's refusal) name the one blocker twice. Reuses T21's tracker; counts
+# every reference to phase 7 in the INCOMPLETE listing — must be exactly 1.
+N7=$(echo "$OUT" | grep -cE '7\.1|## Phase 7')
+[ "$N7" -eq 1 ] \
+  && ok "lone ❌ unsealed phase: listed once, not double-listed (n=$N7)" \
+  || no "a lone ❌ unsealed phase must appear once in the INCOMPLETE listing, not twice (n=$N7: $OUT)"
+
 # T22 — a LEGACY (token-free) lone-✅-final-phase tracker is unaffected: the
 # spike-gated carve is a grammar-mode notion (phase-close records live in the
 # grammar lifecycle), so a legacy tracker with one ✅ in its final phase still
