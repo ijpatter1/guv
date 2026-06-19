@@ -173,15 +173,26 @@ for copy in "${COPIES[@]}"; do
     && ok "Closing the loop documents the --sync/dogfooding graduation path in $label" \
     || no "Closing the loop in $label must document the --sync/dogfooding close path (fix lands in source -> graduates)"
 
-  # T8d — parity guard: the DOCUMENTED triage command must carry the provenance-
-  # APPENDING form (status flip + note -> detail), not a status-only jq. T4b runs
-  # its own copy of this jq, so it stays green if the skill reverts to status-only;
-  # only this grep on the skill text catches that doc->tool regression (the
-  # hand-duplicated-literal-with-no-parity-guard class).
+  # T8d — parity guard: the skill must DOCUMENT the provenance-APPENDING form
+  # (status flip + note -> detail), not a status-only flip. Since [15.4] moved the
+  # jq into feedback.sh, the skill carries the form as documentation of what the
+  # helper does (the "under the hood" note); T8f below anchors the live form to the
+  # helper SOURCE so the guard catches a real doc->tool regression, not only prose.
   grep -qF '.detail=(.detail + " | " + $note)' "$copy" \
     && ok "triage command documents the provenance-appending (detail) form in $label" \
     || no "$label triage command must append the note to detail (the form /handoff's drain needs), not flip status alone"
 done
+
+# T8f — the live parity guard: feedback.sh itself must carry the provenance-
+# appending form for both triage-graduate and graduate (status flip + note ->
+# detail), never a status-only jq. T16/T8d run against the helper and the doc; this
+# grep on the helper SOURCE catches a regression to a status-only rewrite that
+# would silently drop provenance — the home of the form is now code, so the parity
+# guard lives where the logic does. The (.detail // "") guard tolerates a null detail.
+HELPER="$ROOT/.claude/skills/feedback/scripts/feedback.sh"   # the [15.4] mutation helper
+grep -qF '.detail=((.detail // "") + " | " + $note)' "$HELPER" \
+  && ok "feedback.sh carries the provenance-appending form (status flip + note -> detail)" \
+  || no "feedback.sh must append the note to detail on graduate/triage, not flip status alone"
 
 # T8c — /handoff Step 10 DRAINS, not just counts: it must propose graduating the
 # entries this session resolved and frame that as closing the loop — the
@@ -214,6 +225,137 @@ has_deferral planted.md \
 has_deferral clean.md \
   && no "positive control failed: detector fired on clean text" \
   || ok "positive control: detector quiet on clean text"
+
+# ── feedback.sh mutation-helper guards ([15.4]) ──────────────────────────────
+# The triage operations the skill documents as hand-rolled jq are now mechanized
+# in .claude/skills/feedback/scripts/feedback.sh (new|list|triage|graduate|note),
+# schema-validated, mirroring estimate.sh/replan.sh. These tests exercise the
+# helper directly (Rule 8 — verify intent: the schema rejects, the round-trip is
+# byte-stable, the provenance note is required on a graduate). The skill's inline
+# jq must POINT at this helper (T8e), so a deterministic transform is code, not a
+# pasted command (Rule 12). $HELPER is defined at T8f above.
+[ -x "$HELPER" ] && ok "feedback.sh helper exists and is executable" || no "feedback.sh helper missing or not executable: $HELPER"
+
+# A fresh log for the helper tests, isolated from the documented-jq fixtures above.
+HF="$WORK/helper.ndjson"
+rm -f "$HF"
+
+# T11 — `new` appends a schema-valid entry (status open) and creates the file.
+bash "$HELPER" new --log "$HF" \
+  --category broken-command --artifact "/phase" \
+  --summary "helper new appends one entry" --detail "ctx" \
+  --severity major --routing upstream >/dev/null 2>&1 \
+  && ok "new exits 0 on a well-formed entry" || no "new should accept a well-formed entry"
+[ -f "$HF" ] && ok "new creates the log file" || no "new did not create the log"
+[ "$(wc -l < "$HF" | tr -d ' ')" = 1 ] && ok "new writes exactly one NDJSON line" || no "new should write one line"
+NEW_ENTRY=$(tail -1 "$HF")
+echo "$NEW_ENTRY" | jq -e . >/dev/null 2>&1 && ok "new line is valid JSON" || no "new line is not valid JSON"
+for k in id ts session category artifact summary detail severity routing status; do
+  echo "$NEW_ENTRY" | jq -e --arg k "$k" 'has($k)' >/dev/null || no "new entry missing required field: $k"
+done
+echo "$NEW_ENTRY" | jq -e '.status=="open"' >/dev/null && ok "new entry defaults status to open" || no "new entry status should be open"
+
+# T12 — `new` REJECTS an out-of-set category/severity/routing (schema validation,
+# not just shape). A bad enum value must be refused, not silently written.
+LINES_BEFORE=$(wc -l < "$HF" | tr -d ' ')
+bash "$HELPER" new --log "$HF" --category bogus-cat \
+  --summary "bad category" --severity major --routing upstream >/dev/null 2>&1 \
+  && no "new should REJECT an unknown category" || ok "new rejects an unknown category"
+bash "$HELPER" new --log "$HF" --category friction \
+  --summary "bad severity" --severity catastrophic --routing upstream >/dev/null 2>&1 \
+  && no "new should REJECT an unknown severity" || ok "new rejects an unknown severity"
+bash "$HELPER" new --log "$HF" --category friction \
+  --summary "bad routing" --severity minor --routing sideways >/dev/null 2>&1 \
+  && no "new should REJECT an unknown routing" || ok "new rejects an unknown routing"
+[ "$(wc -l < "$HF" | tr -d ' ')" = "$LINES_BEFORE" ] \
+  && ok "rejected `new` writes nothing (log line count unchanged)" || no "a rejected new must not append"
+
+# T13 — `list` surfaces open entries (id present); a triaged entry leaves the list.
+bash "$HELPER" list --log "$HF" 2>/dev/null | grep -qF "$(echo "$NEW_ENTRY" | jq -r .id)" \
+  && ok "list shows the open entry by id" || no "list should show the open entry"
+
+# T14 — `triage ID STATUS` flips ONE entry by unique id and keeps NDJSON valid.
+TID=$(echo "$NEW_ENTRY" | jq -r .id)
+bash "$HELPER" triage "$TID" resolved --log "$HF" >/dev/null 2>&1 \
+  && ok "triage exits 0 on a known id + allowed status" || no "triage should accept a known id + allowed status"
+ENT=$(jq -c --arg id "$TID" 'select(.id==$id)' "$HF")
+[ "$(echo "$ENT" | jq -r .status)" = "resolved" ] && ok "triage sets the terminal status" || no "triage should set status=resolved"
+bash "$HELPER" list --log "$HF" 2>/dev/null | grep -qF "$TID" \
+  && no "triaged entry must drop out of the open list" || ok "triaged entry leaves the open list"
+
+# T15 — `triage` REFUSES an unknown status (the allowed set is open/resolved/wontfix/graduated).
+bash "$HELPER" triage "$TID" deleted --log "$HF" >/dev/null 2>&1 \
+  && no "triage should REJECT an unknown status" || ok "triage rejects an unknown status"
+
+# T16 — `graduate` flips status to graduated AND appends the provenance note to detail.
+bash "$HELPER" new --log "$HF" --category friction \
+  --summary "to graduate" --detail "orig-detail" --severity minor --routing upstream >/dev/null 2>&1
+GID=$(tail -1 "$HF" | jq -r .id)
+GNOTE="GRADUATED 2026-06-19 (session-x): resolved by deliverable [15.4]"
+bash "$HELPER" graduate "$GID" "$GNOTE" --log "$HF" >/dev/null 2>&1 \
+  && ok "graduate exits 0 with a provenance note" || no "graduate should accept a note"
+GENT=$(jq -c --arg id "$GID" 'select(.id==$id)' "$HF")
+[ "$(echo "$GENT" | jq -r .status)" = "graduated" ] && ok "graduate sets status=graduated" || no "graduate must set status=graduated"
+echo "$GENT" | jq -r .detail | grep -qF "$GNOTE" \
+  && ok "graduate appends the provenance note to detail" || no "graduate must append the note to detail"
+echo "$GENT" | jq -r .detail | grep -qF "orig-detail" \
+  && ok "graduate preserves the original detail (appends, not replaces)" || no "graduate must preserve original detail"
+
+# T17 — `graduate` REFUSES without a provenance note (the acceptance bar: a
+# graduate CARRIES provenance — an empty/missing note is a loud refusal).
+bash "$HELPER" new --log "$HF" --category friction \
+  --summary "graduate sans note" --severity minor --routing upstream >/dev/null 2>&1
+NGID=$(tail -1 "$HF" | jq -r .id)
+bash "$HELPER" graduate "$NGID" --log "$HF" >/dev/null 2>&1 \
+  && no "graduate must REFUSE without a provenance note" || ok "graduate refuses without a provenance note"
+bash "$HELPER" graduate "$NGID" "" --log "$HF" >/dev/null 2>&1 \
+  && no "graduate must REFUSE an empty provenance note" || ok "graduate refuses an empty provenance note"
+[ "$(jq -c --arg id "$NGID" 'select(.id==$id)' "$HF" | jq -r .status)" = "open" ] \
+  && ok "a refused graduate leaves the entry untouched (still open)" || no "a refused graduate must not mutate the entry"
+
+# T18 — `note` appends a provenance note to detail WITHOUT changing status.
+bash "$HELPER" note "$NGID" "investigating | extra context" --log "$HF" >/dev/null 2>&1 \
+  && ok "note exits 0" || no "note should accept an id + text"
+NENT=$(jq -c --arg id "$NGID" 'select(.id==$id)' "$HF")
+echo "$NENT" | jq -r .detail | grep -qF "investigating" && ok "note appends to detail" || no "note must append to detail"
+[ "$(echo "$NENT" | jq -r .status)" = "open" ] && ok "note leaves status unchanged" || no "note must not change status"
+
+# T19 — unknown id is a loud refusal, not a silent no-op, for triage/graduate/note.
+bash "$HELPER" triage "no-such-id" resolved --log "$HF" >/dev/null 2>&1 \
+  && no "triage must REFUSE an unknown id" || ok "triage refuses an unknown id"
+bash "$HELPER" graduate "no-such-id" "note" --log "$HF" >/dev/null 2>&1 \
+  && no "graduate must REFUSE an unknown id" || ok "graduate refuses an unknown id"
+bash "$HELPER" note "no-such-id" "note" --log "$HF" >/dev/null 2>&1 \
+  && no "note must REFUSE an unknown id" || ok "note refuses an unknown id"
+
+# T20 — BYTE-STABLE round-trip: a no-op rewrite changes NOTHING. The helper
+# rewrites the whole file on every mutation; a triage to the SAME status the entry
+# already holds must leave the file byte-identical (append-only / no-churn
+# guarantee — the acceptance bar: existing entries round-trip byte-stable).
+RT="$WORK/roundtrip.ndjson"
+rm -f "$RT"
+bash "$HELPER" new --log "$RT" --category doc-drift --artifact "README.md" \
+  --summary "round-trip a" --detail "d1" --severity minor --routing local >/dev/null 2>&1
+bash "$HELPER" new --log "$RT" --category friction \
+  --summary "round-trip b" --detail "d2" --severity major --routing unsure >/dev/null 2>&1
+# Resolve the first entry, capture the bytes, then re-triage it to the SAME status.
+FIRST_ID=$(head -1 "$RT" | jq -r .id)
+bash "$HELPER" triage "$FIRST_ID" wontfix --log "$RT" >/dev/null 2>&1
+SUM_BEFORE=$(cksum < "$RT")
+bash "$HELPER" triage "$FIRST_ID" wontfix --log "$RT" >/dev/null 2>&1
+SUM_AFTER=$(cksum < "$RT")
+[ "$SUM_BEFORE" = "$SUM_AFTER" ] \
+  && ok "no-op triage is byte-stable (round-trip changes nothing)" || no "a no-op rewrite must leave the file byte-identical"
+
+# T8e — the skill SOURCE documents the helper, not hand-rolled jq, for the
+# mutation operations (Rule 12 — a deterministic transform is code, not a pasted
+# command). Scoped to SKILL_SRC: the plugin/ mirror is a DERIVED tree rebuilt at
+# the build-fanout join, so it carries this repoint only after the join syncs it —
+# asserting the mirror in-lane would test JOIN-owned state. The general plugin-vs-
+# source parity is guarded by plugin.test.sh, which the join re-greens.
+grep -q 'scripts/feedback.sh' "$SKILL_SRC" \
+  && ok "skill source references the feedback.sh helper (${SKILL_SRC#"$ROOT"/})" \
+  || no "${SKILL_SRC#"$ROOT"/} must point its triage/new/list ops at scripts/feedback.sh, not inline jq (Rule 12)"
 
 # T10 — fork self-check: with the plugin tree absent the plugin-copy guards
 # visibly skip and the suite still exits 0 (output-grepped — exit 0 alone

@@ -60,25 +60,19 @@ Fill these fields (\* = required):
 | `routing`\*  | ✓   | `upstream` (a core bug — fix in the template) · `local` (a this-project misfit — belongs in a local adaptation) · `unsure`                                                                                                                                                                                                                                   |
 | `status`\*   | ✓   | `open` on creation. Terminal states, set only by triage: `resolved` (fixed before any release existed), `wontfix` (deliberately not acting), `graduated` (the fix reached this consumer by its delivery mechanism — a release, a `--sync`, or a landed local adaptation; see "Closing the loop") — the full lifecycle is in "Closing the loop". |
 
-Append the entry (substitute the `--arg` values; this creates the dir/file on first use):
+Append the entry with the `feedback.sh` helper — it derives `id`/`ts`/`session`,
+schema-validates the enum fields, and creates the dir/file on first use. The
+helper is the mechanized form of the hand-rolled append jq this used to paste
+(Rule 12 — a deterministic transform is code, not a pasted command):
 
 ```bash
-mkdir -p .claude/feedback
-SESSION=$(ls -t docs/sessions/session-*.md 2>/dev/null | head -1 | xargs -r basename | sed 's/\.md$//')
-TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq -cn \
-  --arg id "${TS}-${RANDOM}${RANDOM}" \
-  --arg ts "$TS" \
-  --arg session "${SESSION:-n/a}" \
-  --arg category "friction" \
-  --arg artifact ".claude/rules/guv-verification.md:7" \
-  --arg summary "one line: what didn't fit" \
-  --arg detail "optional longer context" \
-  --arg severity "minor" \
-  --arg routing "upstream" \
-  '{id:$id, ts:$ts, session:$session, category:$category, artifact:$artifact,
-    summary:$summary, detail:$detail, severity:$severity, routing:$routing, status:"open"}' \
-  >> .claude/feedback/feedback.ndjson
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback.sh" new \
+  --category friction \
+  --artifact ".claude/rules/guv-verification.md:7" \
+  --summary "one line: what didn't fit" \
+  --detail "optional longer context" \
+  --severity minor \
+  --routing upstream
 ```
 
 Rules:
@@ -87,18 +81,24 @@ Rules:
 - Keep `summary` to a single line; put repro/context in `detail`.
 - Choose `routing` honestly — `unsure` is a valid answer, not a cop-out. The triage step
   reclassifies later.
+- The helper rejects an out-of-set `category`/`severity`/`routing` (exit 5) and
+  writes nothing — a bad enum can't land silently.
 - Confirm the append succeeded by echoing the last line: `tail -1 .claude/feedback/feedback.ndjson | jq .`
 
 ## Mode 2 — List / triage
 
-List open entries as a readable table (id · severity · routing · summary) — scan this to
-pick an `id` to triage, rather than eyeballing raw JSON. The tab-separated jq output is
-the portable core; pipe through `column` to align it _if that tool is installed_ (it may
-not be in a slim container):
+The list and triage operations are mechanized in `feedback.sh` (the same helper
+as Mode 1) — schema-validated, with the whole-file rewrite atomic and a no-op
+rewrite byte-stable (Rule 12 — a deterministic transform is code, not a pasted
+command). The inline jq below is kept only for the read-only queries `/status`
+and `/handoff` call programmatically.
+
+List open entries as a readable id · severity · routing · status · summary table —
+scan this to pick an `id` to triage, rather than eyeballing raw JSON:
 
 ```bash
-jq -r 'select(.status=="open") | "\(.id)\t\(.severity)\t\(.routing)\t\(.summary)"' \
-  .claude/feedback/feedback.ndjson | { column -t -s "$(printf '\t')" 2>/dev/null || cat; }
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback.sh" list           # open entries
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback.sh" list --all     # every entry
 ```
 
 Raw open entries (full fields), or show one by id:
@@ -123,20 +123,27 @@ Group by routing (what to send upstream vs. adapt locally):
 jq -s 'group_by(.routing) | map({routing: .[0].routing, open: [.[]|select(.status=="open")]|length})' .claude/feedback/feedback.ndjson
 ```
 
-Triage an entry — NDJSON is rewritten whole (it's small). Match on the unique `id` (not
-`ts`, which can collide), set a terminal status (`resolved`, `wontfix`, or `graduated`),
-and — when graduating — append a provenance note to `detail` naming **what** resolved it,
-so the close is auditable. `NOTE` is optional: leave it `""` for a bare status flip (e.g.
-`wontfix`); supply it when graduating (this is the form `/handoff`'s drain step uses):
+Triage an entry through the helper — it matches on the unique `id` (not `ts`,
+which can collide), validates the status is in the terminal set (`resolved`,
+`wontfix`, `graduated`), rewrites the NDJSON whole (atomically), and — for a
+graduate — appends a provenance note to `detail` naming **what** resolved it, so
+the close is auditable. `graduate` REFUSES without that note; `note` annotates
+`detail` without flipping status:
 
 ```bash
-ID="2026-06-10T12:34:56Z-1234"; NEW="graduated"
-NOTE="GRADUATED $(date -u +%Y-%m-%d) (session-…): resolved by <deliverable or commit>"   # "" to skip
-f=.claude/feedback/feedback.ndjson
-tmp=$(mktemp) && jq -c --arg id "$ID" --arg s "$NEW" --arg note "$NOTE" \
-  'if .id==$id then .status=$s | (if $note=="" then . else .detail=(.detail + " | " + $note) end) else . end' \
-  "$f" > "$tmp" && mv "$tmp" "$f" || rm -f "$tmp"
+ID="2026-06-10T12:34:56Z-1234"
+# a bare terminal flip (no provenance needed):
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback.sh" triage "$ID" wontfix
+# graduate — the provenance note is REQUIRED (this is the form /handoff's drain step uses):
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback.sh" graduate "$ID" \
+  "GRADUATED $(date -u +%Y-%m-%d) (session-…): resolved by <deliverable or commit>"
+# annotate detail without changing status:
+bash "${CLAUDE_SKILL_DIR}/scripts/feedback.sh" note "$ID" "investigating — see commit abc123"
 ```
+
+Under the hood the helper rewrites the matched entry with the provenance-appending
+form `.detail=(.detail + " | " + $note)` — the same status-flip-plus-detail-append
+the drain step relies on, now in code rather than a pasted command.
 
 ## Mode 3 — Submit (drain `upstream` entries to the source tracker)
 
