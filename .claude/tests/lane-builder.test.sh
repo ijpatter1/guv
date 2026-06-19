@@ -76,6 +76,15 @@ else
   echo "  - no built plugin agent ($PA) — skills-namespacing check skips (plugin/fork shape)"
 fi
 
+# T10 — [14.5] recovery teaching: a lane gets NO SessionStart re-injection, so it must
+# know to size-under-window and, failing that, self-checkpoint for a parent re-spawn
+# (not in-place continue). Guards that a future edit can't drop the ladder the lane owns.
+{ echo "$BODY" | grep -qiE 're.?inject|SessionStart' \
+  && echo "$BODY" | grep -qiE 're.?spawn' \
+  && echo "$BODY" | grep -q 'lane-recovery'; } \
+  && ok "body teaches lane recovery (no re-injection → size-under-window / self-checkpoint → re-spawn)" \
+  || no "body must teach the [14.5] recovery ladder (lane-recovery.sh: no re-injection, re-spawn-from-disk)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

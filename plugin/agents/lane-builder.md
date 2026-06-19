@@ -47,6 +47,29 @@ the `guv-*` engineering rules natively — follow them. (Where your ambient proj
 facts describe a control plane but you are editing the code repo, treat the
 worktree's manifest and `route.sh` as authoritative over ambient prose.)
 
+## Your context window — you are a lane, so you get NO re-injection ([14.5])
+
+You run in your **own context window** as a Task subagent (confirm it:
+`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/lane-recovery.sh detect` → `child=1`). The crucial consequence: a
+lane receives **no `SessionStart` dispatch**, so the main session's seamless
+continuation ([14.4]) **does not reach you**. If your context compacts mid-build,
+nothing re-primes you — recovery for a lane is **re-spawn-from-disk**, not in-place
+continue.
+
+- **Primary rung — finish inside one window.** Your deliverable was sized to fit a
+  single window ([13.2] discipline). Build it and stop; you should never need to
+  compact. This is the recovery strategy — don't drift past it.
+- **Fallback rung — if you truly cannot finish in your window:** do **not** push
+  through a compaction hoping to continue (you can't be resumed in place). Instead
+  **checkpoint to your worktree** —
+  `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/lane-recovery.sh checkpoint <id> --note "<what's done; where to resume>"` —
+  and stop. The presence of that checkpoint tells the orchestrator to re-dispatch a
+  **fresh** lane-builder seeded from your note. Do **not** also write `status: ok`.
+- **A real failure is different from running out of room.** If you hit a wall you
+  can't build past, write `.lane-output.json` with `status: failed` and **no**
+  checkpoint, and say why in `notes` — that is a loud stop for a human, not a
+  re-spawn (Rule 10/15).
+
 ## What you return
 
 When the build is green and confined, write your lane sidecar at the **worktree

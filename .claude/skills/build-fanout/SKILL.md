@@ -49,8 +49,16 @@ fails silently.
 
 First decide *which* deliverables to fan out: the ready set comes from the resolver
 (`bash .claude/resolve-ready.sh` — its `ready=` frontier); a person picks from it (the
-resolver says what *may* be worked, you decide what *is*). Then, for each chosen
-deliverable, create a lane and spawn a builder into it:
+resolver says what *may* be worked, you decide what *is*).
+
+**Size each lane under one context window ([14.5] primary recovery rung).** A lane is a
+Task subagent: it runs in its own window and gets **no** `SessionStart` re-injection, so
+the [14.4] seamless-continuation path does not reach it ([14.1] lever-d). The first line
+of defense is therefore the [13.2] context-sizing discipline — pick deliverables that
+fit one window so no lane ever compacts. A deliverable too big for one window should be
+split (`/replan`) before the fan-out, not pushed into a lane that will overflow.
+
+Then, for each chosen deliverable, create a lane and spawn a builder into it:
 
 1. `bash .claude/guv-lane.sh create <id> <slug>` — a worktree at
    `.worktrees/lane-<id>/` on branch `lane/<id>-<slug>` in the code repo.
@@ -75,6 +83,23 @@ deliverable, create a lane and spawn a builder into it:
 The build half is conversational because workflow subagents run in acceptEdits mode and
 because the spec's posture is user-confirmed building — and because that path is what
 carries the behavioral core natively.
+
+**After each lane returns, assess it before the gate ([14.5] fallback rung).** A lane
+that ran out of window cannot be resumed in place — it self-checkpoints to its worktree
+and the parent re-spawns. Read the verdict deterministically (Rule 12), don't eyeball
+the sidecar:
+
+```
+bash .claude/lane-recovery.sh assess <id> --dir <worktree>
+```
+
+- `recovery=land` — the lane finished (`status: ok`); take it to Stage 2 (the gate).
+- `recovery=respawn` — the lane hit its window and left a `.lane-checkpoint.json`.
+  Re-dispatch a **fresh** `@lane-builder` into the **same** worktree, seeded with the
+  checkpoint `note=` (recovery = re-spawn, **not** in-place continue), then re-assess.
+  If a lane needs repeated re-spawns it was mis-sized — split it (`/replan`).
+- `recovery=fail` (non-zero exit) — a real failure or a silent lane: a **loud stop**,
+  not a re-spawn. Fix it conversationally; do not gate or land it.
 
 ## Stage 2 — the GATE (`build-fanout` workflow; the gate decides)
 

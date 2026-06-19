@@ -58,7 +58,14 @@ has 'conversational' \
   && ok "documents the conservative posture (human-triggered, conversational build half)" \
   || no "must document the conservative posture"
 
-# T8 — plugin namespacing (guards the agent-namespacing pass in
+# T8 — [14.5] recovery rungs: a lane gets no SessionStart re-injection, so the runbook
+# must teach the PRIMARY rung (size each lane under one window, [13.2]) and the FALLBACK
+# (assess → re-spawn a fresh builder from the lane's checkpoint, not in-place continue).
+{ has 're.?inject|SessionStart' && has 'lane-recovery' && has 're.?spawn'; } \
+  && ok "documents the [14.5] recovery ladder (size-under-window primary; assess → re-spawn fallback)" \
+  || no "must document [14.5] lane recovery (no re-injection → size-under-window / re-spawn via lane-recovery.sh)"
+
+# T9 — plugin namespacing (guards the agent-namespacing pass in
 # maintainers/build-plugin.sh): the BUILT plugin runbook namespaces @lane-builder ->
 # @guv:lane-builder (agents resolve only as guv:<name> under a plugin install). Source
 # shape only; an absent plugin/ tree skips visibly ([7.7] convention).
