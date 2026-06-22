@@ -39,10 +39,19 @@ The marketplace stays personal until both criteria hold:
 
 - **(a)** the plugin format has survived a Claude Code minor version without
   breaking, and
-- **(b)** at least one external project has installed it.
+- **(b)** external install is satisfied by **public-distribution dogfooding** —
+  the maintainer installs from the public `ijpatter1/guv` marketplace as the
+  standard workflow (the plan-as-data initiative's [8.4] reframing of the
+  original "at least one external project has installed it": exercising the
+  public distribution path *is* the external-install evidence).
+
+**The cold read (Spike B) does not satisfy criterion (b).** It is a supervised
+test, not organic adoption — stated here so the go-public validation step
+cannot accidentally arm the gate on a supervised run.
 
 Both were set as pre-resolved decisions in the native-alignment spec
-(2026-06-10); don't reopen them, check them off.
+(2026-06-10) and criterion (b) was reframed by the plan-as-data initiative
+([8.4]); don't reopen them, check them off.
 
 ## Release checklist
 
