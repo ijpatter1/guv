@@ -43,11 +43,13 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for onboard
   validates the manifest against `.claude/project.schema.json` and Step 4
   renders `CLAUDE.md` from `CLAUDE.template.md`, both laid down by the project
   shell. Running `/guv:onboard` directly on a never-scaffolded repo (no shell on
-  disk) dead-ends there. So if the shell is absent, **route to `/guv:scaffold` first**
-  — it deploys the shell and hands back here (scaffold's Step 3 names `/guv:onboard`
-  as the next door). Once the shell is present (scaffold was run, or a dogfooding
-  control plane synced it from source), **proceed** — you are about to write the
-  manifest this guard would have read.
+  disk) dead-ends there. **Detect it deterministically** — the shell is absent
+  when `.claude/project.schema.json` and `CLAUDE.template.md` are missing
+  (`test -f` either). If absent, **route to `/guv:scaffold` first** — it deploys
+  the shell and hands back here (scaffold's Step 3 names `/guv:onboard` as the next
+  door). If present (scaffold was run, or a dogfooding control plane synced it
+  from source), **proceed** — you are about to write the manifest this guard
+  would have read.
 
 > **`/guv:onboard` supersedes Claude Code's native `/init` in guv projects.** `/init`
 > inlines commands and stack facts into `CLAUDE.md`, which violates the manifest

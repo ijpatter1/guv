@@ -50,11 +50,23 @@ else
     && ok "exit-4 branch routes to /scaffold first (a prerequisite, not a bare Proceed)" \
     || no "exit-4 branch must route a never-scaffolded repo to /scaffold first"
 
-  # The WHY: name the shell prerequisite onboard reads downstream (schema it
-  # validates against / the template it renders) — intent, not a keyword.
-  echo "$EXIT4" | grep -qiE 'schema|template|shell' \
-    && ok "exit-4 branch names the shell prerequisite (schema/template) onboard needs" \
-    || no "exit-4 branch must say WHY the shell is required (the schema/template onboard reads)"
+  # The WHY, pinned to the CONCRETE downstream reason: the two shell files
+  # onboard reads (Step 3 schema validation, Step 4 render). Naming them
+  # specifically — not a soft "shell" keyword — keeps a future reword from
+  # dropping the actual reason the prerequisite exists (eval finding: a softer
+  # guard would survive a reword that lost the concrete files).
+  echo "$EXIT4" | grep -qiE 'project\.schema\.json|CLAUDE\.template\.md' \
+    && ok "exit-4 branch names the concrete shell files onboard reads downstream" \
+    || no "exit-4 branch must name the concrete prerequisite (project.schema.json / CLAUDE.template.md)"
+
+  # Deterministic detection: the branch must give the agent a way to TEST shell
+  # absence (a file-existence probe), as every sibling Step-0 branch names a
+  # concrete signal — not leave "is the shell absent?" to silent judgment. A
+  # cold-path correctness fix must remove the judgment it set out to remove
+  # (eval finding: the condition needs an actionable probe, not just a clause).
+  echo "$EXIT4" | grep -qiE 'test -f|\[ +-f' \
+    && ok "exit-4 branch gives a deterministic shell-absence probe (test -f)" \
+    || no "exit-4 branch must name how to DETECT shell absence (a file-existence probe), not only condition on it"
 
   # The nuance: an already-deployed shell still proceeds directly — the fix is a
   # conditional prerequisite, not a blanket redirect that breaks the happy path.
