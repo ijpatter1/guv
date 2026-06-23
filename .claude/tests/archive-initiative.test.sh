@@ -84,11 +84,14 @@ OUT=$(run "$P" --check); RC=$?
 # single most common path — fresh onboard → first /plan — /plan Step 1's --check
 # must read a placeholder-ONLY tracker as "no real initiative, nothing to archive,
 # number from 1" (NONE/exit 4), NOT INCOMPLETE off the placeholder ⬜s, which would
-# refuse a first-time user's first plan ([19.1]). The fixture below is a VERBATIM
-# copy of the shipped scaffold skeleton shell/docs/PHASE_STATUS.md (the exact file
+# refuse a first-time user's first plan ([19.1]). The fixture below is a near-verbatim
+# copy of the shipped scaffold skeleton shell/docs/PHASE_STATUS.md (the file
 # scaffold-shell.sh copies into a fresh project's docs/) — legend comment and `---`
 # separators included — so it exercises the real on-disk form --check sees on the
-# fresh-onboard path, not a hand-typed approximation. The legend's in-comment ✅/⬜
+# fresh-onboard path, not a hand-typed approximation. (Near-, not byte-: the formatter
+# normalizes the legend comment's one trailing-whitespace line; that line is inside an
+# HTML comment and matches no marker/grammar regex, so it cannot affect the exit code —
+# every load-bearing line is exact.) The legend's in-comment ✅/⬜
 # glyphs (indented prose, no leading `- `) also prove marker_lines does not miscount
 # status emoji inside HTML comments. T2 (real LEGACY prose deliverables —
 # `Deliverable C not started`, no bracket) is the companion guard: a genuine
