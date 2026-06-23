@@ -204,17 +204,29 @@ deps_token_of() { printf '%s\n' "$1" | grep -oE '`\[deps:[^]]*\]`' | tail -1 | s
 # but the verbatim-sync contract copies it to the tracker as ONE physical line.
 # Rejoin the wrap into a single logical line (continuation whitespace collapsed
 # to a single space) so a wrapped source compares byte-for-byte against the
-# tracker — a wrapped deliverable is in sync, not drifted. A continuation line is
-# indented and is neither a new list item (numbered or '- ') nor blank; the first
-# line that fails ends the item. $1 = REQUIREMENTS file, $2 = the deliverable's
-# first-line number.
+# tracker — a wrapped deliverable is in sync, not drifted. The terminator is
+# GRAMMAR, not line shape: a deliverable's wording ends at its `[deps: …]` token,
+# so the rejoin stops once that token has been captured. The only *structural*
+# boundaries (for a token-less or malformed line) are a blank line, an unindented
+# block, or the next deliverable line — a real numbered + **[N.M]** line, NOT a
+# continuation that merely begins with a number or a dash (that is prose, and
+# treating it as a boundary would drop the trailing token — the false-drift this
+# fix exists to kill). $1 = REQUIREMENTS file, $2 = the deliverable's first-line
+# number.
 req_logical_line() {
   awk -v start="$2" '
     NR < start { next }
-    NR == start { line=$0; next }
     done { next }
-    $0 ~ /^[[:space:]]*[0-9]+\./ || $0 ~ /^[[:space:]]*-[[:space:]]/ || $0 ~ /^[[:space:]]*$/ || $0 ~ /^[^[:space:]]/ { done=1; next }
-    { s=$0; sub(/^[[:space:]]+/, " ", s); line = line s }
+    {
+      if (NR == start) {
+        line = $0
+      } else if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[^[:space:]]/ || $0 ~ /^[[:space:]]*[0-9]+\.[[:space:]]+\*\*\[/) {
+        done = 1; next
+      } else {
+        s = $0; sub(/^[[:space:]]+/, " ", s); line = line s
+      }
+      if (line ~ /`\[deps:[^]]*\]`/) done = 1
+    }
     END { print line }
   ' "$1"
 }

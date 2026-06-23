@@ -365,6 +365,46 @@ OUT=$(bash "$SCRIPT" sync-check 6.1 "$WORK/wrap-trk.md" "$WORK/wrap-reqs.md" 2>&
 [ "$RC" -eq 5 ] && ok "sync-check: real drift inside a wrapped deliverable still exits 5 (rejoin is not a blanket pass)" \
   || no "a genuinely drifted wrapped deliverable should still exit 5 (rc=$RC: $OUT)"
 
+# The rejoin's stop logic is GRAMMAR, not line shape: it ends at the `[deps: …]`
+# token and treats a real `**[N.M]**` line as the only structural boundary. A
+# continuation line that merely *begins* with `<digits>.` or `- ` is prose, not a
+# boundary — stopping there would drop the trailing deps token and reintroduce the
+# false drift this fix exists to kill. These two fixtures pin both hazards: each
+# would FALSE-DRIFT under a shape-heuristic stop (the under-join the eval found).
+cat > "$WORK/wrap2-trk.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 6 — Build**
+
+---
+
+## Phase 6 — Build
+
+_Goal: build._
+
+- ⬜ **[6.3]** Reconcile so 3.5x throughput holds and exactly 1. threshold stays authoritative `[deps: none]`
+- ⬜ **[6.4]** Arm the meter - disarm compaction - keep one path authoritative `[deps: 6.3]`
+MD
+cat > "$WORK/wrap2-reqs.md" <<'MD'
+## Phase 6 — Build
+
+**Deliverables:**
+
+3. **[6.3]** Reconcile so 3.5x throughput holds and exactly
+   1. threshold stays authoritative `[deps: none]`
+   - *Acceptance:* digit-prose continuation rejoins past the deps token.
+4. **[6.4]** Arm the meter
+   - disarm compaction
+   - keep one path authoritative `[deps: 6.3]`
+   - *Acceptance:* dash-prose continuation rejoins past the deps token.
+MD
+bash "$SCRIPT" sync-check 6.3 "$WORK/wrap2-trk.md" "$WORK/wrap2-reqs.md" >/dev/null 2>&1 \
+  && ok "sync-check: a wrapped continuation that begins with '<digits>.' rejoins (prose, not a new item — no false drift)" \
+  || no "6.3 digit-prose continuation should rejoin past the deps token, not stop at the '1.'"
+bash "$SCRIPT" sync-check 6.4 "$WORK/wrap2-trk.md" "$WORK/wrap2-reqs.md" >/dev/null 2>&1 \
+  && ok "sync-check: a wrapped continuation that begins with '- ' rejoins (prose, not a sub-bullet — no false drift)" \
+  || no "6.4 dash-prose continuation should rejoin past the deps token, not stop at the '- '"
+
 # ════ T8 — usage and op-verb discipline ════
 T="$(fresh)"
 OUT=$(bash "$SCRIPT" frobnicate 2>&1); RC=$?
