@@ -95,7 +95,18 @@ Before writing any files, extract and present a summary for the user to confirm:
 
 **Spec provenance** — if you copy the spec into the repo, follow the "Spec provenance" convention in the `phase-docs` skill (`docs/spec/<original-name>.md` + provenance header), and reference it from the rendered `CLAUDE.md`'s "Project facts" section.
 
-**Wait for the user to confirm or adjust this summary (identity, stack, phases, topology) before proceeding to file generation.**
+**In interactive mode, wait for the user to confirm or adjust this summary**
+(identity, stack, phases, topology) before proceeding to file generation — do not
+generate any files until it is confirmed.
+
+**In headless/bypass mode** (an autonomous or piped run with no human to confirm),
+present the summary, then **proceed** to generation: the summary is logged in the
+session transcript for post-hoc review, and a spec named in the prompt is
+**pre-approved scope** (the spec path is the confirmation), so generate from it
+rather than blocking on a confirmation no one is present to give — the Rule-15
+designed path for an offline operator. Carry the Step-1 topology proposal forward
+as the decision; do not silently re-default to single-repo (the explicit-topology
+rule still binds when no human is in the loop).
 
 ### Step 2 — Write the Manifest (before any docs)
 
