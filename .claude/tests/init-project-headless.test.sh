@@ -18,6 +18,8 @@
 #     a mention) — proceed, not block
 #   - a spec named in the prompt is pre-approved scope (so headless has something
 #     to proceed on — the spec path is the confirmation)
+#   - headless+NO-spec takes a designed loud stop (Rule 15), not a fall-through to
+#     the Input "ask for the file path" gate (the dead-end this branch removes)
 #   - it PRESERVES the interactive confirmation gate (still waits for a human when
 #     one is present — the nuanced fix, not "headless always")
 # Pure bash, no test runner. Run: bash .claude/tests/init-project-headless.test.sh
@@ -51,6 +53,16 @@ else
   echo "$HEADLESS" | grep -qi 'proceed' \
     && ok "headless branch presents-and-proceeds (a non-interactive path, not a block)" \
     || no "headless branch must PROCEED (present then generate), not just mention the mode"
+
+  # The no-spec case: headless pre-approval rests on a NAMED spec (the spec path
+  # is the confirmation), so headless+no-spec has nothing to build from. It must
+  # take the designed loud stop (Rule 15) — NOT scaffold from auto-discovered
+  # guesses, NOT fall through to the Input "ask for the file path" gate (no human
+  # to answer; the dead-end this branch removes). "loud stop"/"halt" appears only
+  # here within the sliced branch, so it pins the no-spec degradation specifically.
+  echo "$HEADLESS" | grep -qiE 'loud stop|halt' \
+    && ok "headless+no-spec takes a designed loud stop (Rule 15), not a fall-through dead-end" \
+    || no "headless branch must name a loud stop for headless+no-spec (no fall-through to the human-ask gate)"
 fi
 
 # Headless needs something to proceed ON without a human: a spec named in the

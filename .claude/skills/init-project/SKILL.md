@@ -104,7 +104,13 @@ present the summary, then **proceed** to generation: the summary is logged in th
 session transcript for post-hoc review, and a spec named in the prompt is
 **pre-approved scope** (the spec path is the confirmation), so generate from it
 rather than blocking on a confirmation no one is present to give — the Rule-15
-designed path for an offline operator. Carry the Step-1 topology proposal forward
+designed path for an offline operator. This pre-approval needs a spec: in headless
+mode with **no spec named** (none in `$ARGUMENTS`, none auto-discovered), there is
+nothing pre-approved to build from — take the designed **loud stop** (surface that
+no spec was named and halt). Do **not** scaffold a whole project from auto-discovered
+guesses, and do **not** fall through to the Input section's "ask for the file path"
+gate — no human is present to answer it, and that fall-through is the dead-end this
+branch exists to remove. Carry the Step-1 topology proposal forward
 as the decision; do not silently re-default to single-repo (the explicit-topology
 rule still binds when no human is in the loop).
 
