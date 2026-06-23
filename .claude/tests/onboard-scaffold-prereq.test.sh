@@ -1,0 +1,68 @@
+#!/bin/bash
+# Tests for [19.2] — onboard's exit-4 (pre-scaffold) path routes to /scaffold
+# first. The cold-path bug: /scaffold's own skill names /onboard as the door
+# that follows it ("Use … before /guv:onboard"; its Step 3 hands off to
+# onboard) — but the handoff was ONE-directional. onboard's Step 0 exit-4
+# (pre-scaffold) branch said only "Proceed", so running /onboard DIRECTLY on a
+# never-scaffolded repo dead-ends: onboard reads .claude/project.schema.json
+# (Step 3, manifest validation) and CLAUDE.template.md (Step 4, render) — both
+# of which only exist once the shell is deployed. A first-time user adopting a
+# bare repo hits that wall. The fix makes the prerequisite bidirectional:
+# onboard's exit-4 branch routes to /scaffold first when the shell is absent,
+# and proceeds directly when it is already present (scaffold was run, or a
+# dogfooding control plane synced the shell from source).
+#
+# What this suite pins (asserting the CORE skill's prose — the source of truth;
+# the plugin mirror's byte-parity, where /scaffold renders as /guv:scaffold, is
+# covered by plugin.test.sh's glob-derived drift guard, not restated here):
+#   - the exit-4 (pre-scaffold) branch names /scaffold and orders it FIRST
+#     (the actual fix — a routed prerequisite, not an unqualified "Proceed")
+#   - it names WHY the shell is a prerequisite (the schema/template onboard
+#     reads downstream) — intent, not a bare keyword (rule 8)
+#   - it preserves the direct-proceed path for an already-deployed shell
+#     (the nuanced fix, not a blanket redirect that breaks the happy path)
+# Pure bash, no test runner. Run: bash .claude/tests/onboard-scaffold-prereq.test.sh
+set -u
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+OB="$ROOT/.claude/skills/onboard/SKILL.md"
+PASS=0; FAIL=0
+ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
+no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
+
+if [ ! -f "$OB" ]; then
+  no "onboard skill missing — .claude/skills/onboard/SKILL.md must exist"
+  echo ""; echo "Results: $PASS passed, $FAIL failed"; exit 1
+fi
+ok "onboard skill exists (.claude/skills/onboard/SKILL.md)"
+
+# Slice out the exit-4 (pre-scaffold) bullet from Step 0: from the "Exit 4"
+# line up to the next blockquote/heading that closes the Routing Guard. The
+# contract assertions read this branch in isolation so they pin the routing of
+# the PRE-SCAFFOLD state specifically, not a /scaffold mention elsewhere.
+EXIT4=$(awk '/^- \*\*Exit 4/{f=1} f&&/^(> |## )/{exit} f{print}' "$OB")
+
+if [ -z "$EXIT4" ]; then
+  no "could not locate the Exit 4 (pre-scaffold) branch in onboard Step 0"
+else
+  # The fix: route to /scaffold FIRST (scaffold + an ordering word on one line).
+  echo "$EXIT4" | grep -qiE '/scaffold.*(first|before)|(first|before).*/scaffold' \
+    && ok "exit-4 branch routes to /scaffold first (a prerequisite, not a bare Proceed)" \
+    || no "exit-4 branch must route a never-scaffolded repo to /scaffold first"
+
+  # The WHY: name the shell prerequisite onboard reads downstream (schema it
+  # validates against / the template it renders) — intent, not a keyword.
+  echo "$EXIT4" | grep -qiE 'schema|template|shell' \
+    && ok "exit-4 branch names the shell prerequisite (schema/template) onboard needs" \
+    || no "exit-4 branch must say WHY the shell is required (the schema/template onboard reads)"
+
+  # The nuance: an already-deployed shell still proceeds directly — the fix is a
+  # conditional prerequisite, not a blanket redirect that breaks the happy path.
+  echo "$EXIT4" | grep -qi 'proceed' \
+    && ok "exit-4 branch preserves the direct-proceed path (shell already present)" \
+    || no "exit-4 branch must keep proceeding directly when the shell is already deployed"
+fi
+
+echo ""
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]

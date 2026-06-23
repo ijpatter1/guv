@@ -37,9 +37,17 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for onboard
   the `reason=` and **stop** rather than onboard over an undetermined state
   (rule 15). A genuinely existing-but-broken project is NOT pre-scaffold.
 - **Exit 4 (pre-scaffold)** — no manifest here yet (the common first-onboard
-  case). This is the state onboard exists for: under `--for onboard` the router
-  returns `match=yes`, so the exit-0 branch above already covers it — you are
-  about to write the manifest this guard would have read. **Proceed.**
+  case). Under `--for onboard` the router returns `match=yes`, so the exit-0
+  branch above already covers the routing: onboard *is* the door. But onboard
+  carries a **scaffold prerequisite** the router does not check — Step 3
+  validates the manifest against `.claude/project.schema.json` and Step 4
+  renders `CLAUDE.md` from `CLAUDE.template.md`, both laid down by the project
+  shell. Running `/guv:onboard` directly on a never-scaffolded repo (no shell on
+  disk) dead-ends there. So if the shell is absent, **route to `/guv:scaffold` first**
+  — it deploys the shell and hands back here (scaffold's Step 3 names `/guv:onboard`
+  as the next door). Once the shell is present (scaffold was run, or a dogfooding
+  control plane synced it from source), **proceed** — you are about to write the
+  manifest this guard would have read.
 
 > **`/guv:onboard` supersedes Claude Code's native `/init` in guv projects.** `/init`
 > inlines commands and stack facts into `CLAUDE.md`, which violates the manifest
