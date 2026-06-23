@@ -15,7 +15,10 @@
 #   bash .claude/archive-initiative.sh --check
 #       Exit 0  status=COMPLETE  max_phase=N   — every deliverable is ✅
 #       Exit 3  status=INCOMPLETE              — lists each incomplete line
-#       Exit 4  status=NONE                    — no PHASE_STATUS.md (fresh project)
+#       Exit 4  status=NONE                    — no real initiative to archive:
+#               no PHASE_STATUS.md, OR a tracker holding only the scaffold's
+#               verbatim `[Deliverable N …]` placeholder stubs (an unauthored
+#               fresh project — the fresh-onboard → first-/plan path)
 #       Exit 5  status=MALFORMED               — tracker has no recognizable
 #               deliverable bullets / phase headers; fix it by hand first
 #   bash .claude/archive-initiative.sh --archive <name> [--force]

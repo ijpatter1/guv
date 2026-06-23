@@ -84,16 +84,33 @@ OUT=$(run "$P" --check); RC=$?
 # single most common path — fresh onboard → first /plan — /plan Step 1's --check
 # must read a placeholder-ONLY tracker as "no real initiative, nothing to archive,
 # number from 1" (NONE/exit 4), NOT INCOMPLETE off the placeholder ⬜s, which would
-# refuse a first-time user's first plan ([19.1]). T2 (real LEGACY prose
-# deliverables — `Deliverable C not started`, no bracket) is the companion guard:
-# a genuine deliverable is never mistaken for a placeholder, so it still reads
-# INCOMPLETE. The discriminator is the verbatim `[Deliverable N` stub, not the word.
+# refuse a first-time user's first plan ([19.1]). The fixture below is a VERBATIM
+# copy of the shipped scaffold skeleton shell/docs/PHASE_STATUS.md (the exact file
+# scaffold-shell.sh copies into a fresh project's docs/) — legend comment and `---`
+# separators included — so it exercises the real on-disk form --check sees on the
+# fresh-onboard path, not a hand-typed approximation. The legend's in-comment ✅/⬜
+# glyphs (indented prose, no leading `- `) also prove marker_lines does not miscount
+# status emoji inside HTML comments. T2 (real LEGACY prose deliverables —
+# `Deliverable C not started`, no bracket) is the companion guard: a genuine
+# deliverable is never mistaken for a placeholder, so it still reads INCOMPLETE.
+# The discriminator is the verbatim `[Deliverable N` stub, not the word.
 P=$(make_project none)
 echo "# reqs" > "$P/docs/REQUIREMENTS.md"
 cat > "$P/docs/PHASE_STATUS.md" <<'MD'
 # Phase Status Tracker
 
 > **Current Phase: 1 — [Phase Name]**
+> Last updated: YYYY-MM-DD, session-YYYY-MM-DD-NNN (update with actual date and session reference)
+
+---
+
+<!-- Copy deliverables from REQUIREMENTS.md verbatim. Use these status indicators:
+     ✅ complete (add date and session reference)
+     🔄 in progress
+     ⬜ not started
+     ❌ blocked (note what it's blocked on)
+
+     Never remove or reorder deliverables — the list must match REQUIREMENTS.md exactly. -->
 
 ## Phase 1 — [Phase Name]
 
@@ -103,10 +120,18 @@ cat > "$P/docs/PHASE_STATUS.md" <<'MD'
 - ⬜ [Deliverable 2]
 - ⬜ [Deliverable 3]
 
+---
+
 ## Phase 2 — [Phase Name]
+
+*Goal: [Copy from REQUIREMENTS.md]*
 
 - ⬜ [Deliverable 1]
 - ⬜ [Deliverable 2]
+
+---
+
+<!-- Add remaining phases, matching REQUIREMENTS.md exactly -->
 MD
 OUT=$(run "$P" --check); RC=$?
 [ "$RC" -eq 4 ] && ok "check fresh-scaffold placeholders: exit 4 NONE (not INCOMPLETE off the stubs)" \
