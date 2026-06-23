@@ -99,6 +99,18 @@ DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
 # is a well-formed bullet, never read as MALFORMED nor dropped from validation.
 marker_lines() { grep -E '^\s*-\s*(✅|🔄|⬜|❌|🔒)' "$TRACKER"; }
 
+# The scaffold seeds docs/PHASE_STATUS.md with VERBATIM placeholder deliverables —
+# `- ⬜ [Deliverable N …]` stubs that /guv:init-project and /guv:plan overwrite
+# with authored wording. A placeholder is the literal bracketed stub; a genuine
+# deliverable is real prose (LEGACY) or a leading **[N.M]** ID (grammar) — never
+# the stub. Match it verbatim (the bracket is required: a real prose line that
+# merely contains the word "Deliverable", e.g. "- ⬜ Deliverable C not started",
+# has no `[Deliverable N` and is correctly NOT a placeholder).
+PLACEHOLDER_RE='^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*\[Deliverable [0-9]'
+# Deliverable bullets carrying authored wording — every marker line that is not a
+# verbatim scaffold placeholder. Empty ⟺ the tracker is UNAUTHORED (only stubs).
+authored_lines() { marker_lines | grep -vE "$PLACEHOLDER_RE"; }
+
 # Emits one line per violation; emits nothing for LEGACY or a clean tracker.
 grammar_errors() {
   local lines bad dups
@@ -167,6 +179,19 @@ check() {
     return 4
   fi
   validate || return 5
+  # A tracker carrying ONLY verbatim scaffold placeholders is UNAUTHORED — there
+  # is no real initiative to complete or archive. Read it as NONE (exit 4),
+  # exactly like an absent tracker, so /guv:plan Step 1 maps it to "nothing to
+  # archive, number from 1" — the right signal on the fresh-onboard → first-plan
+  # path. Without this the placeholder ⬜s read as INCOMPLETE and /plan refuses a
+  # first-time user's first initiative ([19.1]). A genuine deliverable (LEGACY
+  # prose or grammar) is never a placeholder, so a real tracker is unaffected; a
+  # tracker mixing real grammar with stray stubs trips grammar validation above
+  # (the stub lacks an ID) and fails MALFORMED, loud — never silently NONE.
+  if [ -z "$(authored_lines)" ]; then
+    echo "status=NONE — $TRACKER holds only unauthored scaffold placeholders"
+    return 4
+  fi
   local inc
   inc=$(incomplete_all)
   if [ -n "$inc" ]; then

@@ -47,8 +47,10 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/archive-initiative.sh --check
   note into the frozen tracker). Do not archive on their behalf.
 - **Exit 0 (COMPLETE):** a finished initiative is in place — it will be archived in
   Step 3. Note `max_phase=N` from the output; the new initiative numbers from N+1.
-- **Exit 4 (NONE):** no tracker exists (first initiative on this project, e.g. it was
-  adopted via `/guv:onboard` or has run task-mode only). Nothing to archive; numbering
+- **Exit 4 (NONE):** no real initiative to archive — either no tracker file exists, or
+  the tracker holds only the scaffold's verbatim placeholder stubs (a freshly-scaffolded
+  project whose phase docs aren't authored yet — the common fresh-onboard → first-plan
+  path; also `/guv:onboard`-adopted or task-mode-only repos). Nothing to archive; numbering
   starts at the value decided in Step 2 (default 1).
 - **Exit 5 (MALFORMED):** the tracker has no recognizable deliverable bullets or phase
   headers. Stop — show the user, and repair the tracker by hand before re-running;

@@ -78,6 +78,42 @@ P=$(make_project none)
 OUT=$(run "$P" --check); RC=$?
 [ "$RC" -eq 4 ] && ok "check no-tracker: exit 4" || no "no tracker should exit 4 (rc=$RC: $OUT)"
 
+# T3b — --check on a freshly-scaffolded tracker: exit 4 NONE, not INCOMPLETE.
+# The scaffold seeds docs/PHASE_STATUS.md with verbatim placeholder deliverables
+# (`- ⬜ [Deliverable N …]` stubs that /init-project and /plan overwrite). On the
+# single most common path — fresh onboard → first /plan — /plan Step 1's --check
+# must read a placeholder-ONLY tracker as "no real initiative, nothing to archive,
+# number from 1" (NONE/exit 4), NOT INCOMPLETE off the placeholder ⬜s, which would
+# refuse a first-time user's first plan ([19.1]). T2 (real LEGACY prose
+# deliverables — `Deliverable C not started`, no bracket) is the companion guard:
+# a genuine deliverable is never mistaken for a placeholder, so it still reads
+# INCOMPLETE. The discriminator is the verbatim `[Deliverable N` stub, not the word.
+P=$(make_project none)
+echo "# reqs" > "$P/docs/REQUIREMENTS.md"
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 1 — [Phase Name]**
+
+## Phase 1 — [Phase Name]
+
+*Goal: [Copy from REQUIREMENTS.md]*
+
+- ⬜ [Deliverable 1 — exact wording from REQUIREMENTS.md]
+- ⬜ [Deliverable 2]
+- ⬜ [Deliverable 3]
+
+## Phase 2 — [Phase Name]
+
+- ⬜ [Deliverable 1]
+- ⬜ [Deliverable 2]
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 4 ] && ok "check fresh-scaffold placeholders: exit 4 NONE (not INCOMPLETE off the stubs)" \
+  || no "a placeholder-only tracker should read NONE/exit 4, not INCOMPLETE (rc=$RC: $OUT)"
+echo "$OUT" | grep -q "status=NONE" && ok "check fresh-scaffold placeholders: status=NONE" \
+  || no "expected status=NONE for a placeholder-only tracker (got: $OUT)"
+
 # T4 — --archive on a complete project: pair moved to docs/initiatives/001-<name>/,
 # ARCHITECTURE snapshot COPIED (original stays), sessions + spec untouched.
 P=$(make_project complete)
