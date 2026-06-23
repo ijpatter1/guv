@@ -19,6 +19,8 @@
 #     (the actual fix — a routed prerequisite, not an unqualified "Proceed")
 #   - it names WHY the shell is a prerequisite (the schema/template onboard
 #     reads downstream) — intent, not a bare keyword (rule 8)
+#   - it gives a deterministic shell-absence probe (a `test -f` file-existence
+#     check), so absence is detected, not left to silent judgment (rule 15)
 #   - it preserves the direct-proceed path for an already-deployed shell
 #     (the nuanced fix, not a blanket redirect that breaks the happy path)
 # Pure bash, no test runner. Run: bash .claude/tests/onboard-scaffold-prereq.test.sh

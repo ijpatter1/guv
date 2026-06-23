@@ -44,7 +44,7 @@ bash .claude/route.sh --for onboard
   renders `CLAUDE.md` from `CLAUDE.template.md`, both laid down by the project
   shell. Running `/onboard` directly on a never-scaffolded repo (no shell on
   disk) dead-ends there. **Detect it deterministically** — the shell is absent
-  when `.claude/project.schema.json` and `CLAUDE.template.md` are missing
+  when `.claude/project.schema.json` or `CLAUDE.template.md` is missing
   (`test -f` either). If absent, **route to `/scaffold` first** — it deploys
   the shell and hands back here (scaffold's Step 3 names `/onboard` as the next
   door). If present (scaffold was run, or a dogfooding control plane synced it
