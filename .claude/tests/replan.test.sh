@@ -319,6 +319,52 @@ OUT=$(bash "$SCRIPT" sync-check 6.3 "$T" "$WORK/reqs.md" 2>&1); RC=$?
 [ "$RC" -eq 5 ] && echo "$OUT" | grep -q "door" && echo "$OUT" | grep -q "portal" \
   && ok "sync-check: drift exits 5 showing both wordings" || no "drift should exit 5 with both sides (rc=$RC: $OUT)"
 
+# Wrapped REQUIREMENTS deliverable: the verbatim-sync contract copies a
+# deliverable to the tracker as ONE physical line, but a hand- or generator-
+# authored REQUIREMENTS may hard-wrap the same wording across several physical
+# lines. sync-check must rejoin the wrap before comparing — a wrapped source is
+# in sync, not drifted. (Regresses the lived defect: /plan-generated trackers
+# wrapped their deliverables, and a first-physical-line-only read of REQUIREMENTS
+# scored every wrapped deliverable as false drift, dropping the trailing deps
+# token onto a continuation line the comparison never saw.)
+cat > "$WORK/wrap-trk.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 6 — Build**
+
+---
+
+## Phase 6 — Build
+
+_Goal: build._
+
+- ⬜ **[6.1]** A long deliverable whose wording is deliberately wrapped across several physical lines in REQUIREMENTS so sync-check must rejoin them before comparing `[deps: none]`
+- ⬜ **[6.2]** Short one `[deps: 6.1]`
+MD
+cat > "$WORK/wrap-reqs.md" <<'MD'
+## Phase 6 — Build
+
+**Deliverables:**
+
+1. **[6.1]** A long deliverable whose wording is deliberately wrapped across
+   several physical lines in REQUIREMENTS so sync-check must rejoin them
+   before comparing `[deps: none]`
+   - *Acceptance:* rejoined before comparison.
+2. **[6.2]** Short one `[deps: 6.1]`
+   - *Acceptance:* unwrapped neighbour still matches.
+MD
+bash "$SCRIPT" sync-check 6.1 "$WORK/wrap-trk.md" "$WORK/wrap-reqs.md" >/dev/null 2>&1 \
+  && ok "sync-check: a wrapped REQUIREMENTS deliverable rejoins and matches (not false drift)" \
+  || no "6.1 wrapped across physical lines should be in sync once rejoined"
+bash "$SCRIPT" sync-check 6.2 "$WORK/wrap-trk.md" "$WORK/wrap-reqs.md" >/dev/null 2>&1 \
+  && ok "sync-check: a single-line deliverable after a wrapped one still matches (rejoin stops at the item boundary)" \
+  || no "6.2 should be in sync (the wrap-rejoin must stop at the next list item)"
+# The rejoin must not mask GENUINE drift inside a wrapped deliverable.
+sed -i.bak 's/rejoin them/rejoin THEM/' "$WORK/wrap-reqs.md" && rm -f "$WORK/wrap-reqs.md.bak"
+OUT=$(bash "$SCRIPT" sync-check 6.1 "$WORK/wrap-trk.md" "$WORK/wrap-reqs.md" 2>&1); RC=$?
+[ "$RC" -eq 5 ] && ok "sync-check: real drift inside a wrapped deliverable still exits 5 (rejoin is not a blanket pass)" \
+  || no "a genuinely drifted wrapped deliverable should still exit 5 (rc=$RC: $OUT)"
+
 # ════ T8 — usage and op-verb discipline ════
 T="$(fresh)"
 OUT=$(bash "$SCRIPT" frobnicate 2>&1); RC=$?

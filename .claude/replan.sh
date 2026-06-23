@@ -200,6 +200,24 @@ line_wording() {
     | sed -E 's/(.*`\[deps:[^]]*\]`).*/\1/'
 }
 deps_token_of() { printf '%s\n' "$1" | grep -oE '`\[deps:[^]]*\]`' | tail -1 | sed -E 's/^`\[deps: //; s/\]`$//'; }
+# A REQUIREMENTS deliverable may be hard-wrapped across several physical lines,
+# but the verbatim-sync contract copies it to the tracker as ONE physical line.
+# Rejoin the wrap into a single logical line (continuation whitespace collapsed
+# to a single space) so a wrapped source compares byte-for-byte against the
+# tracker — a wrapped deliverable is in sync, not drifted. A continuation line is
+# indented and is neither a new list item (numbered or '- ') nor blank; the first
+# line that fails ends the item. $1 = REQUIREMENTS file, $2 = the deliverable's
+# first-line number.
+req_logical_line() {
+  awk -v start="$2" '
+    NR < start { next }
+    NR == start { line=$0; next }
+    done { next }
+    $0 ~ /^[[:space:]]*[0-9]+\./ || $0 ~ /^[[:space:]]*-[[:space:]]/ || $0 ~ /^[[:space:]]*$/ || $0 ~ /^[^[:space:]]/ { done=1; next }
+    { s=$0; sub(/^[[:space:]]+/, " ", s); line = line s }
+    END { print line }
+  ' "$1"
+}
 
 cmd="${1:-}"
 case "$cmd" in
@@ -335,8 +353,9 @@ case "$cmd" in
     ESC=$(echo "$ID" | sed 's/\./\\./')
     TL=$(id_line "$T" "$ID")
     [ -n "$TL" ] || die5 "[$ID] not in $T"
-    RL=$(grep -E "^[[:space:]]*[0-9]+\.[[:space:]]+\*\*\[$ESC\]\*\*" "$R" | head -1)
-    [ -n "$RL" ] || die5 "[$ID] not in $R — the tracker line has no REQUIREMENTS source (wording changes happen in REQUIREMENTS first)"
+    RN=$(grep -nE "^[[:space:]]*[0-9]+\.[[:space:]]+\*\*\[$ESC\]\*\*" "$R" | head -1 | cut -d: -f1)
+    [ -n "$RN" ] || die5 "[$ID] not in $R — the tracker line has no REQUIREMENTS source (wording changes happen in REQUIREMENTS first)"
+    RL=$(req_logical_line "$R" "$RN")
     TW=$(line_wording "$TL")
     RW=$(printf '%s\n' "$RL" | sed -E 's/^[[:space:]]*[0-9]+\.[[:space:]]+//' \
          | sed -E 's/(.*`\[deps:[^]]*\]`).*/\1/')
