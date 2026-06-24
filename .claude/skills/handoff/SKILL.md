@@ -454,8 +454,13 @@ the manifest or the rules go there, **not** into `CLAUDE.md`. Check for drift in
   if it passes the pruning test (_would removing it cause a mistake?_).
 - **Phase progression (phased only):** if a phase was completed, does the identity/intro
   need to reflect it? (Phase state itself lives in `docs/PHASE_STATUS.md`, not CLAUDE.md.)
-- **Stale bootstrapping section:** once the project is scaffolded, remove the
-  "Bootstrapping" section from `CLAUDE.md` — it only applies to the first session.
+- **Stale bootstrapping section — deterministic, not a proposal.** The rendered
+  `CLAUDE.md` carries a first-session-only "Bootstrapping" section that goes stale
+  once the project is scaffolded. Don't hand-edit it or add it to the proposal list
+  below — run `bash .claude/strip-bootstrap.sh`. The helper removes the section only
+  once `scaffoldCheck` passes (a no-op before scaffold, and idempotent once it's
+  gone), so it self-removes at the first handoff past scaffold and never disturbs a
+  first-session doc.
 
 If any updates are needed, **propose them to the user** as a list, routing each to the
 right file:
@@ -465,8 +470,10 @@ Freshness updates needed:
 1. .claude/project.json: commands.test → "vitest run" (was "npm test")
 2. .claude/project.json: packageManager → "pnpm"
 3. CLAUDE.md (Project facts): add "RESEND_API_KEY required or email send no-ops in dev"
-4. CLAUDE.md: remove the now-stale Bootstrapping section
 ```
+
+(The stale-Bootstrapping cleanup is **not** in this list — it is run
+deterministically by `strip-bootstrap.sh` above, not proposed.)
 
 **In interactive mode:** Wait for approval before making the changes.
 **In headless/bypass mode:** Apply the changes and note them in the handoff artifact under Session Notes.
