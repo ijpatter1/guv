@@ -14,8 +14,8 @@ that one definition — its Steps 1–4 gather context, invoke both reviewers, a
 emit the combined summary; the `/guv:eval-parallel` skill runs the same
 Steps 1–4 with the two reviewers concurrent. Handoff owns only what is specific to
 session-close: the **skip condition**, the **review target**, and the **verdict
-gates** below — never a second copy of how the reviewers are invoked. (When the
-restatement and its source were two copies, they drifted; the pointer is the fix.)
+gates** below — never a second copy of how the reviewers are invoked (two copies
+drift; the pointer is the fix).
 
 ### Skip condition — review cost is paid once
 
@@ -55,17 +55,16 @@ else
 fi
 ```
 
-The snippet answers "does the code repo have *any* history", not "did *this session*
-commit there" — so after it, check: if `TARGET` is the code repo but this session
-produced no commits in it (docs-only session in a mature split), switch `TARGET` to
-the control plane and review the session's actual commits. If `TARGET` is the
-control plane, tell `/guv:eval` it is reviewing control-plane / doc work — a
-pre-scaffold session, or a docs-only session in a mature split — not product code,
-so the reviewers judge accordingly rather than reporting "no tests" against
-documentation. Pass `/guv:eval` this session's scope (the commits in `$TARGET` and
-the phase number from `docs/PHASE_STATUS.md`, skipped if absent — non-phased).
-Present both reviewers' full reports to the user without modification or softening,
-exactly as `/guv:eval` does.
+The snippet answers "does the code repo have *any* history", not "did *this
+session* commit there" — so after it: if `TARGET` is the code repo but this session
+made no commits in it (a docs-only session in a mature split), switch `TARGET` to
+the control plane. When `TARGET` is the control plane, tell `/guv:eval` it is reviewing
+control-plane / doc work — pre-scaffold or docs-only — not product code, so the
+reviewers judge accordingly rather than reporting "no tests" against documentation.
+Pass `/guv:eval` this session's scope: the commits in `$TARGET` and the phase number
+from `docs/PHASE_STATUS.md` (skipped if absent — non-phased). Present both
+reviewers' full reports to the user without modification or softening, exactly as
+`/guv:eval` does.
 
 > For a pre-scaffold session — or, in a control-plane split, any session whose
 > commits live only in the control plane — prefer the conversational `/guv:eval`
@@ -138,99 +137,13 @@ docs/sessions/session-YYYY-MM-DD-NNN.md
 
 Where YYYY-MM-DD is today's date and NNN is a zero-padded sequence number (001, 002, etc.) for the day.
 
-The handoff artifact must contain:
-
-```markdown
-# Session Handoff — YYYY-MM-DD-NNN
-
-**Phase:** N — [Phase Name]
-**Date:** YYYY-MM-DD
-
-## Completed This Session
-
-For each feature completed, include:
-
-- What was built (brief description)
-- Commit hash(es)
-- Tests added (count and what they cover)
-- Any notable implementation decisions and why they were made
-
-## In Progress
-
-Anything started but not finished:
-
-- What it is
-- Current state (what's done, what remains)
-- Where to pick up (specific file and function/component)
-
-## Blocked
-
-Anything that can't proceed and why:
-
-- The blocker
-- What's needed to unblock it
-- Whether it blocks other work
-
-## Issues & Technical Debt
-
-Any issues identified (by you or either reviewer) that weren't resolved this session:
-
-- Issue description
-- Severity (critical / important / minor)
-- Source (evaluator / product reviewer / self-identified)
-- Where it lives in the code
-
-## Evaluator Results
-
-Summary of the evaluator's technical assessment:
-
-- Weighted score: X.X/5.0
-- Verdict: PASS / PASS WITH ISSUES / FAIL
-- Critical issues (if any): [list]
-- Unresolved important issues: [list]
-
-## Product Review Results
-
-Summary of the product reviewer's assessment:
-
-- Weighted score: X.X/5.0
-- Verdict: PASS / NEEDS WORK
-- Vision alignment: [score]/5
-- User experience: [score]/5
-- Content quality: [score]/5
-- Feature depth: [score]/5
-- Issues (if any): [list]
-
-## Test State
-
-- Total tests: N
-- Passing: N
-- Failing: N (list which ones and why)
-- Skipped: N
-- Coverage: N% (if coverage reporting is configured)
-
-## Build State
-
-- Build: clean / errors / warnings
-- Lint: clean / errors / warnings
-- TypeScript: strict compliance / issues noted
-
-## Next Steps
-
-The logical next feature(s) to tackle in the next session, in priority order:
-
-1. [Feature] — [why it's next] — [estimated complexity: small/medium/large]
-2. [Feature] — [why it's next] — [estimated complexity: small/medium/large]
-
-## Session Notes
-
-Any context that would be useful for the next session that doesn't fit above:
-
-- Architecture decisions made and rationale
-- Patterns established that should be followed
-- External dependencies or environment setup changes
-- Gotchas discovered
-```
+**Read the fill-in skeleton from `handoff-artifact.md` in this skill's directory**,
+then write the artifact with every section it specifies — the section set is the
+contract, drop none: **Completed This Session**, **In Progress**, **Blocked**,
+**Issues & Technical Debt**, **Evaluator Results**, **Product Review Results**,
+**Test State**, **Build State**, **Next Steps**, **Session Notes**. (The skeleton
+lives in a sibling file so this procedure stays short enough to remain resident —
+the cold read found the all-in-one skill truncated mid-procedure.)
 
 ## Step 6b — Append the Metering Entry
 
@@ -363,9 +276,18 @@ Then generate a user acceptance testing plan. The UAT plan verifies that the pha
 
 Invoke the `guv:reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
 
-Use the product reviewer's scenarios to produce the UAT artifact. **Follow the same automation-first hierarchy as `/guv:manual`:**
+Use the reviewer's scenarios to produce the artifact. **The full UAT plan structure
+— the automation-first script/card hierarchy, the required artifact sections, and
+the after-generating steps — is in `uat-plan.md` in this skill's directory; read it
+when you generate the plan.** One rule is inlined here because every generated UAT
+(and `/guv:manual`) script inherits it — the human-judgment gate:
 
-1. **If the project is a CLI tool or backend service:** Produce a UAT script at `docs/uat/phase-N-uat.sh`. The script should set up prerequisites, run each scenario, pause for human observation where visual verification is needed, collect pass/fail results, and print a summary. Use the same `verify()` pattern from the `/guv:manual` script template for automated checks. For steps requiring human judgment, use a `confirm()` helper:
+### The human-judgment gate (`confirm()`)
+
+A generated UAT/manual script uses `confirm()` for any "did this look right?" check a
+human must answer, and the `verify()` pattern (from `/guv:manual`) for mechanical ones.
+`confirm()` **skips** — never auto-passes — when there is no TTY or a non-interactive
+flag is set, so an unattended run reports the gate SKIPPED rather than vacuously ✓:
 
 ```bash
 PASS=0; FAIL=0; SKIP=0   # the skip path below increments SKIP — declare it with PASS/FAIL or `set -u` aborts the gate
@@ -395,47 +317,10 @@ confirm "Does the dashboard show campaign data for all 3 channels?" \
   "Dashboard displays multi-channel data"
 ```
 
-The human-judgment gate **skips** under no TTY (or `GUV_NON_INTERACTIVE` / `CI`)
-rather than auto-passing — a non-interactive run reports each human gate SKIPPED,
-never ✓ passed. Track skips in a `SKIP=0` counter alongside `PASS`/`FAIL` and fold
-them into the results summary (e.g. `Results: $PASS passed, $FAIL failed, $SKIP
-skipped`); a run with any SKIPPED human gate is **not** a clean pass — the human
-judgment is owed, not waived. The mechanical `verify()` checks read no human input
-and are unaffected by this guard.
-
-2. **If the project is a web UI:** Produce a UAT script that automates setup and verification where possible, and uses `confirm()` prompts for visual/interactive checks. Include `open` commands to launch the relevant pages. Structure the script as a guided walkthrough — the human follows along while the script manages state and collects results.
-
-3. **If the project is purely manual to test:** Produce a UAT task card at `docs/uat/phase-N-uat.md` with numbered scenarios, each containing steps, expected outcomes, and pass/fail checkboxes. This is the last resort.
-
-### UAT Artifact Structure
-
-Whether script or card, each UAT plan should cover:
-
-- **Prerequisites** — what must be running, configured, or seeded before testing
-- **Scenarios** — numbered end-to-end workflows, each testing multiple deliverables together. Each scenario has:
-  - A name and description of what it validates
-  - Steps (automated where possible, guided where not)
-  - Expected outcomes with concrete checks
-  - Which deliverables it exercises
-- **Edge cases** — at least 2-3 scenarios that test boundaries, error states, or non-obvious flows
-- **Results summary** — pass/fail counts with a clear overall verdict
-
-### After Generating UAT
-
-Make the script executable if applicable:
-
-```bash
-chmod +x docs/uat/phase-N-uat.sh
-```
-
-Note in the handoff artifact under **Next Steps** that UAT is ready to run:
-
-```
-1. Run Phase N UAT: `bash docs/uat/phase-N-uat.sh`
-2. [Next phase planning — if UAT passes]
-```
-
-The phase is not considered accepted until UAT passes. The next session's `/guv:phase` should check for UAT results before starting new phase work.
+Track skips in a `SKIP=0` counter alongside `PASS`/`FAIL` and fold them into the
+results summary (e.g. `Results: $PASS passed, $FAIL failed, $SKIP skipped`); a run
+with any SKIPPED human gate is **not** a clean pass — the judgment is owed, not
+waived. The mechanical `verify()` checks read no human input and are unaffected.
 
 ## Step 9 — CLAUDE.md / Manifest Freshness Check
 
