@@ -74,12 +74,23 @@ jq -e 'has("hooks") | not' "$P1/.claude/settings.json" >/dev/null 2>&1 \
   || no "deployed settings.json must not wire hooks"
 
 # T4 — .gitignore carries the guv entries (and the marker that keeps the
-# append idempotent)
+# append idempotent). The transient metering runtime artifact
+# (.claude/metering/.last-suite-runtime — handoff Step 3 writes the measured
+# suite runtime here, meter.sh reads it; rewritten each session) is ignored so
+# a fresh scaffold does not surface it as untracked ([20.2]); the committed
+# append-only metering logs (metering.ndjson / calibration.ndjson — shared team
+# evidence) must stay TRACKED, so no whole-directory ignore may swallow them.
 T4_OK=1
-for entry in "secrets/" ".claude/settings.local.json" ".claude/agent-memory/" ".DS_Store"; do
+for entry in "secrets/" ".claude/settings.local.json" ".claude/agent-memory/" ".DS_Store" ".claude/metering/.last-suite-runtime"; do
   grep -qF "$entry" "$P1/.gitignore" || { no ".gitignore missing entry: $entry"; T4_OK=0; }
 done
-[ "$T4_OK" -eq 1 ] && ok ".gitignore carries the guv entries"
+# Intent guard: a bare .claude/metering/ (or /*) directory ignore would also
+# stop the committed logs from ever being tracked on a fresh scaffold — the
+# fix must ignore the one transient file, not the directory.
+if grep -qE '^[[:space:]]*\.claude/metering/?\*?[[:space:]]*$' "$P1/.gitignore"; then
+  no ".gitignore must not ignore the whole .claude/metering/ dir (would swallow the committed logs)"; T4_OK=0
+fi
+[ "$T4_OK" -eq 1 ] && ok ".gitignore carries the guv entries (metering runtime ignored, committed logs tracked)"
 
 # T5 — ownership on re-run: consumer-owned survives, core-owned refreshes
 echo '{"permissions":{"allow":["Bash(mycustom:*)"]}}' > "$P1/.claude/settings.json"

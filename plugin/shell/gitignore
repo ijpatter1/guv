@@ -36,6 +36,11 @@ sandbox/tmp/
 # guv continuation checkpoint (continuation-checkpoint.sh PreCompact hook — a
 # resume breadcrumb rewritten on every compaction; runtime artifact, not tracked)
 .claude/continuation-checkpoint.json
+# guv metering runtime artifact (handoff Step 3 writes the measured suite
+# runtime here; meter.sh reads it — transient, rewritten each session, not
+# tracked). The committed append-only metering logs (metering.ndjson /
+# calibration.ndjson) are deliberately NOT ignored — they are shared evidence.
+.claude/metering/.last-suite-runtime
 # guv-core-end
 
 # ─────────────────────────────────────────────
