@@ -84,13 +84,23 @@ T4_OK=1
 for entry in "secrets/" ".claude/settings.local.json" ".claude/agent-memory/" ".DS_Store" ".claude/metering/.last-suite-runtime"; do
   grep -qF "$entry" "$P1/.gitignore" || { no ".gitignore missing entry: $entry"; T4_OK=0; }
 done
-# Intent guard: a bare .claude/metering/ (or /*) directory ignore would also
-# stop the committed logs from ever being tracked on a fresh scaffold — the
-# fix must ignore the one transient file, not the directory.
-if grep -qE '^[[:space:]]*\.claude/metering/?\*?[[:space:]]*$' "$P1/.gitignore"; then
-  no ".gitignore must not ignore the whole .claude/metering/ dir (would swallow the committed logs)"; T4_OK=0
-fi
-[ "$T4_OK" -eq 1 ] && ok ".gitignore carries the guv entries (metering runtime ignored, committed logs tracked)"
+# Intent proof (Rule 8) against real git semantics, not a textual proxy: a
+# throwaway repo carrying the deployed .gitignore must IGNORE the transient
+# runtime artifact and must NOT ignore the committed append-only logs (shared
+# team evidence). git check-ignore matches the pathname against the actual
+# ignore rules, so this catches the whole class of over-broad fixes
+# (.claude/metering/, /**, *.ndjson, a leading-slash anchor, …) — not just the
+# textual forms a grep would spot. (The one spot this suite shells to git;
+# check-ignore needs no commit identity and no files on disk.)
+GICHK="$WORK/gi-semantics"; mkdir -p "$GICHK"
+git -C "$GICHK" init -q && cp "$P1/.gitignore" "$GICHK/.gitignore"
+git -C "$GICHK" check-ignore -q ".claude/metering/.last-suite-runtime" \
+  || { no "git semantics: transient .last-suite-runtime must be ignored"; T4_OK=0; }
+for committed in ".claude/metering/metering.ndjson" ".claude/metering/calibration.ndjson"; do
+  git -C "$GICHK" check-ignore -q "$committed" \
+    && { no "git semantics: committed metering log must stay tracked, not ignored: $committed"; T4_OK=0; }
+done
+[ "$T4_OK" -eq 1 ] && ok ".gitignore discriminates (git check-ignore): transient metering artifact ignored, committed logs tracked"
 
 # T5 — ownership on re-run: consumer-owned survives, core-owned refreshes
 echo '{"permissions":{"allow":["Bash(mycustom:*)"]}}' > "$P1/.claude/settings.json"
