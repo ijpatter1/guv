@@ -10,8 +10,11 @@
 # non-reviewer calls pass through untouched (exit 0); bash-guard still owns
 # destructive-pattern blocking for everyone.
 #
-# Patterns and deny messages are verbatim from the original agent frontmatter —
-# the Phase 4 spike verified those exact denials live. Both bare and
+# Patterns and deny messages stay verbatim-consistent with the agent frontmatter
+# (.claude/agents/{evaluator,reviewer}.md). The Phase 4 spike verified the write
+# denials live; [20.1] anchored the evaluator pattern to command position so a
+# benign read-only probe whose text merely contains a write-ish word
+# (install/create/write/modify) or substring (tee) is no longer denied. Both bare and
 # guv:-prefixed agent_type values are matched: plugin-shipped agents resolve
 # namespaced (guv:evaluator — verified live 2026-06-11, the denial fired with
 # the file confirmed absent), while project .claude/agents/ copies report the
@@ -23,7 +26,7 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 case "$AGENT" in
   evaluator|guv:evaluator)
-    if echo "$CMD" | grep -qEi '(>|>>|tee |mv |cp |rm |mkdir |touch |chmod |sed -i|write|create|modify|install|npm (i|install|ci)|pip install)'; then
+    if echo "$CMD" | grep -qE '(>>?|sed[[:space:]]+-i|(^|[|&;(])[[:space:]]*(tee|mv|cp|rm|mkdir|touch|chmod|npm[[:space:]]+(i|install|ci)|pip[[:space:]]+install))'; then
       jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $CMD" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
     fi
     ;;

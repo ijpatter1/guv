@@ -246,6 +246,38 @@ if [ -f "$READONLY_SH" ]; then
   echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
     && ok "guv:reviewer (namespaced plugin form) + write-pattern -> deny" \
     || no "guv:reviewer write-pattern must be denied (plugin agents resolve namespaced)"
+  # T8b — [20.1] over-block fix. The evaluator guard must NOT deny a benign
+  # read-only probe whose text merely CONTAINS a write-ish word (install /
+  # create / write / modify) or substring (tee). Those words are not commands
+  # here — they ride inside a quoted grep pattern, a path, or a commit-message
+  # search — so the probe is read-only and must pass. The guard anchors write
+  # detection to command position; a word in an argument is not a command.
+  # jq builds the hook JSON so the embedded quotes survive into a valid payload.
+  evjson() { jq -cn --arg a "$1" --arg c "$2" '{agent_type:$a,tool_name:"Bash",tool_input:{command:$c}}'; }
+  while IFS='|' read -r agent verdict cmd; do
+    [ -z "$agent" ] && continue
+    out=$(evjson "$agent" "$cmd" | bash "$READONLY_SH"); rc=$?
+    denied=no; echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 && denied=yes
+    if [ "$verdict" = allow ]; then
+      [ $rc -eq 0 ] && [ "$denied" = no ] \
+        && ok "evaluator allows benign read-only probe: $cmd" \
+        || no "evaluator over-blocks benign read-only probe: $cmd"
+    else
+      [ "$denied" = yes ] \
+        && ok "evaluator still denies write at command position: $cmd" \
+        || no "evaluator under-blocks a real write: $cmd"
+    fi
+  done <<'T8B'
+evaluator|allow|grep -rn "install" .
+evaluator|allow|git log --grep="createTable"
+evaluator|allow|grep -rn "writeFile" src/
+evaluator|allow|grep -r "guarantee none" notes.md
+guv:evaluator|allow|grep -rn "modifyConfig" .
+evaluator|deny|ls; rm -rf build
+evaluator|deny|cat a | tee out.txt
+evaluator|deny|echo hi && mkdir d
+evaluator|deny|echo $(touch f)
+T8B
 else
   no "reviewer-readonly.sh missing: $READONLY_SH"
 fi

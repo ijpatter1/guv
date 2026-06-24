@@ -9,7 +9,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: 'COMMAND=$(cat | jq -r ''.tool_input.command // empty''); if echo "$COMMAND" | grep -qEi ''(>|>>|tee |mv |cp |rm |mkdir |touch |chmod |sed -i|write|create|modify|install|npm (i|install|ci)|pip install)''; then jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $COMMAND" ''{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}''; else exit 0; fi'
+          command: 'COMMAND=$(cat | jq -r ''.tool_input.command // empty''); if echo "$COMMAND" | grep -qE ''(>>?|sed[[:space:]]+-i|(^|[|&;(])[[:space:]]*(tee|mv|cp|rm|mkdir|touch|chmod|npm[[:space:]]+(i|install|ci)|pip[[:space:]]+install))''; then jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $COMMAND" ''{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}''; else exit 0; fi'
 ---
 
 # Evaluator — Independent QA Agent
