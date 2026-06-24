@@ -26,6 +26,13 @@ WORK=$(mktemp -d)
 # Keep fixtures + setup.log around on failure — they ARE the diagnostics.
 trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures + setup.log kept at $WORK)"' EXIT
 
+# [19.5] The hook-registration dedup reads the user's plugin DB to decide whether to
+# strip the synced settings.json hooks (plugin authoritative). Pin a NEUTRAL
+# (nonexistent) DB suite-wide so the ambient HOST plugin install never leaks into the
+# unrelated fixtures — every test except T12 then sees "no plugin → keep hooks",
+# host-independently. The T12 dedup cases override GUV_PLUGINS_DB per invocation.
+export GUV_PLUGINS_DB="$WORK/no-such-plugins-db.json"
+
 # A fixture guv repo with the real script in place (GUV_DIR is derived from
 # the script's own location, so it must live at <fixture>/maintainers/).
 # Finder droppings are planted at the item root and one nested level deep —
@@ -49,7 +56,22 @@ make_guv() {
   # provide it too or the runner can't source it. A faithful minimal resolver:
   # roots.code string is the primary, '.' / no manifest is single-repo.
   cp "$REAL_ROOTS_SH" "$h/.claude/roots.sh"
-  echo '{}' > "$h/.claude/settings.json"
+  # A realistic settings.json carrying BOTH a hooks block (the [19.5] double-fire
+  # surface — what the plugin-dedup strips) and a non-hook key (permissions — the
+  # survives-the-strip control). The suite-wide neutral GUV_PLUGINS_DB keeps these
+  # hooks in place for every fixture except T12's explicit plugin-present cases.
+  cat > "$h/.claude/settings.json" <<'JSON'
+{
+  "permissions": { "allow": ["Read(*)"], "deny": [] },
+  "hooks": {
+    "Stop": [
+      { "matcher": "", "hooks": [
+        { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/occupancy-meter.sh" }
+      ] }
+    ]
+  }
+}
+JSON
   touch "$h/.claude/skills/.DS_Store" "$h/.claude/skills/task/.DS_Store" "$h/.claude/skills/status/.DS_Store"
   echo "$h"
 }
@@ -926,6 +948,80 @@ grep -qE 'plugin\.test\.sh' "$RUNNER_SRC" && grep -qE 'ship-suite\.test\.sh' "$R
   && ok "[15.1] fix(b): the runner declares the audited SERIAL set (plugin.test.sh, ship-suite.test.sh)" \
   || no "[15.1] fix(b): the runner must declare the serial set naming the shared-live-tree suites (audit not encoded)"
 fi  # SCP_TEST_INNER guard ([15.1] block)
+
+# ── T12 [19.5] — hook-registration dedup: --sync + plugin double-fire ────────────
+# When the guv PLUGIN is also installed, the synced settings.json must ship
+# hooks-free so the plugin's hooks.json is the SINGLE authoritative registration —
+# otherwise every hook is registered twice (project-mode settings.json AND
+# plugin-mode hooks.json) and fires twice, the double metering write. Detection is
+# the user-level plugin DB (installed_plugins.json — the plugin installs at user
+# scope, with no per-plane marker); GUV_PLUGINS_DB is the test seam. This pins the
+# REGISTRATION-level dedup (the synced settings.json content), the deterministic
+# property — NOT a live end-to-end check that both registrations fire (that needs
+# a real Claude session with both paths active). Rule-15 safe degradation: no DB / no guv entry /
+# unparseable → KEEP hooks (a plane without the plugin needs its project-mode hooks;
+# a detection failure must never strip them — a hookless plane is the one new break).
+# Outer-only (like the [15.1] block): stands up fixtures + runs setup several times,
+# and the T10b inner self-invocations exist only to exercise the README gate seams.
+if [ -z "${SCP_TEST_INNER:-}" ]; then
+DB_PRESENT="$WORK/plugins-present.json"
+printf '%s\n' '{"version":2,"plugins":{"guv@guv":[{"scope":"user","version":"0.7.0"}]}}' > "$DB_PRESENT"
+
+# T12a — plugin installed: create strips the hooks block, preserves the rest, announces it.
+H=$(make_guv); D="$WORK/dedup-plugin"
+OUT12=$( GUV_PLUGINS_DB="$DB_PRESENT" bash "$H/maintainers/setup-control-plane.sh" "$D" 2>&1 )
+if jq -e 'has("hooks") | not' "$D/.claude/settings.json" >/dev/null 2>&1; then
+  ok "[19.5] plugin installed → synced settings.json ships hooks-free (single authoritative registration)"
+else
+  no "[19.5] plugin installed → synced settings.json must drop its hooks block (double-fire persists)"
+fi
+jq -e '.permissions.allow | index("Read(*)")' "$D/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "[19.5] the strip is surgical — non-hook settings (permissions) survive (jq del(.hooks))" \
+  || no "[19.5] stripping hooks must preserve the rest of settings.json"
+printf '%s' "$OUT12" | grep -qi 'hooks-free' && printf '%s' "$OUT12" | grep -qi 'double-fire' \
+  && ok "[19.5] the dedup is announced (hooks-free + double-fire named), not silent (Rule 15)" \
+  || no "[19.5] the strip must be announced — a designed path is loud, never silent"
+
+# T12b — no plugin (DB absent): hooks RETAINED — a plane without the plugin needs them.
+H=$(make_guv); D="$WORK/dedup-noplugin"
+( GUV_PLUGINS_DB="$WORK/absent-db.json" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+jq -e 'has("hooks")' "$D/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "[19.5] no plugin DB → synced settings.json KEEPS its hooks (project-mode authoritative; no breakage)" \
+  || no "[19.5] without the plugin the synced hooks must be retained (a hookless plane is a NEW break)"
+
+# T12c — DB present but NO guv entry: hooks retained (only the guv plugin owns guv's hooks).
+H=$(make_guv); D="$WORK/dedup-otherplugin"
+DB_OTHER="$WORK/plugins-other.json"
+printf '%s\n' '{"version":2,"plugins":{"other@mkt":[{"scope":"user"}]}}' > "$DB_OTHER"
+( GUV_PLUGINS_DB="$DB_OTHER" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+jq -e 'has("hooks")' "$D/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "[19.5] a non-guv plugin DB → hooks retained (an unrelated plugin must not trigger the strip)" \
+  || no "[19.5] only a guv-family plugin entry makes the plugin authoritative for guv's hooks"
+
+# T12d — unparseable DB: safe degradation KEEPS hooks (never strip on a detection failure).
+H=$(make_guv); D="$WORK/dedup-garbage"
+DB_BAD="$WORK/plugins-garbage.json"
+printf 'not json at all' > "$DB_BAD"
+( GUV_PLUGINS_DB="$DB_BAD" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+jq -e 'has("hooks")' "$D/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "[19.5] unparseable plugin DB → hooks retained (Rule 15: a detection failure is safe, never destructive)" \
+  || no "[19.5] a garbage plugin DB must not strip hooks (safe degradation, not a hookless plane)"
+
+# T12e — the dedup runs on --sync too (the operative path for an EXISTING plane like
+# guv-guv): create with no plugin (hooks kept), then the plugin appears and a --sync
+# refreshes the plane → the now-redundant project hooks are stripped. copy_core runs
+# in both modes; this pins the --sync case directly, the real remediation path.
+H=$(make_guv); D="$WORK/dedup-sync"
+( GUV_PLUGINS_DB="$WORK/absent-db.json" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+jq -e 'has("hooks")' "$D/.claude/settings.json" >/dev/null 2>&1 \
+  || no "[19.5] precondition: a no-plugin create should leave the hooks in place"
+( GUV_PLUGINS_DB="$DB_PRESENT" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
+if jq -e 'has("hooks") | not' "$D/.claude/settings.json" >/dev/null 2>&1; then
+  ok "[19.5] --sync after a plugin install strips the now-redundant project hooks (the real guv-guv path)"
+else
+  no "[19.5] --sync must also dedup (an existing plane that later installed the plugin keeps double-firing)"
+fi
+fi  # SCP_TEST_INNER guard (T12 [19.5] block)
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

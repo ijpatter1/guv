@@ -147,7 +147,44 @@ copy_core() {
   echo "[setup] synced core → $DEST/.claude/"
 }
 
+# ── De-duplicate hook registration when the guv PLUGIN is also installed ([19.5]) ──
+# A control plane that installs the guv plugin AND syncs the core gets every hook
+# registered TWICE — once plugin-mode (the plugin's hooks.json) and once project-mode
+# (this synced settings.json) — so each fires twice, producing the double metering
+# write. The plugin's hooks.json is the SINGLE authoritative registration when the
+# plugin is present; the synced settings.json then defers by shipping hooks-free,
+# exactly as build-plugin.sh already does for the plugin's own shell/settings.json
+# (jq 'del(.hooks)'). Detection reads the user-level plugin database — the guv plugin
+# installs at USER scope (installed_plugins.json), with no per-plane marker to key on;
+# GUV_PLUGINS_DB overrides the path for tests. Rule 15 designed degradation: an
+# absent/unparseable DB, or one with no guv entry, KEEPS the hooks (today's behavior —
+# a plane WITHOUT the plugin needs its project-mode hooks; a detection failure must
+# never manufacture a hookless plane, the one new breakage). Detection is a positive
+# signal only; the safe default is to leave registration as it is.
+dedup_hook_registration() {
+  local sj="$DEST/.claude/settings.json"
+  [ -f "$sj" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  # Nothing to strip if the synced settings.json carries no hooks block at all.
+  jq -e 'has("hooks")' "$sj" >/dev/null 2>&1 || return 0
+  # The plugin DB: explicit override → CLAUDE_CONFIG_DIR → ~/.claude. Absent file or
+  # no guv-family key ("<plugin>@<marketplace>", e.g. guv@guv) → plugin not authoritative.
+  local db="${GUV_PLUGINS_DB:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json}"
+  [ -f "$db" ] || return 0
+  jq -e '(.plugins // {}) | keys[] | select(startswith("guv@"))' "$db" >/dev/null 2>&1 || return 0
+  # Plugin is installed → it owns hook registration. Strip the synced settings.json
+  # hooks block (surgical: del(.hooks) leaves permissions and every other key intact).
+  local tmp; tmp=$(mktemp) || return 0
+  if jq 'del(.hooks)' "$sj" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$sj"
+    echo "[setup] guv plugin installed — synced settings.json shipped hooks-free (the plugin's hooks.json is the authoritative registration; prevents the --sync+plugin double-fire / double metering write)"
+  else
+    rm -f "$tmp"
+  fi
+}
+
 copy_core
+dedup_hook_registration   # [19.5] — single authoritative hook registration path
 
 # run-core-tests.sh: commands.test for the control plane runs the core's bash
 # suites (which live in roots.code, not here). Generated, but NOT create-only: the
