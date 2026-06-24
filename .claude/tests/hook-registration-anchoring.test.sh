@@ -6,9 +6,17 @@
 # launch), `.claude/hooks/X.sh` does not exist there, so Claude Code cannot even
 # LOCATE the script to execute it: the hook never starts and fails SILENTLY. The
 # safety hooks (bash-guard, single-writer, stop-check) are the ones that matter —
-# their guarantees evaporate off-root with no error. (The scripts already resolve
-# their own ROOT from ${CLAUDE_PROJECT_DIR:-$PWD} internally — finding (e) — but
-# that is moot if the registration can't find the script to RUN it.)
+# their guarantees evaporate off-root with no error. Anchoring the registration is
+# the necessary FIRST step: it makes the hook LAUNCH off-root, where before it
+# could not start at all. What each hook does once launched is its own matter, and
+# NOT uniform: single-writer is stdin-driven (no manifest read) and fully
+# off-root-safe; bash-guard's universal blocks are hardcoded and fire anywhere. But
+# bash-guard's opt-in manifest guards (bash-guard.sh:150) and stop-check
+# (stop-check.sh:21) still read `.claude/project.json` CWD-relative, so those tiers
+# silently degrade off-root even after this fix — anchoring those INTERNAL manifest
+# reads is a separate, tracked follow-up (sibling of [19.5]), not [19.4]. So this
+# suite pins the registration anchoring (a syntactic property of settings.json),
+# NOT end-to-end off-root firing — the honest scope of the registration fix.
 #
 # The fix anchors each registration to ${CLAUDE_PROJECT_DIR:-$PWD} (the env var
 # Claude Code exports for exactly this; the :-$PWD fallback preserves today's
@@ -63,7 +71,7 @@ fi
 for h in bash-guard single-writer stop-check; do
   line=$(printf '%s\n' "$CMDS" | grep "hooks/$h\.sh")
   if [ -n "$line" ] && printf '%s\n' "$line" | grep -q 'CLAUDE_PROJECT_DIR'; then
-    ok "safety hook $h.sh is \$CLAUDE_PROJECT_DIR-anchored (fires off-root)"
+    ok "safety hook $h.sh is \$CLAUDE_PROJECT_DIR-anchored (launches off-root)"
   else
     no "safety hook $h.sh must anchor to \$CLAUDE_PROJECT_DIR (it is the off-root guard)"
   fi
