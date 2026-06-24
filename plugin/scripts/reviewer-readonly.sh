@@ -15,9 +15,13 @@
 # NOT the containment boundary: bash-guard blocks only CATASTROPHIC patterns
 # (rm -rf of root/system dirs/~/., mkfs, dd, hard-reset-to-remote, pipe-to-shell)
 # plus the agent_type-gated tracker guard — NOT an ordinary `rm build`/`cp`/`> file`;
-# the isolation tier (native sandbox) is the real boundary. Residuals it does not
-# catch (acceptable for a cooperative agent): a write verb quoted as a redirect
-# (awk '$1 > 5'), interposed-arg wrappers (timeout N cmd), and backtick substitution.
+# the isolation tier (native sandbox) is the real boundary. Residuals — by
+# DIRECTION, since they fail opposite ways (both acceptable for a cooperative
+# agent): OVER-block — a benign read we tolerate DENYING: a quoted > read as a
+# redirect (awk '$1 > 5', grep ">"). UNDER-block — a write that SLIPS, leaving
+# the isolation tier as the backstop: interposed-arg wrappers (timeout N cmd,
+# sudo -u U cmd), a doubled direct wrapper (sudo sudo rm — one peel pass leaves
+# the verb off-anchor), exotic wrappers (stdbuf), and backtick (not $()) substitution.
 #
 # Patterns and deny messages stay verbatim-consistent with the agent frontmatter
 # (.claude/agents/{evaluator,reviewer}.md). The Phase 4 spike verified the write

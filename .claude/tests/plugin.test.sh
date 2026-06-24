@@ -298,6 +298,45 @@ else
   no "reviewer-readonly.sh missing: $READONLY_SH"
 fi
 
+# T8c — [20.1] dual-surface parity. The project-mode evaluator.md frontmatter
+# carries the SAME scrub+grep as the plugin reviewer-readonly.sh, but until now
+# nothing asserted they stay equal — T9 byte-checks only the .sh against its
+# source; T8b drives only the .sh. A future edit to one surface that missed the
+# other would ship a silently-divergent guard (the recurring cross-install-rot
+# class). Drive BOTH surfaces with the same probes and assert identical verdicts —
+# behavioral parity, robust to the whitespace/escaping a textual diff trips on.
+# The frontmatter command is extracted exactly as Claude Code runs it (a
+# single-quoted YAML scalar, '' -> ' unescaped) and fed the hook JSON on stdin.
+EVAL_MD="$SRC/agents/evaluator.md"
+if [ -f "$READONLY_SH" ] && [ -f "$EVAL_MD" ]; then
+  raw=$(sed -n "s/^[[:space:]]*command: '\(COMMAND=.*\)'\$/\1/p" "$EVAL_MD" | head -1)
+  fmcmd=${raw//\'\'/\'}
+  if [ -z "$fmcmd" ]; then
+    no "T8c parity: could not extract evaluator.md frontmatter hook command"
+  else
+    T8C_OK=1
+    while IFS='|' read -r want cmd; do
+      [ -z "$want" ] && continue
+      j=$(jq -cn --arg a evaluator --arg c "$cmd" '{agent_type:$a,tool_name:"Bash",tool_input:{command:$c}}')
+      shv=allow; printf '%s' "$j" | bash "$READONLY_SH" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 && shv=deny
+      mdv=allow; printf '%s' "$j" | bash -c "$fmcmd"     | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 && mdv=deny
+      [ "$shv" = "$mdv" ] && [ "$shv" = "$want" ] \
+        || { no "frontmatter/script parity broke: '$cmd' -> sh=$shv md=$mdv want=$want"; T8C_OK=0; }
+    done <<'T8C'
+allow|grep -rn "install" .
+allow|cat foo 2>/dev/null
+allow|grep "sudo rm" file
+deny|sudo rm -rf build
+deny|find . | xargs rm
+deny|cmd > output.txt
+deny|echo x > /tmp/f
+T8C
+    [ "$T8C_OK" -eq 1 ] && ok "evaluator.md frontmatter and reviewer-readonly.sh enforce identically (dual-surface parity)"
+  fi
+else
+  no "T8c parity: missing $READONLY_SH or $EVAL_MD"
+fi
+
 # T9 — hook + helper scripts ship byte-identical (cmp) to their .claude/ sources.
 # They are invoked with cwd = the project, so project-relative reads like
 # .claude/project.json stay correct without rewriting. The set is DERIVED by
