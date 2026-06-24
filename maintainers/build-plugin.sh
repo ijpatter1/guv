@@ -124,7 +124,9 @@ mkdir -p "$OUT/.claude-plugin" "$OUT/skills" "$OUT/agents" "$OUT/hooks" \
 
 # ── plugin hooks.json: DERIVED from settings.json (one source) ──
 # Every hook is wired once, in .claude/settings.json; the build rewrites each
-# command's project path (.claude/hooks/X.sh) to the plugin-root path, then
+# command's project path ("${CLAUDE_PROJECT_DIR:-$PWD}"/.claude/hooks/X.sh, the
+# [19.4] off-root anchor) to the plugin-root path — the \S* strips the whole
+# project-mode prefix so the anchor never leaks into the plugin — then
 # injects the reviewer-readonly guard into the Bash PreToolUse matcher. That
 # guard is the ONE plugin-only hook: plugin agents can't carry the frontmatter
 # hooks: block that enforces reviewer read-only in project mode (stripped from
@@ -135,7 +137,7 @@ jq '{
   hooks: (
     .hooks
     | walk(if type == "object" and has("command")
-           then .command |= gsub("\\.claude/hooks/"; "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/")
+           then .command |= gsub("\\S*\\.claude/hooks/"; "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/")
            else . end)
     | .PreToolUse |= map(
         if (.matcher // "" | test("Bash"))

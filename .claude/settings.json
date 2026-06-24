@@ -42,11 +42,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/session-start.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/session-start.sh"
           },
           {
             "type": "command",
-            "command": "bash .claude/hooks/continuation-resume.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/continuation-resume.sh"
           }
         ]
       }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/bash-guard.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/bash-guard.sh"
           }
         ]
       },
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/single-writer.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/single-writer.sh"
           }
         ]
       }
@@ -77,11 +77,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/auto-format.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/auto-format.sh"
           },
           {
             "type": "command",
-            "command": "bash .claude/hooks/render-on-status-edit.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/render-on-status-edit.sh"
           }
         ]
       }
@@ -92,11 +92,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/stop-check.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/stop-check.sh"
           },
           {
             "type": "command",
-            "command": "bash .claude/hooks/occupancy-meter.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/occupancy-meter.sh"
           }
         ]
       }
@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/continuation-checkpoint.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/continuation-checkpoint.sh"
           }
         ]
       }
