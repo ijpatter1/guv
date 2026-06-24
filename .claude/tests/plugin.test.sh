@@ -246,13 +246,19 @@ if [ -f "$READONLY_SH" ]; then
   echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
     && ok "guv:reviewer (namespaced plugin form) + write-pattern -> deny" \
     || no "guv:reviewer write-pattern must be denied (plugin agents resolve namespaced)"
-  # T8b — [20.1] over-block fix. The evaluator guard must NOT deny a benign
-  # read-only probe whose text merely CONTAINS a write-ish word (install /
-  # create / write / modify) or substring (tee). Those words are not commands
-  # here — they ride inside a quoted grep pattern, a path, or a commit-message
-  # search — so the probe is read-only and must pass. The guard anchors write
-  # detection to command position; a word in an argument is not a command.
-  # jq builds the hook JSON so the embedded quotes survive into a valid payload.
+  # T8b — [20.1] over-block fix (and its re-fix). The evaluator guard must NOT
+  # deny a benign read-only probe. Three over-block classes must pass: (1) a
+  # write-ish WORD (install/create/write/modify) or substring (tee) riding inside
+  # a quoted grep pattern / path / commit-message search — not a command, so
+  # read-only; (2) the benign redirects an evaluator actually uses — N>/dev/null,
+  # 2>&1, > /dev/null — which write nothing real and are SCRUBBED before matching;
+  # (3) a wrapper word inside an argument (grep "sudo rm") — peeling happens only
+  # at command position, so the quoted form stays read-only. Symmetrically, the
+  # deny cases prove the scrub did not under-block: a real-file redirect, and a
+  # write verb behind a command-position wrapper (sudo rm / find | xargs rm /
+  # FOO=1 rm) is still denied. The guard anchors detection to command position;
+  # a word in an argument is not a command. jq builds the hook JSON so the
+  # embedded quotes survive into a valid payload.
   evjson() { jq -cn --arg a "$1" --arg c "$2" '{agent_type:$a,tool_name:"Bash",tool_input:{command:$c}}'; }
   while IFS='|' read -r agent verdict cmd; do
     [ -z "$agent" ] && continue
@@ -273,10 +279,20 @@ evaluator|allow|git log --grep="createTable"
 evaluator|allow|grep -rn "writeFile" src/
 evaluator|allow|grep -r "guarantee none" notes.md
 guv:evaluator|allow|grep -rn "modifyConfig" .
+evaluator|allow|cat foo 2>/dev/null
+evaluator|allow|make test 2>&1
+evaluator|allow|ls > /dev/null
+guv:evaluator|allow|bash run.sh 2>&1 | grep -i fail
+evaluator|allow|grep "sudo rm" file
 evaluator|deny|ls; rm -rf build
 evaluator|deny|cat a | tee out.txt
 evaluator|deny|echo hi && mkdir d
 evaluator|deny|echo $(touch f)
+evaluator|deny|sudo rm -rf build
+evaluator|deny|find . | xargs rm
+evaluator|deny|FOO=1 rm x
+guv:evaluator|deny|cmd > output.txt
+evaluator|deny|cp src dst
 T8B
 else
   no "reviewer-readonly.sh missing: $READONLY_SH"

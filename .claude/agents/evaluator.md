@@ -9,7 +9,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: 'COMMAND=$(cat | jq -r ''.tool_input.command // empty''); if echo "$COMMAND" | grep -qE ''(>>?|sed[[:space:]]+-i|(^|[|&;(])[[:space:]]*(tee|mv|cp|rm|mkdir|touch|chmod|npm[[:space:]]+(i|install|ci)|pip[[:space:]]+install))''; then jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $COMMAND" ''{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}''; else exit 0; fi'
+          command: 'COMMAND=$(cat | jq -r ''.tool_input.command // empty''); SCRUBBED=$(printf ''%s'' "$COMMAND" | sed -E ''s#[0-9]*>>?[[:space:]]*/dev/null##g;s#[0-9]*>&[0-9-]+##g;s#(^|[|&;(])[[:space:]]*(sudo|time|nohup|env|xargs|nice|ionice)[[:space:]]+#\1 #g;s#(^|[|&;(])[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+#\1 #g''); if printf ''%s'' "$SCRUBBED" | grep -qE ''(>>?|sed[[:space:]]+-i|(^|[|&;(])[[:space:]]*(tee|mv|cp|rm|mkdir|touch|chmod|npm[[:space:]]+(i|install|ci)|pip[[:space:]]+install))''; then jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $COMMAND" ''{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}''; else exit 0; fi'
 ---
 
 # Evaluator — Independent QA Agent
