@@ -989,7 +989,8 @@ jq -e 'has("hooks")' "$D/.claude/settings.json" >/dev/null 2>&1 \
   && ok "[19.5] no plugin DB → synced settings.json KEEPS its hooks (project-mode authoritative; no breakage)" \
   || no "[19.5] without the plugin the synced hooks must be retained (a hookless plane is a NEW break)"
 
-# T12c — DB present but NO guv entry: hooks retained (only the guv plugin owns guv's hooks).
+# T12c — DB present but NO guv-family (guv@*) entry: hooks retained (an unrelated
+# plugin must not trigger the strip).
 H=$(make_guv); D="$WORK/dedup-otherplugin"
 DB_OTHER="$WORK/plugins-other.json"
 printf '%s\n' '{"version":2,"plugins":{"other@mkt":[{"scope":"user"}]}}' > "$DB_OTHER"
@@ -997,6 +998,19 @@ printf '%s\n' '{"version":2,"plugins":{"other@mkt":[{"scope":"user"}]}}' > "$DB_
 jq -e 'has("hooks")' "$D/.claude/settings.json" >/dev/null 2>&1 \
   && ok "[19.5] a non-guv plugin DB → hooks retained (an unrelated plugin must not trigger the strip)" \
   || no "[19.5] only a guv-family plugin entry makes the plugin authoritative for guv's hooks"
+
+# T12c2 — the guv plugin from ANY marketplace (guv@<other>) is still authoritative.
+# Detection keys on the "guv@" plugin NAME, not a literal guv@guv, by design: a guv
+# fork served from a renamed marketplace must still dedup. This pins that intended
+# breadth — without it, tightening the predicate to `== "guv@guv"` would silently
+# reintroduce the double-fire for a forked-marketplace install and no test would fail.
+H=$(make_guv); D="$WORK/dedup-guvfork"
+DB_FORK="$WORK/plugins-guvfork.json"
+printf '%s\n' '{"version":2,"plugins":{"guv@someotherfork":[{"scope":"user"}]}}' > "$DB_FORK"
+( GUV_PLUGINS_DB="$DB_FORK" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+jq -e 'has("hooks") | not' "$D/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "[19.5] a guv plugin from a DIFFERENT marketplace (guv@someotherfork) still strips — detection is marketplace-agnostic by design (fork robustness)" \
+  || no "[19.5] the dedup must key on the guv plugin NAME (guv@*), not a literal guv@guv — a forked-marketplace install would double-fire otherwise"
 
 # T12d — unparseable DB: safe degradation KEEPS hooks (never strip on a detection failure).
 H=$(make_guv); D="$WORK/dedup-garbage"
