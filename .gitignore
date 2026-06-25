@@ -40,6 +40,11 @@ sandbox/tmp/
 # a machine-local did-fire flag so the one-time grandfather nudge fires once, not
 # every session; runtime artifact, not tracked)
 .claude/.context-wall-migration-nudged
+# guv context-wall approach-warning marker ([16.4]; occupancy-meter.sh — a
+# machine-local, SESSION-scoped did-fire flag (it stores the session_id) so the
+# hard-stop warn-band fires its one-shot approach warning once per session; runtime
+# artifact, not tracked)
+.claude/.context-wall-approach-warned
 # guv metering runtime artifact (handoff Step 3 writes the measured suite
 # runtime here; meter.sh reads it — transient, rewritten each session, not
 # tracked). The committed append-only metering logs (metering.ndjson /

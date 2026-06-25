@@ -51,9 +51,12 @@
 #
 # OUTPUT ──────────────────────────────────────────────────────────────────────────
 # Crossing: exit 0 with a Stop block (decision:"block") naming the handoff and the
-# occupancy, plus a systemMessage for the human. Below / no signal / re-entrant:
-# silent exit 0. Stderr-clean for the well-formed JSON the runtime delivers (the
-# test battery fails any suite that writes to stderr).
+# occupancy, plus a systemMessage for the human. Hard-stop warn-band (≥80% of the
+# setpoint, below it): exit 0 with a non-blocking advisory (decision:"approve" — the
+# codebase's Stop-advisory convention, cf. stop-check.sh) that pre-signals the
+# approaching wall, fired once per session ([16.4], the ambush guard). Below / no
+# signal / re-entrant: silent exit 0. Stderr-clean for the well-formed JSON the
+# runtime delivers (the test battery fails any suite that writes to stderr).
 #
 # Ships in both install modes: this script is glob-derived into plugin/scripts/ by
 # build-plugin.sh, and settings.json (project mode) / the plugin hooks.json (plugin
@@ -74,6 +77,16 @@ WIDE_WINDOW=1000000        # 1M-context models (the [1m] marker)
 # A literal so the schema/hook drift guard can read it; mirrored in
 # project.schema.json's occupancy.threshold.default — keep them equal (suite asserts).
 DEFAULT_THRESHOLD=150000
+
+# Warn-band fraction ([16.4], spike Q4). In hard-stop mode the meter owns the wall, so
+# it must PRE-SIGNAL before the silent hard-stop — a one-shot approach warning fired
+# once per session when occupancy enters [WARN_NUM/WARN_DEN · threshold, threshold).
+# 4/5 = 80% of the setpoint: late enough to mean "wrap up now", early enough to leave
+# room to /handoff before the wall. This band exists ONLY in hard-stop mode; continue
+# and unset stand the meter down entirely, and a block-less (grandfathered) project
+# keeps today's silent-then-stop behavior with no warn-band at all.
+WARN_NUM=4
+WARN_DEN=5
 
 INPUT=$(cat)
 
@@ -139,6 +152,71 @@ if [ -f "$MANIFEST" ]; then
     ''|*[!0-9]*) : ;;            # absent or non-integer → keep the shipped default
     *) THRESHOLD="$T" ;;
   esac
+fi
+
+# ── Which governor owns the wall? The chosen context-wall MODE decides ([16.4]) ──
+# [16.2] records the operator's posture in the manifest's contextManagement block;
+# [16.3]'s carrier arms/disarms the auto-compaction window to match. This is the
+# meter's half of "exactly one authoritative threshold" (spike Q3): it reconciles
+# itself against the SAME mode so the two governors never both fire.
+#   continue → auto-compaction owns the wall. The meter STANDS DOWN (advisory only) —
+#              a hard-stop here would race the compaction window and silently
+#              dead-letter the meter (the dead-letter bug this guards).
+#   unset    → arm NEITHER governor (headless loud-unset is the honest surface). A
+#              hard-stop on the default would be the very ambush the unset marks.
+#   hard-stop→ the meter OWNS the wall and is armed — but it must PRE-SIGNAL at the
+#              warn-band first (the one-shot approach warning, spike Q4) so the stop
+#              is never an ambush.
+#   absent   → no block (a pre-feature / grandfathered project): keep today's exact
+#              behavior — silent below the setpoint, hard-stop at it, NO warn-band.
+#              Format-survival: the new band is a hard-stop-MODE feature, never
+#              retrofitted onto a project that never opted in.
+# Read the mode through the SAME block-presence discriminator context-management.sh
+# surface uses (watch-item c), so the meter's arm/stand-down decision matches the
+# surface's legibility promise exactly. A PRESENT block (even empty / blank / unknown
+# mode) is a scaffolded project that chose no posture → treat as "unset" (stand down),
+# which is precisely what surface shouts UNSET for; only a truly ABSENT block predates
+# the feature → "absent" (grandfather, armed). If the meter armed on a present-but-empty
+# block while surface says "nothing armed", that surface would be a lie — the false
+# legibility 003 exists to kill.
+MODE="absent"
+if [ -f "$MANIFEST" ]; then
+  HAS=$(jq -r 'if has("contextManagement") then "yes" else "no" end' "$MANIFEST" 2>/dev/null)
+  if [ "$HAS" = "yes" ]; then
+    M=$(jq -r '.contextManagement.mode // "unset"' "$MANIFEST" 2>/dev/null)
+    case "$M" in hard-stop|continue) MODE="$M" ;; *) MODE="unset" ;; esac
+  fi
+fi
+case "$MODE" in
+  continue|unset) exit 0 ;;   # stand down — the other governor (or none) owns the wall
+esac
+
+# hard-stop mode: the warn-band pre-signal. A one-shot, NON-blocking advisory when
+# occupancy enters [WARN, threshold) — fired once per SESSION (a warning, not a live
+# gauge — the supervision-era regression rejected by name). The did-fire marker is
+# session-scoped: a new session re-warns; an absent session_id degrades to once-ever
+# (never re-warn on an unknowable session) rather than warning every Stop.
+if [ "$MODE" = "hard-stop" ]; then
+  WARN=$((THRESHOLD * WARN_NUM / WARN_DEN))
+  if [ "$OCC" -ge "$WARN" ] && [ "$OCC" -lt "$THRESHOLD" ]; then
+    SID=$(echo "$INPUT" | jq -r '.session_id // empty')
+    MARKER="$CWD/.claude/.context-wall-approach-warned"
+    WARNED=no
+    if [ -f "$MARKER" ]; then
+      PREV=$(cat "$MARKER" 2>/dev/null || printf '')
+      # Same session already warned, OR no session id to distinguish (degrade to
+      # once-ever): stay silent. A different session id falls through and re-warns.
+      { [ -z "$SID" ] || [ "$PREV" = "$SID" ]; } && WARNED=yes
+    fi
+    if [ "$WARNED" = "no" ]; then
+      printf '%s' "$SID" > "$MARKER" 2>/dev/null || true
+      WARN_PCT=$((WARN_NUM * 100 / WARN_DEN))
+      jq -nc \
+        --arg sm "Approaching the context wall — occupancy ${OCC} crossed the warn-band (${WARN}, ${WARN_PCT}% of the ${THRESHOLD} setpoint). Wrap up or run /handoff now; the session will hard-stop at the setpoint." \
+        '{decision:"approve", reason:"Advisory — approaching the context wall, not blocking", systemMessage:$sm, hookSpecificOutput:{hookEventName:"Stop"}}'
+    fi
+    exit 0
+  fi
 fi
 
 # ── The decision: below threshold the meter is silent ──

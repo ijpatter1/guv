@@ -82,6 +82,23 @@ PROJ_MANIFEST="${CLAUDE_PROJECT_DIR:-.}/.claude/project.json"
 { [ -f "$BASE/context-management.sh" ] && [ -f "$PROJ_MANIFEST" ]; } \
   && CTXWALL="$(bash "$BASE/context-management.sh" surface "$PROJ_MANIFEST" 2>/dev/null)"
 
+# Reconcile the two governors to the chosen mode ([16.4]): drive the [16.3] carrier
+# to WITHDRAW the auto-compaction window when the meter owns the wall (hard-stop), so
+# a stale window left from a previous continue choice can't pre-empt the meter — the
+# auto-compaction half of the meter's own mode-gated stand-down. Side-effecting (it
+# writes settings.local.json) so it is NOT folded into the surfaced context; it is a
+# best-effort no-op when the helper/manifest is absent and never blocks the session
+# start (rule 15). NO --model here by design: the no-model path only withdraws
+# (hard-stop) or no-ops (unset/absent/continue) — it never deploys a guessed value, so
+# a per-session reconcile can never clobber an operator's authored setpoint. Per the
+# [14.2] doctrine the continue window is OPERATOR-AUTHORED — so reconcile here never
+# ARMS it (it only preserves an authored one, R1c); an un-authored continue window
+# falls back to the model's native auto-compaction default, with the meter stood down.
+# GUIDING the operator to author a window when continue is chosen (vs auto-deploying the
+# blessed value on a [1m] run) is an OPEN design decision — see the session handoff.
+{ [ -f "$BASE/context-management.sh" ] && [ -f "$PROJ_MANIFEST" ]; } \
+  && bash "$BASE/context-management.sh" reconcile "$PROJ_MANIFEST" >/dev/null 2>&1 || true
+
 # Nothing to surface (pre-scaffold, non-git, helpers absent, within budget, clean log, configured posture) — inject nothing.
 [ -z "$ROUTE$FRONTIER$GATE_ENTRY$FEEDBACK$CTXWALL" ] && exit 0
 

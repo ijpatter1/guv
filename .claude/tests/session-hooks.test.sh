@@ -273,6 +273,47 @@ echo "$CTXG2" | grep -q 'serial=' \
   || no "context-wall grandfather: frontier must still surface on run 2, got: $CTXG2"
 [ "$RC" -eq 0 ] && ok "context-wall grandfather: exit 0 on both runs" || no "context-wall grandfather must exit 0 (rc=$RC)"
 
+# ── 1i. session-start RECONCILES the governors to the chosen mode ([16.4]) ─────
+# The surface SHOWS the posture; reconcile ACTS on it. In hard-stop mode the meter
+# owns the wall, so a STALE auto-compaction window left from a prior continue choice
+# must be WITHDRAWN on session open or it would pre-empt the meter (two governors
+# both armed — the very thing "exactly one authoritative threshold" forbids). This
+# proves the hook actually drives the [16.3] carrier end-to-end — not merely that
+# reconcile works in isolation (context-management's R-suite covers that). The
+# carrier + setpoint siblings must be reachable from the fixture for reconcile to
+# act, so symlink them in (the default fixtures omit them, which is why reconcile is
+# a clean no-op there — itself the never-blocks guarantee).
+RW=$(mkproj cw-reconcile-wire)          # default fixture carries mode=hard-stop
+ln -s "$CLAUDE_DIR/auto-compact-carrier.sh" "$RW/.claude/auto-compact-carrier.sh"
+ln -s "$CLAUDE_DIR/compaction-setpoint.sh"  "$RW/.claude/compaction-setpoint.sh"
+# Seed a STALE window in settings.local.json, exactly as a prior continue choice left it.
+printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"250000"},"permissions":{"allow":["Bash"]}}\n' \
+  > "$RW/.claude/settings.local.json"
+run "$RW"
+WIN_AFTER=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$RW/.claude/settings.local.json" 2>/dev/null)
+PERM_AFTER=$(jq -r '.permissions.allow[0] // empty' "$RW/.claude/settings.local.json" 2>/dev/null)
+[ "$RC" -eq 0 ] && [ -z "$WIN_AFTER" ] \
+  && ok "session-start reconciles: hard-stop mode WITHDRAWS a stale auto-compaction window on session open (the meter owns the wall)" \
+  || no "session-start must drive the carrier to withdraw the stale window in hard-stop mode (rc=$RC win_after=$WIN_AFTER)"
+[ "$PERM_AFTER" = "Bash" ] \
+  && ok "session-start reconcile: withdraws ONLY the window — other settings (permissions) survive" \
+  || no "reconcile must strip only the window key, not other settings (perm_after=$PERM_AFTER)"
+
+# 1i-b — reconcile NEVER blocks the session: even when the carrier sibling is ABSENT
+# (the default fixtures, a partial install), session-start exits 0 with the frontier
+# still surfaced. The reconcile wiring is a convenience, never a dependency (rule 15).
+NOC=$(mkproj cw-reconcile-nocarrier); tracker "$NOC" open   # no carrier symlinked
+printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"250000"}}\n' > "$NOC/.claude/settings.local.json"
+run "$NOC"
+WIN_NOC=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$NOC/.claude/settings.local.json" 2>/dev/null)
+CTXNOC=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+{ [ "$RC" -eq 0 ] && [ -z "$ERR" ]; } \
+  && ok "session-start reconcile: absent carrier → clean exit 0, stderr clean (never blocks)" \
+  || no "absent carrier must degrade to a clean exit 0 (rc=$RC err=$ERR)"
+{ [ "$WIN_NOC" = "250000" ] && echo "$CTXNOC" | grep -q 'serial='; } \
+  && ok "session-start reconcile: absent carrier touches nothing (window untouched) and the frontier still surfaces" \
+  || no "absent carrier must no-op without touching settings or suppressing the frontier (win=$WIN_NOC)"
+
 # ── 2. MUST NOT BLOCK: a MALFORMED tracker still exits 0 (never exit 2) ───────
 M=$(mkproj phased-malformed); tracker "$M" malformed
 run "$M"

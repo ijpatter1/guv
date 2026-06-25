@@ -119,7 +119,12 @@ case "$MODE" in
     ;;
   hard-stop)
     # The window must be ABSENT. Strip ONLY this key from an existing file; never
-    # create a file just to express absence (absence is the default state).
+    # create a file just to express absence (absence is the default state). This is the
+    # one path that removes a window a HUMAN may have hand-deployed — and that is correct,
+    # not a clobber: choosing hard-stop IS the instruction to withdraw the window (the
+    # occupancy meter owns the wall in this mode, so any lingering compaction window would
+    # pre-empt it). Withdrawing it executes the operator's chosen mode; it does not
+    # override the operator. (Only THIS key is touched — the rest of settings is intact.)
     [ -f "$SETTINGS" ] || exit 0
     require_mergeable_settings
     if [ -n "$(jq -r ".env.$VAR // empty" "$SETTINGS" 2>/dev/null)" ]; then

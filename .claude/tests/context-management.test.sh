@@ -299,6 +299,135 @@ else
     || no "/status must invoke surface — the door copy promises it surfaces 'in the status report'"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# reconcile — the meter ↔ auto-compaction arm/disarm ([16.4]). The mode chosen in
+# the manifest selects EXACTLY ONE authoritative governor (spike Q3); reconcile
+# drives the [16.3] carrier to match. The [14.2] doctrine is load-bearing: the
+# window value is HUMAN-authored within a band — reconcile may PLACE the blessed
+# validated_reference (the one value compaction-setpoint.sh blesses, [1m] only) but
+# NEVER fabricates a window, and a human-authored window always wins. hard-stop
+# WITHDRAWS the window (value-free); unset/absent are no-ops (a hand-deployed
+# setpoint like guv-guv's own live 250000 must survive — format-survival).
+# ─────────────────────────────────────────────────────────────────────────────
+VAR='CLAUDE_CODE_AUTO_COMPACT_WINDOW'
+CARRIER="$ROOT/.claude/auto-compact-carrier.sh"
+SETPOINT="$ROOT/.claude/compaction-setpoint.sh"
+win_of() { jq -r --arg k "$VAR" '.env[$k] // empty' "$1" 2>/dev/null; }
+# Seed a settings.local.json beside a manifest: a window value (or "" for none) plus
+# an optional extra jq filter to add other settings (env vars, permissions). Echoes path.
+seed_settings() { # <manifest> <window|""> [extra-jq-filter]
+  local s; s="$(dirname "$1")/settings.local.json"; local filt="${3:-.}"
+  if [ -n "$2" ]; then
+    jq -nc --arg k "$VAR" --arg w "$2" "{env:{(\$k):\$w}} | $filt" > "$s"
+  else
+    jq -nc "{} | $filt" > "$s"
+  fi
+  echo "$s"
+}
+
+if [ ! -f "$CARRIER" ] || [ ! -f "$SETPOINT" ]; then
+  # Both ship as .claude/*.sh and run from roots.code in the battery; an absent pair
+  # means we're outside the code repo (e.g. a partial sync) — skip honestly, never
+  # claim a false pass. The canonical battery runs where both are present.
+  echo "  ~ skipped reconcile tests (auto-compact-carrier/compaction-setpoint absent — not the code repo)"
+else
+  M1M='claude-opus-4-8[1m]'
+  REF=$(bash "$SETPOINT" recommend --model "$M1M" 2>/dev/null | sed -n 's/^validated_reference=//p')
+
+  # R1 — continue + a [1m] model: deploy the BLESSED validated_reference. The only path
+  # that writes a window, and only the setpoint-blessed value — never a guessed one.
+  MAN=$(mkproj r1 continue); S="$(dirname "$MAN")/settings.local.json"
+  bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
+  GOT=$(win_of "$S")
+  { [ -n "$REF" ] && [ "$GOT" = "$REF" ]; } \
+    && ok "reconcile continue + [1m]: deploys the blessed validated_reference ($REF)" \
+    || no "reconcile continue + [1m] must deploy the blessed validated_reference (ref=$REF got=$GOT)"
+
+  # R1b — continue, NO model: the window stays UNSET. The doctrine forbids fabricating a
+  # value; a standard model's recommend is 'optional' (leave unset). No blessed value →
+  # nothing placed. (This is the dead-letter-AVOIDANCE counterpart: continue never
+  # leaves the meter armed, but it also never invents the compaction window.)
+  MAN=$(mkproj r1b continue); S=$(seed_settings "$MAN" "")
+  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
+  [ -z "$(win_of "$S")" ] \
+    && ok "reconcile continue, no model: leaves the window UNSET (never fabricates a value)" \
+    || no "reconcile continue with no model must not invent a window (got=$(win_of "$S"))"
+
+  # R1c — continue + an OPERATOR-AUTHORED window: preserved, even with a [1m] model. The
+  # human's setpoint wins; reconcile never clobbers a hand-placed window with the blessed one.
+  MAN=$(mkproj r1c continue); S=$(seed_settings "$MAN" "222222")
+  bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
+  [ "$(win_of "$S")" = "222222" ] \
+    && ok "reconcile continue preserves an operator-authored window (the human's setpoint wins)" \
+    || no "reconcile must preserve an authored window, not overwrite with the blessed value (got=$(win_of "$S"))"
+
+  # R2 — hard-stop: WITHDRAW the window, preserving every OTHER setting (other env vars,
+  # permissions). The meter owns the wall; a lingering window would pre-empt it.
+  MAN=$(mkproj r2 hard-stop)
+  S=$(seed_settings "$MAN" "250000" '.env.OTHER="keep" | .permissions={allow:["Bash"]}')
+  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
+  { [ -z "$(win_of "$S")" ] \
+      && [ "$(jq -r '.env.OTHER // empty' "$S")" = "keep" ] \
+      && [ "$(jq -r '.permissions.allow[0] // empty' "$S")" = "Bash" ]; } \
+    && ok "reconcile hard-stop: withdraws the window, preserves other env + permissions" \
+    || no "reconcile hard-stop must strip ONLY the window key (win=$(win_of "$S") other=$(jq -r '.env.OTHER // empty' "$S"))"
+
+  # R3 — unset: a NO-OP. A hand-deployed window survives untouched (the carrier never
+  # strips what it never placed — guv-guv's own live 250000 is exactly this case).
+  MAN=$(mkproj r3 unset); S=$(seed_settings "$MAN" "250000")
+  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
+  [ "$(win_of "$S")" = "250000" ] \
+    && ok "reconcile unset: no-op — a hand-deployed window survives (250000)" \
+    || no "reconcile unset must not touch a hand-deployed window (got=$(win_of "$S"))"
+
+  # R4 — absent block: a NO-OP too (format-survival). A pre-feature project keeps its
+  # hand-deployed setpoint; reconcile never strips a window on a project that never opted in.
+  MAN=$(mkproj r4); S=$(seed_settings "$MAN" "250000")   # no contextManagement block
+  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
+  [ "$(win_of "$S")" = "250000" ] \
+    && ok "reconcile absent block: no-op — format-survival preserves a hand-deployed window" \
+    || no "reconcile on a block-less project must not strip the window (got=$(win_of "$S"))"
+
+  # R5 — the round-trip: continue(--model [1m]) ARMS the window, then the operator flips
+  # to hard-stop and reconcile WITHDRAWS it. Arm → disarm; exactly one governor at a time.
+  MAN=$(mkproj r5 continue); S="$(dirname "$MAN")/settings.local.json"
+  bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
+  AFTER_ARM=$(win_of "$S")
+  bash "$CM" set-mode "$MAN" hard-stop >/dev/null 2>&1
+  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
+  AFTER_DISARM=$(win_of "$S")
+  { [ "$AFTER_ARM" = "$REF" ] && [ -z "$AFTER_DISARM" ]; } \
+    && ok "reconcile round-trip: continue arms the window, hard-stop withdraws it (one governor at a time)" \
+    || no "reconcile round-trip must arm then disarm (armed=$AFTER_ARM disarmed=$AFTER_DISARM)"
+
+  # R6 — a missing manifest: clean no-op, exit 0 (Rule 15 — a reconcile helper never
+  # blocks; absent in → nothing done, no crash).
+  bash "$CM" reconcile "$WORK/nope/.claude/project.json" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] \
+    && ok "reconcile degrades cleanly on a missing manifest (exit 0, no-op)" \
+    || no "reconcile must exit 0 on a missing manifest (rc=$RC)"
+
+  # R7 — hard-stop over a MALFORMED settings.local.json (a non-object .env): the carrier's
+  # require_mergeable_settings raises a Rule-15 `die 4` refusal — a DESIGNED loud stop that
+  # protects the unmergeable file. reconcile must honor all three properties at once:
+  #   (a) NEVER block the session — it exits 0 (the `|| exit 0` governs reconcile's exit
+  #       code, never propagating the carrier's failure as a session block);
+  #   (b) NEVER clobber the file — the carrier refused before any write, so it survives
+  #       byte-identical;
+  #   (c) NOT swallow the loud stop — reconcile drops the carrier's `2>&1`, so the refusal
+  #       reaches a direct caller's stderr instead of vanishing.
+  # This is the Important-finding regression: the earlier `2>&1` silently ate the carrier's
+  # designed loud refusal. (`2>&1 >/dev/null` captures stderr, discards stdout — so the
+  # carrier's message lands in $ERR and the suite itself stays stderr-clean.)
+  MAN=$(mkproj r7 hard-stop); S=$(seed_settings "$MAN" "" '.env="not-an-object"')
+  BEFORE=$(cat "$S")
+  ERR=$(bash "$CM" reconcile "$MAN" 2>&1 >/dev/null); RC=$?
+  AFTER=$(cat "$S")
+  { [ "$RC" -eq 0 ] && [ "$BEFORE" = "$AFTER" ] && printf '%s' "$ERR" | grep -qi 'refus'; } \
+    && ok "reconcile hard-stop over malformed settings: never blocks (exit 0), never clobbers, surfaces the carrier's loud refusal (not swallowed)" \
+    || no "reconcile must pass the carrier's loud refusal through without blocking or clobbering (rc=$RC clobbered=$([ "$BEFORE" = "$AFTER" ] && echo no || echo yes) err=$ERR)"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

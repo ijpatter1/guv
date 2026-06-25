@@ -67,11 +67,29 @@ mk_project() {
 # so the artifact path is deterministic. Echoes hook stdout.
 #   feed <project_dir> [stop_hook_active]
 feed() {
-  local d="$1" active="${2:-false}"
+  local d="$1" active="${2:-false}" sid="${3:-}"
   local input
-  input=$(jq -nc --arg c "$d" --arg t "$d/transcript.jsonl" --argjson a "$active" \
-    '{hook_event_name:"Stop",cwd:$c,transcript_path:$t,stop_hook_active:$a}')
+  input=$(jq -nc --arg c "$d" --arg t "$d/transcript.jsonl" --argjson a "$active" --arg s "$sid" \
+    '{hook_event_name:"Stop",cwd:$c,transcript_path:$t,stop_hook_active:$a}
+     + (if $s == "" then {} else {session_id:$s} end)')
   printf '%s' "$input" | OCCUPANCY_DATE=2026-06-13 bash "$HOOK" 2>/dev/null
+}
+
+# Add a contextManagement.mode to an existing project's manifest ([16.4]).
+set_mode() {
+  local man="$1/.claude/project.json" t
+  t=$(mktemp); jq --arg m "$2" '.contextManagement.mode = $m' "$man" > "$t" && mv "$t" "$man"
+}
+
+# Rewrite a project's transcript so the latest assistant turn reports <occ> tokens
+# ([16.4] — to move occupancy across a band within ONE project: warn-band → wall).
+set_occ() {
+  local d="$1" occ="$2"
+  local half=$((occ / 2)) rest=$((occ - occ / 2))
+  {
+    jq -nc '{type:"user",message:{content:"hi"}}'
+    jq -nc --argjson a "$half" --argjson b "$rest" '{type:"assistant",timestamp:"2026-06-13T00:02:00Z",message:{usage:{input_tokens:$a,output_tokens:7,cache_read_input_tokens:$b,cache_creation_input_tokens:0}}}'
+  } > "$d/transcript.jsonl"
 }
 
 # The single handoff artifact written into a project's docs/sessions (if any).
@@ -243,6 +261,109 @@ for keep in bash-guard single-writer auto-format stop-check; do
     && ok "preserved existing hook: $keep" \
     || no "the existing $keep hook must remain registered in settings.json"
 done
+
+# ── MODE-AWARE RECONCILIATION ([16.4]) — which governor owns the wall ──
+# The chosen context-wall mode (the [16.2] contextManagement block) decides whether
+# the occupancy hard-stop is authoritative. Read LIVE on each Stop. These encode the
+# two regression guards the deliverable names: the silent-DEAD-LETTER bug (continue
+# mode must not let the meter hard-stop, racing the auto-compaction window) and the
+# AMBUSH bug (hard-stop mode must pre-signal at the warn-band, not silently then stop).
+
+# M1 — continue mode: the meter STANDS DOWN above threshold (the dead-letter guard).
+# Auto-compaction owns the wall; the meter must NOT hard-stop, or the two race and the
+# meter is silently dead-lettered. Occupancy 150000 >> 120000, yet no block, no artifact.
+P=$(mk_project 150000 120000); set_mode "$P" continue
+OUT=$(feed "$P"); RC=$?; ART=$(artifact "$P")
+[ $RC -eq 0 ] && [ -z "$OUT" ] && [ -z "$ART" ] \
+  && ok "continue mode: the meter stands down above the setpoint (no hard-stop, no artifact) — the silent-dead-letter bug guarded" \
+  || no "continue mode must demote the meter to advisory: no hard-stop above threshold (rc=$RC out='$OUT' art='$ART')"
+
+# M2 — hard-stop mode: the meter is ARMED — crossing the setpoint still hard-stops.
+P=$(mk_project 150000 120000); set_mode "$P" hard-stop
+OUT=$(feed "$P"); ART=$(artifact "$P")
+DEC=$(echo "$OUT" | jq -r '.decision // empty' 2>/dev/null)
+[ "$DEC" = "block" ] && [ -n "$ART" ] \
+  && ok "hard-stop mode: the meter is armed — crossing the setpoint hard-stops to /handoff (one authoritative threshold)" \
+  || no "hard-stop mode must keep the meter armed (dec=$DEC art=$ART)"
+
+# M3 — absent block (grandfather): in the warn-band but below the setpoint → SILENT.
+# Format-survival: a pre-feature project's behavior is unchanged — no warn-band (that
+# is a hard-stop-MODE feature), hard-stop only at the setpoint. 100000 ≥ 80%·120000.
+P=$(mk_project 100000 120000)
+OUT=$(feed "$P" false "sess-grand"); ART=$(artifact "$P")
+[ -z "$OUT" ] && [ -z "$ART" ] \
+  && ok "absent block (grandfather): no warn-band, silent below the setpoint — format-survival, today's behavior unchanged" \
+  || no "an absent contextManagement block must not introduce a warn-band (out='$OUT')"
+
+# M4 — unset mode (headless loud-unset): arm NEITHER governor. Above threshold the
+# meter stands down — a hard-stop here would be the very ambush the mode choice prevents.
+P=$(mk_project 150000 120000); set_mode "$P" unset
+OUT=$(feed "$P"); ART=$(artifact "$P")
+[ -z "$OUT" ] && [ -z "$ART" ] \
+  && ok "unset mode: arm neither — the meter stands down (the UNSET marker is the honest surface, not a surprise hard-stop)" \
+  || no "unset mode must arm neither governor (out='$OUT' art='$ART')"
+
+# M5 — hard-stop warn-band: a one-shot approach warning FIRES (the ambush guard, Q4).
+# Occupancy 100000 is in [96000,120000): a loud, non-blocking advisory that names the
+# wall and /handoff — decision approve (NOT block), no artifact written yet.
+P=$(mk_project 100000 120000); set_mode "$P" hard-stop
+OUT=$(feed "$P" false "sess-A"); ART=$(artifact "$P")
+DEC=$(echo "$OUT" | jq -r '.decision // empty' 2>/dev/null)
+SM=$(echo "$OUT" | jq -r '.systemMessage // empty' 2>/dev/null)
+# Advisory, NOT a block: a warn-band that blocked would be the ambush in reverse (a
+# premature hard-stop at 80%). The signal is decision:"approve" — the codebase's
+# non-blocking Stop-advisory convention (stop-check.sh), not a bare omitted decision.
+[ "$DEC" = "approve" ] && [ -n "$SM" ] && [ -z "$ART" ] && echo "$SM" | grep -qi 'wall' && echo "$SM" | grep -qi 'handoff' \
+  && ok "hard-stop warn-band: a one-shot approach warning fires (decision:approve, names the wall + /handoff, no block) — the ambush bug guarded" \
+  || no "the warn-band must fire an advisory (decision:approve) approach warning, not a hard-stop (dec=$DEC art=$ART sm=$SM)"
+
+# M6 — the warn-band fires ONCE per session, then SILENT (a warning, not a live gauge —
+# the supervision-era regression rejected by name). Same session_id twice: 1st warns, 2nd silent.
+P=$(mk_project 100000 120000); set_mode "$P" hard-stop
+OUT1=$(feed "$P" false "sess-B"); OUT2=$(feed "$P" false "sess-B")
+[ -n "$OUT1" ] && [ -z "$OUT2" ] \
+  && ok "the warn-band warning fires ONCE per session then falls silent (a warning, not a per-turn gauge)" \
+  || no "the warn-band must fire once per session, not every Stop (out1='$OUT1' out2='$OUT2')"
+
+# M7 — a NEW session re-warns: the marker is session-scoped, so each fresh approach to
+# the wall gets its honest pre-signal (a different session_id warns again).
+OUT3=$(feed "$P" false "sess-C")
+[ -n "$OUT3" ] \
+  && ok "a new session re-warns at the warn-band (the did-fire marker is session-scoped, not once-ever)" \
+  || no "a new session must get its own approach warning (out3='$OUT3')"
+
+# M8 — below the warn-band, hard-stop mode is SILENT (no regression to a live gauge).
+# 90000 < 96000 (80% of 120000).
+P=$(mk_project 90000 120000); set_mode "$P" hard-stop
+OUT=$(feed "$P" false "sess-D"); ART=$(artifact "$P")
+[ -z "$OUT" ] && [ -z "$ART" ] \
+  && ok "below the warn-band: hard-stop mode is silent (no live below-threshold readout)" \
+  || no "below the warn-band the meter must stay silent (out='$OUT')"
+
+# M9 — the full ladder: warn-band (warn) → silence → setpoint (hard-stop). The approach
+# warning must NOT suppress the eventual hard-stop. Warn once, then occupancy rises past
+# the setpoint in the SAME session → the hard-stop still fires.
+P=$(mk_project 100000 120000); set_mode "$P" hard-stop
+_=$(feed "$P" false "sess-E")          # warns at the warn-band
+set_occ "$P" 150000                     # occupancy now crosses the setpoint
+OUT=$(feed "$P" false "sess-E"); ART=$(artifact "$P")
+DEC=$(echo "$OUT" | jq -r '.decision // empty' 2>/dev/null)
+[ "$DEC" = "block" ] && [ -n "$ART" ] \
+  && ok "the warn-band warning does not suppress the wall: crossing the setpoint still hard-stops (warn → silence → hard-stop)" \
+  || no "after the warn-band warning the setpoint crossing must still hard-stop (dec=$DEC art=$ART)"
+
+# M10 — a PRESENT-but-empty contextManagement block ({}) stands the meter DOWN, just
+# as continue/unset do — NOT armed like an absent block. This pins surface-consistency:
+# context-management.sh surface shouts "UNSET — neither governor armed" for a present-
+# but-empty block; if the meter then hard-stopped, that surface would be a lie. Block
+# PRESENCE (not mode value) is the discriminator: present-empty = scaffolded-no-posture
+# = stand down; only a truly absent block grandfathers to the armed default.
+P=$(mk_project 150000 120000)
+MAN="$P/.claude/project.json"; T=$(mktemp); jq '.contextManagement = {}' "$MAN" > "$T" && mv "$T" "$MAN"
+OUT=$(feed "$P"); ART=$(artifact "$P")
+[ -z "$OUT" ] && [ -z "$ART" ] \
+  && ok "present-but-empty contextManagement block: meter stands down (matches surface's UNSET — no armed-default ambush)" \
+  || no "a present-but-empty block must stand the meter down, not arm it like an absent block (out='$OUT' art='$ART')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
