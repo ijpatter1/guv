@@ -260,13 +260,25 @@ elif has pyproject.toml || has requirements.txt; then
   LANGUAGE="python"
   if has uv.lock;     then PACKAGE_MANAGER="uv";     CMD_INSTALL="uv sync"
   elif has poetry.lock; then PACKAGE_MANAGER="poetry"; CMD_INSTALL="poetry install"
-  else PACKAGE_MANAGER="pip"; CMD_INSTALL="pip install -r requirements.txt"; fi
+  else
+    PACKAGE_MANAGER="pip"
+    # Detect pyproject-vs-requirements rather than assuming requirements.txt: a bare
+    # pip repo with only a pyproject installs from it (`-e .`), not from a file it lacks.
+    if has requirements.txt; then CMD_INSTALL="pip install -r requirements.txt"
+    else                          CMD_INSTALL="pip install -e ."; fi
+  fi
   has pyproject.toml && SCAFFOLD_CHECK="test -f pyproject.toml" || SCAFFOLD_CHECK="test -f requirements.txt"
   READY_CHECK="test -d .venv"   # tools typically live in a project venv; adjust if global
   CMD_TEST="pytest"
   CMD_BUILD="null"          # interpreted — no build step
-  CMD_LINT="ruff check ."
-  CMD_FORMAT="ruff format"  # auto-format hook appends the file path
+  # Propose ruff only when it is actually configured — report what the scan finds, not a
+  # guess. Absent ruff config, leave lint/format unset (their "null" default) rather than
+  # naming a linter the repo doesn't use.
+  if has ruff.toml || has .ruff.toml \
+     || { has pyproject.toml && grep -qE '^\[tool\.ruff(\.|\])' "$TARGET/pyproject.toml" 2>/dev/null; }; then  # bare [tool.ruff] or any [tool.ruff.*] subtable
+    CMD_LINT="ruff check ."
+    CMD_FORMAT="ruff format"  # auto-format hook appends the file path
+  fi
   FMT_EXT=(py pyi md json yml yaml toml)
   # publish guard if it declares a distributable project
   if has pyproject.toml && grep -qE '^\[project\]|^\[tool\.poetry\]' "$TARGET/pyproject.toml" 2>/dev/null; then GUARDS+=("pypi-publish"); fi

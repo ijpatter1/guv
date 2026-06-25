@@ -60,6 +60,41 @@ J=$(propose "$PY")
 [ "$(field "$J" .commands.build)" = null ]           && ok "python: build null (interpreted)" || no "python: build"
 echo "$J" | jq -e '.guards | index("pypi-publish")' >/dev/null && ok "python: pypi-publish guard" || no "python: guard"
 
+# ── python: detect, don't guess ([20.6], feedback 1931615329) ───────────────
+# Cold-read S2 caught the resolver proposing facts that contradict the repo it just
+# scanned: `pip install -r requirements.txt` for a repo with no requirements.txt, and
+# `ruff` lint/format for a repo with no ruff. The detector must report what it finds.
+
+# (A — the defect) bare pip from pyproject: no lockfile, no requirements.txt, no ruff.
+PP="$WORK/pp"; mkdir -p "$PP"
+printf '[project]\nname="numcol"\n' > "$PP/pyproject.toml"
+J=$(propose "$PP")
+[ "$(field "$J" .packageManager)" = pip ]                        && ok "py/pip: pm pip" || no "py/pip: pm ($(field "$J" .packageManager))"
+[ "$(field "$J" .commands.install)" = "pip install -e ." ]       && ok "py/pip: install from pyproject (not requirements.txt)" || no "py/pip: install ($(field "$J" .commands.install))"
+[ "$(field "$J" .commands.lint)" = null ]                        && ok "py/pip: lint null (no ruff configured)" || no "py/pip: lint ($(field "$J" .commands.lint))"
+[ "$(field "$J" .commands.format)" = null ]                      && ok "py/pip: format null (no ruff configured)" || no "py/pip: format ($(field "$J" .commands.format))"
+
+# (B — the other side of pyproject-vs-requirements) requirements.txt present → install from it.
+RQ="$WORK/rq"; mkdir -p "$RQ"; : > "$RQ/requirements.txt"
+J=$(propose "$RQ")
+[ "$(field "$J" .commands.install)" = "pip install -r requirements.txt" ] && ok "py/req: install from requirements.txt" || no "py/req: install ($(field "$J" .commands.install))"
+
+# (C — the positive side of absence-of-ruff) ruff IS configured → ruff lint/format proposed.
+RF="$WORK/rf"; mkdir -p "$RF"
+printf '[project]\nname="lint"\n[tool.ruff]\nline-length=100\n' > "$RF/pyproject.toml"
+J=$(propose "$RF")
+[ "$(field "$J" .commands.lint)" = "ruff check ." ]              && ok "py/ruff: lint ruff (configured)" || no "py/ruff: lint ($(field "$J" .commands.lint))"
+[ "$(field "$J" .commands.format)" = "ruff format" ]            && ok "py/ruff: format ruff (configured)" || no "py/ruff: format ($(field "$J" .commands.format))"
+
+# (D — ruff configured via subtable only) the modern [tool.ruff.lint] layout has no bare
+# [tool.ruff] header; the detector must still find it (else it under-reports a linter that
+# IS present — the same guess in the other direction).
+SR="$WORK/sr"; mkdir -p "$SR"
+printf '[project]\nname="sub"\n[tool.ruff.lint]\nselect=["E"]\n' > "$SR/pyproject.toml"
+J=$(propose "$SR")
+[ "$(field "$J" .commands.lint)" = "ruff check ." ]              && ok "py/ruff-sub: lint ruff (subtable config)" || no "py/ruff-sub: lint ($(field "$J" .commands.lint))"
+[ "$(field "$J" .commands.format)" = "ruff format" ]            && ok "py/ruff-sub: format ruff (subtable config)" || no "py/ruff-sub: format ($(field "$J" .commands.format))"
+
 # ── rust (no readyCheck / no install expected) ─────────────────────────────
 RS="$WORK/rs"; mkdir -p "$RS"; printf '[package]\nname="c"\n' > "$RS/Cargo.toml"
 J=$(propose "$RS")
