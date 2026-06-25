@@ -91,7 +91,7 @@ that the migration nudge would grandfather.
   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json unset
   ```
 
-Arming the chosen governor is a later Phase-16 deliverable; this door only records the
+Reconciling the two governors to the chosen mode is a later Phase-16 deliverable; this door only records the
 choice.
 
 ## Step 3 — Hand off
