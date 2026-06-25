@@ -253,6 +253,17 @@ scaffold:$ROOT/maintainers/plugin-src/skills/scaffold/SKILL.md
 for entry in $DOORS; do
   name="${entry%%:*}"; file="${entry#*:}"
   if [ ! -f "$file" ]; then
+    # The scaffold door's source lives in maintainers/plugin-src/ — code-repo ONLY,
+    # never synced into a control plane or a consumer install. When that whole tree
+    # is absent we're running outside the code repo (e.g. the dogfooding plane's
+    # synced copy), so the door legitimately isn't here: skip honestly, don't fail.
+    # The canonical battery runs from roots.code where the tree IS present, so the
+    # real guard still runs there (and still FAILS if the tree exists but the door
+    # is gone — a genuine regression, not this not-the-code-repo case).
+    if [ "$name" = "scaffold" ] && [ ! -d "$ROOT/maintainers/plugin-src" ]; then
+      echo "  ~ skipped $name door guard (maintainers/plugin-src absent — not the code repo)"
+      continue
+    fi
     no "elicitation door $name: skill file missing ($file)"
     continue
   fi
