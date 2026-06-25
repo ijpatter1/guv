@@ -181,6 +181,20 @@ for copy in "${COPIES[@]}"; do
   grep -qF '.detail=(.detail + " | " + $note)' "$copy" \
     && ok "triage command documents the provenance-appending (detail) form in $label" \
     || no "$label triage command must append the note to detail (the form /handoff's drain needs), not flip status alone"
+
+  # T8g — the capture posture is stated EXPLICITLY ([20.7]): local-only / never
+  # phones home, and submitting upstream is opt-in / user-gated. Before [20.7] this
+  # was only implied (consumer-owned + a user-gated submit mode); the deliverable
+  # makes it legible up front so a user knows the friction log never leaves the
+  # machine until they choose to file. Phrases carry no slash-commands (the plugin
+  # namespace rewrite leaves them intact), and grep the flattened copy so a reflow
+  # cannot hide them.
+  echo "$COPY_FLAT" | grep -q 'local-only and never phones home' \
+    && ok "posture: local-only / never-phones-home stated explicitly in $label" \
+    || no "$label must state the capture posture explicitly (local-only and never phones home)"
+  echo "$COPY_FLAT" | grep -q 'opt-in and user-gated' \
+    && ok "posture: submitting upstream is opt-in / user-gated in $label" \
+    || no "$label must state that submitting upstream is opt-in and user-gated"
 done
 
 # T8f — the live parity guard: feedback.sh itself must carry the provenance-

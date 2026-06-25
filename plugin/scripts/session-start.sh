@@ -44,13 +44,36 @@ FRONTIER="$(bash "$BASE/resolve-ready.sh" 2>/dev/null)"
 GATE_ENTRY=""
 [ -f "$BASE/budget-gate.sh" ] && GATE_ENTRY="$(bash "$BASE/budget-gate.sh" entry 2>/dev/null)"
 
-# Nothing to surface (pre-scaffold, non-git, helpers absent, within budget) — inject nothing.
-[ -z "$ROUTE$FRONTIER$GATE_ENTRY" ] && exit 0
+# Load the local friction log ([20.7]) as session-open working context: surface the
+# count of OPEN guv-feedback entries together with the capture posture (local-only,
+# never phones home; submitting upstream is opt-in / user-gated), so a session opens
+# already aware of pending friction without an explicit feedback/status invocation.
+# The log is consumer-OWNED data living in the PROJECT's .claude/feedback/ — NOT beside
+# this hook (in plugin mode $BASE points into the install, which has no log), so it is
+# CLAUDE_PROJECT_DIR-anchored ([19.4]) with a cwd fallback. The load is OPTIONAL: absent
+# log, zero open, or jq absent → nothing surfaced (no noise on a clean log). A malformed
+# log degrades to silent (the jq count fails → empty), never a session-blocking error
+# (rule 15). No slash-commands in the surfaced text (it stays mode-agnostic, like the
+# frontier above — a plugin namespaces command names, and a script's literal text is
+# not rewritten, so the surfaced line names the skill in prose instead).
+FEEDBACK=""
+FB_LOG="${CLAUDE_PROJECT_DIR:-.}/.claude/feedback/feedback.ndjson"
+if [ -f "$FB_LOG" ] && command -v jq >/dev/null 2>&1; then
+  FB_OPEN="$(jq -s '[.[] | select(.status=="open")] | length' "$FB_LOG" 2>/dev/null)" || FB_OPEN=""
+  if [ -n "$FB_OPEN" ] && [ "$FB_OPEN" -gt 0 ] 2>/dev/null; then
+    FB_W="entries"; [ "$FB_OPEN" -eq 1 ] && FB_W="entry"
+    FEEDBACK="guv-feedback: $FB_OPEN open local friction $FB_W — capture is local-only and never phones home (logging, listing, and triaging transmit nothing and add or remove no telemetry); submitting upstream is opt-in and user-gated, never auto-filed. Open the feedback skill to triage or submit."
+  fi
+fi
+
+# Nothing to surface (pre-scaffold, non-git, helpers absent, within budget, clean log) — inject nothing.
+[ -z "$ROUTE$FRONTIER$GATE_ENTRY$FEEDBACK" ] && exit 0
 
 CTX="guv session-open dispatch (advisory — the entry-door skill remains authoritative):"
 [ -n "$ROUTE" ]      && CTX="$CTX"$'\n\n'"$ROUTE"
 [ -n "$FRONTIER" ]   && CTX="$CTX"$'\n'"$FRONTIER"
 [ -n "$GATE_ENTRY" ] && CTX="$CTX"$'\n\n'"$GATE_ENTRY"
+[ -n "$FEEDBACK" ]   && CTX="$CTX"$'\n\n'"$FEEDBACK"
 
 # Emit the documented SessionStart context-injection envelope. jq escapes the
 # text safely; if jq is somehow absent, degrade to no injection (still exit 0).

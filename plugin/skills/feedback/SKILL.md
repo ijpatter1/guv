@@ -12,6 +12,13 @@ fixes versus local adaptations. This is the evidence base for improving guv.
 **It is data, not behavior.** Logging an entry changes nothing about how the session
 runs — it is an append-only record. So log freely and early; there is no cost.
 
+**It is local-only and never phones home.** `/guv:feedback` only ever appends to the local
+log on your disk — logging, listing, and triaging transmit nothing anywhere and add or
+remove no telemetry. Sending an entry upstream is **opt-in and user-gated**: `submit`
+only *drafts* a `gh issue create` block for a person to run, and the agent never files it
+(the permission classifier denies an agent's `gh issue create`). The log is yours;
+nothing leaves this machine until you choose to file it.
+
 **What belongs here vs. not:**
 
 - **Here:** anything about _guv_ that didn't fit — a command step that errored,

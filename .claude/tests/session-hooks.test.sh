@@ -111,6 +111,117 @@ echo "$CTX" | grep -q 'serial=6.2' \
   && ok "phased: additionalContext surfaces the resolver frontier (serial=6.2)" \
   || no "phased: additionalContext must surface the frontier, got: $CTX"
 
+# ── 1b. friction log loaded as session-open working context ([20.7]) ──────────
+# When the project carries OPEN guv-feedback entries, the hook surfaces the open
+# count together with the capture posture (local-only / never phones home), so a
+# session opens already aware of pending friction. The log is consumer-owned data
+# in the project's .claude/feedback/; CLAUDE_PROJECT_DIR is unset here, exercising
+# the cwd (`.`) fallback. 2 of the 3 entries are open (one graduated).
+FB=$(mkproj fb-open); tracker "$FB" open
+mkdir -p "$FB/.claude/feedback"
+printf '%s\n' \
+  '{"id":"t-1","ts":"2026-06-24T00:00:00Z","status":"open","severity":"minor","routing":"upstream","summary":"a","category":"friction"}' \
+  '{"id":"t-2","ts":"2026-06-24T00:00:01Z","status":"graduated","severity":"minor","routing":"upstream","summary":"b","category":"friction"}' \
+  '{"id":"t-3","ts":"2026-06-24T00:00:02Z","status":"open","severity":"major","routing":"local","summary":"c","category":"friction"}' \
+  > "$FB/.claude/feedback/feedback.ndjson"
+run "$FB"
+[ "$RC" -eq 0 ] && ok "feedback: exit 0 with open entries" || no "feedback fixture should exit 0 (rc=$RC; err=$ERR)"
+[ -z "$ERR" ] && ok "feedback: stderr clean" || no "feedback: stderr must be clean, got: $ERR"
+CTXF=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTXF" | grep -q '2 open' \
+  && ok "feedback: surfaces the OPEN count only (2 of 3 — graduated excluded)" \
+  || no "feedback: must surface the open count (2), got: $CTXF"
+{ echo "$CTXF" | grep -q 'local-only' && echo "$CTXF" | grep -q 'never phones home'; } \
+  && ok "feedback: surfaces the local-only / never-phones-home posture as working context" \
+  || no "feedback: must surface the local-only posture, got: $CTXF"
+
+# ── 1c. OPTIONAL load stays quiet: no feedback log → no feedback line ─────────
+# The load is optional — with no log (or none open) there is nothing to surface,
+# so the hook stays silent on feedback while still surfacing door/frontier. No noise.
+FBN=$(mkproj fb-none); tracker "$FBN" open   # tracker present, but no feedback log
+run "$FBN"
+CTXN=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTXN" | grep -qi 'guv-feedback' \
+  && no "feedback: must NOT surface a feedback line when there is no log, got: $CTXN" \
+  || ok "feedback: optional load stays quiet with no log (frontier still surfaced)"
+echo "$CTXN" | grep -q 'serial=6.2' \
+  && ok "feedback: the frontier still surfaces when the feedback load is quiet" \
+  || no "feedback: frontier must still surface, got: $CTXN"
+
+# ── 1d. MALFORMED feedback log degrades silently (rule 15) ────────────────────
+# The designed degradation rung for the optional load: a truncated/invalid ndjson
+# must NOT fabricate a count, emit stderr, or block. The jq count fails → empty →
+# no feedback line; exit 0, stderr clean (jq's parse error is swallowed), and the
+# door/frontier still surface. A loud stop here would block session start (exit 2);
+# silence is the chosen path, not an improvised recovery.
+FBM=$(mkproj fb-malformed); tracker "$FBM" open
+mkdir -p "$FBM/.claude/feedback"
+printf '%s\n' \
+  '{"id":"t-1","ts":"2026-06-24T00:00:00Z","status":"open","severity":"minor"' \
+  'not json at all' \
+  > "$FBM/.claude/feedback/feedback.ndjson"
+run "$FBM"
+[ "$RC" -eq 0 ] && ok "malformed feedback log: exit 0 (the optional load never blocks the session)" \
+  || no "malformed feedback log must exit 0 (rc=$RC; err=$ERR)"
+[ -z "$ERR" ] && ok "malformed feedback log: stderr clean (jq parse error swallowed)" \
+  || no "malformed feedback log: stderr must be clean, got: $ERR"
+CTXMF=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTXMF" | grep -qi 'guv-feedback' \
+  && no "malformed feedback log: must NOT fabricate a feedback line, got: $CTXMF" \
+  || ok "malformed feedback log: degrades silently — no feedback line surfaced"
+echo "$CTXMF" | grep -q 'serial=6.2' \
+  && ok "malformed feedback log: the frontier still surfaces (the degradation is local to the load)" \
+  || no "malformed feedback log: frontier must still surface, got: $CTXMF"
+
+# ── 1e. CLAUDE_PROJECT_DIR anchors the log when cwd is OFF the project root ────
+# The PRIMARY [19.4] anchor path: the consumer-owned log is read from
+# CLAUDE_PROJECT_DIR, never the session cwd. 1b pinned the cwd FALLBACK (var unset →
+# `.`); here the var points at the project while the session runs from an UNRELATED
+# off-root cwd that carries its OWN decoy log with a DIFFERENT count. Surfacing the
+# project's "2 open" (not the decoy's 1) proves the anchor wins over cwd — the exact
+# off-root failure [19.4] fixed (a $BASE/cwd-anchored read would find the wrong log).
+FBA=$(mkproj fb-anchored); tracker "$FBA" open
+mkdir -p "$FBA/.claude/feedback"
+printf '%s\n' \
+  '{"id":"a-1","ts":"2026-06-24T00:00:00Z","status":"open","severity":"minor","routing":"upstream","summary":"x","category":"friction"}' \
+  '{"id":"a-2","ts":"2026-06-24T00:00:01Z","status":"open","severity":"minor","routing":"upstream","summary":"y","category":"friction"}' \
+  > "$FBA/.claude/feedback/feedback.ndjson"
+OFFROOT="$WORK/offroot-cwd"; mkdir -p "$OFFROOT/.claude/feedback"
+# DECOY at the cwd: a 1-open log. A read that wrongly used cwd (the [19.4] bug)
+# would surface "1 open" from here instead of the project's "2 open".
+printf '%s\n' \
+  '{"id":"decoy","ts":"2026-06-24T00:00:09Z","status":"open","severity":"minor","routing":"local","summary":"decoy","category":"friction"}' \
+  > "$OFFROOT/.claude/feedback/feedback.ndjson"
+errf=$(mktemp)
+OUTA=$( cd "$OFFROOT" && printf '%s' '{"hook_event_name":"SessionStart","source":"startup"}' \
+        | CLAUDE_PROJECT_DIR="$FBA" bash "$FBA/.claude/hooks/session-start.sh" 2>"$errf" ); RCA=$?
+ERRA=$(cat "$errf"); rm -f "$errf"
+[ "$RCA" -eq 0 ] && ok "anchored: exit 0 from an off-root cwd" \
+  || no "anchored fixture must exit 0 (rc=$RCA; err=$ERRA)"
+[ -z "$ERRA" ] && ok "anchored: stderr clean" || no "anchored: stderr must be clean, got: $ERRA"
+CTXA=$(echo "$OUTA" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTXA" | grep -q '2 open' \
+  && ok "anchored: log read via CLAUDE_PROJECT_DIR, not cwd (project's 2 open beats the cwd decoy's 1)" \
+  || no "anchored: must read the log via CLAUDE_PROJECT_DIR (the off-root anchor), got: $CTXA"
+echo "$CTXA" | grep -q 'local-only' \
+  && ok "anchored: the posture surfaces on the primary anchor path too" \
+  || no "anchored: posture must surface, got: $CTXA"
+
+# ── 1f. singular pluralization: exactly ONE open entry reads "entry", not "entries" ─
+# The count copy has a singular branch (FB_W="entry" at FB_OPEN -eq 1) — and one open
+# entry is the COMMON case, not an edge. Pin it so the user-facing pluralization can't
+# rot: a lone open entry must render "1 open local friction entry" (singular noun).
+FB1=$(mkproj fb-one); tracker "$FB1" open
+mkdir -p "$FB1/.claude/feedback"
+printf '%s\n' \
+  '{"id":"s-1","ts":"2026-06-24T00:00:00Z","status":"open","severity":"minor","routing":"upstream","summary":"solo","category":"friction"}' \
+  > "$FB1/.claude/feedback/feedback.ndjson"
+run "$FB1"
+CTX1=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTX1" | grep -q '1 open local friction entry' \
+  && ok "feedback: a single open entry uses the SINGULAR copy ('1 open local friction entry')" \
+  || no "feedback: one open entry must read '… 1 open local friction entry …' (singular), got: $CTX1"
+
 # ── 2. MUST NOT BLOCK: a MALFORMED tracker still exits 0 (never exit 2) ───────
 M=$(mkproj phased-malformed); tracker "$M" malformed
 run "$M"

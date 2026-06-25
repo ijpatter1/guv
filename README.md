@@ -301,7 +301,7 @@ code .
 │   ├── workflows/
 │   │   └── eval-parallel.js       # /eval-parallel — both reviewers, concurrent
 │   ├── tests/                         # Bash test suites for the guv scripts/skills
-│   └── feedback/                      # guv-friction log (created on first /feedback)
+│   └── feedback/                      # guv-friction log — local-only, never phones home (submit is opt-in; created on first /feedback)
 ├── maintainers/                       # Maintainer-only — developing guv (consumers can delete)
 │   ├── DOGFOODING.md                  # How to dogfood guv via a control-plane split
 │   ├── RELEASING.md                   # Release flow: bump policy, checklist, feedback drain
