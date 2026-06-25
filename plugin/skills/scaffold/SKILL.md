@@ -51,13 +51,48 @@ Two outcomes:
 - **The resolver proposes a manifest** (it detected a known stack): present
   the proposal to the user, confirm or adjust (it is a PROPOSAL — never write
   it unconfirmed), then write the result to `.claude/project.json` following
-  `.claude/project.schema.json`.
+  `.claude/project.schema.json`. **When you write the manifest here, also elicit
+  the context-wall posture** (next): every fresh scaffold writes the
+  `contextManagement` block so the project never later reads as a pre-feature one.
 - **The resolver exits 2 — "Could not detect a known stack"** (empty
   greenfield directory, or an unrecognized stack): write **no manifest**.
   Null means skip, never guess. For greenfield, `/guv:init-project` declares
   identity, topology, and ceremony from the spec and writes the manifest
   itself; for an unrecognized existing stack, `/guv:onboard` walks the schema
-  with the user by hand.
+  with the user by hand. **Neither writes the `contextManagement` block here —
+  the downstream door (`/guv:init-project` / `/guv:onboard`) elicits it when it
+  writes the manifest.**
+
+### Step 2b — Elicit the context-wall posture ([16.2], resolver-proposes path only)
+
+Only when Step 2 wrote a manifest above: record the operator's **context-wall mode** in
+the manifest's `contextManagement` block — guv's occupancy meter and auto-compaction
+otherwise conflict at the context wall, so the mode is **chosen, never silently
+defaulted** (the S1 finding behind this phase). The block's **presence** is the
+scaffold-provenance signal, so a fresh scaffold never later reads as a pre-feature one
+that the migration nudge would grandfather.
+
+- **Interactive — force the choice** (wait for the operator; do not guess a mode):
+  `hard-stop` (the meter stops at the setpoint for a clean stop and handoff;
+  auto-compaction stood down — full control) **or** `continue` (auto-compaction compacts
+  and continues across the wall; the meter advisory-only — unattended / long-haul runs).
+  Then record it:
+
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json <hard-stop|continue>
+  ```
+
+- **Headless / bypass — the loud-unset path** (no human to choose): write the explicit
+  sentinel rather than guessing a mode. Neither governor is armed and a loud
+  `context-wall mode UNSET` marker surfaces at session-open and in the status report
+  until a mode is chosen:
+
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json unset
+  ```
+
+Arming the chosen governor is a later Phase-16 deliverable; this door only records the
+choice.
 
 ## Step 3 — Hand off
 

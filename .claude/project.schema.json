@@ -209,6 +209,18 @@
         }
       }
     },
+    "contextManagement": {
+      "type": "object",
+      "description": "Context-wall posture ([16.2]; S1 finding docs/spikes/16-1-context-wall-mode.md). Carries the operator's MODE CHOICE for how guv handles the context wall — the seam where the occupancy meter ([9.2]) and auto-compaction otherwise conflict (one silently dead-letters the other). The block's PRESENCE is the scaffold-provenance signal: a fresh scaffold always writes it (an interactive scaffold forces a real mode; a headless scaffold writes 'unset' and surfaces a loud marker), so an ABSENT block means a project that predates the feature — grandfathered to today's behavior with a one-time, non-blocking migration nudge, never a silent default (format-survival invariant). Arming the chosen governor is [16.4]; the auto-compaction env carrier (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is [16.3]. Person-adjustable; the manifest's commit history is the provenance.",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["hard-stop", "continue", "unset"],
+          "description": "The chosen context-wall posture. 'hard-stop' (guardrail): the occupancy meter is armed → setpoint → a clean stop and handoff with state preserved, and auto-compaction stood down — for the interactive operator who wants full control and no surprise context loss. 'continue' (autopilot): auto-compaction armed → compact and re-inject across the wall, with the meter demoted to advisory-only — for the autonomous/long-haul run where unattended continuation is the point. 'unset': scaffolded without a choice (the headless path) — neither governor armed and a loud 'context-wall mode UNSET' marker surfaced until a mode is chosen. There is NO behavioral default mode: an interactive scaffold forces hard-stop|continue, a headless one writes unset (loud, not a silent fallback), and an absent block (a pre-feature project) keeps today's behavior. Arming, the warn-band, and the env carrier are [16.4]/[16.3]."
+        }
+      }
+    },
     "budgets": {
       "type": "object",
       "description": "Cost-and-performance budget setpoints ([9.3]). OPTIONAL at two granularities — initiative (cumulative burn across the whole metering log) and session (burn of the current session). ABSENT MEANS UNLIMITED, never 'off': a governor with no setpoint spins free, so an absent budgets block gates nothing anywhere. The tension gate (budget-gate.sh) runs at session entry and exit, compares burn (summed from the [9.1] metering log) to the chosen budget, and raises a decision gate ON TENSION ONLY — within budget it is silent. A breach PAUSES and escalates with work preserved (extend/harvest/kill is the person's decision); the machinery never raises a setpoint. Person-adjustable; budget edits are commits, so this block's git history IS the provenance — no approval flow, no side channel, no storage outside this manifest. Per-lane granularity is deferred until evidence demands it.",

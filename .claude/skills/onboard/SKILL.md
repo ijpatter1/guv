@@ -117,6 +117,36 @@ Write `.claude/project.json` from the confirmed values, validating against
 - `guards` — only what applies to this stack (e.g. `["npm-publish"]` for a published
   npm package; omit `gcp` unless the project uses GCP).
 
+### Step 3b — Elicit the context-wall posture ([16.2])
+
+Record the operator's **context-wall mode** in the manifest's `contextManagement` block —
+guv's occupancy meter and auto-compaction otherwise conflict at the context wall, so the
+mode is **chosen, never silently defaulted** (S1 finding
+`docs/spikes/16-1-context-wall-mode.md`). Writing the block on adoption (its **presence**
+is the scaffold-provenance signal) keeps the adopted project from later reading as a
+pre-feature one that the migration nudge would grandfather.
+
+- **Interactive — force the choice** (wait for the operator; do not guess a mode):
+  `hard-stop` (the meter stops at the setpoint for a clean stop and handoff; auto-compaction
+  stood down — full control, no surprise context loss) **or** `continue` (auto-compaction
+  compacts and continues across the wall; the meter advisory-only — unattended / long-haul
+  runs). Then record it:
+
+  ```bash
+  bash .claude/context-management.sh set-mode .claude/project.json <hard-stop|continue>
+  ```
+
+- **Headless / bypass — the loud-unset path** (no human to choose): write the explicit
+  sentinel rather than guessing a mode. Neither governor is armed and a loud
+  `context-wall mode UNSET` marker surfaces at session-open and in the status report until a
+  mode is chosen:
+
+  ```bash
+  bash .claude/context-management.sh set-mode .claude/project.json unset
+  ```
+
+Arming the chosen governor is [16.4]; the auto-compaction env carrier is [16.3].
+
 ## Step 4 — Render CLAUDE.md (no bootstrapping)
 
 Render the inert template into a live `CLAUDE.md` at `${roots.control}` (cwd, where

@@ -39,14 +39,18 @@ trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' 
 mkproj() {
   local d="$WORK/$1" ceremony="${2:-phased}"
   mkdir -p "$d/.claude/hooks" "$d/docs"
-  ln -s "$CLAUDE_DIR/route.sh"         "$d/.claude/route.sh"
-  ln -s "$CLAUDE_DIR/resolve-ready.sh" "$d/.claude/resolve-ready.sh"
-  ln -s "$SS_HOOK"                     "$d/.claude/hooks/session-start.sh"
+  ln -s "$CLAUDE_DIR/route.sh"              "$d/.claude/route.sh"
+  ln -s "$CLAUDE_DIR/resolve-ready.sh"      "$d/.claude/resolve-ready.sh"
+  ln -s "$CLAUDE_DIR/context-management.sh" "$d/.claude/context-management.sh"
+  ln -s "$SS_HOOK"                          "$d/.claude/hooks/session-start.sh"
   if [ -n "$ceremony" ]; then
+    # A CONFIGURED context-wall posture by default, so the [16.2] surface stays
+    # silent for the door/frontier/feedback fixtures — the unset and grandfather
+    # paths get their own fixtures (1g/1h) that set the state explicitly.
     cat > "$d/.claude/project.json" <<JSON
 { "name": "fx", "language": "node", "roots": { "control": ".", "code": "." },
   "commands": { "test": null }, "scaffoldCheck": "test -f .scaffolded",
-  "ceremony": "$ceremony" }
+  "ceremony": "$ceremony", "contextManagement": { "mode": "hard-stop" } }
 JSON
   fi
   printf '%s\n' "$d"
@@ -221,6 +225,53 @@ CTX1=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
 echo "$CTX1" | grep -q '1 open local friction entry' \
   && ok "feedback: a single open entry uses the SINGULAR copy ('1 open local friction entry')" \
   || no "feedback: one open entry must read '… 1 open local friction entry …' (singular), got: $CTX1"
+
+# ── 1g. headless loud-unset marker surfaced at session-open ([16.2]) ──────────
+# A fresh HEADLESS scaffold writes contextManagement.mode=unset (no human to make
+# the forced choice) and must SURFACE a loud 'context-wall mode UNSET' marker —
+# watch-item a: 'loud' means a person sees it, so it has to reach additionalContext,
+# not merely sit in the manifest. Put the fixture in the unset state, assert the
+# marker surfaces, exit 0, stderr clean (the surface is read-mostly, never blocks).
+UNSETP=$(mkproj cw-unset); tracker "$UNSETP" open
+tmp=$(mktemp); jq '.contextManagement.mode = "unset"' "$UNSETP/.claude/project.json" > "$tmp" && mv "$tmp" "$UNSETP/.claude/project.json"
+run "$UNSETP"
+[ "$RC" -eq 0 ] && ok "context-wall unset: exit 0 (the surface never blocks the session)" \
+  || no "context-wall unset must exit 0 (rc=$RC; err=$ERR)"
+[ -z "$ERR" ] && ok "context-wall unset: stderr clean" || no "context-wall unset: stderr must be clean, got: $ERR"
+CTXU=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTXU" | grep -q 'context-wall mode UNSET' \
+  && ok "context-wall unset: the loud UNSET marker reaches session-open context (watch-item a)" \
+  || no "context-wall unset: the UNSET marker must surface in additionalContext, got: $CTXU"
+echo "$CTXU" | grep -q 'serial=' \
+  && ok "context-wall unset: composes with the frontier (both surface, neither crowds out the other)" \
+  || no "context-wall unset: the frontier must still surface alongside the marker, got: $CTXU"
+
+# ── 1h. grandfather migration nudge: surfaced ONCE at session-open ([16.2]) ────
+# A block-LESS in-field project (predates the feature) is grandfathered to today's
+# behavior and nudged ONCE — non-blocking, not every session (watch-item b). Build
+# the block-less state (delete the default block), then run TWICE: the first run
+# surfaces the nudge and records the did-fire marker; the second is silent on it.
+# It must surface the NUDGE, not the UNSET marker — the discriminator (watch-item
+# c) must hold at the hook too, not just in the helper unit test.
+GRANDP=$(mkproj cw-grandfather); tracker "$GRANDP" open
+tmp=$(mktemp); jq 'del(.contextManagement)' "$GRANDP/.claude/project.json" > "$tmp" && mv "$tmp" "$GRANDP/.claude/project.json"
+run "$GRANDP"
+CTXG1=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTXG1" | grep -q 'context-wall mode is now available' \
+  && ok "context-wall grandfather: the migration nudge surfaces on the first session-open" \
+  || no "context-wall grandfather: first run must surface the nudge, got: $CTXG1"
+echo "$CTXG1" | grep -q 'UNSET' \
+  && no "context-wall grandfather: a block-less project must NOT surface the UNSET marker (discriminator collapsed at the hook)" \
+  || ok "context-wall grandfather: surfaces the nudge, NOT the UNSET marker (discriminator holds at the hook)"
+run "$GRANDP"   # second session-open — the once-ness carrier must now silence it
+CTXG2=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+echo "$CTXG2" | grep -q 'context-wall mode is now available' \
+  && no "context-wall grandfather: the nudge fired again on the second run (once-ness broken)" \
+  || ok "context-wall grandfather: the nudge fires ONCE — silent on the second session-open (watch-item b)"
+echo "$CTXG2" | grep -q 'serial=' \
+  && ok "context-wall grandfather: the frontier still surfaces on the second run (only the nudge is once)" \
+  || no "context-wall grandfather: frontier must still surface on run 2, got: $CTXG2"
+[ "$RC" -eq 0 ] && ok "context-wall grandfather: exit 0 on both runs" || no "context-wall grandfather must exit 0 (rc=$RC)"
 
 # ── 2. MUST NOT BLOCK: a MALFORMED tracker still exits 0 (never exit 2) ───────
 M=$(mkproj phased-malformed); tracker "$M" malformed

@@ -66,14 +66,31 @@ if [ -f "$FB_LOG" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
-# Nothing to surface (pre-scaffold, non-git, helpers absent, within budget, clean log) — inject nothing.
-[ -z "$ROUTE$FRONTIER$GATE_ENTRY$FEEDBACK" ] && exit 0
+# Surface the context-wall posture ([16.2]) as session-open context: a fresh
+# headless scaffold's loud 'context-wall mode UNSET' marker, or a one-time,
+# non-blocking migration nudge for a block-less in-field project. The
+# discriminator (block presence is the scaffold-provenance signal) and the nudge
+# once-ness live in context-management.sh; this hook only SURFACES what surface
+# emits — watch-item a: the marker reaches a person, not a file no one reads. The
+# manifest is consumer-OWNED in the PROJECT, so it is CLAUDE_PROJECT_DIR-anchored
+# ([19.4]) with a cwd fallback (in plugin mode $BASE points into the install,
+# whose project.json is not the consumer's). surface is read-mostly and never
+# blocks: absent helper, absent/unparseable manifest, or a configured mode →
+# nothing surfaced (rule 15).
+CTXWALL=""
+PROJ_MANIFEST="${CLAUDE_PROJECT_DIR:-.}/.claude/project.json"
+{ [ -f "$BASE/context-management.sh" ] && [ -f "$PROJ_MANIFEST" ]; } \
+  && CTXWALL="$(bash "$BASE/context-management.sh" surface "$PROJ_MANIFEST" 2>/dev/null)"
+
+# Nothing to surface (pre-scaffold, non-git, helpers absent, within budget, clean log, configured posture) — inject nothing.
+[ -z "$ROUTE$FRONTIER$GATE_ENTRY$FEEDBACK$CTXWALL" ] && exit 0
 
 CTX="guv session-open dispatch (advisory — the entry-door skill remains authoritative):"
 [ -n "$ROUTE" ]      && CTX="$CTX"$'\n\n'"$ROUTE"
 [ -n "$FRONTIER" ]   && CTX="$CTX"$'\n'"$FRONTIER"
 [ -n "$GATE_ENTRY" ] && CTX="$CTX"$'\n\n'"$GATE_ENTRY"
 [ -n "$FEEDBACK" ]   && CTX="$CTX"$'\n\n'"$FEEDBACK"
+[ -n "$CTXWALL" ]    && CTX="$CTX"$'\n\n'"$CTXWALL"
 
 # Emit the documented SessionStart context-injection envelope. jq escapes the
 # text safely; if jq is somehow absent, degrade to no injection (still exit 0).

@@ -36,6 +36,10 @@ sandbox/tmp/
 # guv continuation checkpoint (continuation-checkpoint.sh PreCompact hook — a
 # resume breadcrumb rewritten on every compaction; runtime artifact, not tracked)
 .claude/continuation-checkpoint.json
+# guv context-wall migration-nudge marker ([16.2]; context-management.sh surface —
+# a machine-local did-fire flag so the one-time grandfather nudge fires once, not
+# every session; runtime artifact, not tracked)
+.claude/.context-wall-migration-nudged
 # guv metering runtime artifact (handoff Step 3 writes the measured suite
 # runtime here; meter.sh reads it — transient, rewritten each session, not
 # tracked). The committed append-only metering logs (metering.ndjson /
