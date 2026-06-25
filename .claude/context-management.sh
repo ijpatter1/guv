@@ -32,13 +32,14 @@ usage() {
 usage: context-management.sh <command> <args>
   set-mode  <manifest> <hard-stop|continue|unset>            record the operator's mode choice
   surface   <manifest>                                       emit the population-appropriate signal (or nothing)
-  reconcile <manifest> [--settings PATH] [--model MODEL]     arm/disarm the governor to match the chosen mode
+  reconcile <manifest> [--settings PATH] [--model MODEL]     reconcile the governor to the chosen mode (--model accepted but ignored)
 EOF
   exit 2
 }
 
 MODES_RE='^(hard-stop|continue|unset)$'
 MARKER_NAME='.context-wall-migration-nudged'
+GUIDE_MARKER_NAME='.context-wall-continue-guided'   # [16.4] continue-mode guidance: once, not every session
 
 cmd="${1:-}"; shift 2>/dev/null || true
 
@@ -83,8 +84,24 @@ case "$cmd" in
     if [ "$HAS" = "yes" ]; then
       MODE=$(jq -r '.contextManagement.mode // "unset"' "$MAN" 2>/dev/null)
       case "$MODE" in
-        hard-stop|continue)
-          : # configured — nothing unconfigured to surface ([16.4] owns advisory)
+        hard-stop)
+          : # configured — the occupancy meter owns the wall; nothing unconfigured to surface
+          ;;
+        continue)
+          # continue is armed: auto-compaction owns the wall, the meter demotes to advisory.
+          # guv NEVER arms the compaction window on the operator's behalf — not even the
+          # blessed value, not even on a [1m] run (the ratified [16.4] continue-arm decision:
+          # GUIDE, don't auto-arm; the [14.2] operator-authored doctrine). If no window is
+          # operator-authored, GUIDE them to author one — ONCE (a fine resting state otherwise:
+          # auto-compaction falls back to the model's native default, so this nudges, not shouts).
+          # Suppressed the moment a window is authored, and after the one-shot marker is set.
+          GSET="$(dirname "$MAN")/settings.local.json"
+          GCUR=$(jq -r '.env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] // empty' "$GSET" 2>/dev/null)
+          GMARKER="$(dirname "$MAN")/$GUIDE_MARKER_NAME"
+          if [ -z "$GCUR" ] && [ ! -f "$GMARKER" ]; then
+            printf '%s\n' "guv context-wall: continue mode is armed — auto-compaction will compact across the wall using the model's native default. To set an explicit compaction point, author CLAUDE_CODE_AUTO_COMPACT_WINDOW in .claude/settings.local.json; guv leaves that choice to you and never arms it on your behalf. (Shown once.)"
+            : > "$GMARKER" 2>/dev/null || true   # best-effort; a failed write re-guides (safe), never crashes
+          fi
           ;;
         *)
           # mode=unset (or a present block with no/blank/unknown mode) → loud-unset.
@@ -112,11 +129,14 @@ case "$cmd" in
     # match. Wired into session-start so the two governors re-reconcile every session.
     MAN="${1:-}"; shift 2>/dev/null || true
     [ -n "$MAN" ] || usage
-    SETTINGS=""; MODEL=""
+    SETTINGS=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --settings) [ $# -ge 2 ] || { echo "[context-management] --settings requires a path" >&2; exit 2; }; SETTINGS="$2"; shift 2 ;;
-        --model)    [ $# -ge 2 ] || { echo "[context-management] --model requires a value" >&2; exit 2; }; MODEL="$2"; shift 2 ;;
+        # --model is still ACCEPTED (callers and the R1/R1c/R5 tests pass it) but the value
+        # is intentionally DISCARDED — under guide-don't-auto-arm there is no value reconcile
+        # would deploy, so it is consumed for compatibility, not stored.
+        --model)    [ $# -ge 2 ] || { echo "[context-management] --model requires a value" >&2; exit 2; }; shift 2 ;;
         *) echo "[context-management] unknown reconcile option '$1'" >&2; exit 2 ;;
       esac
     done
@@ -127,10 +147,8 @@ case "$cmd" in
     command -v jq >/dev/null 2>&1 || exit 0
     { [ -f "$MAN" ] && jq -e . "$MAN" >/dev/null 2>&1; } || exit 0
     CARRIER="$BASE/auto-compact-carrier.sh"
-    SETPOINT="$BASE/compaction-setpoint.sh"
     [ -f "$CARRIER" ] || exit 0
     SET="${SETTINGS:-$(dirname "$MAN")/settings.local.json}"
-    WINKEY='CLAUDE_CODE_AUTO_COMPACT_WINDOW'
     MODE=$(jq -r '.contextManagement.mode // "absent"' "$MAN" 2>/dev/null)
 
     # Both branches below invoke the carrier with its stdout suppressed (the success
@@ -144,28 +162,18 @@ case "$cmd" in
     # its own boundary (`reconcile … 2>&1 || true`), not reconcile's to bury here.
     case "$MODE" in
       continue)
-        # continue = auto-compaction owns the wall; the meter demotes to advisory. ARM
-        # the window — but the [14.2] doctrine forbids fabricating a value: place ONLY
-        # a window the operator authored, or the ONE value compaction-setpoint blesses
-        # (validated_reference, [1m] models only). An already-authored window WINS.
-        CUR=$(jq -r --arg k "$WINKEY" '.env[$k] // empty' "$SET" 2>/dev/null)
-        if [ -n "$CUR" ]; then
-          : # operator-authored window already armed — the human's setpoint wins, untouched
-        elif [ -f "$SETPOINT" ]; then
-          if [ -n "$MODEL" ]; then
-            REC=$(bash "$SETPOINT" recommend --model "$MODEL" 2>/dev/null)
-          else
-            REC=$(bash "$SETPOINT" recommend 2>/dev/null)
-          fi
-          VERDICT=$(printf '%s\n' "$REC" | sed -n 's/^recommend=//p')
-          REF=$(printf '%s\n' "$REC" | sed -n 's/^validated_reference=//p')
-          # Place the blessed reference ONLY when the setpoint says deploy AND blesses a
-          # positive-integer value. recommend=optional (standard model) or no reference →
-          # leave the window UNSET: the doctrine's own stance, never a guessed value.
-          if [ "$VERDICT" = "deploy" ] && printf '%s' "$REF" | grep -Eq '^[1-9][0-9]*$'; then
-            bash "$CARRIER" apply "$MAN" --settings "$SET" --window "$REF" >/dev/null || exit 0
-          fi
-        fi
+        # continue = auto-compaction owns the wall; the meter demotes to advisory. guv
+        # NEVER arms the compaction window on the operator's behalf — not the blessed
+        # validated_reference, not even on a [1m] --model run (the ratified [16.4]
+        # continue-arm decision: GUIDE, don't auto-arm — the [14.2] operator-authored
+        # doctrine taken to its conclusion). So reconcile places NOTHING here: an
+        # operator-authored window survives because this branch touches nothing (a
+        # literal no-op — the carrier is not even invoked in continue mode), and absent
+        # one the window stays UNSET so the model's native auto-compaction default
+        # governs. `surface` GUIDES the operator to author a window if they want an
+        # explicit point. --model is accepted (callers pass it) but deliberately NOT
+        # consulted — there is no value reconcile would deploy.
+        : # no-op — never arm; the authored window (if any) is preserved untouched
         ;;
       *)
         # hard-stop → the carrier WITHDRAWS the window (the meter owns the wall, so a

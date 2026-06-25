@@ -88,14 +88,15 @@ PROJ_MANIFEST="${CLAUDE_PROJECT_DIR:-.}/.claude/project.json"
 # auto-compaction half of the meter's own mode-gated stand-down. Side-effecting (it
 # writes settings.local.json) so it is NOT folded into the surfaced context; it is a
 # best-effort no-op when the helper/manifest is absent and never blocks the session
-# start (rule 15). NO --model here by design: the no-model path only withdraws
-# (hard-stop) or no-ops (unset/absent/continue) — it never deploys a guessed value, so
-# a per-session reconcile can never clobber an operator's authored setpoint. Per the
-# [14.2] doctrine the continue window is OPERATOR-AUTHORED — so reconcile here never
-# ARMS it (it only preserves an authored one, R1c); an un-authored continue window
-# falls back to the model's native auto-compaction default, with the meter stood down.
-# GUIDING the operator to author a window when continue is chosen (vs auto-deploying the
-# blessed value on a [1m] run) is an OPEN design decision — see the session handoff.
+# start (rule 15). No --model passed: it is moot under the ratified [16.4] continue-arm
+# decision — reconcile NEVER auto-arms the window (not even the blessed value, not even
+# on a [1m] --model run), so a per-session reconcile can never clobber an operator's
+# authored setpoint. Per the [14.2] doctrine the continue window is OPERATOR-AUTHORED —
+# reconcile preserves an authored one (R1c) and otherwise no-ops, leaving an un-authored
+# continue window to fall back to the model's native auto-compaction default with the
+# meter stood down. The OPEN decision is now CLOSED: continue mode GUIDES the operator to
+# author a window (a one-shot nudge from `surface`), rather than auto-deploying the
+# blessed value on a [1m] run — guide, don't auto-arm.
 { [ -f "$BASE/context-management.sh" ] && [ -f "$PROJ_MANIFEST" ]; } \
   && bash "$BASE/context-management.sh" reconcile "$PROJ_MANIFEST" >/dev/null 2>&1 || true
 

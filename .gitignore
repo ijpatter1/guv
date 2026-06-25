@@ -45,6 +45,11 @@ sandbox/tmp/
 # hard-stop warn-band fires its one-shot approach warning once per session; runtime
 # artifact, not tracked)
 .claude/.context-wall-approach-warned
+# guv context-wall continue-guidance marker ([16.4]; context-management.sh surface —
+# a machine-local did-fire flag so the one-shot continue-mode "author a window if you
+# want an explicit compaction point" guidance fires once, not every session; runtime
+# artifact, not tracked)
+.claude/.context-wall-continue-guided
 # guv metering runtime artifact (handoff Step 3 writes the measured suite
 # runtime here; meter.sh reads it — transient, rewritten each session, not
 # tracked). The committed append-only metering logs (metering.ndjson /

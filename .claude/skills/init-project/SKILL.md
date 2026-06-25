@@ -174,7 +174,7 @@ a pre-feature one that the migration nudge would grandfather.
   bash .claude/context-management.sh set-mode .claude/project.json unset
   ```
 
-Arming the chosen governor is [16.4]; the auto-compaction env carrier is [16.3].
+Reconciling the two governors to the chosen mode is [16.4]; the auto-compaction env carrier is [16.3].
 
 ### Step 3 — Generate docs/REQUIREMENTS.md
 

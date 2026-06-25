@@ -107,16 +107,45 @@ fi
 # person-visible signal (or silence). session-start.sh and /status consume it.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# T6 — a CONFIGURED mode surfaces nothing here. The choice is made; there is no
-# unconfigured state to shout about. (advisory reporting in continue mode is
-# [16.4]'s concern, deliberately not [16.2]'s.)
-for m in hard-stop continue; do
-  MAN=$(mkproj "cfg-$m" "$m")
-  OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
-  [ -z "$OUT" ] \
-    && ok "surface is silent for a configured mode ($m)" \
-    || no "surface should be silent for configured mode $m, emitted: $OUT"
-done
+# T6 — hard-stop is a CONFIGURED mode with nothing unconfigured to shout about: the
+# occupancy meter owns the wall, so surface is silent. (continue-mode advisory is
+# [16.4]'s concern — T6b–T6d below — deliberately not [16.2]'s.)
+MAN=$(mkproj cfg-hard-stop hard-stop)
+OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
+[ -z "$OUT" ] \
+  && ok "surface is silent for a configured mode (hard-stop)" \
+  || no "surface should be silent for configured mode hard-stop, emitted: $OUT"
+
+# T6b — continue WITH an operator-authored window: nothing to guide, so silent. The
+# operator already set their compaction point; surface does not nag. (Settings inlined
+# here — seed_settings/VAR are defined later, in the reconcile section.)
+MAN=$(mkproj cfg-continue-win continue)
+printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"180000"}}\n' > "$(dirname "$MAN")/settings.local.json"
+OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
+[ -z "$OUT" ] \
+  && ok "surface is silent for continue mode once a window is authored" \
+  || no "surface should be silent for continue + an authored window, emitted: $OUT"
+
+# T6c — continue with NO authored window: surface emits the ONE-TIME guidance nudge AND
+# records its did-fire marker. guv never arms the window ([14.2] / the ratified [16.4]
+# decision); it GUIDES the operator to author one if they want an explicit point. (The
+# nudge names the env key so the guidance is actionable, not just informational.)
+MAN=$(mkproj cfg-continue-bare continue)
+printf '{}\n' > "$(dirname "$MAN")/settings.local.json"   # settings exist, but no window authored
+GUIDE_MARKER="$(dirname "$MAN")/.context-wall-continue-guided"
+OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
+echo "$OUT" | grep -q "CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
+  && ok "surface guides the operator to author a window in bare continue mode (no auto-arm)" \
+  || no "surface must guide the operator to author a window for bare continue (got: $OUT)"
+[ -f "$GUIDE_MARKER" ] \
+  && ok "surface records the continue-guidance did-fire marker (once-ness carrier)" \
+  || no "surface must record a durable marker so the continue guidance fires once"
+
+# T6d — continue-guidance fires ONCE: with the marker present, the second run is silent.
+OUT2=$(bash "$CM" surface "$MAN" 2>/dev/null)
+[ -z "$OUT2" ] \
+  && ok "surface continue-guidance fires once, not every session (marker honoured)" \
+  || no "continue-guidance fired twice — once-ness carrier not honoured (got: $OUT2)"
 
 # T7 — headless loud-unset (watch-item a: the marker is actually SURFACED). The
 # unset sentinel surfaces the literal 'context-wall mode UNSET' phrase the S1
@@ -302,12 +331,14 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # reconcile — the meter ↔ auto-compaction arm/disarm ([16.4]). The mode chosen in
 # the manifest selects EXACTLY ONE authoritative governor (spike Q3); reconcile
-# drives the [16.3] carrier to match. The [14.2] doctrine is load-bearing: the
-# window value is HUMAN-authored within a band — reconcile may PLACE the blessed
-# validated_reference (the one value compaction-setpoint.sh blesses, [1m] only) but
-# NEVER fabricates a window, and a human-authored window always wins. hard-stop
-# WITHDRAWS the window (value-free); unset/absent are no-ops (a hand-deployed
-# setpoint like guv-guv's own live 250000 must survive — format-survival).
+# drives the [16.3] carrier to match. The [14.2] doctrine is load-bearing, taken to
+# its ratified conclusion ([16.4] continue-arm decision: GUIDE, don't auto-arm):
+# reconcile NEVER arms the compaction window on the operator's behalf — not the
+# blessed validated_reference, not even on a [1m] --model run. In continue mode an
+# operator-authored window is PRESERVED; absent one the window stays UNSET (the
+# model's native auto-compaction default governs) and `surface` guides the operator
+# to author one. hard-stop WITHDRAWS the window (value-free); unset/absent are no-ops
+# (a hand-deployed setpoint like guv-guv's own live 250000 must survive — format-survival).
 # ─────────────────────────────────────────────────────────────────────────────
 VAR='CLAUDE_CODE_AUTO_COMPACT_WINDOW'
 CARRIER="$ROOT/.claude/auto-compact-carrier.sh"
@@ -332,16 +363,17 @@ if [ ! -f "$CARRIER" ] || [ ! -f "$SETPOINT" ]; then
   echo "  ~ skipped reconcile tests (auto-compact-carrier/compaction-setpoint absent — not the code repo)"
 else
   M1M='claude-opus-4-8[1m]'
-  REF=$(bash "$SETPOINT" recommend --model "$M1M" 2>/dev/null | sed -n 's/^validated_reference=//p')
 
-  # R1 — continue + a [1m] model: deploy the BLESSED validated_reference. The only path
-  # that writes a window, and only the setpoint-blessed value — never a guessed one.
-  MAN=$(mkproj r1 continue); S="$(dirname "$MAN")/settings.local.json"
+  # R1 — continue + a [1m] model + an explicit --model: the window stays UNSET. The
+  # ratified [16.4] continue-arm decision is GUIDE, don't auto-arm — guv NEVER places a
+  # window on the operator's behalf, not even the setpoint-blessed value, not even when
+  # handed the [1m] model that would bless one. The operator authors the window; surface
+  # (T6c) guides them to. reconcile itself arms nothing.
+  MAN=$(mkproj r1 continue); S=$(seed_settings "$MAN" "")
   bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
-  GOT=$(win_of "$S")
-  { [ -n "$REF" ] && [ "$GOT" = "$REF" ]; } \
-    && ok "reconcile continue + [1m]: deploys the blessed validated_reference ($REF)" \
-    || no "reconcile continue + [1m] must deploy the blessed validated_reference (ref=$REF got=$GOT)"
+  [ -z "$(win_of "$S")" ] \
+    && ok "reconcile continue + [1m] + --model: leaves the window UNSET (guide, don't auto-arm)" \
+    || no "reconcile continue must never auto-arm, even with an explicit --model (got=$(win_of "$S"))"
 
   # R1b — continue, NO model: the window stays UNSET. The doctrine forbids fabricating a
   # value; a standard model's recommend is 'optional' (leave unset). No blessed value →
@@ -388,17 +420,20 @@ else
     && ok "reconcile absent block: no-op — format-survival preserves a hand-deployed window" \
     || no "reconcile on a block-less project must not strip the window (got=$(win_of "$S"))"
 
-  # R5 — the round-trip: continue(--model [1m]) ARMS the window, then the operator flips
-  # to hard-stop and reconcile WITHDRAWS it. Arm → disarm; exactly one governor at a time.
-  MAN=$(mkproj r5 continue); S="$(dirname "$MAN")/settings.local.json"
+  # R5 — the round-trip with the operator's window: in continue mode reconcile PRESERVES
+  # the human-authored window (guv never arms, but never strips an authored one either —
+  # even on a [1m] --model run); flip to hard-stop and reconcile WITHDRAWS it. Authored
+  # arm → disarm; exactly one governor at a time. Under the ratified guide-don't-auto-arm
+  # decision the window is operator-authored, so the round-trip starts from a seeded one.
+  MAN=$(mkproj r5 continue); S=$(seed_settings "$MAN" "333333")
   bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
   AFTER_ARM=$(win_of "$S")
   bash "$CM" set-mode "$MAN" hard-stop >/dev/null 2>&1
   bash "$CM" reconcile "$MAN" >/dev/null 2>&1
   AFTER_DISARM=$(win_of "$S")
-  { [ "$AFTER_ARM" = "$REF" ] && [ -z "$AFTER_DISARM" ]; } \
-    && ok "reconcile round-trip: continue arms the window, hard-stop withdraws it (one governor at a time)" \
-    || no "reconcile round-trip must arm then disarm (armed=$AFTER_ARM disarmed=$AFTER_DISARM)"
+  { [ "$AFTER_ARM" = "333333" ] && [ -z "$AFTER_DISARM" ]; } \
+    && ok "reconcile round-trip: continue preserves the operator's window, hard-stop withdraws it (one governor at a time)" \
+    || no "reconcile round-trip must preserve then withdraw the authored window (armed=$AFTER_ARM disarmed=$AFTER_DISARM)"
 
   # R6 — a missing manifest: clean no-op, exit 0 (Rule 15 — a reconcile helper never
   # blocks; absent in → nothing done, no crash).

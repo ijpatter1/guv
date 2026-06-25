@@ -145,7 +145,7 @@ pre-feature one that the migration nudge would grandfather.
   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json unset
   ```
 
-Arming the chosen governor is [16.4]; the auto-compaction env carrier is [16.3].
+Reconciling the two governors to the chosen mode is [16.4]; the auto-compaction env carrier is [16.3].
 
 ## Step 4 — Render CLAUDE.md (no bootstrapping)
 
