@@ -551,9 +551,11 @@ OUT=$(run "$P" --check); RC=$?
   || no "a mid-tracker lone unsealed phase must block COMPLETE (rc=$RC: $OUT)"
 
 # T21 — a lone-deliverable phase that is ❌ (descoped) and unsealed is likewise
-# open: the engine's phase_completed treats a lone ❌/unsealed phase as not-done,
-# and ❌ already counts as incomplete here, so this stays INCOMPLETE — pinned so
-# the new predicate does not accidentally read a lone ❌ as sealed/done.
+# open: the engine's phase_completed treats a lone ❌/unsealed phase as not-done.
+# ❌ is TERMINAL on its own ([23.3]) — it does NOT count as incomplete — so this
+# phase is INCOMPLETE purely because it is a lone-deliverable phase awaiting its
+# phase-close seal (the [15.7] carve), caught by unsealed_lone_phases(), exactly as
+# a lone-✅ unsealed phase is. Pinned so the carve still flags a lone ❌ as open.
 P=$(make_project complete)
 cat > "$P/docs/PHASE_STATUS.md" <<'MD'
 # Phase Status Tracker
@@ -574,10 +576,11 @@ OUT=$(run "$P" --check); RC=$?
   || no "a lone ❌ unsealed phase must read INCOMPLETE (rc=$RC: $OUT)"
 
 # T21b — the lone-❌ unsealed phase must be listed exactly ONCE, not double-listed.
-# incomplete_lines() already reports the ❌ bullet; unsealed_lone_phases() must NOT
-# independently re-emit the '## Phase 7' header for the same phase, or --check (and
-# --archive's refusal) name the one blocker twice. Reuses T21's tracker; counts
-# every reference to phase 7 in the INCOMPLETE listing — must be exactly 1.
+# After the [23.3] fix the ❌ bullet is terminal, so incomplete_lines() no longer
+# reports it; unsealed_lone_phases() is the sole emitter, naming the '## Phase 7'
+# header once. The two sibling listers must never both fire for the same phase or
+# --check (and --archive's refusal) name the one blocker twice. Reuses T21's tracker;
+# counts every reference to phase 7 in the INCOMPLETE listing — must be exactly 1.
 N7=$(echo "$OUT" | grep -cE '7\.1|## Phase 7')
 [ "$N7" -eq 1 ] \
   && ok "lone ❌ unsealed phase: listed once, not double-listed (n=$N7)" \
@@ -605,6 +608,88 @@ OUT=$(run "$P" --check); RC=$?
 [ "$RC" -eq 0 ] && echo "$OUT" | grep -q "status=COMPLETE" \
   && ok "LEGACY lone-✅ final phase: COMPLETE unchanged (carve is grammar-only)" \
   || no "a LEGACY lone-deliverable phase must still read COMPLETE (rc=$RC: $OUT)"
+
+# ── T23 — a multi-deliverable phase with a ❌-descoped line reads COMPLETE ──────
+# The reported bug ([23.3]): an initiative that used `/replan descope` carries ❌
+# deliverables; archive --check counted ❌ as INCOMPLETE (the ❌ in incomplete_lines),
+# so a genuinely-finished initiative could not archive without --force (which falsely
+# stamps ABANDONED, corrupting the frozen record). ❌ is TERMINAL (descoped/abandoned)
+# — exactly as the resolver's open set (resolve-ready.sh) and replan's phase_completed
+# already treat it. A multi-deliverable phase of all-✅-or-descoped-❌ auto-tallies
+# COMPLETE (no seal needed — the lone-phase carve below is the only seal path), so the
+# initiative must --check exit 0 COMPLETE.
+P=$(make_project complete)
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 6 — Plan as Data**
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Tracker grammar amendment `[deps: none]` (2026-06-12)
+- ❌ **[6.2]** Ready-frontier resolver `[deps: 6.1]` (descoped 2026-06-23: superseded by [6.3])
+- ✅ **[6.3]** Revised resolver `[deps: 6.1]` (2026-06-23)
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q "status=COMPLETE" \
+  && ok "all-✅-or-descoped-❌ multi-deliverable phase: --check exit 0 COMPLETE (descope is terminal)" \
+  || no "a ✅+descoped-❌ initiative must read COMPLETE, not be blocked by the ❌ (rc=$RC: $OUT)"
+
+# ── T24 — a real open line still refuses, naming the open line not the ❌ ───────
+# Dropping ❌ from incomplete_lines() must NOT blind archive to genuine open work: a
+# ⬜/🔄/🔒 line still blocks (exit 3), and the listed blocker is the open line,
+# never the descoped ❌ in the same phase (the ❌ is terminal — it must not be named
+# as a blocker). Multi-deliverable phase, so the lone-phase seal carve does not apply.
+P=$(make_project complete)
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 6 — Plan as Data**
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Done `[deps: none]`
+- ❌ **[6.2]** Abandoned approach `[deps: none]` (abandoned 2026-06-23: dead end)
+- ⬜ **[6.3]** Genuinely not started `[deps: 6.1]`
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] && echo "$OUT" | grep -q '\[6.3\]' && ! echo "$OUT" | grep -q '\[6.2\]' \
+  && ok "a real ⬜ still refuses (exit 3) and names the open line, not the descoped ❌" \
+  || no "a genuine open line must still block, listing the ⬜ not the ❌ (rc=$RC: $OUT)"
+
+# ── T25 — lone-❌ SEALED → COMPLETE (the seal half T21/T21b above do not cover) ──
+# T21/T21b pin the lone-❌ UNSEALED case (INCOMPLETE, listed once). This pins the
+# other half of the carve: once a lone-❌ phase carries a phase-close seal it reads
+# COMPLETE — coherent with replan's phase_completed (a lone ✅/❌ phase is complete
+# only once phase-close-sealed). After the [23.3] fix the lone-❌ phase is now caught
+# by unsealed_lone_phases() (naming '## Phase N'), not incomplete_lines() — so this
+# also guards that the unsealed→sealed transition flips the verdict. Phase 6 is
+# multi-✅ here so only the lone-❌ Phase 7 exercises the carve.
+P=$(make_project complete)
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 7 — Spike**
+
+## Phase 6 — Plan as Data
+
+- ✅ **[6.1]** Done `[deps: none]`
+- ✅ **[6.2]** Also done `[deps: 6.1]`
+
+## Phase 7 — Spike
+
+- ❌ **[7.1]** Gating spike, abandoned before its build set `[deps: none]` (abandoned 2026-06-23: direction dropped)
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 3 ] && echo "$OUT" | grep -qE 'Phase 7' \
+  && ok "lone-❌ unsealed micro-phase is open-until-sealed (exit 3, matches replan)" \
+  || no "a lone-❌ unsealed phase must read INCOMPLETE until sealed (rc=$RC: $OUT)"
+# Seal Phase 7 with a phase-close record — a lone-❌ SEALED phase reads COMPLETE.
+printf '> - 2026-06-23 — phase-close [7] (session-2026-06-23-001)\n' >> "$P/docs/PHASE_STATUS.md"
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q "status=COMPLETE" \
+  && ok "a lone-❌ SEALED micro-phase reads COMPLETE (the seal is the deliberate close)" \
+  || no "a sealed lone-❌ phase must read COMPLETE (rc=$RC: $OUT)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

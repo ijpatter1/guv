@@ -35,12 +35,19 @@ TRACKER="docs/PHASE_STATUS.md"
 REQS="docs/REQUIREMENTS.md"
 ARCH="docs/ARCHITECTURE.md"
 
-# Deliverable lines are status-marker bullets; anything not ✅ is incomplete.
-# 🔒 (human-gated, [10.1]) is OPEN work — the resolver counts it toward the open
-# phase, so an initiative still holding a 🔒 deliverable is not COMPLETE and
-# archival refuses it (or stamps ABANDONED under --force) like any other
-# incomplete line.
-incomplete_lines() { grep -E '^\s*-\s*(⬜|🔄|❌|🔒)' "$TRACKER"; }
+# Deliverable lines are status-marker bullets. OPEN work is ⬜|🔄|🔒; both ✅ (done)
+# and ❌ (descoped/abandoned) are TERMINAL ([23.3]) — neither blocks completion on its
+# own. This agrees with the resolver's open set (resolve-ready.sh) and replan's
+# phase_completed, which both already treat ❌ as terminal, so an initiative whose
+# every deliverable is ✅-or-descoped-❌ reads COMPLETE rather than forcing a --force
+# archive (which would falsely stamp ABANDONED). 🔒 (human-gated, [10.1]) IS open work
+# — the resolver counts it toward the open phase, so an initiative still holding a 🔒
+# deliverable is not COMPLETE and archival refuses it (or stamps ABANDONED under
+# --force) like any other open line. (The one exception that still blocks on a
+# terminal marker is a LONE-deliverable phase whose single item is ✅/❌: it is
+# open-until-SEALED — the [15.7] carve below, via unsealed_lone_phases(), not via this
+# open-marker set.)
+incomplete_lines() { grep -E '^\s*-\s*(⬜|🔄|🔒)' "$TRACKER"; }
 done_count() { grep -cE '^\s*-\s*✅' "$TRACKER"; }
 max_phase() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+' | sort -n | tail -1; }
 min_phase() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+' | sort -n | head -1; }
@@ -63,17 +70,20 @@ DATE_RE='[0-9]{4}-[0-9]{2}-[0-9]{2}'
 phase_numbers() { grep -Eo '^##+ Phase [0-9]+' "$TRACKER" | grep -Eo '[0-9]+'; }
 phase_sealed() { grep -qE "^> - $DATE_RE — phase-close \[$1\] " "$TRACKER"; }
 # Emits the '## Phase N …' header of each lone-deliverable phase that is done
-# (all ✅/❌, no open marker) yet not sealed — i.e. open by the engine's notion.
-# Skips any phase whose lone deliverable carries a marker incomplete_lines()
-# already reports (⬜|🔄|🔒|❌): those phases are listed by that sibling, so
-# re-emitting the header here would double-list the one blocker. Only a lone-✅
-# unsealed phase has ZERO incomplete-marker lines — the gap this fills.
+# (its one ✅/❌, no open ⬜|🔄|🔒 marker) yet not sealed — i.e. open by the engine's
+# notion. Skips any phase whose lone deliverable carries an OPEN marker
+# incomplete_lines() already reports (⬜|🔄|🔒): that phase is listed by that sibling,
+# so re-emitting the header here would double-list the one blocker. A lone phase whose
+# single item is ✅ OR ❌ has ZERO open-marker lines (both terminal, [23.3]) — that is
+# the gap this fills: the lone-deliverable seal carve fires for either terminal marker,
+# so a lone-❌ unsealed phase is caught HERE now (not by incomplete_lines, which no
+# longer reports ❌), and a sealed one drops out below exactly like a sealed lone-✅.
 unsealed_lone_phases() {
   local n lines nlines
   for n in $(phase_numbers); do
     lines=$(grep -E "^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*\*\*\[$n\.[0-9]+\]\*\*" "$TRACKER")
     [ -n "$lines" ] || continue                       # LEGACY / no ID'd bullets
-    echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄|🔒|❌)' && continue   # already in incomplete_lines()
+    echo "$lines" | grep -qE '^\s*-\s*(⬜|🔄|🔒)' && continue   # already in incomplete_lines()
     nlines=$(echo "$lines" | grep -c '.')
     [ "$nlines" -eq 1 ] || continue                   # not a lone-deliverable phase
     phase_sealed "$n" && continue                     # deliberately sealed → done
@@ -83,8 +93,14 @@ unsealed_lone_phases() {
 
 # A tracker with no marker bullets at all, or no "## Phase N" headers, is not a
 # tracker this script can reason about — fail loud rather than read it as done.
+# Test marker_lines() (the full ✅|🔄|⬜|❌|🔒 set) directly: once ❌ left
+# incomplete_lines() above, an all-❌ (fully-descoped) tracker has zero ✅ AND zero
+# open-marker lines yet is perfectly valid, so the old
+# `done_count==0 && incomplete_lines empty` would now misread it as MALFORMED.
+# marker_lines() still counts ❌, so the no-bullets invariant is preserved exactly.
+# (marker_lines() is defined below; bash resolves it at call time, via validate().)
 malformed() {
-  [ "$(done_count)" -eq 0 ] && [ -z "$(incomplete_lines)" ] && return 0
+  [ -z "$(marker_lines)" ] && return 0
   [ -z "$(max_phase)" ] && return 0
   return 1
 }
