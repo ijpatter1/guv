@@ -5,6 +5,65 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.8.0 — 2026-06-27
+
+Minor release (0.x): **context-management posture (Phase 16) + a broad cold-path-correctness
+hardening pass (Phases 19, 20, 23) found by dogfooding toward go-public.** The additive headline
+is the context-management posture: scaffold/onboard now elicit how a project manages the context
+wall and carry the chosen setpoints. The bulk is correctness — the entry doors, hooks, archival,
+feedback drain, and stack detection all hardened against the off-happy-path states a real
+split-topology install hit while dogfooding guv through the plugin. All additive or corrective:
+a project that never elicits a context-management posture keeps its prior behavior unchanged.
+
+### Added
+
+- **Context-management posture** ([16.2]) — scaffold/onboard elicit the operator's context-wall
+  posture and write it as an additive `contextManagement` manifest block (schema-validated):
+  an interactive forced-choice prompt, a headless loud-unset path, and an existing-project
+  migration nudge.
+- **Auto-compaction carrier** ([16.3]) — when continue-mode is chosen, the
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is scaffolded into a gitignored `settings.local.json`.
+- **Meter ↔ auto-compaction reconciliation** ([16.4]) — deterministic arm/disarm so exactly one
+  threshold is authoritative (hard-stop: setpoint armed, compaction window unset; continue:
+  window set, meter advisory-only), plus a one-shot warn-band approach warning; the chosen
+  governor is guided into place, not auto-armed.
+- **Mechanized feedback triage** ([15.4]) — a `feedback.sh` helper for log triage (list / group
+  / status flips) replacing hand-edited NDJSON surgery.
+- **Local-only feedback posture made legible** ([20.7]) — the opt-in/local-only stance is stated
+  in the surface, and the friction log loads at session start.
+
+### Fixed
+
+- **Cold-path correctness — go-public blockers** (Phase 19): a placeholder-only tracker reads
+  NONE rather than INCOMPLETE ([19.1]); onboard's pre-scaffold exit-4 routes to scaffold first
+  ([19.2]); init-project gets a headless present-and-proceed branch with a loud stop on
+  headless+no-spec ([19.3]); hook registrations anchor to `$CLAUDE_PROJECT_DIR` so the safety
+  hooks fire off-root ([19.4]); hook registration dedups when the plugin is also installed
+  ([19.5]); `replan` sync-check rejoins wrapped REQUIREMENTS deliverables.
+- **Cold-path correctness II — dogfood-surfaced** (Phase 23): the entry-door router reaches the
+  boundary doors on first entry to a freshly-planned phase and on a skeleton-scaffolded greenfield
+  ([23.1]); the upstream feedback drain resolves `roots.sh` under the plugin-cache layout, not only
+  the template layout ([23.2]); `archive-initiative` treats a descoped/abandoned ❌ deliverable as
+  terminal, so a genuinely-complete initiative archives without `--force` ([23.3]).
+- **Evaluator read-only guard anchored to command position** ([20.1]) — benign redirects and
+  wrappers no longer evade the guard; residual disclosure split by direction.
+- **Scaffold metering hygiene** ([20.2]) — the transient metering runtime artifact is gitignored;
+  the keep/ignore split is proven against git, not a proxy.
+- **Stack detection** ([20.6]) — `resolve-stack` distinguishes pyproject from requirements and
+  detects the absence of ruff.
+- **Battery harness** ([15.1]) — fixture-collision resolved before parallelism, a loud no-timeout
+  path, and the core-test gate-integrity holes closed.
+- **Lone-deliverable carve reconciliation** ([15.7]) — the three completion oracles (resolver,
+  replan, archive) agree on a spike-gated lone-deliverable phase as open-until-sealed; handoff's
+  inherited `confirm()` guards against a non-interactive vacuous pass.
+
+### Changed
+
+- **Handoff procedure slimmed** — bulky reference split out of the resident procedure ([20.5]); the
+  rendered CLAUDE.md Bootstrapping section self-removes past scaffold ([20.4]).
+- **Go-public criterion (b) reframed** in `RELEASING.md` (public-distribution dogfooding) with an
+  explicit cold-read exclusion.
+
 ## 0.7.0 — 2026-06-19
 
 Minor release (0.x): **Phase 14 — autonomous context management.** A session now holds its
