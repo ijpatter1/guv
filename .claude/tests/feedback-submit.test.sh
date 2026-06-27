@@ -407,6 +407,32 @@ printf '%s\n' "$BLOCK14" > "$WORK/t14-block.sh"
   && ok "running the emitted block fires no embedded command substitution (no injection)" \
   || no "the emitted block executed an injected \$(…) — title is not quote-safe"
 
+# ── T15 — roots.sh resolves under the PLUGIN-CACHE layout, not only the template ──
+# Under a plugin-cache install the bundled script lives at
+# <plugin>/skills/feedback/scripts/feedback-submit.sh while the helpers (roots.sh
+# included) live flat under <plugin>/scripts/ (build-plugin.sh copies .claude/*.sh
+# there). Three levels up from the bundled script is <plugin>/ — so a fixed
+# "<3up>/roots.sh" misses the /scripts segment, the source fails, and the whole
+# drain dies (exit 4) before it can draft a single entry. This builds that exact
+# layout and asserts the drain still resolves roots.sh and runs.
+PLUG="$WORK/plugin.$RANDOM$RANDOM"
+mkdir -p "$PLUG/scripts" "$PLUG/skills/feedback/scripts"
+cp "$CLAUDE_DIR"/*.sh "$PLUG/scripts/" 2>/dev/null   # all top-level helpers, incl roots.sh
+cp "$SCRIPT" "$PLUG/skills/feedback/scripts/feedback-submit.sh"
+PSCRIPT="$PLUG/skills/feedback/scripts/feedback-submit.sh"
+P15=$(make_project); LOG15="$P15/$LOG_REL"
+add_entry "$LOG15" "plug1" "upstream" "open" "must drain under a plugin-cache layout"
+OUT15=$( cd "$P15" && GUV_GH="$STUB_DIR/gh-reachable" bash "$PSCRIPT" submit 2>"$WORK/t15.err" ); RC15=$?
+[ $RC15 -eq 0 ] \
+  && ok "drain resolves roots.sh under the plugin-cache layout (rc=$RC15)" \
+  || no "plugin-cache layout must resolve roots.sh, not die 4 (rc=$RC15, err=$(cat "$WORK/t15.err"))"
+echo "$OUT15" | grep -q "plug1" \
+  && ok "the entry is drafted under the plugin-cache layout (the drain actually ran)" \
+  || no "drain must draft the entry under the plugin layout (out=$OUT15)"
+grep -qi "could not resolve a code repo" "$WORK/t15.err" \
+  && no "plugin-cache layout still dies on roots resolution (the bug)" \
+  || ok "no roots-resolution failure under the plugin-cache layout"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

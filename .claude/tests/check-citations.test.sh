@@ -104,6 +104,26 @@ printf 'stale %s\n' "$STALE" > "$C/docs/sessions/s6.md"
 ( cd "$C" && bash "$SCRIPT" >/dev/null 2>&1 )
 [ $? -eq 0 ] && ok "exits 0 even with a stale citation" || no "must exit 0 (advisory)"
 
+# T8 — roots.sh resolves under the PLUGIN-CACHE layout, not only the template.
+# Under a plugin-cache install check-citations.sh lives at
+# <plugin>/skills/status/scripts/ while the helpers (roots.sh included) live flat
+# under <plugin>/scripts/. Three levels up from the bundled script is <plugin>/ —
+# a fixed "<3up>/roots.sh" misses the /scripts segment, roots.sh isn't found, and
+# this advisory SILENTLY exits 0 (never runs, never flags). Build that layout and
+# assert it STILL flags a stale citation in a split plane (the check actually ran).
+CLAUDE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PLUG="$WORK/plugin"
+mkdir -p "$PLUG/scripts" "$PLUG/skills/status/scripts"
+cp "$CLAUDE_DIR"/*.sh "$PLUG/scripts/" 2>/dev/null     # all top-level helpers incl roots.sh
+cp "$SCRIPT" "$PLUG/skills/status/scripts/check-citations.sh"
+PSCRIPT="$PLUG/skills/status/scripts/check-citations.sh"
+C=$(make_control "../code")
+printf '# Session\nstale %s under a plugin layout\n' "$STALE" > "$C/docs/sessions/s8.md"
+OUT=$( cd "$C" && bash "$PSCRIPT" 2>/dev/null )
+echo "$OUT" | grep -q "$STALE" \
+  && ok "plugin-cache layout: roots.sh resolves, advisory still flags the stale hash" \
+  || no "plugin-cache layout silently no-ops (roots.sh not found at <plugin>/scripts) — got: [$OUT]"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

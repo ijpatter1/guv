@@ -43,8 +43,12 @@ MANIFEST=".claude/project.json"
 # path. The resolver returns the PRIMARY's path (the conventional single code
 # root this advisory check verifies against); a corrupt manifest makes it fail,
 # and an advisory check stays silent on failure (it never blocks). roots.sh is
-# four levels up under .claude/; source it location-relative ([7.7]).
-ROOTS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/roots.sh"
+# three levels up from this bundled script: `.claude/` in the template layout, the
+# plugin root (helpers flat under `scripts/`) under a plugin-cache install — so
+# probe both locations ([7.7]).
+ROOTS_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+ROOTS_SH="$ROOTS_BASE/roots.sh"
+[ -f "$ROOTS_SH" ] || ROOTS_SH="$ROOTS_BASE/scripts/roots.sh"
 # shellcheck source=/dev/null
 [ -f "$ROOTS_SH" ] && . "$ROOTS_SH" || exit 0
 CODE=$(roots_code_path 2>/dev/null) || exit 0

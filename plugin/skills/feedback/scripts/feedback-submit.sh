@@ -121,8 +121,12 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 \
 # named map, so a bare string read would hand `gh` the map object rather than a
 # clone path. The resolver returns the PRIMARY's path — the conventional single
 # code repo whose remote this drain resolves its upstream tracker from. roots.sh
-# is three levels up under .claude/; source it location-relative ([7.7]).
-ROOTS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/roots.sh"
+# is three levels up from this bundled script: that is `.claude/` in the template
+# layout, but the plugin root under a plugin-cache install, where the helpers live
+# flat under `scripts/` — so probe both locations ([7.7]).
+ROOTS_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+ROOTS_SH="$ROOTS_BASE/roots.sh"
+[ -f "$ROOTS_SH" ] || ROOTS_SH="$ROOTS_BASE/scripts/roots.sh"
 # shellcheck source=/dev/null
 . "$ROOTS_SH"
 CODE=$(roots_code_path) || die 4 "could not resolve a code repo from the manifest"
