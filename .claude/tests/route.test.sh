@@ -324,6 +324,132 @@ run "$MID" --for next extra-arg
   && ok "--for next <extra-arg> → usage exit 2 (no trailing positionals)" \
   || no "an extra argument after --for <door> must be a usage error exit 2 (got rc=$RC)"
 
+# ── 10. BOUNDARY: first entry to a freshly-planned phase → phase ([23.1]) ─────
+# The first misroute: the router read a populated-but-UNSTARTED phase as a
+# mid-phase resume. A Current Phase with an open GRAMMAR frontier but ZERO started
+# (✅/🔄) deliverables is a BOUNDARY — you just crossed into it — and the boundary
+# door (phase) runs the spec-alignment + deep-architecture + UAT ritual the light
+# door (next) skips. Before the fix this returned door=next, sending the boundary
+# ritual to the door that drops it. Fixture: Phase 6 fully ✅ (done), Phase 7 all
+# ⬜ (freshly planned) — the resolver reports phase=7, open frontier, zero ✅/🔄 in 7.
+BND=$(mkproj phased-boundary); manifest "$BND" phased
+touch "$BND/.scaffolded"
+cat > "$BND/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Build
+
+- ✅ **[6.1]** Done `[deps: none]`
+- ✅ **[6.2]** Done `[deps: 6.1]`
+
+## Phase 7 — Harden
+
+- ⬜ **[7.1]** Fresh `[deps: none]`
+- ⬜ **[7.2]** Fresh `[deps: 7.1]`
+MD
+cp "$BND/docs/PHASE_STATUS.md" "$BND/docs/REQUIREMENTS.md"
+run "$BND"
+[ "$RC" -eq 0 ] && ok "boundary: exit 0" || no "boundary should resolve (rc=$RC; err=$ERR)"
+[ "$(val door "$OUT")" = "phase" ] \
+  && ok "first entry to a freshly-planned phase (open frontier, zero ✅/🔄 in Current Phase) → phase" \
+  || no "a boundary (zero-started Current Phase) must route to phase, not the light door (got door=$(val door "$OUT"))"
+# The reason must distinguish this from the empty-frontier→phase path: it is a
+# boundary BECAUSE the phase is unstarted, not because the initiative is complete.
+echo "$OUT" | grep -qiE 'boundary|first entry|unstarted|zero' \
+  && ok "boundary: the reason names the first-entry/boundary state (not 'every deliverable ✅')" \
+  || no "boundary reason should explain the first-entry state (got: $(val reason "$OUT"))"
+
+# 10b — at a boundary, --for phase CONFIRMS (this IS the right door).
+run "$BND" --for phase
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "boundary + --for phase → confirm (match=yes) — the boundary door is correct here" \
+  || no "the boundary door (phase) must confirm at a boundary (got rc=$RC match=$(val match "$OUT"))"
+
+# 10c — at a boundary, --for next REDIRECTS to phase (the light door is wrong on
+# first entry — it would skip the spec-alignment ritual). Redirect, not error.
+run "$BND" --for next
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "phase" ] \
+  && ok "boundary + --for next → redirect to phase (the light door skips the boundary ritual)" \
+  || no "next at a boundary must redirect to phase (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+
+# 10d — GUARD: a 🔄 in the Current Phase is WORK UNDERWAY, not a boundary → next.
+# Pins that 'started' counts 🔄 too, not only ✅ — a phase with an in-progress
+# deliverable is mid-phase even with no ✅ yet.
+INPROG=$(mkproj phased-inprogress); manifest "$INPROG" phased
+touch "$INPROG/.scaffolded"
+cat > "$INPROG/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 7 — Harden
+
+- 🔄 **[7.1]** Underway `[deps: none]`
+- ⬜ **[7.2]** Fresh `[deps: 7.1]`
+MD
+cp "$INPROG/docs/PHASE_STATUS.md" "$INPROG/docs/REQUIREMENTS.md"
+run "$INPROG"
+[ "$(val door "$OUT")" = "next" ] \
+  && ok "a 🔄 in the Current Phase is mid-phase (work underway) → next, not a boundary" \
+  || no "a phase with an in-progress 🔄 must route to next (got door=$(val door "$OUT"))"
+
+# ── 11. UNAUTHORED GREENFIELD: placeholder-only tracker → init-project ([23.1]) ─
+# The second misroute, same root cause: a skeleton scaffold writes docs/PHASE_STATUS.md
+# FIRST (so the `! -f` greenfield probe does not fire), seeded with verbatim
+# `- ⬜ [Deliverable N …]` stubs that init-project/plan overwrite. A tracker that
+# carries ONLY those stubs is UNAUTHORED — still greenfield ([19.1] placeholder-as-
+# unauthored) — and the door that AUTHORS the plan is init-project. Before the fix
+# the resolver read the ⬜ stubs as an open frontier and the router said door=next.
+UNAUTH=$(mkproj phased-unauthored); manifest "$UNAUTH" phased
+touch "$UNAUTH/.scaffolded"
+cat > "$UNAUTH/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 1 — TBD
+
+- ⬜ [Deliverable 1 — first thing the plan will author]
+- ⬜ [Deliverable 2 — second thing]
+MD
+cp "$UNAUTH/docs/PHASE_STATUS.md" "$UNAUTH/docs/REQUIREMENTS.md"
+run "$UNAUTH"
+[ "$RC" -eq 0 ] && ok "unauthored: exit 0" || no "unauthored should resolve (rc=$RC; err=$ERR)"
+[ "$(val door "$OUT")" = "init-project" ] \
+  && ok "a placeholder-only (unauthored) tracker is greenfield → init-project, not next" \
+  || no "an unauthored placeholder tracker must route to init-project (got door=$(val door "$OUT"))"
+echo "$OUT" | grep -qiE 'placeholder|unauthored|greenfield' \
+  && ok "unauthored: the reason names the placeholder/unauthored state" \
+  || no "unauthored reason should explain the placeholder state (got: $(val reason "$OUT"))"
+
+# 11b — under --for, init-project CONFIRMS on a placeholder tracker (it owns the
+# author-the-plan job); next REDIRECTS to init-project.
+run "$UNAUTH" --for init-project
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "unauthored + --for init-project → confirm (match=yes) — init-project authors the plan" \
+  || no "init-project must confirm on an unauthored tracker (got rc=$RC match=$(val match "$OUT"))"
+run "$UNAUTH" --for next
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "init-project" ] \
+  && ok "unauthored + --for next → redirect to init-project (nothing authored to resume)" \
+  || no "next on an unauthored tracker must redirect to init-project (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+
+# 11c — GUARD: an AUTHORED tracker whose prose merely contains the word
+# "Deliverable" (not the verbatim `[Deliverable N` stub) is NOT a placeholder —
+# it routes by its real frontier (here: a started ✅ → mid-phase → next), never
+# hijacked to init-project. This is the exact false-positive the placeholder regex
+# guards against (the literal bracket is required).
+NOTPH=$(mkproj phased-deliverable-prose); manifest "$NOTPH" phased
+touch "$NOTPH/.scaffolded"
+cat > "$NOTPH/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Build
+
+- ✅ **[6.1]** Deliverable registry loader `[deps: none]`
+- ⬜ **[6.2]** Deliverable diff renderer `[deps: 6.1]`
+MD
+cp "$NOTPH/docs/PHASE_STATUS.md" "$NOTPH/docs/REQUIREMENTS.md"
+run "$NOTPH"
+[ "$(val door "$OUT")" = "next" ] \
+  && ok "authored prose containing 'Deliverable' is NOT a placeholder → routes by frontier (next), not init-project" \
+  || no "an authored tracker must not be misread as a placeholder greenfield (got door=$(val door "$OUT"))"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

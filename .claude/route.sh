@@ -181,6 +181,23 @@ if [ ! -f "$TRACKER" ]; then
   emit init-project "ceremony=phased but no $TRACKER — greenfield; init-project scaffolds the plan"
 fi
 
+# A tracker that EXISTS but carries ONLY verbatim placeholder stubs is still
+# GREENFIELD ([23.1]): the skeleton scaffold seeds `- ⬜ [Deliverable N …]` stubs
+# that init-project/plan overwrite with authored wording ([19.1] placeholder-as-
+# unauthored). A split scaffold writes that skeleton tracker FIRST, so the `! -f`
+# probe above does not fire — and without this the resolver below reads the ⬜
+# stubs as an open (LEGACY) frontier and the router misroutes to next instead of
+# the door that AUTHORS the plan. Detect it structurally, the same notion archive-
+# initiative.sh uses: marker bullets are present, but every one is a verbatim
+# `[Deliverable N` placeholder (zero authored lines). A partially-authored tracker
+# (any real deliverable line) is past greenfield and falls through to the resolver.
+PLACEHOLDER_RE='^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*\[Deliverable [0-9]'
+MARKER_RE='^\s*-\s*(✅|🔄|⬜|❌|🔒)'
+if grep -qE "$MARKER_RE" "$TRACKER" 2>/dev/null \
+   && ! grep -E "$MARKER_RE" "$TRACKER" 2>/dev/null | grep -qvE "$PLACEHOLDER_RE"; then
+  emit init-project "ceremony=phased but $TRACKER carries only verbatim placeholder stubs (unauthored) — greenfield; init-project authors the plan"
+fi
+
 # A live plan exists — the resolver is the single oracle for its state. Its
 # exit code and mode select among mid-phase / complete / LEGACY; a MALFORMED
 # tracker is an ambiguity the router refuses to resolve past (rule 15).
@@ -212,15 +229,31 @@ fi
 
 # GRAMMAR: mid-phase vs. complete is "is there open work?" The frontier is
 # empty exactly when every deliverable is ✅ (or ❌) — nothing in_progress,
-# ready, or blocked. Open work → next (the daily/mid-phase door). No open
-# work → phase (the boundary/next-decision door: cross into the next
-# phase, or the initiative is complete — a deliberate decision, not a resume).
+# ready, or blocked. No open work → phase (the boundary/next-decision door: cross
+# into the next phase, or the initiative is complete — a deliberate decision, not a
+# resume).
 IN_PROGRESS=$(echo "$RES" | grep -E '^in_progress=' | head -1 | sed 's/^in_progress=//')
 READY=$(echo "$RES" | grep -E '^ready=' | head -1 | sed 's/^ready=//')
 BLOCKED=$(echo "$RES" | grep -E '^blocked=' | head -1 | sed 's/^blocked=//')
+PHASE=$(echo "$RES" | grep -E '^phase=' | head -1 | sed 's/^phase=//')
 
 if [ -n "$IN_PROGRESS" ] || [ -n "$READY" ] || [ -n "$BLOCKED" ]; then
-  emit next "ceremony=phased, mode=GRAMMAR, open frontier — mid-phase; next presents the ready frontier"
+  # Open frontier — but distinguish FIRST ENTRY to the Current Phase (a boundary)
+  # from a mid-phase resume ([23.1]). The Current Phase (the resolver's phase=, the
+  # first phase with open work) is freshly entered when it carries ZERO started
+  # (✅/🔄) deliverables — you just crossed in, nothing is done or underway there.
+  # That is the boundary door (phase): it runs the spec-alignment + deep-architecture
+  # + UAT ritual the light door (next) skips. Any ✅/🔄 in the Current Phase means
+  # work is underway → next. This is a structural boundary check on the Current
+  # Phase's own markers, not a dispatch decision — the resolver remains the dispatch
+  # oracle (it already gave us the frontier above); we only ask whether its reported
+  # phase has been started yet.
+  STARTED=""
+  [ -n "$PHASE" ] && STARTED=$(grep -E "^\s*-\s*(✅|🔄)\s*\*\*\[$PHASE\.[0-9]+\]\*\*" "$TRACKER" 2>/dev/null)
+  if [ -n "$PHASE" ] && [ -z "$STARTED" ]; then
+    emit phase "ceremony=phased, mode=GRAMMAR, open frontier but zero ✅/🔄 in Current Phase $PHASE — first entry/boundary; phase runs the spec-alignment + architecture + UAT ritual the light door skips"
+  fi
+  emit next "ceremony=phased, mode=GRAMMAR, open frontier with work underway in Current Phase $PHASE — mid-phase; next presents the ready frontier"
 else
   emit phase "ceremony=phased, mode=GRAMMAR, empty frontier — every deliverable is ✅; phase is the boundary/next-decision door"
 fi
