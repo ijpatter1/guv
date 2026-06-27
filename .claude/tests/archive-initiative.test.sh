@@ -691,6 +691,32 @@ OUT=$(run "$P" --check); RC=$?
   && ok "a lone-❌ SEALED micro-phase reads COMPLETE (the seal is the deliberate close)" \
   || no "a sealed lone-❌ phase must read COMPLETE (rc=$RC: $OUT)"
 
+# ── T26 — a FULLY-descoped (all-❌, zero ✅) tracker reads COMPLETE, not MALFORMED ──
+# The malformed() rebase onto marker_lines() ([23.3]) exists precisely for this edge.
+# Once ❌ left incomplete_lines() (it is terminal), an all-❌ tracker has zero ✅ AND
+# zero open-marker lines — so the OLD `done_count==0 && incomplete_lines empty`
+# predicate would have misread it as MALFORMED (exit 5). marker_lines() still counts
+# the ❌ bullets, so the no-bullets invariant holds and the tracker is recognized as
+# valid; being multi-deliverable all-terminal (≥2 lines, so no [15.7] lone-seal
+# carve), it reads COMPLETE. An initiative whose every deliverable was abandoned is a
+# real, reachable state — without this assertion a regression re-breaking malformed()
+# for the all-descoped case passes the suite green.
+P=$(make_project complete)
+cat > "$P/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+> **Current Phase: 6 — Plan as Data**
+
+## Phase 6 — Plan as Data
+
+- ❌ **[6.1]** First approach `[deps: none]` (abandoned 2026-06-23: dead end)
+- ❌ **[6.2]** Second approach `[deps: none]` (abandoned 2026-06-23: superseded)
+MD
+OUT=$(run "$P" --check); RC=$?
+[ "$RC" -eq 0 ] && echo "$OUT" | grep -q "status=COMPLETE" \
+  && ok "fully-descoped all-❌ multi-deliverable tracker reads COMPLETE, not MALFORMED (malformed() rebase)" \
+  || no "an all-❌ tracker must read COMPLETE (valid + terminal), never MALFORMED (rc=$RC: $OUT)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
