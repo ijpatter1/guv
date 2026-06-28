@@ -187,6 +187,14 @@ the value is calibrated scrutiny; an ad-hoc verifier is prohibited): are the ste
 unambiguous, the prerequisites complete, the verification real, the navigation paths
 exact. You drafted it, so the reviewer is the independent second eye.
 
+**Routing is by artifact class, deliberately.** Every manual artifact goes to the
+`reviewer` regardless of form — a prose card *or* a script-dominant task. Spike S3 left a
+dominant-nature refinement open (a script-dominant task "leans evaluator"); it is resolved
+here to **class-based routing** — a manual artifact is a content-and-UX surface whatever
+its form, the reviewer is its calibrated eye (its checklist already covers "is the
+verification real"), and one matched vet keeps the latency bounded (Rule 7: the choice is
+made, not blended).
+
 This vet is **declared-not-gated** — the Rule-15 exit-0 rung: a NEEDS WORK verdict does
 **not** block creating the artifact or the session (exit 0). Do **two** things with the
 verdict: **record it** in the handoff artifact alongside the task reference (the written
@@ -195,7 +203,8 @@ template's default `QA: UNVETTED` line in place:
 
 ```bash
 bash .claude/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.sh pass guv:reviewer "0 findings"
-bash .claude/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.md  needs-work guv:reviewer "N findings"
+# On NEEDS WORK, locate the findings in the NOTE (a reader of the stamp can then find them):
+bash .claude/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.md  needs-work guv:reviewer "N findings — see handoff Issues & Technical Debt"
 ```
 
 If the vet **cannot run** (the reviewer is unavailable), do **not** present the card as
@@ -214,4 +223,7 @@ card is visibly un-vetted by construction; the vet overwrites it with the real v
 2. Note the task in the handoff artifact under **Blocked** or **In Progress** with a reference to the task file
 3. If the task blocks a phase deliverable, mark it 🔒 in PHASE_STATUS.md (the human-gated / awaiting-manual marker, tracked in `docs/manual/`) with a reference to the task card. Use 🔒, **not** ❌ — ❌ is dependency-blocked (a phase edge gates it); a deliverable waiting on this out-of-sandbox manual artifact is human-gated, the exact case 🔒 exists to distinguish. `status` and `handoff` report 🔒 as its own category (open work, awaiting `docs/manual/`), never folded into the blocked tally.
 4. Continue working on other deliverables that aren't blocked by this task
-5. Tell the user: "Created `docs/manual/task-YYYY-MM-DD-NNN.sh` — run it when you're ready"
+5. Tell the user, surfacing the QA verdict at the moment of hand-over: "Created
+   `docs/manual/task-YYYY-MM-DD-NNN.sh` — QA: <verdict> (vetted by `guv:reviewer`) — run
+   it when you're ready." On UNVETTED, say so plainly (e.g. "QA: UNVETTED — review did not
+   run") — never present an un-vetted card as ready-and-checked.

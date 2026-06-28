@@ -84,6 +84,16 @@ has "$UATPLAN" 'UNVETTED' "uat-plan: a review that cannot run degrades to UNVETT
 has "$UATPLAN" 'never a silent pass|not a silent pass|never .{0,20}silent|rather than .{0,30}passed' \
   "uat-plan: UNVETTED is loud — never a silent pass"
 
+# 7 — UNVETTED-by-construction: the header stamp is authored from birth (real, not merely claimed).
+has "$UATPLAN" 'by construction' \
+  "uat-plan: the UNVETTED backstop is authored by construction (the G4 default is real)"
+has "$UATPLAN" 'not yet vetted' \
+  "uat-plan: the default header stamp text is specified (UNVETTED — not yet vetted)"
+
+# 8 — class-based routing is the deliberate, legible resolution of the spike's open refinement (Rule 7).
+has "$UATPLAN" 'class-based routing|by artifact class' \
+  "uat-plan: routing-by-class is stated deliberately, not silently resolved (Rule 7)"
+
 # ════════════════ UAT generation surface — handoff Step 8 (the bridge) ════════════════
 echo "— UAT vet bridge (handoff Step 8) —"
 
@@ -119,6 +129,14 @@ has "$MANUAL" 'qa-stamp\.sh' "manual: stamps the verdict via qa-stamp.sh"
 has "$MANUAL" 'UNVETTED' "manual: a review that cannot run degrades to UNVETTED"
 has "$MANUAL" 'never a silent pass|not a silent pass|never .{0,20}silent' \
   "manual: UNVETTED is loud — never a silent pass"
+
+# 5 — class-based routing stated deliberately (Rule 7 — not silently resolved).
+has "$MANUAL" 'class-based routing|by artifact class' \
+  "manual: routing-by-class is stated deliberately (Rule 7)"
+
+# 6 — the QA verdict is surfaced at the hand-over moment (the created notice).
+has "$MANUAL" 'surfacing the QA verdict|QA: <verdict>' \
+  "manual: the hand-over notice surfaces the QA verdict to the human"
 
 # ════════════════ Routing parity — the independence guarantee (the heart) ════════════════
 echo "— routing parity —"

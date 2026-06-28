@@ -190,6 +190,50 @@ ERR=$(bash "$SCRIPT" "$F10" pass guv:evaluator 2>&1 >/dev/null)
   && ok "success path emits nothing to stderr (battery empty-stderr gate)" \
   || no "success path leaked to stderr: $ERR"
 
+# ════ T11 — a marker SUBSTRING off line-start does NOT fool detection (silent-no-op regression) ════
+# A UAT that tests this very feature echoes/greps the stamp text, so '# QA:' appears
+# MID-LINE with NO real line-start stamp. A substring-scoped detector takes the replace
+# branch, the line-anchored rewrite matches nothing, the file is written back verbatim —
+# yet the stamp is echoed and the run exits 0: a silent no-op reported as success (the
+# exact anti-pattern [18.2] kills). Detection must use the SAME line-start predicate as
+# the rewrite, so this case INSERTS a real stamp instead of no-op'ing.
+F11="$WORK/echoes-marker.sh"
+cat > "$F11" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+# This UAT verifies the stamp writer:
+echo "expected a '# QA: PASS' line in the header"
+grep -qE '^# QA:' "$out" && echo "stamped"
+EOF
+N11_before=$(grep -cE '^# QA:' "$F11")          # 0 — only off-line-start substrings exist
+OUT11=$(bash "$SCRIPT" "$F11" pass guv:evaluator "0 findings" 2>/dev/null); RC11=$?
+N11_after=$(grep -cE '^# QA: PASS' "$F11")
+[ "$RC11" -eq 0 ] && [ "$N11_before" -eq 0 ] && [ "$N11_after" -eq 1 ] \
+  && ok "off-line-start marker doesn't fool detection: a real stamp is INSERTED, not a silent no-op" \
+  || no "an off-line-start '# QA:' substring must not block insertion (before=$N11_before after=$N11_after rc=$RC11)"
+grep -q "expected a '# QA: PASS' line in the header" "$F11" \
+  && ok "the marker-substring body lines survive (only a real stamp line is added)" \
+  || no "stamping must not rewrite a marker-substring body line"
+
+# ════ T12 — pass/needs-work MUST name a reviewer; unvetted may omit it (Rule 14) ════
+# The by-name vet is what gives a PASS/NEEDS WORK its meaning — an unattributed verdict
+# is the unaccountable stamp [18.2] exists to prevent, so it is a loud stop, not a
+# "vetted by review" default. unvetted attributes to no one ("review did not run").
+F12="$WORK/noreviewer.sh"; mk_sh "$F12"; B12=$(cat "$F12")
+bash "$SCRIPT" "$F12" pass >/dev/null 2>&1; RC12=$?
+[ "$RC12" -ne 0 ] && [ "$(cat "$F12")" = "$B12" ] \
+  && ok "pass without a reviewer → loud fail, artifact untouched (a pass must be attributable)" \
+  || no "a pass with no reviewer must fail loudly and not mutate (rc=$RC12)"
+bash "$SCRIPT" "$F12" needs-work >/dev/null 2>&1; RC12b=$?
+[ "$RC12b" -ne 0 ] \
+  && ok "needs-work without a reviewer → loud fail (an unattributed NEEDS WORK is rejected too)" \
+  || no "needs-work with no reviewer must fail loudly (rc=$RC12b)"
+F12c="$WORK/unvetted-noreviewer.sh"; mk_sh "$F12c"
+bash "$SCRIPT" "$F12c" unvetted >/dev/null 2>&1; RC12c=$?
+[ "$RC12c" -eq 0 ] && grep -qE '^# QA: UNVETTED' "$F12c" \
+  && ok "unvetted without a reviewer → succeeds (it names no one, by design)" \
+  || no "unvetted should not require a reviewer (rc=$RC12c)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

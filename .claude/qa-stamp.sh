@@ -22,6 +22,15 @@
 #   needs-work →  NEEDS WORK — <reviewer> found issues   (vetted, issues to weigh)
 #   unvetted   →  UNVETTED — review did not run          (the LOUD degrade: a review
 #                 that could not run is VISIBLY unvetted, never a silent pass)
+# pass and needs-work NAME the reviewer — so REVIEWER is REQUIRED for them (an
+# unattributed verdict is exactly the unaccountable stamp [18.2] exists to prevent —
+# Rule 14); unvetted names no one, so REVIEWER is ignored there.
+# Two UNVETTED phrasings coexist by design, distinct on purpose: the templates ship
+# "UNVETTED — not yet vetted" (the vet has not been ATTEMPTED — visibly unvetted from
+# birth, by construction), while this helper's unvetted verdict writes "UNVETTED —
+# review did not run" (the vet WAS attempted but the reviewer was unavailable — the
+# loud degrade). Same loud signal, different cause; a reader can tell "not yet" from
+# "tried and failed."
 # An optional NOTE is appended as " — <note>" (e.g. "3 findings", "evaluator unavailable").
 #
 # Idempotent: an existing QA stamp line is REPLACED in place, wherever it sits (so the
@@ -30,14 +39,15 @@
 # the shebang for a script, after the first H1 for a card. The artifact's mode is
 # preserved across the rewrite (a UAT script is chmod +x'd before it is vetted).
 #
-# Usage: qa-stamp.sh ARTIFACT VERDICT [REVIEWER] [NOTE]
+# Usage: qa-stamp.sh ARTIFACT VERDICT REVIEWER [NOTE]
 #   ARTIFACT  path to stamp (must exist)
 #   VERDICT   pass | needs-work | unvetted   (case-insensitive)
-#   REVIEWER  e.g. guv:evaluator             (default: review)
-#   NOTE      freeform tail, optional
+#   REVIEWER  e.g. guv:evaluator — REQUIRED for pass|needs-work, ignored for unvetted
+#   NOTE      freeform tail, optional (on needs-work, locate the findings — e.g.
+#             "3 findings — see handoff Issues & Technical Debt")
 set -euo pipefail
 
-ART="${1:-}"; VERDICT="${2:-}"; REVIEWER="${3:-review}"; NOTE="${4:-}"
+ART="${1:-}"; VERDICT="${2:-}"; REVIEWER="${3:-}"; NOTE="${4:-}"
 
 [ -n "$ART" ] && [ -n "$VERDICT" ] || {
   echo "usage: qa-stamp.sh ARTIFACT VERDICT [REVIEWER] [NOTE]" >&2; exit 2; }
@@ -45,10 +55,17 @@ ART="${1:-}"; VERDICT="${2:-}"; REVIEWER="${3:-review}"; NOTE="${4:-}"
 
 # Normalize the verdict to its canonical label + body phrasing (the deterministic
 # transform). An unknown verdict is a loud stop (Rule 15) — never a silent default.
+# pass/needs-work must NAME their reviewer (Rule 14 — an unattributed verdict is the
+# unaccountable stamp [18.2] exists to prevent); unvetted attributes to no one.
+need_reviewer() {
+  [ -n "$REVIEWER" ] || {
+    echo "qa-stamp: a '$VERDICT' stamp must name its reviewer (Rule 14) — usage: qa-stamp.sh ARTIFACT $VERDICT REVIEWER [NOTE]" >&2
+    exit 2; }
+}
 v=$(printf '%s' "$VERDICT" | tr '[:upper:]' '[:lower:]' | tr -d ' _-')
 case "$v" in
-  pass)       LABEL="PASS";       BODY="vetted by $REVIEWER" ;;
-  needswork)  LABEL="NEEDS WORK"; BODY="$REVIEWER found issues" ;;
+  pass)       need_reviewer; LABEL="PASS";       BODY="vetted by $REVIEWER" ;;
+  needswork)  need_reviewer; LABEL="NEEDS WORK"; BODY="$REVIEWER found issues" ;;
   unvetted)   LABEL="UNVETTED";   BODY="review did not run" ;;
   *) echo "qa-stamp: unknown verdict '$VERDICT' (use pass|needs-work|unvetted)" >&2; exit 2 ;;
 esac
@@ -65,8 +82,14 @@ esac
 mode=$(stat -f '%Lp' "$ART" 2>/dev/null || stat -c '%a' "$ART" 2>/dev/null || echo "")
 
 tmp=$(mktemp)
-if grep -qF "$MARKER" "$ART"; then
-  # Replace the existing stamp in place — wherever it sits (idempotent).
+# Detect an existing stamp with the SAME predicate the replace uses — a line whose
+# PREFIX is the marker, not a marker SUBSTRING anywhere on a line (an `echo`/`grep` of
+# the stamp text, common in a UAT that tests this very feature, satisfies a substring
+# probe but is not a stamp). Detection scope == mutation scope, so the replace branch
+# is never taken on a match the awk rewrite would then miss — no silent no-op that
+# echoes a stamp and exits 0 having written nothing (the anti-pattern [18.2] kills).
+if awk -v pfx="$MARKER" 'substr($0, 1, length(pfx)) == pfx { found=1; exit } END { exit !found }' "$ART"; then
+  # Replace the existing stamp in place — the first line whose prefix is the marker.
   awk -v line="$LINE" -v pfx="$MARKER" '
     !done && substr($0, 1, length(pfx)) == pfx { print line; done=1; next }
     { print }

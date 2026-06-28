@@ -30,6 +30,13 @@ automated, fall back to human guidance only where judgment is required:
 
 Whether script or card, each UAT plan covers:
 
+- **Header stamp (UNVETTED by construction)** — author a default QA line into the
+  artifact *as you generate it*, before the vet runs: `# QA: UNVETTED — not yet vetted`
+  in a script's header comment block, `**QA:** UNVETTED — not yet vetted` in a `.md`
+  card's metadata (the same default the `/guv:manual` templates ship). This makes the
+  [18.2] G4 backstop real **by construction**, not merely asserted: a skipped or
+  failed vet still ships a *visibly* un-vetted artifact rather than one that reads as
+  silently passed. The vet below overwrites this line in place with the real verdict.
 - **Prerequisites** — what must be running, configured, or seeded before testing.
 - **Scenarios** — numbered end-to-end workflows, each exercising multiple
   deliverables together. Each scenario states a name and what it validates, steps
@@ -57,6 +64,16 @@ the `confirm()` gates ask genuine human-judgment questions. The evaluator vettin
 reviewer wrote is the point: independent of the generator, never the same agent grading
 its own work.
 
+**Routing is by artifact class, deliberately.** Every UAT vet goes to the `evaluator`
+regardless of the plan's form — an executable `.sh` script *or* a tier-3 prose `.md`
+card. Spike S3 left a dominant-nature refinement open (a prose UAT card "leans
+reviewer"); it is resolved here to **class-based routing** — a UAT is a test-quality
+surface whatever its form, the evaluator is its calibrated eye, and one matched vet keeps
+the latency bounded (Rule 7: the choice is made, not blended). For a prose `.md` card
+(no `verify()`/`confirm()` constructs to judge) point the evaluator at scenario coverage,
+edge-case completeness, and whether each scenario's expected outcome is a concrete check
+— and stamp the `.md` form (`qa-stamp.sh` selects `**QA:**` by extension automatically).
+
 This vet is **declared-not-gated** — the Rule-15 exit-0 rung: a NEEDS WORK verdict does
 **not** block the handoff. The session still exits 0 and the plan ships labelled with its
 verdict, the human deciding whether to act before accepting the phase. Do **two** things
@@ -69,7 +86,8 @@ with the verdict, never one:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}"/scripts/qa-stamp.sh docs/uat/phase-N-uat.sh pass guv:evaluator "0 findings"
-   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/qa-stamp.sh docs/uat/phase-N-uat.sh needs-work guv:evaluator "N findings"
+   # On NEEDS WORK, locate the findings in the NOTE so a reader of the stamp can find them:
+   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/qa-stamp.sh docs/uat/phase-N-uat.sh needs-work guv:evaluator "N findings — see handoff Issues & Technical Debt"
    ```
 
 If the vet **cannot run** (the evaluator is unavailable), do **not** present the plan as
@@ -80,9 +98,9 @@ visible, never a silent pass.
 bash "${CLAUDE_PLUGIN_ROOT}"/scripts/qa-stamp.sh docs/uat/phase-N-uat.sh unvetted guv:evaluator "evaluator unavailable"
 ```
 
-The generated UAT script carries a `# QA: UNVETTED — not yet vetted` line in its header
-block by default, so an un-vetted plan is visibly un-vetted by construction; the vet above
-overwrites it with the real verdict.
+Because the header stamp is authored UNVETTED by construction (see *UAT artifact
+structure* above), an un-vetted plan is **visibly** un-vetted even when the vet is skipped
+or cannot run — the vet above overwrites that default line in place with the real verdict.
 
 Note under **Next Steps** in the handoff artifact that UAT is ready to run:
 
