@@ -21,6 +21,12 @@ UAT's own dual-eval (the same go-public hardening class as 0.8.0's Phase 23 batc
   or ❌ descoped)", matching the code's own adjacent comment. The live dogfooding
   tracker already carries a descoped `❌ [20.3]`, so this would have misled at the
   next initiative close. `route.test.sh` gains a descoped-complete case (red→green).
+- **Empty-frontier explanation swept to its sibling surfaces** — the same "every
+  deliverable is ✅" framing also appeared, byte-identical, in the `/next` skill's
+  empty-frontier bullet (user-facing — the door a person actually meets mid-phase)
+  and in `archive-initiative.sh`'s header comment (which contradicted its own body
+  at line 42). Both now acknowledge descoped terminals, so the explanation reads
+  consistently wherever it surfaces, not only in `route.sh`'s emitted reason.
 
 ## 0.8.0 — 2026-06-27
 

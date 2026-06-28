@@ -79,9 +79,9 @@ later-phase item in `ready=` is legitimate work; `phase=` is reporting, not a ga
   resuming.
 - **Exit 4 (no tracker):** there is no `docs/PHASE_STATUS.md` to resolve (Step 0
   should have caught this). Stop and report.
-- **Exit 0 with an empty frontier:** legitimate — every deliverable is ✅, or all
-  open work is `blocked=`. Report that plainly (what's blocked, on what); it is a
-  state, not a failure.
+- **Exit 0 with an empty frontier:** legitimate — every deliverable is terminal
+  (✅ done or ❌ descoped), or all open work is `blocked=`. Report that plainly
+  (what's blocked, on what); it is a state, not a failure.
 - **`mode=LEGACY`:** a token-free tracker has no deps graph — only `serial=`
   carries a value (the first open line's text, not an ID). Present that as the
   next pick and note the tracker predates the DAG grammar.
