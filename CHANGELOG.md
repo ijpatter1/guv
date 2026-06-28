@@ -5,6 +5,23 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.8.1 — 2026-06-28
+
+Patch: a cold-path-correctness fix to a shipped script, surfaced by the Phase 23
+UAT's own dual-eval (the same go-public hardening class as 0.8.0's Phase 23 batch).
+
+### Fixed
+
+- **`route.sh` empty-frontier reason on a descoped plane** — when an initiative
+  completed *with a descoped deliverable* (a terminal `❌` from `/replan`), the
+  session-start router's boundary explanation hardcoded "every deliverable is ✅",
+  which is factually wrong — one was descoped, not done. The routing *decision* was
+  always correct (`door=phase`, the boundary/next-decision door); only the
+  human-facing `reason=` lied. It now reads "every deliverable is terminal (✅ done
+  or ❌ descoped)", matching the code's own adjacent comment. The live dogfooding
+  tracker already carries a descoped `❌ [20.3]`, so this would have misled at the
+  next initiative close. `route.test.sh` gains a descoped-complete case (red→green).
+
 ## 0.8.0 — 2026-06-27
 
 Minor release (0.x): **context-management posture (Phase 16) + a broad cold-path-correctness

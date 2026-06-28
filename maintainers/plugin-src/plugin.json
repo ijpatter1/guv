@@ -1,7 +1,7 @@
 {
   "name": "guv",
   "displayName": "Governor",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Governor (guv) — a control plane for Claude Code",
   "author": {
     "name": "Ian Patterson"

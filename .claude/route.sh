@@ -255,5 +255,5 @@ if [ -n "$IN_PROGRESS" ] || [ -n "$READY" ] || [ -n "$BLOCKED" ]; then
   fi
   emit next "ceremony=phased, mode=GRAMMAR, open frontier with work underway in Current Phase $PHASE — mid-phase; next presents the ready frontier"
 else
-  emit phase "ceremony=phased, mode=GRAMMAR, empty frontier — every deliverable is ✅; phase is the boundary/next-decision door"
+  emit phase "ceremony=phased, mode=GRAMMAR, empty frontier — every deliverable is terminal (✅ done or ❌ descoped); phase is the boundary/next-decision door"
 fi

@@ -140,6 +140,37 @@ run "$DONE"
   && ok "phased complete (empty frontier) → phase (boundary/next decision)" \
   || no "phased complete must route to phase (got door=$(val door "$OUT"))"
 
+# ── 4b. phased complete WITH A DESCOPE: ✅s plus a terminal ❌ → still phase,
+# and the reason must NOT claim "every deliverable is ✅" — a descoped ❌ is
+# terminal (drains the frontier) but is not done. The empty-frontier reason is
+# user-facing (route.sh's explanation of the boundary decision); on a plane that
+# completed with a descope, "every deliverable is ✅" is factually wrong (the
+# live dogfooding tracker itself carries a descoped ❌). Surfaced by the Phase-23
+# UAT dual-eval (cross-oracle #2). The routing DECISION was already correct (the
+# ❌ drains like the ✅s); only the reason string lied.
+DSC=$(mkproj phased-descoped); manifest "$DSC" phased
+touch "$DSC/.scaffolded"
+cat > "$DSC/docs/PHASE_STATUS.md" <<'MD'
+# Phase Status Tracker
+
+## Phase 6 — Build
+
+- ✅ **[6.1]** Done `[deps: none]`
+- ❌ **[6.2]** Descoped (premise dissolved) `[deps: none]`
+MD
+cp "$DSC/docs/PHASE_STATUS.md" "$DSC/docs/REQUIREMENTS.md"
+run "$DSC"
+[ "$RC" -eq 0 ] && ok "phased-descoped: exit 0" || no "phased-descoped should resolve (rc=$RC; err=$ERR)"
+[ "$(val door "$OUT")" = "phase" ] \
+  && ok "phased complete-with-descope (✅ + terminal ❌) → phase (boundary), same as all-✅" \
+  || no "complete-with-descope must route to phase (got door=$(val door "$OUT"))"
+echo "$(val reason "$OUT")" | grep -q 'every deliverable is ✅' \
+  && no "empty-frontier reason must not claim 'every deliverable is ✅' on a descoped plane (got: $(val reason "$OUT"))" \
+  || ok "complete-with-descope: reason does not falsely claim 'every deliverable is ✅'"
+echo "$(val reason "$OUT")" | grep -qiE 'terminal|descop' \
+  && ok "complete-with-descope: reason names the terminal/descoped state accurately" \
+  || no "empty-frontier reason should acknowledge descoped terminals (got: $(val reason "$OUT"))"
+
 # ── 5. LEGACY tracker: token-free → next (the LEGACY-appropriate door) ──────
 LEG=$(mkproj legacy); manifest "$LEG" phased
 touch "$LEG/.scaffolded"
