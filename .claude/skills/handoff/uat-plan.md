@@ -36,7 +36,7 @@ Whether script or card, each UAT plan covers:
   card's metadata (the same default the `/manual` templates ship). This makes the
   [18.2] G4 backstop real **by construction**, not merely asserted: a skipped or
   failed vet still ships a *visibly* un-vetted artifact rather than one that reads as
-  silently passed. The vet below overwrites this line in place with the real verdict.
+  silently passed. The vet below overwrites this default line with the real verdict.
 - **Prerequisites** — what must be running, configured, or seeded before testing.
 - **Scenarios** — numbered end-to-end workflows, each exercising multiple
   deliverables together. Each scenario states a name and what it validates, steps
@@ -100,7 +100,7 @@ bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh unvetted guv:evaluator "evaluat
 
 Because the header stamp is authored UNVETTED by construction (see *UAT artifact
 structure* above), an un-vetted plan is **visibly** un-vetted even when the vet is skipped
-or cannot run — the vet above overwrites that default line in place with the real verdict.
+or cannot run — never a plan that silently reads as passed.
 
 Note under **Next Steps** in the handoff artifact that UAT is ready to run:
 

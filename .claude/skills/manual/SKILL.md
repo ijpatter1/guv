@@ -215,7 +215,7 @@ bash .claude/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.sh unvetted guv:reviewe
 ```
 
 The templates above ship a default `QA: UNVETTED — not yet vetted` line, so an un-vetted
-card is visibly un-vetted by construction; the vet overwrites it with the real verdict.
+card is visibly un-vetted by construction — never silently presented as passed.
 
 ### Hand-off steps
 
@@ -223,7 +223,13 @@ card is visibly un-vetted by construction; the vet overwrites it with the real v
 2. Note the task in the handoff artifact under **Blocked** or **In Progress** with a reference to the task file
 3. If the task blocks a phase deliverable, mark it 🔒 in PHASE_STATUS.md (the human-gated / awaiting-manual marker, tracked in `docs/manual/`) with a reference to the task card. Use 🔒, **not** ❌ — ❌ is dependency-blocked (a phase edge gates it); a deliverable waiting on this out-of-sandbox manual artifact is human-gated, the exact case 🔒 exists to distinguish. `status` and `handoff` report 🔒 as its own category (open work, awaiting `docs/manual/`), never folded into the blocked tally.
 4. Continue working on other deliverables that aren't blocked by this task
-5. Tell the user, surfacing the QA verdict at the moment of hand-over: "Created
-   `docs/manual/task-YYYY-MM-DD-NNN.sh` — QA: <verdict> (vetted by `guv:reviewer`) — run
-   it when you're ready." On UNVETTED, say so plainly (e.g. "QA: UNVETTED — review did not
-   run") — never present an un-vetted card as ready-and-checked.
+5. Tell the user, surfacing the QA verdict at the moment of hand-over — the moment they
+   decide whether to trust the card. Tune the line to the verdict, never one-size:
+   - **PASS:** "Created `docs/manual/task-YYYY-MM-DD-NNN.sh` — QA: PASS (vetted by
+     `guv:reviewer`) — run it when you're ready."
+   - **NEEDS WORK:** name where the findings live and nudge weighing them first, don't
+     flatly invite a run — "Created `…` — QA: NEEDS WORK (vetted by `guv:reviewer`; see
+     the handoff's Issues & Technical Debt) — worth weighing the findings before you rely
+     on it."
+   - **UNVETTED:** say so plainly — "Created `…` — QA: UNVETTED (review did not run)" —
+     never present an un-vetted card as ready-and-checked.

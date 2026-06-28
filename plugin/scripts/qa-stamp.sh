@@ -50,7 +50,7 @@ set -euo pipefail
 ART="${1:-}"; VERDICT="${2:-}"; REVIEWER="${3:-}"; NOTE="${4:-}"
 
 [ -n "$ART" ] && [ -n "$VERDICT" ] || {
-  echo "usage: qa-stamp.sh ARTIFACT VERDICT [REVIEWER] [NOTE]" >&2; exit 2; }
+  echo "usage: qa-stamp.sh ARTIFACT VERDICT REVIEWER [NOTE]   (REVIEWER required for pass|needs-work)" >&2; exit 2; }
 [ -f "$ART" ] || { echo "qa-stamp: artifact not found: $ART" >&2; exit 2; }
 
 # Normalize the verdict to its canonical label + body phrasing (the deterministic
