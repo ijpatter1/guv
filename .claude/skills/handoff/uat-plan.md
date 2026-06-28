@@ -47,6 +47,43 @@ Make the script executable if applicable:
 chmod +x docs/uat/phase-N-uat.sh
 ```
 
+### Vet the generated plan (calibrated, by name)
+
+The `reviewer` generated these scenarios, so vet them with an **independent** second eye:
+invoke the **`evaluator`** subagent **by name** (Rule 14 — the entire value is calibrated
+test-quality scrutiny; an ad-hoc verifier is prohibited) to judge the UAT for soundness —
+do the scenarios exercise the deliverables end-to-end, are the `verify()` checks real, do
+the `confirm()` gates ask genuine human-judgment questions. The evaluator vetting what the
+reviewer wrote is the point: independent of the generator, never the same agent grading
+its own work.
+
+This vet is **declared-not-gated** — the Rule-15 exit-0 rung: a NEEDS WORK verdict does
+**not** block the handoff. The session still exits 0 and the plan ships labelled with its
+verdict, the human deciding whether to act before accepting the phase. Do **two** things
+with the verdict, never one:
+
+1. **Record it** in the handoff artifact under **Issues & Technical Debt** — the verdict,
+   the findings, and the reviewer name — the written record a person reads later.
+2. **Stamp it** on the artifact with the canonical helper (one source of the stamp format,
+   idempotent — it overwrites the script's default `# QA: UNVETTED` line in place):
+
+   ```bash
+   bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh pass guv:evaluator "0 findings"
+   bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh needs-work guv:evaluator "N findings"
+   ```
+
+If the vet **cannot run** (the evaluator is unavailable), do **not** present the plan as
+passed: degrade **loudly** to UNVETTED — recorded and stamped — so the unvetted state is
+visible, never a silent pass.
+
+```bash
+bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh unvetted guv:evaluator "evaluator unavailable"
+```
+
+The generated UAT script carries a `# QA: UNVETTED — not yet vetted` line in its header
+block by default, so an un-vetted plan is visibly un-vetted by construction; the vet above
+overwrites it with the real verdict.
+
 Note under **Next Steps** in the handoff artifact that UAT is ready to run:
 
 ```

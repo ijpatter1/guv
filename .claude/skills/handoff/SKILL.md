@@ -276,10 +276,15 @@ Then generate a user acceptance testing plan. The UAT plan verifies that the pha
 
 Invoke the `reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
 
-Use the reviewer's scenarios to produce the artifact. **The full UAT plan structure
-— the automation-first script/card hierarchy, the required artifact sections, and
-the after-generating steps — is in `uat-plan.md` in this skill's directory; read it
-when you generate the plan.** One rule is inlined here because every generated UAT
+Use the reviewer's scenarios to produce the artifact. Then **vet it via the
+`evaluator`** ([18.2]) — by name (Rule 14), and **independent of the `reviewer`** that
+generated it: the agent that wrote the scenarios never grades its own work. The vet is
+**declared-not-gated** (the exit-0 rung — a NEEDS WORK verdict never blocks the handoff),
+and its verdict is both recorded in this handoff and stamped on the artifact; a review
+that can't run degrades to UNVETTED, never a silent pass. **The full UAT plan structure
+— the automation-first script/card hierarchy, the required artifact sections, the vet
+mechanics, and the after-generating steps — is in `uat-plan.md` in this skill's directory;
+read it when you generate the plan.** One rule is inlined here because every generated UAT
 (and `/manual`) script inherits it — the human-judgment gate:
 
 ### The human-judgment gate (`confirm()`)

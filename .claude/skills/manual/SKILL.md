@@ -52,6 +52,7 @@ When the task is scriptable (the default — see Decision Guide below), produce 
 # Created: YYYY-MM-DD, session-YYYY-MM-DD-NNN
 # Phase: N
 # Blocks: [what downstream work is blocked, or "nothing"]
+# QA: UNVETTED — not yet vetted
 #
 # [2-3 sentences: what the agent built and what this
 # script completes. Not a novel — just enough context
@@ -132,6 +133,7 @@ Use this for tasks that genuinely cannot be scripted — navigating a third-part
 **Status:** pending
 **Priority:** [high | medium | low]
 **Blocks:** [what downstream work is blocked until this is done, or "nothing"]
+**QA:** UNVETTED — not yet vetted
 
 ## Context
 
@@ -176,6 +178,37 @@ Before choosing a format, ask:
 4. **Will this task recur?** → Makefile target, not a one-off script.
 
 ## After Creating the Artifact
+
+### Vet the artifact (calibrated, by name)
+
+Before you hand the artifact to the human, vet it ([18.2]). A manual card/script is a
+content-and-UX surface, so vet it with the **`reviewer`** subagent **by name** (Rule 14 —
+the value is calibrated scrutiny; an ad-hoc verifier is prohibited): are the steps
+unambiguous, the prerequisites complete, the verification real, the navigation paths
+exact. You drafted it, so the reviewer is the independent second eye.
+
+This vet is **declared-not-gated** — the Rule-15 exit-0 rung: a NEEDS WORK verdict does
+**not** block creating the artifact or the session (exit 0). Do **two** things with the
+verdict: **record it** in the handoff artifact alongside the task reference (the written
+record), and **stamp it** on the artifact with the canonical helper — it overwrites the
+template's default `QA: UNVETTED` line in place:
+
+```bash
+bash .claude/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.sh pass guv:reviewer "0 findings"
+bash .claude/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.md  needs-work guv:reviewer "N findings"
+```
+
+If the vet **cannot run** (the reviewer is unavailable), do **not** present the card as
+passed: degrade **loudly** to UNVETTED — recorded and stamped — never a silent pass.
+
+```bash
+bash .claude/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.sh unvetted guv:reviewer "reviewer unavailable"
+```
+
+The templates above ship a default `QA: UNVETTED — not yet vetted` line, so an un-vetted
+card is visibly un-vetted by construction; the vet overwrites it with the real verdict.
+
+### Hand-off steps
 
 1. Make scripts executable: `chmod +x docs/manual/task-*.sh`
 2. Note the task in the handoff artifact under **Blocked** or **In Progress** with a reference to the task file
