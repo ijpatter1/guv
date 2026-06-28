@@ -13,7 +13,7 @@
 #
 # Usage:
 #   bash .claude/archive-initiative.sh --check
-#       Exit 0  status=COMPLETE  max_phase=N   — every deliverable is terminal (✅ or descoped ❌)
+#       Exit 0  status=COMPLETE  max_phase=N   — every deliverable is terminal (✅ done or ❌ descoped)
 #       Exit 3  status=INCOMPLETE              — lists each incomplete line
 #       Exit 4  status=NONE                    — no real initiative to archive:
 #               no PHASE_STATUS.md, OR a tracker holding only the scaffold's

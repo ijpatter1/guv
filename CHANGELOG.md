@@ -26,7 +26,10 @@ UAT's own dual-eval (the same go-public hardening class as 0.8.0's Phase 23 batc
   empty-frontier bullet (user-facing — the door a person actually meets mid-phase)
   and in `archive-initiative.sh`'s header comment (which contradicted its own body
   at line 42). Both now acknowledge descoped terminals, so the explanation reads
-  consistently wherever it surfaces, not only in `route.sh`'s emitted reason.
+  consistently wherever it surfaces, not only in `route.sh`'s emitted reason. A new
+  maintainer suite (`empty-frontier-framing.test.sh`) pins the canonical terminal-aware
+  stem across all three surfaces, so a future drift fails loud instead of surviving
+  byte-identically into a doc mirror the way this one did.
 
 ## 0.8.0 — 2026-06-27
 
