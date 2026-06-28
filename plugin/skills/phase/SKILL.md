@@ -194,6 +194,26 @@ Identify the next feature or deliverable to work on within Phase $ARGUMENTS. Sta
 3. **How you'll test it** — the tests you'll write first (red/green TDD)
 4. **Integration points** — what existing code this touches
 5. **Definition of done** — how we'll know this feature is complete
+6. **Fan-out offer (non-blocking)** — when the frontier holds two or more ready
+   items, run the scaffold (`bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-ready.sh | bash
+   "${CLAUDE_PLUGIN_ROOT}"/scripts/fanout-offer.sh -`) and surface whether they could be built in parallel.
+   It reports the **mechanical** half — the floor `count(ready=) ≥ 2`, the
+   candidates, their sizes, and `default=serial`; `offer=yes` means *mechanically
+   eligible*, pending your judgments. **Surface-disjointness** (do they touch
+   *independent* code? judge it from the candidates' wording and acceptance, not
+   their IDs) and the composite **fit-verdict** (which also weighs whether the lanes
+   are *worth* the orchestration) are yours to add — the scaffold marks
+   `disjointness=agent-judgment` because it is a judgment over the wording, never a
+   resolver fact. Present the explicit three-way call: **fan out** (hand the
+   disjoint, sized set to `/guv:build-fanout <ids>`), **serial** (the `serial=` pick),
+   or **size first** (`offer=size-first` — **size** an unsized `needs_sizing=`
+   candidate via a bare `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set-sized <id> <light|medium|heavy>`
+   with no `/guv:replan`, **split** a `balloons=` candidate via `/guv:replan`, first). The
+   offer **never blocks**: `offer=not-assessed` degrades to "fan-out not assessed
+   (reason); serial pick is …". The **designed default is SERIAL** (Rule 15) — a
+   headless or unanswered run takes the `serial=` pick, records the offer
+   declined-by-absence in the session handoff, and never spawns worktrees
+   unattended.
 
 **In interactive mode:** Wait for the user to approve the plan before starting implementation. Do not begin coding until the plan is confirmed or adjusted.
 

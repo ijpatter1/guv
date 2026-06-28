@@ -110,6 +110,31 @@ Present a short summary and a plan for the `serial=` pick:
 - **Plan for the pick:** what you'll build, how you'll test it (red/green TDD),
   what it touches, and the definition of done — working from the deliverable's
   REQUIREMENTS line and acceptance criteria.
+- **Fan-out offer (non-blocking):** when the frontier holds two or more ready
+  items, surface whether they could be built in parallel. Run the scaffold —
+  `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-ready.sh | bash "${CLAUDE_PLUGIN_ROOT}"/scripts/fanout-offer.sh -` — which reports
+  `offer=yes|no|size-first|not-assessed` with the candidates, their sizes, and
+  `default=serial`. It computes only the **mechanical** half (the floor
+  `count(ready=) ≥ 2` and the sizing guardrail); `offer=yes` means *mechanically
+  eligible* — floor met, all candidates sized — **pending two judgments that are
+  yours** before you present the call: **surface-disjointness** — do these
+  candidates touch *independent* code, so parallel lanes won't collide? judge it
+  from the candidates' wording and acceptance, not their IDs — which the scaffold
+  marks `disjointness=agent-judgment` precisely because it is a judgment over the
+  wording, **not** a resolver fact; and the composite **fit-verdict**, which also
+  weighs whether the lanes are *worth* the orchestration (don't fan out an
+  all-trivial frontier just because it is parallel). Then present the three-way
+  call explicitly — **fan out** (hand the disjoint, sized set to `/guv:build-fanout
+  <ids>`), **serial** (take the `serial=` pick), or **size first** (`offer=size-first`
+  names the blockers: **size** an unsized `needs_sizing=` candidate with a bare
+  `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/estimate.sh set-sized <id> <light|medium|heavy>` — an estimate
+  revision needs no `/guv:replan` — and **split** a `balloons=` candidate via `/guv:replan`
+  (it exceeds one session), before the set can be fanned out). The offer **never
+  blocks**: `offer=not-assessed` (a malformed sidecar or unreadable frontier)
+  degrades to "fan-out not assessed (reason); serial pick is …" and you proceed.
+  The **designed default is SERIAL** (Rule 15) — a headless or unanswered run takes
+  the `serial=` pick and records the offer as declined-by-absence in the session
+  handoff; it never spawns worktrees unattended.
 
 **In interactive mode:** wait for the user to approve or adjust the pick before
 coding. **In headless/bypass mode:** present the plan and proceed; a prompt that
