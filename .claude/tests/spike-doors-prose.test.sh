@@ -65,6 +65,34 @@ for pair in "phase:$PHASE" "next:$NEXT" "replan:$REPLAN"; do
     "$name: recognizes ceremony=spike and routes the stop to /spike (the legibility fix)"
 done
 
+# Precedence — the load-bearing correctness property for phase/next. The spike branch
+# must come BEFORE the task/onboard catch-all: a spike project also lacks
+# PHASE_STATUS.md, so a catch-all matched first would misname /task — the exact
+# regression this deliverable kills. The token-presence assertions above pass
+# regardless of bullet order (each spike bullet is self-contained: ceremony→spike→
+# /spike all within it), so a reorder would silently reintroduce the bug while staying
+# green. Pin the ORDER explicitly — the /spike naming must precede the catch-all's
+# `/task "<…>"` redirect (Rule 8: the test must fail when the load-bearing property
+# breaks, not merely when a token disappears).
+precedes() { # $1=file  $2=earlier-pattern  $3=later-pattern  $4=label
+  local la lb
+  la=$(grep -nE "$2" "$1" | head -1 | cut -d: -f1)
+  lb=$(grep -nE "$3" "$1" | head -1 | cut -d: -f1)
+  if [ -n "$la" ] && [ -n "$lb" ] && [ "$la" -lt "$lb" ]; then
+    ok "$4"
+  else
+    no "$4 (expected earlier before later; earlier@${la:-none} later@${lb:-none})"
+  fi
+}
+echo "— phase / next: the spike branch precedes the task/onboard catch-all —"
+for pair in "phase:$PHASE" "next:$NEXT"; do
+  name="${pair%%:*}"; file="${pair#*:}"
+  # `/task "` (slash-task-space-quote) matches ONLY the catch-all's `/task "<description>"`
+  # redirect — never the spike bullet's "misname `/task`" (which is /task + backtick).
+  precedes "$file" '/spike' '/task "' \
+    "$name: the spike branch precedes the task/onboard catch-all (a reorder would misname /task)"
+done
+
 # ── task — no existing stop; it must RECOGNIZE spike and redirect to /spike ──────
 # task is content-driven ([8.1]) — an explicit change is processed in ANY ceremony, so
 # it does not refuse an explicit request. The fix is the session-entry / no-explicit-

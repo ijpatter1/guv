@@ -17,11 +17,13 @@ docs. How much ceremony it applies is read from `ceremony` in `.claude/project.j
   doc bookkeeping entirely. This is the common case for adopting/maintaining a repo.
 - **`phased`** — in-phase router. Classify the feedback and update the project docs
   so the spec doesn't drift, then implement. Steps 1–2 apply in full.
-- **`spike`** — exploration mode, not a scoped-change door. With an explicit change
-  in `$ARGUMENTS`, `/guv:task` stays content-driven (see the routing note below) and
+- **`spike`** — exploration mode, not a scoped-change door. A spike project also has
+  no phase docs, so this branch takes precedence over the first bullet's "no phase
+  docs" catch — spike is exploration, not scoped mode. With an explicit change in
+  `$ARGUMENTS`, `/guv:task` stays content-driven (see the routing note below) and
   processes it. But with no specific change — a session-entry landing in a spike
-  project — name `/guv:spike` (free-form exploration) and stop, rather than silently run
-  the session as a scoped change.
+  project — name `/guv:spike` (free-form exploration, no phase DAG) and stop, rather than
+  silently run the session as a scoped change.
 
 A missing project-shape artifact (no `docs/REQUIREMENTS.md`, no phase docs) is a
 **mode signal, not an error** — it means task mode, so skip the doc steps cleanly.
@@ -44,7 +46,8 @@ $ARGUMENTS
 
 This should describe what needs to change — a bug you found, a quality improvement
 you want, or a new capability to add. If no arguments are provided, ask what the
-change is.
+change is — except in a `spike`-ceremony project, where a no-change landing routes
+to `/guv:spike` (the spike branch above), not a request for a scoped change.
 
 ## Step 1 — Classify (phased projects only)
 
