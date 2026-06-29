@@ -182,8 +182,8 @@
     },
     "ceremony": {
       "type": "string",
-      "description": "How much project-shape machinery the commands invoke. 'phased' = full greenfield with phase docs; 'onboard' = existing repo, conventions inferred not scaffolded, no phase structure; 'task' = scoped change, no phase docs.",
-      "enum": ["phased", "onboard", "task"]
+      "description": "How much project-shape machinery the commands invoke. 'phased' = full greenfield with phase docs; 'onboard' = existing repo, conventions inferred not scaffolded, no phase structure; 'task' = scoped change, no phase docs; 'spike' = free-form/exploratory work, light structure (goal, timebox, findings drain), no phase DAG.",
+      "enum": ["phased", "onboard", "task", "spike"]
     },
     "views": {
       "type": "object",
