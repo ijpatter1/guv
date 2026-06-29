@@ -24,9 +24,10 @@ placing the finding in its lineage.
 
 ## 2. Why this spike exists
 
-The gap, in one or two paragraphs — what is missing and the motivating evidence (cite
-`file:line` where the claim is about code). State what the spike does **not** do: a
-spike composes existing primitives and answers a question; it does not re-implement.
+The gap, in one or two paragraphs — what is missing, the **originating requirement or
+spec gap** the spike traces to, and the motivating evidence (cite `file:line` where the
+claim is about code). State what the spike does **not** do: a spike composes existing
+primitives and answers a question; it does not re-implement.
 
 ## 3. Name the asymmetry up front
 

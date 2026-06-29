@@ -103,8 +103,9 @@ a destination, not wandering.
 
 Do the work. A spike has **no phase DAG and no resolver** — you are not building a
 deliverable against a red/green gate, you are answering the goal. Capture the
-finding as you go (in the drain you named), so the record is the work product, not
-an afterthought. Stay inside the timebox from Step 2; when the goal is answered — or
+finding as you go (in the drain you named) — and shape it as you capture, per the
+**spike-finding convention** named at the close (Step 5) — so the record is the work
+product, not an afterthought. Stay inside the timebox from Step 2; when the goal is answered — or
 the timebox is spent — stop, and go to the close (Step 5).
 
 ## Step 5 — Close: Drain the Finding, or Declare It Undrained

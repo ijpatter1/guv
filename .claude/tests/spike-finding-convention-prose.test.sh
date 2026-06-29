@@ -19,9 +19,10 @@
 # sibling-doc pattern `/handoff` uses for handoff-artifact.md / uat-plan.md). Without
 # the pointer the doc is an orphan; the convention is only real if the skill routes to it.
 #
-# PARTITION — references skills/spike/SKILL.md, so the harness auto-partitions this
+# PARTITION — references skills/spike/SKILL.md, so build-plugin.sh auto-partitions it
 # MAINTAINER-ONLY (pattern skills/[a-z][a-z-]*/SKILL\.md): it runs in the core battery
-# and never ships, exactly like spike-close-prose / spike-doors-prose.
+# and never ships (ship-suite.test.sh derives the same partition), exactly like
+# spike-close-prose / spike-doors-prose.
 #
 # BSD-grep-safe: fixed-string greps (grep -F) and header-anchored line-number lookups
 # only — no chained [^.]{0,N} interval quantifiers (which backtrack catastrophically
@@ -55,7 +56,7 @@ hasF() { # $1=file  $2=literal  $3=label
 # numbers must be present and strictly increasing — that IS the settled order.
 if [ -f "$CONV" ]; then
   order_ok=1; prev=0; missing=""
-  for kw in 'Header' 'Why' 'asymmetry' 'Evidence' 'Designed default' 'gates' 'watch-item'; do
+  for kw in 'Header' 'Why' 'asymmetry' 'Evidence' 'Designed' 'gates' 'watch-item'; do
     ln=$(grep -nE "^#+ .*$kw" "$CONV" | head -1 | cut -d: -f1)
     if [ -z "$ln" ]; then missing="$missing $kw"; order_ok=0; continue; fi
     if [ "$ln" -le "$prev" ]; then order_ok=0; fi
@@ -86,9 +87,20 @@ else
   no "MISSING in convention doc: the DRAFTED → RATIFIED status convention"
 fi
 
-# ── A5 — Evidence → Decision is the per-question contract (the heart of part 4)
-hasF "$CONV" "Evidence" "per-question contract: names Evidence"
-hasF "$CONV" "Decision" "per-question contract: names Decision"
+# ── A5 — within part 4, the Evidence bullet precedes the Decision bullet (the
+# per-question Evidence→Decision *flow*, not mere whole-file presence — A1 already pins
+# part 4's header, so this pins the pairing ORDER inside the section). Block-scoped:
+# extract part 4 (its header carries 'Evidence' → next part-5 header carries 'Designed').
+if [ -f "$CONV" ]; then
+  P4=$(awk '/^#+ .*Evidence/{f=1} f&&/^#+ .*Designed/{exit} f{print}' "$CONV")
+  ev=$(printf '%s\n' "$P4" | grep -nF '**Evidence**' | head -1 | cut -d: -f1)
+  de=$(printf '%s\n' "$P4" | grep -nF '**Decision**' | head -1 | cut -d: -f1)
+  if [ -n "$ev" ] && [ -n "$de" ] && [ "$ev" -lt "$de" ]; then
+    ok "part 4: the Evidence bullet precedes the Decision bullet (the per-question flow)"
+  else
+    no "part 4 broken: Evidence→Decision bullet pairing/order missing within the section"
+  fi
+fi
 
 # ── A6 — INTEGRATION: the spike skill points at the convention doc, in-directory ──
 hasF "$SKILL" "spike-finding-convention.md" "skill points at the convention doc by name"
