@@ -105,9 +105,42 @@ Do the work. A spike has **no phase DAG and no resolver** — you are not buildi
 deliverable against a red/green gate, you are answering the goal. Capture the
 finding as you go (in the drain you named), so the record is the work product, not
 an afterthought. Stay inside the timebox from Step 2; when the goal is answered — or
-the timebox is spent — stop and drain the finding to its named destination, then
-close with the non-phased `/handoff` (a spike records like any other session; there
-is no phase to seal).
+the timebox is spent — stop, and go to the close (Step 5).
+
+## Step 5 — Close: Drain the Finding, or Declare It Undrained
+
+A spike's value is its finding, and the close is where it lands — or is owed. When the
+goal is answered or the timebox is spent, do **one** of these before closing with the
+non-phased `/handoff` (a spike records like any other session; there is no phase to
+seal):
+
+- **Drain it** to the destination you named in Step 3:
+  - **archive → `docs/spikes/`** — write the finding as a dated design note (the home
+    the [16.1]/[17.1]/[18.1]/[21.1] findings use). This includes the explicit
+    *nothing-to-build* outcome: the finding is recorded, and no work follows.
+  - **`/plan` or `/replan insert`** — when the finding gates build work, groom it into
+    the plan as deliverable(s).
+  - **`/feedback`** — when the finding is friction with guv itself.
+
+  A drained finding is **RECORDED** — the note, the deliverable(s), or the feedback
+  entry is the durable artifact, and nothing else is owed.
+
+- **Declare it undrained.** If you reach the close with **no drain** chosen, surface the
+  **undrained-finding** notice rather than let the finding evaporate silently — emit it
+  verbatim:
+
+  ```
+  ⚠ UNDRAINED FINDING — this spike is closing with no drain chosen.
+    The finding exists but has no destination: it is owed to one of /plan ·
+    /replan insert · /feedback · or an archive note in docs/spikes/.
+    This is a DECLARATION, not a stop (the exit-0 rung): the close PROCEEDS — the
+    drain is owed to the written record, not to this session.
+  ```
+
+  This **mirrors the handoff's feedback-drain step**: it is loud but **non-blocking**
+  — a spike's finding is a fuzzy, human call, never a mid-flight stop ([13.5]
+  semantics) — so the notice rides into the `/handoff` record for a person to resolve,
+  and the close is not gated on it.
 
 ## Reminders
 
@@ -116,8 +149,10 @@ is no phase to seal).
   work is not a spike — it is a phased initiative (`/plan`) or a scoped change
   (`/task`); route there instead.
 - **The finding outlives the spike.** The ceremony is the scaffolding; the finding
-  in its drain is what persists. A spike that ends without a drained finding has
-  produced nothing — name the drain in Step 3 and honor it on the way out.
+  in its drain is what persists. A spike that ends without a drained finding has a
+  finding **owed** to the record — Step 5's close either drains it or declares it
+  undrained (loud, non-blocking), so it is never lost silently. Name the drain in
+  Step 3 and honor it on the way out.
 - **Compose, don't build.** The timebox is `budgets.session`/`budget-gate.sh`, the
   drain is `docs/spikes/` + `/feedback`, the record is the non-phased `/handoff` —
   all existing. The spike door adds a goal and a destination, nothing more.
