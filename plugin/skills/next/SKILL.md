@@ -46,6 +46,11 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for next
 
 Read `ceremony` from `.claude/project.json`:
 
+- If `ceremony` is **`spike`**, this is exploration mode — there is no plan DAG to
+  resume. That is a **mode signal, not an error**: name `/guv:spike` (free-form
+  exploration, no phase DAG) and stop here. This branch must precede the
+  `task`/`onboard` one below — a spike project also has no `docs/PHASE_STATUS.md`, so
+  without it the catch-all would misname `/guv:task`.
 - If `ceremony` is **`task`** or **`onboard`**, or `docs/PHASE_STATUS.md` doesn't
   exist, this project has no ready-frontier to resume — there is no plan DAG to
   resolve. That is a **mode signal, not an error**: tell the user to use

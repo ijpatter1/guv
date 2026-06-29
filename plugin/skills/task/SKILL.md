@@ -17,6 +17,11 @@ docs. How much ceremony it applies is read from `ceremony` in `.claude/project.j
   doc bookkeeping entirely. This is the common case for adopting/maintaining a repo.
 - **`phased`** — in-phase router. Classify the feedback and update the project docs
   so the spec doesn't drift, then implement. Steps 1–2 apply in full.
+- **`spike`** — exploration mode, not a scoped-change door. With an explicit change
+  in `$ARGUMENTS`, `/guv:task` stays content-driven (see the routing note below) and
+  processes it. But with no specific change — a session-entry landing in a spike
+  project — name `/guv:spike` (free-form exploration) and stop, rather than silently run
+  the session as a scoped change.
 
 A missing project-shape artifact (no `docs/REQUIREMENTS.md`, no phase docs) is a
 **mode signal, not an error** — it means task mode, so skip the doc steps cleanly.
@@ -28,7 +33,10 @@ router (`"${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh`) selects for **session entry*
 project, and the door the phased entry commands (`/guv:phase`, `/guv:next`) and
 `/guv:init-project`/`/guv:onboard` redirect *to* when invoked in a scoped project. If you
 landed here at session start with no specific change in mind, that redirect was
-the router doing its job — describe the change and proceed.
+the router doing its job — describe the change and proceed. The one exception is a
+**`spike`-ceremony** project: a no-change session-entry landing there belongs in
+`/guv:spike` (free-form exploration), not a scoped change — name `/guv:spike` and stop, so
+spike work is not silently run as a scoped change.
 
 ## Input
 

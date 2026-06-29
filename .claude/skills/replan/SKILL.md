@@ -15,9 +15,10 @@ before proceeding.
 ## Step 0 — Preconditions
 
 This command mutates phase docs, so it only applies in **`phased`** ceremony.
-Read `ceremony` from `.claude/project.json`: in `task` or `onboard` mode, or when
-`docs/PHASE_STATUS.md` doesn't exist, there is no plan to mutate — that's a mode
-signal, not an error; say so and stop.
+Read `ceremony` from `.claude/project.json`: in **`spike`** mode there is no plan
+DAG to mutate — name `/spike` (free-form exploration) and stop. Likewise in `task`
+or `onboard` mode, or when `docs/PHASE_STATUS.md` doesn't exist, there is no plan to
+mutate — that's a mode signal, not an error; say so and stop.
 
 Run the resolver to load plan state:
 
