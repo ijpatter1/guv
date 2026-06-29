@@ -115,8 +115,11 @@ non-phased `/guv:handoff` (a spike records like any other session; there is no p
 seal):
 
 - **Drain it** to the destination you named in Step 3. The finding's written **home**
-  is a dated design note in `docs/spikes/`; where it goes *next* depends on what it
-  gates:
+  is a dated design note in `docs/spikes/` — **shape it per the spike-finding
+  convention**: read `spike-finding-convention.md` in this skill's directory, the
+  ordered section shape the S1→S3 road-test settled (header → why → asymmetry →
+  per-question Evidence→Decision → designed default + loud path → what it gates →
+  watch-items). Where it goes *next* depends on what it gates:
   - **Nothing to build → the `docs/spikes/` note is the whole drain.** Write the
     finding as a dated design note; it is recorded, and no work follows — the note is
     all that is owed (the terminal case).
