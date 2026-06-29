@@ -423,6 +423,28 @@ UNKNOWN_TOP_PH=$(comm -23 <(echo "$JP" | jq -r 'keys[]' | sort) <(jq -r '.proper
 jq -e --arg c "$(field "$JP" .ceremony)" '.properties.ceremony.enum | index($c)' "$SCHEMA" >/dev/null \
   && ok "schema: phased proposal's ceremony is in the schema enum" || no "schema: ceremony '$(field "$JP" .ceremony)' not in schema enum"
 
+# ── [21.2] — `spike` is an additive, schema-declared ceremony value ──
+# The exploration ceremony adds `spike` to the enum (free-form/exploratory work,
+# light structure: goal, timebox, findings drain; no phase DAG). The contract is
+# ADDITIVE and CLOSED: the value is declared and documented, the prior three are
+# untouched, and a genuinely-unknown ceremony is still NOT a member (the enum did
+# not relax into a free-form string). Routing for `spike` lands in [21.3]; here the
+# schema only declares it — so this asserts the declaration, not the routing.
+jq -e '.properties.ceremony.enum | index("spike")' "$SCHEMA" >/dev/null \
+  && ok "schema: ceremony 'spike' is a declared enum value ([21.2])" \
+  || no "schema: ceremony 'spike' must be in the enum ([21.2])"
+for c in phased onboard task; do
+  jq -e --arg c "$c" '.properties.ceremony.enum | index($c)' "$SCHEMA" >/dev/null \
+    && ok "schema: ceremony '$c' still declared (spike is additive, not a replacement)" \
+    || no "schema: adding 'spike' must not drop '$c' from the enum"
+done
+jq -e '.properties.ceremony.description | test("spike")' "$SCHEMA" >/dev/null \
+  && ok "schema: ceremony description documents the 'spike' value ([21.2])" \
+  || no "schema: ceremony description must document 'spike' ([21.2])"
+jq -e '.properties.ceremony.enum | index("zooglemorph")' "$SCHEMA" >/dev/null \
+  && no "schema: enum must stay closed — an unknown ceremony is not a member" \
+  || ok "schema: a genuinely-unknown ceremony is still absent from the enum ([21.2])"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
