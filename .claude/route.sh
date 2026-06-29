@@ -53,10 +53,11 @@ MANIFEST=".claude/project.json"
 RESOLVER="$(cd "$(dirname "$0")" && pwd)/resolve-ready.sh"
 TRACKER="docs/PHASE_STATUS.md"
 
-# The closed door vocabulary — the router knows exactly these (the entry split
-# left five; the routing collapse is the function over them). A --for outside
-# this set is a caller typo, not a redirect target.
-KNOWN_DOORS="init-project onboard next phase task"
+# The closed door vocabulary — the router knows exactly these (the [8.1] entry
+# split left five; spike is the sixth, the exploration door for free-form work).
+# The routing collapse is the function over them. A --for outside this set is a
+# caller typo, not a redirect target.
+KNOWN_DOORS="init-project onboard next phase task spike"
 
 # The SCAFFOLDING doors — the two that write the manifest into a fresh repo. On
 # the PRE-SCAFFOLD state (no manifest) these PROCEED rather than stop, because
@@ -162,13 +163,16 @@ case "$CEREMONY" in
   onboard)
     emit onboard "ceremony=onboard — existing repo, conventions inferred not scaffolded"
     ;;
+  spike)
+    emit spike "ceremony=spike — free-form exploration, no phase DAG"
+    ;;
   phased)
     : # fall through to the phased decision below
     ;;
   *)
-    # Not in the schema enum (phased|onboard|task) — including empty. The
+    # Not in the schema enum (phased|onboard|task|spike) — including empty. The
     # router will not invent a door for a ceremony it does not recognize.
-    stop "unrecognized ceremony '${CEREMONY:-<missing>}' — expected one of phased|onboard|task (fix .claude/project.json)"
+    stop "unrecognized ceremony '${CEREMONY:-<missing>}' — expected one of phased|onboard|task|spike (fix .claude/project.json)"
     ;;
 esac
 

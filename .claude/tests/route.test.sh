@@ -481,6 +481,55 @@ run "$NOTPH"
   && ok "authored prose containing 'Deliverable' is NOT a placeholder → routes by frontier (next), not init-project" \
   || no "an authored tracker must not be misread as a placeholder greenfield (got door=$(val door "$OUT"))"
 
+# ── [21.3] — the spike entry door (ceremony=spike → door=spike) ───────────────
+# The exploration ceremony ([21.2] added the schema value) routes to its own
+# light door, exactly as task→task / onboard→onboard. `--for spike` CONFIRMS; the
+# scope-knowing doors (next/phase) REDIRECT to spike without erroring; and a spike
+# on a manifest-less repo DEFERS — a live-work door has nothing to resume on a
+# fresh repo, so spike must stay OUT of SCAFFOLD_DOORS.
+SPIKE=$(mkproj spike); manifest "$SPIKE" spike
+
+run "$SPIKE"
+[ "$RC" -eq 0 ] && [ "$(val door "$OUT")" = "spike" ] \
+  && ok "ceremony=spike → door=spike (the exploration door, exit 0)" \
+  || no "a spike manifest must route to door=spike (got rc=$RC door=$(val door "$OUT"); err=$ERR)"
+# Match on the SUCCESS reason's distinctive words only — NOT bare "spike", which
+# also appears in the failure stop ("unrecognized ceremony 'spike'"), so a bare
+# match would pass even on a routing failure (Rule 8: it must redden on regress).
+echo "$OUT" | grep -qiE 'free-form|explorat|no phase DAG' \
+  && ok "spike: the reason names the exploration/free-form ceremony" \
+  || no "spike reason should explain the free-form ceremony (got: $(val reason "$OUT"))"
+
+# --for spike CONFIRMS (this IS the right door) — and proves spike is a KNOWN door
+# (an unknown --for would exit 2 'unknown door', never match=yes).
+run "$SPIKE" --for spike
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "spike + --for spike → confirm (match=yes, exit 0) — spike is a recognized door" \
+  || no "the correct door (spike) must confirm match=yes exit 0 (got rc=$RC match=$(val match "$OUT"); err=$ERR)"
+
+# --for next REDIRECTS to spike (the live-plan door is wrong on a DAG-less spike) —
+# redirect, not error (exit 0). This is the redirect the spike skill's Step-0 guard
+# and the four scope-knowing doors ([21.4]) will follow.
+run "$SPIKE" --for next
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "spike" ] \
+  && ok "spike + --for next → redirect to spike (match=no, door=spike, exit 0)" \
+  || no "next on a spike project must redirect to spike, not error (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+
+# --for phase likewise REDIRECTS to spike (named in the acceptance beside next).
+run "$SPIKE" --for phase
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "spike" ] \
+  && ok "spike + --for phase → redirect to spike (match=no, door=spike, exit 0)" \
+  || no "phase on a spike project must redirect to spike, not error (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+
+# A spike on a manifest-LESS repo defers: spike is a live-work door (not a
+# scaffolding door), so there is nothing to resume on a fresh repo → match=no,
+# exit 4 (the same contract next/phase/task carry; spike ∉ SCAFFOLD_DOORS).
+SPIKENM=$(mkproj spike-no-manifest)  # mkproj leaves no project.json
+run "$SPIKENM" --for spike
+[ "$RC" -eq 4 ] && [ "$(val match "$OUT")" = "no" ] \
+  && ok "pre-scaffold + --for spike → defer (match=no, exit 4) — spike is not a scaffolding door" \
+  || no "spike on a manifest-less repo must defer exit 4 match=no (got rc=$RC match=$(val match "$OUT"))"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
