@@ -12,11 +12,21 @@
 # skill's own contract is "compose, don't build … adds a goal and a destination,
 # nothing more"). So the close is prose the model executes, and the contract is the
 # words: this suite pins that the close (a) names all four drains as the OWED set,
-# (b) carries a LOUD undrained-finding notice, and (c) pins that notice as DECLARED-
-# NOT-GATED — loud but non-blocking. (c) is the load-bearing property (Rule 8): a
-# regression that silenced the notice OR turned it into a hard stop must RED here —
-# pinning the token alone would pass either way, exactly the trap [21.4]'s ordering
-# pin called out.
+# (b) carries a LOUD undrained-finding notice, (c) pins that notice as DECLARED-NOT-
+# GATED — loud but non-blocking, and (d) ties the docs/spikes/ note to a build
+# graduation as ACCOMPANYING it, not an either/or. (c) is the load-bearing property
+# (Rule 8): a regression that silenced the notice OR turned it into a hard stop must
+# RED here — pinning the token alone would pass either way, exactly the trap [21.4]'s
+# ordering pin called out.
+#
+# (a) and (c) are scoped to the EXTRACTED notice block (the fenced ⚠ UNDRAINED FINDING
+# block), checked with fixed-string greps — not a single whole-file regex chaining four
+# bounded `[^.]{0,N}` quantifiers. That chained form backtracks catastrophically under
+# BSD `grep -E` (macOS, the battery's env) on a NON-matching file that still carries
+# partial anchors — i.e. exactly the basic regression these pins exist to catch — turning
+# a clean ✗ into a multi-minute hang (a fail-loud-as-HANG defect; Rule 10 wants a legible
+# ✗, not a stall). The block scope keys (c) on the IN-BLOCK declaration, so a faithful
+# gate-hardening of the notice reds it regardless of any trailing out-of-block sentence.
 #
 # References skills/spike/SKILL.md, so build-plugin.sh auto-partitions it MAINTAINER-
 # ONLY (the 'skills/[a-z][a-z-]*/SKILL\.md' pattern) — runs in the core battery,
@@ -48,6 +58,16 @@ has() { # $1=file  $2=pattern  $3=label
   fi
 }
 
+# Extract the undrained-finding NOTICE — the fenced block led by '⚠ UNDRAINED FINDING'
+# (that token appears once, only here). Pinning (a)/(c) against this bounded block with
+# FIXED-STRING greps is what makes them BSD-grep-safe and anti-vacuous: a whole-file
+# chained-quantifier regex backtracks to a hang on a near-miss, and a block scope keys
+# (c) on the IN-BLOCK declaration so a gate-hardening of the notice cannot hide behind a
+# surviving out-of-block sentence. If the notice is removed, NOTICE is empty and every
+# block-scoped check reds (loud), exactly as a silenced notice should.
+NOTICE=$(awk '/UNDRAINED FINDING/{f=1} f&&/```/{exit} f{print}' "$SPIKE")
+nin() { printf '%s' "$NOTICE" | grep -qF "$1"; }   # fixed-string: in the notice block?
+
 echo "— spike close: the exit step drains the finding or declares it undrained —"
 
 # (1) The close is its own EXIT step — not just a clause tacked onto "begin". Pin a
@@ -56,13 +76,17 @@ echo "— spike close: the exit step drains the finding or declares it undrained
 has "$SPIKE" '#+ Step 5[^#]{0,60}[Cc]lose' \
   "close: the skill has a dedicated Step 5 close step"
 
-# (2) The undrained notice enumerates ALL FOUR drains as the OWED set. Anchored on
-#     'owed' so it cannot be satisfied by Step 3's up-front drain NAMING (which lists
-#     the drains in a non-owed context) — the four must appear together as what the
-#     finding is owed to at close. (Anti-vacuity: token-presence alone passes via
-#     Step 3; the 'owed → four drains' window is unique to the [21.5] close.)
-has "$SPIKE" 'owed[^.]{0,140}/plan[^.]{0,80}/replan insert[^.]{0,80}/feedback[^.]{0,80}archive' \
-  "close: the undrained notice names all four owed drains (/plan · /replan insert · /feedback · archive)"
+# (2) The undrained notice enumerates ALL FOUR drains as the OWED set — checked INSIDE
+#     the extracted notice block with fixed-string greps, so it cannot be satisfied by
+#     Step 3's up-front drain NAMING (which lists the drains OUTSIDE the notice) and
+#     cannot backtrack to a hang on a near-miss. The four together in the notice is the
+#     'owed' window unique to the [21.5] close (anti-vacuity: token-presence elsewhere
+#     never reaches this block — the parent file has no notice, so NOTICE is empty here).
+if nin '/plan' && nin '/replan insert' && nin '/feedback' && nin 'archive'; then
+  ok "close: the undrained notice names all four owed drains (/plan · /replan insert · /feedback · archive)"
+else
+  no "MISSING in undrained notice: all four owed drains (/plan · /replan insert · /feedback · archive)"
+fi
 
 # (3) The notice is LOUD — a named, visible undrained-finding signal, not a silent
 #     drop. Pre-[21.5] there is no such token, so this reddens without the fix.
@@ -71,12 +95,18 @@ has "$SPIKE" 'UNDRAINED[ -]FINDING' \
 
 # (4) LOAD-BEARING (Rule 8) — the notice is DECLARED, NOT GATED: loud but non-blocking,
 #     the exit-0 rung, the close PROCEEDS. This is the [13.5]/[13.6] 'declare, never
-#     stop' rung the meter BALLOON and budget-gate FORESEEN OVERRUN ride. The pin
-#     catches BOTH drift directions a token-only assertion would miss: if the notice
-#     were silenced (3 fails) OR hardened into a stop/gate (this fails). A spike's
-#     finding is fuzzy — a human call, never a mid-flight stop (Rule 15: wrong rung).
-has "$SPIKE" '(DECLARATION|declared)[^.]{0,40}not[^.]{0,20}(a )?stop|not gated|exit-0 rung|close proceeds' \
-  "close: the undrained notice is DECLARED-NOT-GATED — loud but non-blocking (exit-0 rung)"
+#     stop' rung the meter BALLOON and budget-gate FORESEEN OVERRUN ride. Checked IN THE
+#     NOTICE BLOCK (the verbatim text the model emits), so it catches BOTH drift
+#     directions a token-only assertion would miss: a silenced notice empties NOTICE
+#     (this + (3) fail), and a notice HARDENED into a stop rewrites the in-block
+#     'DECLARATION … not a stop … close PROCEEDS' (this fails) — with no surviving
+#     out-of-block sentence to mask it. A spike's finding is fuzzy — a human call, never
+#     a mid-flight stop (Rule 15: wrong rung). (Literal-alternation grep — no backtrack.)
+if nin 'DECLARATION' && printf '%s' "$NOTICE" | grep -qE 'not a stop|close PROCEEDS|exit-0 rung'; then
+  ok "close: the undrained notice is DECLARED-NOT-GATED — loud but non-blocking (exit-0 rung)"
+else
+  no "MISSING in undrained notice: DECLARED-NOT-GATED — loud but non-blocking (exit-0 rung)"
+fi
 
 # (5) The notice fires precisely on the NO-DRAIN branch (the behavioral condition: a
 #     close reached with no drain chosen → the notice). Pins the trigger, not just the
@@ -95,6 +125,15 @@ has "$SPIKE" '[Rr]ecord(ed|s)?[^.]{0,80}(note|deliverable|feedback|drain)|(note|
 #     undrained notice to the existing drain pattern, not a bespoke invention.
 has "$SPIKE" '(handoff|feedback)[^.]{0,60}(feedback|drain)[^.]{0,40}(step|drain)' \
   "close: the undrained notice mirrors the handoff's feedback-drain step (composed, not invented)"
+
+# (8) The close ties the docs/spikes/ NOTE to a build graduation as ACCOMPANYING it —
+#     not an either/or. A build-gating spike writes its design note AND grooms via
+#     /plan|/replan (the ratified lifecycle: docs/spikes/21-1 'write a finding in
+#     docs/spikes/ → groom the gated build via /replan'); the close must not frame the
+#     two as mutually exclusive, or a /replan graduation could drop the note and lose
+#     the rationale. Single bounded quantifier — no chained-backtrack risk.
+has "$SPIKE" 'accompan(ies|y)[^.]{0,60}(graduation|groom)' \
+  "close: the docs/spikes/ note ACCOMPANIES a build graduation (not an either/or)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

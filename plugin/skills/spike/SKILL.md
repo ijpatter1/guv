@@ -114,16 +114,21 @@ goal is answered or the timebox is spent, do **one** of these before closing wit
 non-phased `/guv:handoff` (a spike records like any other session; there is no phase to
 seal):
 
-- **Drain it** to the destination you named in Step 3:
-  - **archive → `docs/spikes/`** — write the finding as a dated design note (the home
-    the [16.1]/[17.1]/[18.1]/[21.1] findings use). This includes the explicit
-    *nothing-to-build* outcome: the finding is recorded, and no work follows.
-  - **`/guv:plan` or `/guv:replan insert`** — when the finding gates build work, groom it into
-    the plan as deliverable(s).
-  - **`/guv:feedback`** — when the finding is friction with guv itself.
+- **Drain it** to the destination you named in Step 3. The finding's written **home**
+  is a dated design note in `docs/spikes/`; where it goes *next* depends on what it
+  gates:
+  - **Nothing to build → the `docs/spikes/` note is the whole drain.** Write the
+    finding as a dated design note; it is recorded, and no work follows — the note is
+    all that is owed (the terminal case).
+  - **Gates build work → `/guv:plan` or `/guv:replan insert`, *plus* the `docs/spikes/`
+    note.** Groom the finding into the plan as deliverable(s) — *and* write its design
+    note as the rationale the build set traces back to. The note **accompanies** the
+    graduation; it is not an either/or against it (every dogfooded build-gating spike
+    did both — a `docs/spikes/` note *and* a `/guv:replan` groom).
+  - **Friction with guv → `/guv:feedback`.**
 
-  A drained finding is **RECORDED** — the note, the deliverable(s), or the feedback
-  entry is the durable artifact, and nothing else is owed.
+  A drained finding is **RECORDED** — the note, the deliverable(s) it groomed, or the
+  feedback entry is the durable artifact, and nothing else is owed.
 
 - **Declare it undrained.** If you reach the close with **no drain** chosen, surface the
   **undrained-finding** notice rather than let the finding evaporate silently — emit it
