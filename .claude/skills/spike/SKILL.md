@@ -66,12 +66,23 @@ the closing step.
 
 ## Step 2 — Set the Timebox / Budget
 
-A spike is **bounded exploration, not open-ended**. Confirm the budget the same way
-every other session does — the `budgets.session` setpoint in `.claude/project.json`
-and the `budget-gate.sh` tension gate ride a spike exactly as they ride a phased
-session (the gate is ceremony-agnostic). State the timebox you intend (a token
-budget, a number of compaction windows, or a wall-clock bound) so the exploration
-has an edge to stop at rather than drifting.
+A spike is **bounded exploration, not open-ended** — so it needs an edge to stop at.
+The timebox is the same setpoint every other session uses: the `budgets.session`
+value in `.claude/project.json`, enforced by the ceremony-agnostic `budget-gate.sh`
+tension gate (it rides a spike exactly as it rides a phased session). So confirm
+which case you are in:
+
+- **`budgets.session` is set** — that setpoint *is* the timebox: the gate raises at
+  tension and the spike has a mechanical edge. Nothing more to do.
+- **`budgets.session` is absent** — the manifest default is **unlimited** (absent
+  means no ceiling), so the gate is inert and the spike is mechanically **unbounded**
+  — the exact unbounded-exploration failure this ceremony exists to prevent. Don't
+  begin a default-unbounded spike: either set `budgets.session` to timebox it, or
+  consciously accept a wall-clock-only bound and **say so**.
+
+Either way, **state the timebox you intend** (a token budget, a number of compaction
+windows, or a wall-clock bound) so the exploration has an edge to stop at rather than
+drifting.
 
 ## Step 3 — Name the Findings Drain
 

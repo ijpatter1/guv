@@ -15,7 +15,7 @@ this is the path that unlocks it.
 Ask the deterministic router whether this is the right door (the routing
 collapse, [8.1] — manifest + repo state select the entry; no user
 disambiguation). The router's exit code is the contract, identical across all
-five entry doors:
+entry doors:
 
 ```bash
 bash .claude/route.sh --for onboard

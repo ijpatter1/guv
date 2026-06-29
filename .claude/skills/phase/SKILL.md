@@ -26,7 +26,7 @@ bash .claude/route.sh --for phase
 ```
 
 Read its `name=value` output and its exit code (the contract is identical
-across all five entry doors):
+across all entry doors):
 
 - **`match=yes`** (exit 0) — this *is* the right door for the current state.
   Continue to Step 1.

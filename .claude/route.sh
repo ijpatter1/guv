@@ -22,7 +22,7 @@
 #   --for is how an entry command asks "is this the right door?" A wrong-door
 #   invocation REDIRECTS (match=no, door=<correct>) rather than errors —
 #   redirect is a route, not a failure (exit 0). <door> must be one of the
-#   known doors (init-project|onboard|next|phase|task); a typo is a
+#   known doors (init-project|onboard|next|phase|task|spike); a typo is a
 #   caller bug (exit 2), not a redirect.
 #
 # Output (name=value, one per line — the resolve-ready.sh contract shape):

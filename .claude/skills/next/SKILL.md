@@ -20,7 +20,7 @@ Ask the deterministic router whether this is the right door (the routing
 collapse — manifest + repo state select the entry, no disambiguation; **never**
 hand-read the tracker to decide):
 
-The router's exit code is the contract, identical across all five entry doors:
+The router's exit code is the contract, identical across all entry doors:
 
 ```bash
 bash .claude/route.sh --for next
