@@ -89,8 +89,8 @@ drifting.
 **Before you begin, decide where the finding will land.** A spike's value is its
 finding, and a finding with no destination evaporates. Name one drain now:
 
-- **`docs/spikes/`** — write the finding as a dated design note (the home the
-  [21.1]/[22.1] findings use). The default for an investigation whose output is the
+- **`docs/spikes/`** — write the finding as a dated design note (the project's
+  design-note home). The default for an investigation whose output is the
   reasoning itself.
 - **`/guv:plan` or `/guv:replan insert`** — when the finding gates real build work, groom
   it into the plan as deliverables.
@@ -125,7 +125,8 @@ seal):
     note as the rationale the build set traces back to. The note **accompanies** the
     graduation; it is not an either/or against it (every dogfooded build-gating spike
     did both — a `docs/spikes/` note *and* a `/guv:replan` groom).
-  - **Friction with guv → `/guv:feedback`.**
+  - **Friction with guv → `/guv:feedback`** (a separate channel — `feedback.ndjson`, not
+    a `docs/spikes/` finding; the *home* framing above governs the design finding).
 
   A drained finding is **RECORDED** — the note, the deliverable(s) it groomed, or the
   feedback entry is the durable artifact, and nothing else is owed.
