@@ -5,6 +5,40 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.9.0 — 2026-06-29
+
+Minor release (0.x): **the exploration ceremony (Phase 21) — a `spike` entry door for
+free-form work that has no phase DAG — plus two execution-surface additions (the fan-out
+decision scaffold and a calibrated vet for generated artifacts).** The headline is the
+`spike` ceremony: route/scope/close machinery for exploratory work the phased ceremony
+couldn't express, closed by a findings-drain that turns a spike into a recorded finding.
+All additive: a project that never runs a spike keeps its prior behavior unchanged.
+
+### Added
+
+- **The `spike` exploration ceremony** (Phase 21) — a fifth entry door, for free-form
+  exploration that has no phase DAG to resolve:
+  - the additive `ceremony: spike` schema enum value ([21.2]) — existing `task` / `onboard`
+    / `phased` projects validate unchanged;
+  - the `route.sh` spike arm + the `/spike` skill, short-circuiting to `door=spike` ahead of
+    the resolver, with a timeboxed-budget path when no budget is set ([21.3]);
+  - the four scope-knowing doors (`/next`, `/phase`, `/replan`, `/task`) made spike-aware —
+    each names `/spike` and redirects free-form exploratory work to it rather than forcing it
+    into a phase or a scoped task ([21.4]);
+  - the findings-drain close — a spike ends by draining its findings into a recorded finding,
+    with a declared-not-gated undrained-finding notice (a loud-but-non-blocking exit-0 rung)
+    ([21.5]);
+  - the spike-finding convention doc — the ordered seven-part finding shape (header → why →
+    asymmetry → per-question Evidence→Decision → designed default + loud path → what it gates →
+    watch-items), shipped as a skill-sibling the `spike` skill points at ([21.6]).
+- **Fan-out decision scaffold** ([17.2]) — a scaffold for the call of when to fan work out
+  across parallel agents versus keep it serial, so the decision is made deliberately rather
+  than by reflex.
+- **Calibrated vet for generated artifacts** ([18.2]) — generated artifacts (UAT plans, manual
+  cards) route through a calibrated single-reviewer vet invoked by name, declared-not-gated and
+  stamped with its verdict; an artifact whose vet cannot run degrades loudly to UNVETTED rather
+  than reading as silently passed.
+
 ## 0.8.1 — 2026-06-28
 
 Patch: a cold-path-correctness fix to a shipped script, surfaced by the Phase 23
