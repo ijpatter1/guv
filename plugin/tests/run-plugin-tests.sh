@@ -10,8 +10,24 @@
 # references it (the build flattens both into scripts/; hooks.json is the only
 # record of which were hooks). Everything else in scripts/ is a top-level helper.
 #
-# Pure bash + jq. Run: bash <plugin>/tests/run-plugin-tests.sh
+# Pure bash + jq. Run: bash <plugin>/tests/run-plugin-tests.sh [--only <pattern>]
 set -u
+
+# --only <pattern> ([22.1]): run just the shipped suites whose basename matches
+# the glob PATTERN. The reconstruction below is always FULL (the filter gates
+# suite execution, never the rebuild), so a placement probe run under --only
+# still inspects the complete reconstructed tree. A pattern that matches no
+# suite fails LOUD at the filter — never a vacuous green.
+ONLY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --only)
+      shift
+      [ $# -gt 0 ] || { echo "run-plugin-tests: --only requires a pattern" >&2; exit 2; }
+      ONLY="$1"; shift ;;
+    *) echo "run-plugin-tests: unknown argument: $1 (supported: --only <pattern>)" >&2; exit 2 ;;
+  esac
+done
 
 PLUGIN="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPTS="$PLUGIN/scripts"
@@ -117,6 +133,22 @@ SUITES=()
 while IFS= read -r t; do SUITES+=("$t"); done < <(
   for t in "$REC/tests"/*.test.sh; do [ -e "$t" ] && printf '%s\n' "$t"; done | LC_ALL=C sort
 )
+
+# apply the --only filter ([22.1]): keep the matching basenames. Zero matches is
+# a loud failure, never a vacuous green — a typo'd pattern silently running zero
+# suites would let every --only consumer's proof pass on nothing.
+if [ -n "$ONLY" ]; then
+  KEEP=()
+  for t in "${SUITES[@]}"; do
+    # shellcheck disable=SC2254 — $ONLY is deliberately an unquoted glob pattern
+    case "$(basename "$t")" in $ONLY) KEEP+=("$t") ;; esac
+  done
+  if [ "${#KEEP[@]}" -eq 0 ]; then
+    echo "run-plugin-tests: --only '$ONLY' matched no shipped suite" >&2
+    exit 2
+  fi
+  SUITES=("${KEEP[@]}")
+fi
 
 run_one() {  # $1 = suite path  $2 = scratch key
   local t="$1" key="$2"

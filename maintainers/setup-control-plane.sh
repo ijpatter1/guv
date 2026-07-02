@@ -254,14 +254,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODE=$(roots_code_path) || { echo "run-core-tests: could not resolve a code repo from the manifest" >&2; exit 4; }
 
 # ── fix (a): resolve the per-suite timeout command (designed degradation) ──
-# CORE_TEST_TIMEOUT overrides the default bound (the suite set's slowest is well
-# under a minute; 300s leaves generous headroom for sandbox slowness without
-# masking a true hang). A missing binary is announced, not silently dropped.
+# CORE_TEST_TIMEOUT overrides the default bound. The slowest suites are the
+# SERIAL_SET plugin-builders (plugin.test.sh ~190s; ship-suite.test.sh measured
+# 258s before its [22.1] --only cut, ~110s after) — 600s leaves generous headroom
+# for sandbox slowness without masking a true hang (258s against the old 300s
+# bound was a latent flake, [22.1]). A missing binary is announced, not silently
+# dropped.
 TIMEOUT_BIN=""
 if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
 elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN="gtimeout"
 fi
-SUITE_TIMEOUT="${CORE_TEST_TIMEOUT:-300}"
+SUITE_TIMEOUT="${CORE_TEST_TIMEOUT:-600}"
 if [ -z "$TIMEOUT_BIN" ]; then
   echo "[run-core-tests] no timeout/gtimeout on PATH — suites run UNBOUNDED (a hang will not be caught; install coreutils to restore the per-suite timeout guard)"
 fi

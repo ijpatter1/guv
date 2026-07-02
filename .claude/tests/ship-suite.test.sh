@@ -170,12 +170,24 @@ echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 PLANTED
-  PLANT_OUT=$(bash "$RUNNER" 2>/dev/null); PRC=$?
+  # [22.1] the probe runs under --only: proving red-propagation needs just the
+  # planted fixture, not a full-set re-run (each full run re-pays ~83s of suites
+  # T6 already covered green — the PLUGIN_TEST_INNER cost lesson).
+  PLANT_OUT=$(bash "$RUNNER" --only 'zz-ship-drift-fixture*' 2>/dev/null); PRC=$?
   rm -f "$PLANT"
   if [ "$PRC" -ne 0 ] && printf '%s\n' "$PLANT_OUT" | grep -q 'zz-ship-drift-fixture'; then
     ok "drift guard fails loud when a shipped suite can't resolve its scripts (planted fixture flagged)"
   else
     no "drift guard must fail (rc!=0) and name the offending suite when a shipped suite can't resolve its scripts (rc=$PRC)"
+  fi
+  # the filter must have run ONLY the fixture — exactly one suite banner. A
+  # full-set banner count means --only was ignored (the probe silently re-paying
+  # the full reconstruction) — fail loud.
+  BANNERS=$(printf '%s\n' "$PLANT_OUT" | grep -c '^── .*\.test\.sh ──')
+  if [ "$BANNERS" -eq 1 ]; then
+    ok "--only filtered the probe run to its one fixture (1 suite banner, not the full set)"
+  else
+    no "--only must run just the matching suite (saw $BANNERS suite banners)"
   fi
 fi
 
@@ -208,7 +220,10 @@ echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 PPLANTED
-  PPLANT_OUT=$(bash "$RUNNER" 2>/dev/null); PPRC=$?
+  # [22.1] --only again: the reconstruction still places the FULL script set (the
+  # filter gates suite execution, never the rebuild), so the probe's placement
+  # assertions lose nothing by skipping the other suites' runs.
+  PPLANT_OUT=$(bash "$RUNNER" --only 'zz-ship-partition-fixture*' 2>/dev/null); PPRC=$?
   rm -f "$PPLANT"
   # the partition is CORRECT, so this fixture must PASS inside the runner (rc=0).
   # That green is the proof: bash-guard.sh landed in hooks/, resolve-ready.sh at
@@ -217,6 +232,20 @@ PPLANTED
     ok "reconstruction places hooks in hooks/ and helpers at top level (partition verified)"
   else
     no "reconstruction partition is wrong: a hook landed top-level or a helper landed in hooks/ (rc=$PPRC): $(printf '%s' "$PPLANT_OUT" | grep -E '✗|partition' | head -3 | tr '\n' ' ')"
+  fi
+fi
+
+# T7c — [22.1] a --only pattern that matches NOTHING must fail LOUD (rc!=0,
+# naming the miss), never report a vacuous green: a typo'd filter silently
+# running zero suites would make every --only probe above prove nothing
+# (the vacuous-guard lesson — a guard that can only report success is not a
+# guard).
+if [ -f "$RUNNER" ]; then
+  ZM_OUT=$(bash "$RUNNER" --only 'zz-no-such-suite-*' 2>&1); ZMRC=$?
+  if [ "$ZMRC" -ne 0 ] && printf '%s\n' "$ZM_OUT" | grep -q 'matched no'; then
+    ok "--only with zero matches fails loud naming the pattern (never a vacuous green)"
+  else
+    no "--only matching nothing must fail (rc!=0) and say the pattern matched no suite (rc=$ZMRC)"
   fi
 fi
 
