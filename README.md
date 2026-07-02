@@ -407,3 +407,9 @@ The runner rebuilds a `.claude/`-shaped tree from the flattened `scripts/`
 shipped suites in `tests/`) and runs every shipped suite against it. A green run
 means the location-relative guv suites resolve and pass in plugin layout; a
 suite that cannot find its script turns the run red and names the offender.
+
+To run a single suite — say, while chasing one failure — filter by basename
+glob: `bash tests/run-plugin-tests.sh --only 'resolve-ready*'`. The rebuild is
+always complete (the filter gates which suites *run*, not what is placed), and
+a pattern that matches no shipped suite fails loud (exit 2, naming the pattern)
+rather than reporting a vacuous green.

@@ -280,7 +280,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --only)
       shift
-      [ $# -gt 0 ] || { echo "run-plugin-tests: --only requires a pattern" >&2; exit 2; }
+      { [ $# -gt 0 ] && [ -n "$1" ]; } || { echo "run-plugin-tests: --only requires a non-empty pattern" >&2; exit 2; }
       ONLY="$1"; shift ;;
     *) echo "run-plugin-tests: unknown argument: $1 (supported: --only <pattern>)" >&2; exit 2 ;;
   esac

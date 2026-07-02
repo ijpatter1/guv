@@ -233,6 +233,15 @@ PPLANTED
   else
     no "reconstruction partition is wrong: a hook landed top-level or a helper landed in hooks/ (rc=$PPRC): $(printf '%s' "$PPLANT_OUT" | grep -E '✗|partition' | head -3 | tr '\n' ' ')"
   fi
+  # each --only probe proves its own filter fired — if --only regressed to a
+  # no-op this probe would silently revert to paying the full-set run and still
+  # pass green on its fixture, leaving T7's banner count as the lone sentinel.
+  PBANNERS=$(printf '%s\n' "$PPLANT_OUT" | grep -c '^── .*\.test\.sh ──')
+  if [ "$PBANNERS" -eq 1 ]; then
+    ok "--only filtered the partition probe to its one fixture (1 suite banner)"
+  else
+    no "the partition probe must run just its fixture (saw $PBANNERS suite banners — --only regressed to a no-op)"
+  fi
 fi
 
 # T7c — [22.1] a --only pattern that matches NOTHING must fail LOUD (rc!=0,
@@ -246,6 +255,15 @@ if [ -f "$RUNNER" ]; then
     ok "--only with zero matches fails loud naming the pattern (never a vacuous green)"
   else
     no "--only matching nothing must fail (rc!=0) and say the pattern matched no suite (rc=$ZMRC)"
+  fi
+  # an EMPTY pattern is refused up front — [ -n "$ONLY" ] gates the filter, so
+  # an unset variable passed as --only '' would otherwise silently degrade to
+  # the full-set run: the one misuse that is neither a match nor a miss.
+  EM_OUT=$(bash "$RUNNER" --only '' 2>&1); EMRC=$?
+  if [ "$EMRC" -ne 0 ]; then
+    ok "--only with an empty pattern is refused (rc=$EMRC), never a silent full-set run"
+  else
+    no "--only '' must be refused (rc=0 means it silently ran the full set)"
   fi
 fi
 

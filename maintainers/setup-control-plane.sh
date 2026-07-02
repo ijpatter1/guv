@@ -256,7 +256,7 @@ CODE=$(roots_code_path) || { echo "run-core-tests: could not resolve a code repo
 # ── fix (a): resolve the per-suite timeout command (designed degradation) ──
 # CORE_TEST_TIMEOUT overrides the default bound. The slowest suites are the
 # SERIAL_SET plugin-builders (plugin.test.sh ~190s; ship-suite.test.sh measured
-# 258s before its [22.1] --only cut, ~110s after) — 600s leaves generous headroom
+# 258s before its [22.1] --only cut, 99s after) — 600s leaves generous headroom
 # for sandbox slowness without masking a true hang (258s against the old 300s
 # bound was a latent flake, [22.1]). A missing binary is announced, not silently
 # dropped.
