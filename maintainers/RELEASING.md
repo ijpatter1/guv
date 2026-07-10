@@ -35,6 +35,13 @@ contract is still settling.
 
 ## Going public
 
+> **FLIPPED 2026-07-10 — the marketplace is public.** Both criteria below were
+> ratified met at the [8.4] gate review (2026-06-22, decision: defer), and the
+> deferred flip was executed by the maintainer at the close of initiative 003
+> (pre-beta hardening), per that decision record
+> (`8.4-go-public-decision.md` in the governing control plane's `docs/spec/`).
+> The criteria are kept below as the record of what gated the flip.
+
 The marketplace stays personal until both criteria hold:
 
 - **(a)** the plugin format has survived a Claude Code minor version without

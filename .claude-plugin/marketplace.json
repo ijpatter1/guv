@@ -1,6 +1,6 @@
 {
   "name": "guv",
-  "description": "Personal marketplace for Governor (guv) — a control plane for Claude Code.",
+  "description": "Public marketplace for Governor (guv) — a control plane for Claude Code.",
   "owner": {
     "name": "Ian Patterson"
   },

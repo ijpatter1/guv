@@ -258,7 +258,7 @@ code .
 ├── Makefile                           # Container lifecycle (base image from manifest)
 ├── .gitignore                         # Git exclusions
 ├── .claude-plugin/
-│   └── marketplace.json               # Personal marketplace serving plugin/ (distribution machinery —
+│   └── marketplace.json               # Public marketplace serving plugin/ (distribution machinery —
 │                                      #   template-clone forks can delete it along with plugin/)
 ├── .claude/
 │   ├── project.json                   # MANIFEST — single source of truth (stack/commands/roots/ceremony)
