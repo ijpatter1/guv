@@ -5,6 +5,34 @@ update only when the manifest version changes, so every consumer-visible change
 ships under a bump. The bump policy and release checklist live in
 `maintainers/RELEASING.md`.
 
+## 0.10.0 — 2026-07-10
+
+Minor release (0.x): **a `--only <pattern>` suite filter on the shipped plugin-test
+runner ([22.1]) — single-suite verification without the full-battery price — plus
+strict argument handling on the same runner.** This is also the first release cut
+from the **public** marketplace: the [8.4] go-public flip executed 2026-07-10
+(a marketplace-level change, live independent of any version bump — recorded here
+so the release trail carries it).
+
+### Added
+
+- **`--only <pattern>` suite filter on `tests/run-plugin-tests.sh`** ([22.1]) — run
+  just the shipped suites whose basename matches the glob, e.g.
+  `bash <plugin>/tests/run-plugin-tests.sh --only 'route*'`. The layout
+  reconstruction stays FULL — the filter gates suite *execution*, never the
+  rebuild — so placement probes keep their meaning under a filtered run. A pattern
+  matching no suite fails loud (exit 2, naming the pattern), and an empty pattern
+  is refused rather than silently degrading to a full-set run — never a vacuous
+  green. Measured in the dogfood battery: the ship-suite probe wall dropped
+  258s → ~103s.
+
+### Changed
+
+- **`run-plugin-tests.sh` refuses unknown arguments** — exit 2 naming the argument
+  and the supported flag (previously any argument was silently ignored), so a
+  typo'd flag can't buy a full-set run that reads as the filtered one you asked
+  for.
+
 ## 0.9.0 — 2026-06-29
 
 Minor release (0.x): **the exploration ceremony (Phase 21) — a `spike` entry door for
