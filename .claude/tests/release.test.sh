@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for the guv release surfaces — Phase 5 D3 (versioning + feedback drain).
-# Guards the personal-marketplace manifest, version/CHANGELOG coherence, and the
+# Guards the marketplace manifest (public since 2026-07-10), version/CHANGELOG coherence, and the
 # documented release flow:
 #   - .claude-plugin/marketplace.json at the REPO root (the marketplace is the
 #     repo; the plugin manifest lives at plugin/.claude-plugin/): valid JSON,

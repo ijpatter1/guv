@@ -42,7 +42,8 @@ contract is still settling.
 > (`8.4-go-public-decision.md` in the governing control plane's `docs/spec/`).
 > The criteria are kept below as the record of what gated the flip.
 
-The marketplace stays personal until both criteria hold:
+The marketplace stayed personal until both criteria held (checked off at the
+2026-07-10 flip):
 
 - **(a)** the plugin format has survived a Claude Code minor version without
   breaking, and
