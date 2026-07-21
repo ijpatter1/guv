@@ -48,7 +48,14 @@
 # `tokens` object the [9.1] meter harvested from the runtime transcript. The
 # SESSION burn is the sum over entries tagged with the current session (the
 # newest docs/sessions/session-*.md — the same state siblings read); the
-# INITIATIVE burn is the cumulative sum across the whole log. Burn is denominated
+# INITIATIVE burn is scoped to the LIVE initiative by the [13.4] lineage: the
+# calibration record's lifecycle entries mark the window — it opens at the
+# initiative's opening `--at plan` forecast (or, between initiatives, at the
+# `grade` that closed the last one; phase-boundary banks never move it), and
+# only meter entries stamped at/after that boundary count. A record with no
+# lifecycle entry to read (pre-[13.4], or no calibration record) degrades to
+# the whole-log cumulative sum — the pre-window behavior, a designed
+# degradation, never a guessed boundary (Rule 15). Burn is denominated
 # in tokens: [9.1]'s Spike C ladder keeps dollars null (no guessed price table),
 # so tokens are the mechanical burn evidence the boundary affords. A degraded
 # metering entry (tokens:null) contributes 0 — a missing measurement is never a
@@ -58,8 +65,10 @@
 # the FULL per-runtime_session series at read time (so a runtime_session spanning
 # sessions keeps its baseline), and only THEN scoped to the axis being summed;
 # unbounded_cumulative is excluded — so a cumulative snapshot never inflates burn.
-# The unfiltered INITIATIVE read equals projection.sh observed_rate()'s sample sum;
-# the SESSION read differences-then-filters (observed_rate never session-scopes).
+# The INITIATIVE read is projection.sh observed_rate()'s slice-aware sample sum
+# with the lineage window applied on top (observed_rate itself stays whole-record
+# — the calibration blend reads full history deliberately); the SESSION read
+# differences-then-filters (observed_rate never session-scopes).
 #
 # SETPOINTS ────────────────────────────────────────────────────────────────────
 # project.json → budgets.{initiative,session}.tokens — positive integer token
@@ -69,12 +78,14 @@
 # validation rather than silently doing nothing.
 #
 # Usage:
-#   bash .claude/budget-gate.sh <entry|exit> [--log <path>] [--manifest <path>]
+#   bash .claude/budget-gate.sh <entry|exit> [--log <path>] [--manifest <path>] [--calibration <path>]
 #
 #   <entry|exit>  the session boundary this run gates. The gate runs at BOTH;
 #                 the phase is named so the raised gate can say where it fired.
 #   --log         override the metering-log path (tests; default root-relative).
 #   --manifest    override the manifest path (tests; default .claude/project.json).
+#   --calibration override the calibration-record path the initiative window is
+#                 read from (tests; default root-relative).
 #
 # Output: an ACTUAL-burn breach prints the decision gate to stdout (the burn profile
 # + the extend/harvest/kill choice) and exits 3 — the PAUSE, headed "[budget-gate]
@@ -113,7 +124,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 command -v jq >/dev/null 2>&1 || die 2 "requires jq, which is not on PATH — install jq"
 
-[ $# -ge 1 ] || die 2 "usage: bash .claude/budget-gate.sh <entry|exit> [--log path] [--manifest path]"
+[ $# -ge 1 ] || die 2 "usage: bash .claude/budget-gate.sh <entry|exit> [--log path] [--manifest path] [--calibration path]"
 PHASE="$1"; shift
 case "$PHASE" in
   entry|exit) ;;
@@ -122,10 +133,12 @@ esac
 
 LOG=""
 MANIFEST=""
+CALIB=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --log)      LOG="${2:-}"; shift 2 ;;
-    --manifest) MANIFEST="${2:-}"; shift 2 ;;
+    --log)         LOG="${2:-}"; shift 2 ;;
+    --manifest)    MANIFEST="${2:-}"; shift 2 ;;
+    --calibration) CALIB="${2:-}"; shift 2 ;;
     *) die 2 "unknown argument '$1'" ;;
   esac
 done
@@ -164,10 +177,67 @@ CURRENT_SESSION=$(ls docs/sessions/session-*.md 2>/dev/null \
   | grep -E '^session-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3}$' \
   | sort | tail -1)
 
+# --- the initiative window (the [13.4] lineage boundary) ----------------------
+# The initiative setpoint governs the LIVE initiative, not the whole record —
+# an all-time sum breaches any correctly forecast-derived budget the moment a
+# mature log outgrows it. The calibration record's lifecycle entries mark where
+# the live initiative begins: its opening `--at plan` forecast — or, between
+# initiatives (a grade with no new plan bank yet), the `grade` that closed the
+# last one, so a still-set setpoint gates burn-since-close rather than a closed
+# initiative's history. Phase-boundary banks are mid-initiative snapshots and
+# never move the window. This is the same lineage read projection.sh's
+# bank-dedup slices by ("forecasts before the most recent grade belong to a
+# CLOSED initiative"), and the same post-bank ts bound its close-time grade
+# puts on outcomes. No lifecycle entry / no record → INITIATIVE_SINCE stays
+# empty and the burn read below degrades to the whole-log cumulative sum.
+[ -n "$CALIB" ] || CALIB=".claude/metering/calibration.ndjson"
+INITIATIVE_SINCE=""
+if [ -f "$CALIB" ]; then
+  # Per-line-tolerant read (fromjson?): a corrupt record line (a torn append)
+  # drops THAT LINE alone, never the whole lineage. The sibling slurp in
+  # projection.sh can afford all-or-nothing (its blast radius is a missing
+  # forecast); here losing the window would silently resurrect the spurious
+  # cumulative breach this window exists to kill, so the read survives
+  # partial corruption.
+  # The anchor is `last` in FILE ORDER — append order is lineage order, the
+  # same convention as projection.sh's rindex("grade") slice — not
+  # max-banked_at. Lifecycle entries land in lifecycle order by construction;
+  # if a hand-edited record ever appends one out of order, the older boundary
+  # widens the window and over-counts — an earlier, basis-disclosed breach,
+  # never a silent under-gate (pinned by the suite's W11).
+  INITIATIVE_SINCE=$(jq -rRn '
+    [ inputs | fromjson? | select(type == "object")
+      | select(((.kind // "") == "grade")
+            or (((.kind // "") == "forecast") and ((.boundary // "") == "plan"))) ]
+    | last | .banked_at // empty' "$CALIB" 2>/dev/null)
+  # exact ISO-8601 UTC shape or it is no boundary (a malformed stamp never
+  # windows, and never reaches the burn jq below as anything but this vetted
+  # literal). The glob's job is INJECTION SAFETY — shape-vetting the string
+  # before interpolation — not semantic time validation: projection.sh stamps
+  # boundaries with `date -u`, so a digit-shaped non-time cannot arrive from
+  # the real writer.
+  case "$INITIATIVE_SINCE" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+    *) INITIATIVE_SINCE="" ;;
+  esac
+fi
+
+# The window basis, named in every initiative figure the gate prints: a windowed
+# read and a degraded-cumulative read are DIFFERENT CLAIMS, and the person at an
+# extend/harvest/kill pause (or reading a foreseen declaration) must see which
+# one the figure is — on a mature record the degraded read is exactly the
+# spurious-breach shape, and only this line makes that visible in the output.
+if [ -n "$INITIATIVE_SINCE" ]; then
+  INITIATIVE_WINDOW="the live initiative (entries since the lineage boundary ${INITIATIVE_SINCE})"
+else
+  INITIATIVE_WINDOW="the whole metering log (no lineage boundary to window by)"
+fi
+
 # Sum burn from the log. A missing/empty log → burn 0 (a missing measurement is
 # never a fabricated breach — Rule 15). tokens:null entries contribute 0. Burn is
 # the sum of the four token classes; the session burn filters to the current
-# session, the initiative burn is cumulative across every entry.
+# session, the initiative burn is windowed to the live lineage (or every entry
+# when no boundary exists — the degradation above).
 SESSION_BURN=0
 INITIATIVE_BURN=0
 if [ -f "$LOG" ]; then
@@ -212,7 +282,18 @@ if [ -f "$LOG" ]; then
       | ( \$direct + \$legacy_deltas ) | add // 0
     " "$LOG" 2>/dev/null
   }
-  INITIATIVE_BURN=$(burn_sum 'true')
+  # The INITIATIVE sum is windowed to the live lineage (INITIATIVE_SINCE above);
+  # with no boundary to read, the selection degrades to every entry — the
+  # pre-[13.4] cumulative read. The ts bound composes with the legacy
+  # differencing because selection happens AFTER the full-series differencing
+  # (the baseline survives). An entry with no ts cannot enter a windowed sum —
+  # a missing stamp is a missing measurement, never fabricated burn (the same
+  # Rule-15 rung as tokens:null).
+  if [ -n "$INITIATIVE_SINCE" ]; then
+    INITIATIVE_BURN=$(burn_sum "((.ts // \"\") >= \"$INITIATIVE_SINCE\")")
+  else
+    INITIATIVE_BURN=$(burn_sum 'true')
+  fi
   SESSION_BURN=$(burn_sum "(.session == \"$CURRENT_SESSION\")")
   case "$INITIATIVE_BURN" in ''|*[!0-9]*) INITIATIVE_BURN=0 ;; esac
   case "$SESSION_BURN" in    ''|*[!0-9]*) SESSION_BURN=0 ;; esac
@@ -235,6 +316,12 @@ elif [ -n "$INITIATIVE_BUDGET" ] && [ "$INITIATIVE_BURN" -ge "$INITIATIVE_BUDGET
 fi
 
 WHERE=$([ "$PHASE" = "entry" ] && echo "at session entry" || echo "at session exit")
+
+# An initiative breach names its window basis in the profile (a session breach
+# has no window to name — its basis is the session id already in the label).
+BREACH_WINDOW_LINE=""
+[ "$BREACH_KIND" = "initiative" ] && BREACH_WINDOW_LINE="
+    burn window:           ${INITIATIVE_WINDOW}"
 
 # No ACTUAL-burn breach. [13.5] before the silent exit, check the FORESEEN breach —
 # tension on the FORECAST, not just the burn. Read the live projection's cost to
@@ -265,6 +352,7 @@ if [ -z "$BREACH_KIND" ]; then
     projected total:       ${PROJECTED_TOTAL} tokens
     initiative budget:     ${INITIATIVE_BUDGET} tokens
     projected over by:     $((PROJECTED_TOTAL - INITIATIVE_BUDGET)) tokens
+    burn window:           ${INITIATIVE_WINDOW}
 
 This is a DECLARATION, not a stop. A deliverable-budget breach is fuzzy — the
 projection is a RANGE, not a fact — so the session is NOT paused and NOTHING is
@@ -296,7 +384,7 @@ cat <<EOF
   burn profile
     ${BREACH_KIND} burn:   ${BREACH_BURN} tokens
     ${BREACH_KIND} budget: ${BREACH_BUDGET} tokens
-    over by:               $((BREACH_BURN - BREACH_BUDGET)) tokens
+    over by:               $((BREACH_BURN - BREACH_BUDGET)) tokens${BREACH_WINDOW_LINE}
 
 This is a PAUSE for a decision, not a stop the machine recovers from. Work is
 preserved — nothing has been changed. The ${BREACH_KIND} setpoint stays as you

@@ -171,6 +171,8 @@ OUT=$(gate "$P" entry); RC=$?
 # initiative budget when the running total crosses it. session=50000 this
 # session, prior session 60000 -> initiative total 110000 > initiative budget
 # 100000 breaches even though the session budget (huge) is fine.
+# (No calibration record in this fixture, so this is the UNWINDOWED degradation
+# read; the lineage-windowed initiative read is asserted in its own section below.)
 P=$(mk_project '{"initiative":{"tokens":100000},"session":{"tokens":10000000}}' 50000 60000)
 OUT=$(gate "$P" exit); RC=$?
 [ -n "$OUT" ] && [ "$RC" -ne 0 ] && echo "$OUT" | grep -qi "initiative" \
@@ -577,6 +579,239 @@ XSOUT=$(gate "$XS" exit); XSRC=$?
 grep -qi 'FORESEEN OVERRUN' "$HANDOFF_SKILL" 2>/dev/null \
   && ok "[15.6] the handoff skill records a FORESEEN OVERRUN declaration (the call-site tracks the renamed gate header)" \
   || no "[15.6] the handoff must capture the gate's FORESEEN OVERRUN declaration by its renamed header (acceptance: declared in the session handoff)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# [9.3]/[13.4] THE INITIATIVE BURN IS WINDOWED TO THE LIVE LINEAGE
+# ════════════════════════════════════════════════════════════════════════════
+# The initiative setpoint governs the LIVE initiative, not the whole record: a
+# mature log carries every prior initiative's burn, so an unwindowed cumulative
+# sum breaches any correctly forecast-derived budget the moment it is set (the
+# observed failure: at an initiative open, all-time burn 5.47B spuriously
+# breached a fresh forecast+15% setpoint of 4.74B with ~0 actually burned — and
+# a headless run stays paused on it). The calibration record's lifecycle entries
+# mark the boundary the gate reads: the live window opens at the initiative's
+# opening `--at plan` forecast; a `grade` line is an initiative CLOSE, so after
+# a grade with no new plan bank (between initiatives) the window opens at the
+# grade; phase-boundary banks are mid-initiative snapshots and must NOT move the
+# window. With NO lifecycle entry to read (pre-[13.4] record, or no calibration
+# record at all) the sum degrades to the whole-log cumulative — the pre-window
+# behavior, preserved as the designed degradation (Rule 15), asserted below so
+# it cannot drift silently. This is the same lineage read projection.sh's
+# bank-dedup slices by, and the same post-bank ts bound its close-time grade
+# puts on outcomes.
+#   mk_lineage <budgets_json> <hist_burn> <live_burn> — hist entry stamped
+#   2026-06-01 (before every lineage stamp below), live entry 2026-06-15 (after).
+mk_lineage() {
+  local budgets="$1" hburn="$2" lburn="$3"
+  local d; d=$(mktemp -d "$WORK/lin.XXXXXX")
+  mkdir -p "$d/.claude/metering" "$d/docs/sessions"
+  jq -nc --argjson b "$budgets" \
+    '{name:"x",language:"shell",roots:{control:".",code:"."},commands:{},scaffoldCheck:"true",ceremony:"task",budgets:$b}' \
+    > "$d/.claude/project.json"
+  printf '# handoff\n' > "$d/docs/sessions/session-2026-06-15-001.md"
+  {
+    jq -nc --argjson t "$hburn" \
+      '{schema:"guv.meter.v1",ts:"2026-06-01T00:00:00Z",session:"session-2026-06-01-001",deliverable_ids:["9.0"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",perf:{}}'
+    jq -nc --argjson t "$lburn" \
+      '{schema:"guv.meter.v1",ts:"2026-06-15T00:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["24.1"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",perf:{}}'
+  } > "$d/.claude/metering/metering.ndjson"
+  echo "$d"
+}
+# minimal lifecycle lines — the gate reads only kind/boundary/banked_at
+plan_bank()  { printf '{"schema":"guv.projection.v1","kind":"forecast","boundary":"plan","banked_at":"%s"}\n' "$1"; }
+phase_bank() { printf '{"schema":"guv.projection.v1","kind":"forecast","boundary":"phase-25","banked_at":"%s"}\n' "$1"; }
+grade_line() { printf '{"schema":"guv.projection.grade.v1","kind":"grade","banked_at":"%s"}\n' "$1"; }
+# the windowed burn figure the breach profile surfaced (empty if no profile line)
+profile_burn() { printf '%s\n' "$1" | sed -n 's/.*initiative burn:[[:space:]]*\([0-9][0-9]*\) tokens.*/\1/p' | head -1; }
+
+# ── W1 (the observed spurious breach): history dwarfs the budget, live burn is
+# tiny -> SILENT. A prior initiative's 5M is walled off by the plan bank; the
+# live window holds 10000 against a 100000 setpoint — no tension, no gate.
+WP1=$(mk_lineage '{"initiative":{"tokens":100000}}' 5000000 10000)
+{ grade_line "2026-06-10T00:00:00Z"; plan_bank "2026-06-12T00:00:00Z"; } > "$WP1/.claude/metering/calibration.ndjson"
+W1OUT=$(gate "$WP1" entry); W1RC=$?
+[ "$W1RC" -eq 0 ] && [ -z "$W1OUT" ] \
+  && ok "[13.4] windowed: a prior initiative's burn cannot breach a fresh setpoint (live 10000 < 100000 -> silent)" \
+  || no "[13.4] the initiative burn must be windowed to the live lineage, not all-time (rc=$W1RC out='$W1OUT')"
+
+# ── W2: the gate still gates INSIDE the window — live burn 150000 over the
+# 100000 setpoint breaches (exit 3), and the profile surfaces the WINDOWED
+# figure (150000), not the all-time total (5150000). Windowing must not soften
+# a real overrun of the live initiative.
+WP2=$(mk_lineage '{"initiative":{"tokens":100000}}' 5000000 150000)
+{ grade_line "2026-06-10T00:00:00Z"; plan_bank "2026-06-12T00:00:00Z"; } > "$WP2/.claude/metering/calibration.ndjson"
+W2OUT=$(gate "$WP2" exit); W2RC=$?
+[ "$W2RC" -eq 3 ] && echo "$W2OUT" | grep -qi "initiative" \
+  && ok "[13.4] windowed: a live-initiative overrun still breaches (150000 >= 100000, exit 3)" \
+  || no "[13.4] windowing must not swallow a real live-window breach (rc=$W2RC out='$W2OUT')"
+W2BURN=$(profile_burn "$W2OUT")
+[ "$W2BURN" = "150000" ] \
+  && ok "[13.4] the breach profile surfaces the WINDOWED burn (150000, not the all-time 5150000)" \
+  || no "[13.4] the profile must carry the windowed figure 150000, got '${W2BURN:-none}'"
+# the profile NAMES its window basis — a windowed figure and a degraded
+# cumulative figure are different claims, and the extend/harvest/kill decision
+# is made from this output alone.
+echo "$W2OUT" | grep -q 'burn window:.*since the lineage boundary 2026-06-12T00:00:00Z' \
+  && ok "[13.4] the breach profile names its window basis (since the plan bank)" \
+  || no "[13.4] an initiative breach must disclose the window basis in the profile (out='$W2OUT')"
+
+# ── W3: BETWEEN initiatives (a grade with no new plan bank) the window opens at
+# the grade — a still-set setpoint gates burn-since-close, not the closed
+# initiative's history. Closed history 5M, since-close burn 10000 < 100000 -> silent.
+WP3=$(mk_lineage '{"initiative":{"tokens":100000}}' 5000000 10000)
+{ plan_bank "2026-05-01T00:00:00Z"; grade_line "2026-06-10T00:00:00Z"; } > "$WP3/.claude/metering/calibration.ndjson"
+W3OUT=$(gate "$WP3" entry); W3RC=$?
+[ "$W3RC" -eq 0 ] && [ -z "$W3OUT" ] \
+  && ok "[13.4] between initiatives the window opens at the grade (since-close 10000 < 100000 -> silent)" \
+  || no "[13.4] a closed initiative's history must not breach a stale setpoint between initiatives (rc=$W3RC out='$W3OUT')"
+
+# ── W4 (the designed degradation, Rule 15): NO calibration record -> the read
+# degrades to the whole-log cumulative, exactly the pre-window behavior. 60000
+# prior + 50000 live = 110000 >= 100000 -> breach. Asserted so the degradation
+# cannot drift silently into "no lineage means no gating".
+WP4=$(mk_lineage '{"initiative":{"tokens":100000}}' 60000 50000)
+W4OUT=$(gate "$WP4" exit); W4RC=$?
+[ "$W4RC" -eq 3 ] && echo "$W4OUT" | grep -qi "initiative" \
+  && ok "[13.4] no calibration record -> cumulative degradation preserved (110000 >= 100000 breaches)" \
+  || no "[13.4] absent lineage must degrade to the cumulative read, not to unlimited (rc=$W4RC out='$W4OUT')"
+# a DEGRADED breach discloses its whole-log basis — on a mature record the
+# degraded read is exactly the spurious-breach shape, so the person at the
+# pause must be able to see the figure is unwindowed.
+echo "$W4OUT" | grep -qi 'burn window:.*whole metering log' \
+  && ok "[13.4] a degraded (cumulative) breach discloses its whole-log basis in the profile" \
+  || no "[13.4] the degraded read must name its whole-log basis (out='$W4OUT')"
+
+# ── W5: PHASE banks never move the window. Lineage: grade, plan (06-12T00), then
+# a phase-25 bank (06-13). Burn after plan: 80000 (06-12T12 — BETWEEN the plan
+# bank and the phase bank) + 30000 (06-15) = 110000 >= 100000 -> breach with the
+# plan-anchored figure. The 80000 entry's stamp is the discriminator: an
+# implementation that anchored on the LAST forecast (the phase bank, 06-13)
+# would exclude it, see only 30000, and stay silent — the phase snapshot is
+# mid-initiative, not an opening.
+WP5=$(mk_lineage '{"initiative":{"tokens":100000}}' 5000000 30000)
+cat > "$WP5/.claude/metering/metering.ndjson" <<'NDJSON'
+{"schema":"guv.meter.v1","ts":"2026-06-01T00:00:00Z","session":"session-2026-06-01-001","deliverable_ids":["9.0"],"tokens":{"input":5000000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+{"schema":"guv.meter.v1","ts":"2026-06-12T12:00:00Z","session":"session-2026-06-12-002","deliverable_ids":["24.1"],"tokens":{"input":80000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+{"schema":"guv.meter.v1","ts":"2026-06-15T00:00:00Z","session":"session-2026-06-15-001","deliverable_ids":["24.1"],"tokens":{"input":30000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+NDJSON
+{ grade_line "2026-06-10T00:00:00Z"; plan_bank "2026-06-12T00:00:00Z"; phase_bank "2026-06-13T00:00:00Z"; } > "$WP5/.claude/metering/calibration.ndjson"
+W5OUT=$(gate "$WP5" exit); W5RC=$?
+W5BURN=$(profile_burn "$W5OUT")
+[ "$W5RC" -eq 3 ] && [ "$W5BURN" = "110000" ] \
+  && ok "[13.4] a phase-boundary bank does not move the window (plan-anchored burn 110000 breaches)" \
+  || no "[13.4] the window must anchor on the plan bank, not the last forecast (rc=$W5RC burn='${W5BURN:-none}')"
+
+# ── W6: the [13.5] FORESEEN check reads the WINDOWED burn — burn-to-date in the
+# declaration is the live initiative's (10000000), not history-inflated
+# (17000000). Pre-fix, the foreseen total double-counted closed initiatives.
+PF3=$(mk_proj 0)
+cat > "$PF3/.claude/metering/metering.ndjson" <<'NDJSON'
+{"schema":"guv.meter.v1","ts":"2026-06-01T00:00:00Z","session":"session-2026-06-01-001","deliverable_ids":["9.0"],"tokens":{"input":7000000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+{"schema":"guv.meter.v1","ts":"2026-06-15T00:00:00Z","session":"session-2026-06-15-001","deliverable_ids":["13.4"],"tokens":{"input":10000000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+NDJSON
+{ grade_line "2026-06-10T00:00:00Z"; plan_bank "2026-06-12T00:00:00Z"; } > "$PF3/.claude/metering/calibration.ndjson"
+CTC3=$(proj_ctc "$PF3")
+set_init_budget "$PF3" $(( 10000000 + CTC3 / 2 ))   # windowed burn(10M) < budget < burn+CTC
+W6OUT=$(gate "$PF3" exit); W6RC=$?
+echo "$W6OUT" | grep -qi 'FORESEEN' && [ "$W6RC" -eq 0 ] \
+  && ok "[13.4] the foreseen check still declares on the windowed burn (signal, exit 0)" \
+  || no "[13.4] the foreseen check must fire on windowed burn + cost-to-complete (rc=$W6RC out='$W6OUT')"
+echo "$W6OUT" | grep -q 'burn to date:          10000000 tokens' \
+  && ok "[13.4] FORESEEN burn-to-date is the windowed figure (10000000, not history-inflated 17000000)" \
+  || no "[13.4] the foreseen declaration must carry the windowed burn-to-date (out='$W6OUT')"
+echo "$W6OUT" | grep -q 'burn window:.*since the lineage boundary 2026-06-12T00:00:00Z' \
+  && ok "[13.4] the FORESEEN declaration names its window basis too (the same decision-input rule)" \
+  || no "[13.4] the foreseen declaration must disclose the window basis (out='$W6OUT')"
+
+# ── W6b: the DEGRADED (no-lineage) foreseen declaration discloses its whole-log
+# basis — W4/W8/W9 pin the degraded disclosure on the BREACH path only; this pins
+# the FORESEEN path, so the two renderings of the shared basis line cannot
+# silently diverge. Same fixture shape as W6 with NO calibration record: burn is
+# the whole-log 17000000, and the declaration must say which claim that figure is.
+PF4=$(mk_proj 0)
+cat > "$PF4/.claude/metering/metering.ndjson" <<'NDJSON'
+{"schema":"guv.meter.v1","ts":"2026-06-01T00:00:00Z","session":"session-2026-06-01-001","deliverable_ids":["9.0"],"tokens":{"input":7000000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+{"schema":"guv.meter.v1","ts":"2026-06-15T00:00:00Z","session":"session-2026-06-15-001","deliverable_ids":["13.4"],"tokens":{"input":10000000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+NDJSON
+CTC4=$(proj_ctc "$PF4")
+set_init_budget "$PF4" $(( 17000000 + CTC4 / 2 ))   # whole-log burn(17M) < budget < burn+CTC
+W6BOUT=$(gate "$PF4" exit); W6BRC=$?
+echo "$W6BOUT" | grep -qi 'FORESEEN' && [ "$W6BRC" -eq 0 ] \
+  && echo "$W6BOUT" | grep -q 'burn to date:          17000000 tokens' \
+  && echo "$W6BOUT" | grep -qi 'burn window:.*whole metering log' \
+  && ok "[13.4] the degraded FORESEEN declaration carries the cumulative figure AND names its whole-log basis" \
+  || no "[13.4] a degraded foreseen must disclose the whole-log basis with its figure (rc=$W6BRC out='$W6BOUT')"
+
+# ── W7: under an ACTIVE window, an entry with NO ts cannot enter the initiative
+# sum — a missing stamp is a missing measurement, never fabricated burn (the
+# same Rule-15 rung as tokens:null). Huge un-stamped entry + tiny live burn
+# under the setpoint -> silent.
+WP7=$(mk_lineage '{"initiative":{"tokens":100000}}' 0 10000)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-14-001",deliverable_ids:["9.0"],tokens:{input:999999999,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",perf:{}}' \
+  >> "$WP7/.claude/metering/metering.ndjson"
+{ grade_line "2026-06-10T00:00:00Z"; plan_bank "2026-06-12T00:00:00Z"; } > "$WP7/.claude/metering/calibration.ndjson"
+W7OUT=$(gate "$WP7" exit); W7RC=$?
+[ "$W7RC" -eq 0 ] && [ -z "$W7OUT" ] \
+  && ok "[13.4] an un-stamped entry cannot enter a windowed sum (no fabricated breach — Rule 15)" \
+  || no "[13.4] a ts-less entry must contribute 0 to a windowed initiative sum (rc=$W7RC out='$W7OUT')"
+
+# ── W8: a lineage record with NO qualifying entry (phase banks only — no grade,
+# no plan) has no boundary to read -> the SAME cumulative degradation as no
+# record at all (110000 breaches), with the whole-log basis disclosed. Pins the
+# record-present branch of "degrades to cumulative, never to unlimited".
+WP8=$(mk_lineage '{"initiative":{"tokens":100000}}' 60000 50000)
+phase_bank "2026-06-13T00:00:00Z" > "$WP8/.claude/metering/calibration.ndjson"
+W8OUT=$(gate "$WP8" exit); W8RC=$?
+[ "$W8RC" -eq 3 ] && echo "$W8OUT" | grep -qi 'burn window:.*whole metering log' \
+  && ok "[13.4] phase-banks-only lineage -> cumulative degradation (110000 breaches, whole-log basis disclosed)" \
+  || no "[13.4] a record with no grade/plan entry must degrade to the cumulative read (rc=$W8RC out='$W8OUT')"
+
+# ── W9: a malformed banked_at stamp never windows — the whitelist rejects it and
+# the read degrades to cumulative (disclosed), rather than interpolating an
+# unvetted string into the burn program or fabricating a boundary.
+WP9=$(mk_lineage '{"initiative":{"tokens":100000}}' 60000 50000)
+printf '{"schema":"guv.projection.v1","kind":"forecast","boundary":"plan","banked_at":"yesterday-ish"}\n' \
+  > "$WP9/.claude/metering/calibration.ndjson"
+W9OUT=$(gate "$WP9" exit); W9RC=$?
+[ "$W9RC" -eq 3 ] && echo "$W9OUT" | grep -qi 'burn window:.*whole metering log' \
+  && ok "[13.4] a non-ISO banked_at fails the whitelist -> cumulative degradation, disclosed" \
+  || no "[13.4] a malformed stamp must never window (rc=$W9RC out='$W9OUT')"
+
+# ── W10: a CORRUPT calibration line (a torn append) drops alone — the intact
+# grade+plan tail still windows, so one bad line cannot resurrect the spurious
+# cumulative breach. Exercised through the --calibration override (the flag's
+# only caller-facing test): the fixture's default calibration path is absent, so
+# a broken flag OR a lost window both fail this as a cumulative breach.
+WP10=$(mk_lineage '{"initiative":{"tokens":100000}}' 5000000 10000)
+CAL10=$(mktemp "$WORK/cal10.XXXXXX")
+{ grade_line "2026-06-10T00:00:00Z"; printf '{"torn append not json\n'; plan_bank "2026-06-12T00:00:00Z"; } > "$CAL10"
+W10OUT=$( cd "$WP10" && bash "$GATE" entry --calibration "$CAL10" 2>/dev/null ); W10RC=$?
+[ "$W10RC" -eq 0 ] && [ -z "$W10OUT" ] \
+  && ok "[13.4] a corrupt calibration line drops alone — the window survives (silent, via --calibration)" \
+  || no "[13.4] one torn line must not cost the window and resurrect the cumulative breach (rc=$W10RC out='$W10OUT')"
+
+# ── W11: the anchor is the LAST qualifying entry in FILE ORDER — append order is
+# lineage order (projection.sh's rindex convention), not max-banked_at. Lifecycle
+# entries land in lifecycle order by construction, so the two only diverge on a
+# hand-edited record — and then file-order fails CONSERVATIVE: the out-of-order
+# older boundary (grade 06-05, appended after the plan bank 06-12) widens the
+# window, pulling in the 90000 entry (06-07) a max-stamp anchor would exclude →
+# burn 120000 breaches with the 06-05 basis disclosed, never a silent under-gate.
+# This is the anchoring assumption's tripwire: change the convention and this
+# test names the contract being renegotiated.
+WP11=$(mk_lineage '{"initiative":{"tokens":100000}}' 5000000 30000)
+cat > "$WP11/.claude/metering/metering.ndjson" <<'NDJSON'
+{"schema":"guv.meter.v1","ts":"2026-06-01T00:00:00Z","session":"session-2026-06-01-001","deliverable_ids":["9.0"],"tokens":{"input":5000000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+{"schema":"guv.meter.v1","ts":"2026-06-07T00:00:00Z","session":"session-2026-06-07-001","deliverable_ids":["9.0"],"tokens":{"input":90000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+{"schema":"guv.meter.v1","ts":"2026-06-15T00:00:00Z","session":"session-2026-06-15-001","deliverable_ids":["24.1"],"tokens":{"input":30000,"output":0,"cache_read":0,"cache_creation":0},"slice_basis":"per_deliverable","perf":{}}
+NDJSON
+{ grade_line "2026-06-10T00:00:00Z"; plan_bank "2026-06-12T00:00:00Z"; grade_line "2026-06-05T00:00:00Z"; } > "$WP11/.claude/metering/calibration.ndjson"
+W11OUT=$(gate "$WP11" exit); W11RC=$?
+W11BURN=$(profile_burn "$W11OUT")
+[ "$W11RC" -eq 3 ] && [ "$W11BURN" = "120000" ] \
+  && echo "$W11OUT" | grep -q 'burn window:.*since the lineage boundary 2026-06-05T00:00:00Z' \
+  && ok "[13.4] file-order anchoring pinned: an out-of-order qualifying append widens the window conservatively (120000 breaches, 06-05 basis disclosed)" \
+  || no "[13.4] the anchor must be the file-order last qualifying entry, failing conservative (rc=$W11RC burn='${W11BURN:-none}' out='$W11OUT')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

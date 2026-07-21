@@ -223,18 +223,18 @@
     },
     "budgets": {
       "type": "object",
-      "description": "Cost-and-performance budget setpoints ([9.3]). OPTIONAL at two granularities — initiative (cumulative burn across the whole metering log) and session (burn of the current session). ABSENT MEANS UNLIMITED, never 'off': a governor with no setpoint spins free, so an absent budgets block gates nothing anywhere. The tension gate (budget-gate.sh) runs at session entry and exit, compares burn (summed from the [9.1] metering log) to the chosen budget, and raises a decision gate ON TENSION ONLY — within budget it is silent. A breach PAUSES and escalates with work preserved (extend/harvest/kill is the person's decision); the machinery never raises a setpoint. Person-adjustable; budget edits are commits, so this block's git history IS the provenance — no approval flow, no side channel, no storage outside this manifest. Per-lane granularity is deferred until evidence demands it.",
+      "description": "Cost-and-performance budget setpoints ([9.3]). OPTIONAL at two granularities — initiative (burn attributable to the LIVE initiative: the metering log windowed to the [13.4] lineage boundary, degrading to the whole-log cumulative read only when no lineage exists) and session (burn of the current session). ABSENT MEANS UNLIMITED, never 'off': a governor with no setpoint spins free, so an absent budgets block gates nothing anywhere. The tension gate (budget-gate.sh) runs at session entry and exit, compares burn (summed from the [9.1] metering log) to the chosen budget, and raises a decision gate ON TENSION ONLY — within budget it is silent. A breach PAUSES and escalates with work preserved (extend/harvest/kill is the person's decision); the machinery never raises a setpoint. Person-adjustable; budget edits are commits, so this block's git history IS the provenance — no approval flow, no side channel, no storage outside this manifest. Per-lane granularity is deferred until evidence demands it.",
       "additionalProperties": false,
       "properties": {
         "initiative": {
           "type": "object",
-          "description": "The initiative budget: cumulative burn across the whole metering log. Absent means unlimited for the initiative axis.",
+          "description": "The initiative budget: burn attributable to the LIVE initiative. The gate windows the metering log to the [13.4] lineage boundary — the latest lifecycle entry in calibration.ndjson: the initiative's opening plan-boundary bank, or between initiatives the grade that closed the last one (so a still-set setpoint gates burn-since-close, not a closed initiative's history); phase-boundary banks never move it — and degrades to the whole-log cumulative read only when no lineage boundary exists. Absent means unlimited for the initiative axis.",
           "additionalProperties": false,
           "properties": {
             "tokens": {
               "type": "integer",
               "minimum": 1,
-              "description": "Cumulative token ceiling for the initiative. The gate breaches when summed burn across the whole [9.1] metering log reaches this. Tokens (not dollars) are the budget denomination: [9.1]'s Spike C keeps dollars null (no guessed price table), so tokens are the mechanical burn evidence the boundary affords."
+              "description": "Token ceiling for the initiative. The gate breaches when burn attributable to the live initiative — the [9.1] metering log windowed to the [13.4] lineage boundary (the whole-log sum only as the no-lineage degradation) — reaches this. Size it against the initiative's opening forecast, not all-time historical burn. Tokens (not dollars) are the budget denomination: [9.1]'s Spike C keeps dollars null (no guessed price table), so tokens are the mechanical burn evidence the boundary affords."
             }
           }
         },

@@ -171,8 +171,11 @@ fi
 # (4) burn — read through the EMITTER ([9.5]), NEVER the raw log: the one-parser
 # discipline is that the emitter is the sole reader of the meter and every command,
 # hook, and renderer reads its published shape (enforced by emit-metrics.test.sh
-# T12). The emitter computes the slice-aware initiative aggregation ([13.6]); we
-# capture its cost.by_initiative rollup. It resolves paths relative to its cwd, so
+# T12). We capture its cost.by_initiative rollup — the emitter's WHOLE-LOG
+# per-initiative aggregation, which is neither slice-aware nor the [13.4]
+# lineage-windowed burn budget-gate.sh compares against budgets.initiative.tokens.
+# Never re-derive a budget verdict from this figure; the entry gate at resume is
+# authoritative. The emitter resolves paths relative to its cwd, so
 # run it from the resolved root. An absent log / missing tracker degrade to a
 # zeroed rollup by the emitter's own contract; an outright failure degrades to
 # null here (Rule 15) — never a fabricated burn.
