@@ -33,7 +33,7 @@ change in `$ARGUMENTS` and is legitimate in any ceremony — so it does *not*
 redirect away from an explicit request. It is, however, the door the deterministic
 router (`.claude/route.sh`) selects for **session entry** in a `ceremony=task`
 project, and the door the phased entry commands (`/phase`, `/next`) and
-`/init-project`/`/onboard` redirect *to* when invoked in a scoped project. If you
+`/init`/`/onboard` redirect *to* when invoked in a scoped project. If you
 landed here at session start with no specific change in mind, that redirect was
 the router doing its job — describe the change and proceed. The one exception is a
 **`spike`-ceremony** project: a no-change session-entry landing there belongs in

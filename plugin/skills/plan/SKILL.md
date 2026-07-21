@@ -15,20 +15,20 @@ If no path is provided, check `docs/spec/` and the workspace for likely candidat
 
 ## When this command applies
 
-This is the **third entry path**: greenfield → `/guv:init-project`, existing repo adoption →
+This is the **third entry path**: greenfield → `/guv:init`, existing repo adoption →
 `/guv:onboard`, scoped change → `/guv:task`, **multi-phase initiative on an existing project →
 this command**. It generates only the three phase docs and flips ceremony — it does NOT
 write a manifest, render `CLAUDE.md`, or render a README (the project already has all
 three; that is what "existing" means).
 
 Doc structures, sync rules, lineage, and archival conventions live in the
-**`phase-docs` skill** — shared with `/guv:init-project`, referenced not restated. Read it
+**`phase-docs` skill** — shared with `/guv:init`, referenced not restated. Read it
 before generating.
 
 ## Step 0 — Preconditions
 
 Read `.claude/project.json`. If it doesn't exist, this project isn't guv-governed
-yet — stop and direct the user to `/guv:init-project` (greenfield) or `/guv:onboard` (adopt).
+yet — stop and direct the user to `/guv:init` (greenfield) or `/guv:onboard` (adopt).
 Confirm it parses (`jq empty .claude/project.json`) — the "before" half of the D3
 validation contract — and note `roots.control` (docs go there) and the current
 `ceremony`.

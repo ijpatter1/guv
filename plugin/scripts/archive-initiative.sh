@@ -119,7 +119,7 @@ DEPS_RE='`\[deps: (none|[0-9]+\.[0-9]+(, [0-9]+\.[0-9]+)*)\]`'
 marker_lines() { grep -E '^\s*-\s*(✅|🔄|⬜|❌|🔒)' "$TRACKER"; }
 
 # The scaffold seeds docs/PHASE_STATUS.md with VERBATIM placeholder deliverables —
-# `- ⬜ [Deliverable N …]` stubs that /guv:init-project and /guv:plan overwrite
+# `- ⬜ [Deliverable N …]` stubs that /guv:init and /guv:plan overwrite
 # with authored wording. A placeholder is the literal bracketed stub; a genuine
 # deliverable is real prose (LEGACY) or a leading **[N.M]** ID (grammar) — never
 # the stub. Match it verbatim (the bracket is required: a real prose line that

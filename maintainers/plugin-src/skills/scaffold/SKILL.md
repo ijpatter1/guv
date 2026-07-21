@@ -1,5 +1,5 @@
 ---
-description: "Scaffold the guv project shell into the current directory — templates, manifest schema, settings, rules, .gitignore, optional Docker tier — replacing the template-clone step. Use on a fresh or existing repo before /guv:init-project, /guv:onboard, or /guv:plan; safe to re-run after a plugin update to refresh core-owned files."
+description: "Scaffold the guv project shell into the current directory — templates, manifest schema, settings, rules, .gitignore, optional Docker tier — replacing the template-clone step. Use on a fresh or existing repo before /guv:init, /guv:onboard, or /guv:plan; safe to re-run after a plugin update to refresh core-owned files."
 ---
 
 # Scaffold — Project Shell from the Plugin
@@ -56,11 +56,11 @@ Two outcomes:
   `contextManagement` block so the project never later reads as a pre-feature one.
 - **The resolver exits 2 — "Could not detect a known stack"** (empty
   greenfield directory, or an unrecognized stack): write **no manifest**.
-  Null means skip, never guess. For greenfield, `/guv:init-project` declares
+  Null means skip, never guess. For greenfield, `/guv:init` declares
   identity, topology, and ceremony from the spec and writes the manifest
   itself; for an unrecognized existing stack, `/guv:onboard` walks the schema
   with the user by hand. **Neither writes the `contextManagement` block here —
-  the downstream door (`/guv:init-project` / `/guv:onboard`) elicits it when it
+  the downstream door (`/guv:init` / `/guv:onboard`) elicits it when it
   writes the manifest.**
 
 ### Step 2b — Elicit the context-wall posture ([16.2], resolver-proposes path only)
@@ -98,7 +98,7 @@ choice.
 
 The entry commands work unchanged on top of the deployed shell:
 
-- **Greenfield with a spec:** `/guv:init-project <spec>` — identity questions,
+- **Greenfield with a spec:** `/guv:init <spec>` — identity questions,
   phase docs, rendered `CLAUDE.md` (from the deployed `CLAUDE.template.md`)
 - **Existing codebase:** `/guv:onboard` — infers conventions, finalizes the
   manifest, renders `CLAUDE.md` without imposing phase structure

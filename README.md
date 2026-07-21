@@ -1,6 +1,6 @@
 # Governor (guv) — a control plane for Claude Code
 
-<!-- guv-template-readme: this is the TEMPLATE repo's README — /init-project
+<!-- guv-template-readme: this is the TEMPLATE repo's README — /init
      replaces this file in rendered projects. Test suites key consumer-shape
      skips on this marker (it survives headline rewording; remove it only if
      you mean to disable those guards). -->
@@ -55,7 +55,7 @@ the record. guv-guv is the instance where the governed project is guv itself.
 
 **Entry points** — four ways in, scaled to the work:
 
-- `/init-project <spec>` — greenfield: generate phase docs + manifest, render `CLAUDE.md`
+- `/init <spec>` — greenfield: generate phase docs + manifest, render `CLAUDE.md`
 - `/onboard` — adopt an existing repo: detect the stack, infer conventions, render `CLAUDE.md`, no phase ceremony
 - `/task "<description>"` — scoped change: understand → red/green TDD → evaluate → done
 - `/plan <spec>` — multi-phase initiative on an existing project: archive the prior initiative, generate fresh phase docs with continuous numbering, flip ceremony to `phased`
@@ -105,8 +105,12 @@ claude
 ```
 
 Under a plugin install every guv command carries the `guv:` prefix —
-`/guv:init-project`, `/guv:status`, `/guv:handoff` — and the reviewer agents
-resolve as `guv:evaluator` / `guv:reviewer`.
+`/guv:init`, `/guv:status`, `/guv:handoff` — and the reviewer agents
+resolve as `guv:evaluator` / `guv:reviewer`. **`/guv:init` is the canonical
+form of the greenfield door** (the short name was deliberately not re-picked):
+in a source-clone install the bare `/init` shadows Claude Code's built-in
+`/init` and is the documented non-canonical surface — under the plugin install
+only the namespaced form resolves, so no shadowing occurs.
 
 **Fallback — template-clone** (unversioned): for forks that customize core-owned
 files (a plugin's surfaces aren't editable; a clone's are) or environments without
@@ -160,7 +164,7 @@ claude
 # or: make sandbox
 
 # Point it at your PRD/spec
-/init-project path/to/your-spec.md
+/init path/to/your-spec.md
 ```
 
 This reads your spec and generates the project-specific artifacts:
@@ -187,11 +191,11 @@ public on non-Enterprise plans.
 
 For an existing codebase, run `/onboard` instead — it detects the stack, infers the repo's conventions, writes the manifest, and renders `CLAUDE.md` **without** imposing phase structure.
 
-> **Don't run Claude Code's native `/init` in a guv-governed repo.** `/init` inlines commands into `CLAUDE.md`, violating the manifest contract (`.claude/project.json` owns commands; `CLAUDE.md` never restates them). `/onboard` is guv's equivalent and supersedes it.
+> **Don't run Claude Code's built-in `/init` in a guv-governed repo.** The built-in `/init` inlines commands into `CLAUDE.md`, violating the manifest contract (`.claude/project.json` owns commands; `CLAUDE.md` never restates them). `/onboard` is guv's equivalent and supersedes it — and the built-in is distinct from guv's own `/init`, the greenfield door used above, whose bare surface shadows it in a source-clone install.
 
 Review the generated files, adjust anything that needs it, then commit and start building.
 
-> **The template ships no `CLAUDE.md` — that's intentional.** `CLAUDE.md` auto-loads every session, so shipping one would govern the meta-work of _using_ the template. Instead the repo ships the inert `CLAUDE.template.md` (never auto-loaded) plus the `.claude/rules/` behavioral core; `/init-project` or `/onboard` _renders_ `CLAUDE.template.md` → `CLAUDE.md`. Consumers **must commit their rendered `CLAUDE.md`** — it is deliberately not gitignored.
+> **The template ships no `CLAUDE.md` — that's intentional.** `CLAUDE.md` auto-loads every session, so shipping one would govern the meta-work of _using_ the template. Instead the repo ships the inert `CLAUDE.template.md` (never auto-loaded) plus the `.claude/rules/` behavioral core; `/init` or `/onboard` _renders_ `CLAUDE.template.md` → `CLAUDE.md`. Consumers **must commit their rendered `CLAUDE.md`** — it is deliberately not gitignored.
 
 **Manual alternative** — render the template by hand:
 
@@ -288,7 +292,7 @@ code .
 │   │   ├── next/                       # /next — light daily/mid-phase re-entry (resolver frontier)
 │   │   ├── phase/                      # /phase — phase-boundary entry (full ritual + spec alignment)
 │   │   ├── plan/                       # /plan — phased initiative on an existing project
-│   │   ├── init-project/               # /init-project — greenfield: scaffold + render CLAUDE.md
+│   │   ├── init/                       # /init — greenfield: scaffold + render CLAUDE.md
 │   │   ├── onboard/                    # /onboard — adopt an existing repo (no phase ceremony)
 │   │   ├── replan/                     # /replan — plan mutation: the one sanctioned door (engine: replan.sh)
 │   │   ├── eval/                       # /eval — dual QA review
@@ -296,7 +300,7 @@ code .
 │   │   ├── handoff/                    # /handoff — session end + dual QA + handoff
 │   │   ├── status/                     # /status — quick status check
 │   │   ├── manual/                     # /manual — out-of-sandbox task artifacts
-│   │   ├── phase-docs/                 # Shared phase-doc templates (init-project + plan)
+│   │   ├── phase-docs/                 # Shared phase-doc templates (init + plan)
 │   │   └── session-management/         # Context continuity conventions
 │   ├── workflows/
 │   │   └── eval-parallel.js       # /eval-parallel — both reviewers, concurrent
@@ -325,7 +329,7 @@ code .
     └── README.md                      # Sandbox documentation
 ```
 
-> A rendered `CLAUDE.md` (the live file) and `.claude/project.json` are created/filled per project by `/init-project` or `/onboard`. The template repo ships **no** `CLAUDE.md`.
+> A rendered `CLAUDE.md` (the live file) and `.claude/project.json` are created/filled per project by `/init` or `/onboard`. The template repo ships **no** `CLAUDE.md`.
 
 The **durable core** — the `guv-*` rules in `.claude/rules/`, the manifest, the evaluator/reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
 

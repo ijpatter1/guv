@@ -22,7 +22,7 @@
 #   --for is how an entry command asks "is this the right door?" A wrong-door
 #   invocation REDIRECTS (match=no, door=<correct>) rather than errors —
 #   redirect is a route, not a failure (exit 0). <door> must be one of the
-#   known doors (init-project|onboard|next|phase|task|spike); a typo is a
+#   known doors (init|onboard|next|phase|task|spike); a typo is a
 #   caller bug (exit 2), not a redirect.
 #
 # Output (name=value, one per line — the resolve-ready.sh contract shape):
@@ -37,7 +37,7 @@
 #         door, so the router refuses and names why rather than guess (rule 15).
 #         No door= is emitted; the reason= preserves the state for a person.
 #       4 PRE-SCAFFOLD — no manifest here yet: there is no project to route, but
-#         this is NOT ambiguity. The scaffolding doors (init-project, onboard)
+#         this is NOT ambiguity. The scaffolding doors (init, onboard)
 #         are about to WRITE the manifest this router would have read, so under
 #         --for they CONFIRM and PROCEED (match=yes, exit 0); the live-plan doors
 #         (next, phase, task) have nothing to resume and see exit 4 so
@@ -57,15 +57,15 @@ TRACKER="docs/PHASE_STATUS.md"
 # split left five; spike is the sixth, the exploration door for free-form work).
 # The routing collapse is the function over them. A --for outside this set is a
 # caller typo, not a redirect target.
-KNOWN_DOORS="init-project onboard next phase task spike"
+KNOWN_DOORS="init onboard next phase task spike"
 
 # The SCAFFOLDING doors — the two that write the manifest into a fresh repo. On
 # the PRE-SCAFFOLD state (no manifest) these PROCEED rather than stop, because
 # they are about to create the very manifest the router would have read. Which
-# of the two applies is a content decision (spec → init-project; existing code →
+# of the two applies is a content decision (spec → init; existing code →
 # onboard), not a state one — so the router confirms either under --for but
 # names neither as the single door in plain mode.
-SCAFFOLD_DOORS="init-project onboard"
+SCAFFOLD_DOORS="init onboard"
 
 # jq is on the critical path in every mode below (manifest parse, resolver-free
 # state). Guard it loud and early — without this, a missing jq surfaces as the
@@ -115,7 +115,7 @@ stop() {
 }
 
 # prescaffold REASON — the PRE-SCAFFOLD state (no manifest here yet): NOT
-# ambiguity, so NOT exit 3. Under --for, a SCAFFOLDING door (init-project,
+# ambiguity, so NOT exit 3. Under --for, a SCAFFOLDING door (init,
 # onboard) CONFIRMS and proceeds (match=yes, exit 0) — it is about to write the
 # manifest; a live-plan door (next, phase, task) gets match=no + exit 4
 # and defers to a scaffolding door. Plain (no --for) emits no door — the
@@ -142,13 +142,13 @@ prescaffold() {
 
 # ── (a) manifest: its absence is the PRE-SCAFFOLD state, not ambiguity. There
 # is no ceremony to read yet — but a fresh repo is exactly what the scaffolding
-# doors (init-project, onboard) exist to handle: they are about to WRITE this
+# doors (init, onboard) exist to handle: they are about to WRITE this
 # manifest. So this is exit 4 (pre-scaffold), distinct from the exit-3 stop a
 # malformed EXISTING project gets — the scaffolding doors proceed, the live-plan
 # doors defer (see prescaffold()). This is the fix for the canonical onboard/init
 # entry being told to STOP on a manifest-less repo.
 if [ ! -f "$MANIFEST" ]; then
-  prescaffold "no manifest at $MANIFEST yet — this is a pre-scaffold repo; init-project (from a spec) or onboard (existing code) is the door that writes it"
+  prescaffold "no manifest at $MANIFEST yet — this is a pre-scaffold repo; init (from a spec) or onboard (existing code) is the door that writes it"
 fi
 if ! jq -e . "$MANIFEST" >/dev/null 2>&1; then
   stop "$MANIFEST exists but is not valid JSON — fix the manifest before routing"
@@ -178,16 +178,16 @@ esac
 
 # ── phased: greenfield vs. live plan ─────────────────────────────────────────
 # Greenfield = phased intent with no phase docs yet (the project hasn't been
-# scaffolded into a plan). init-project is the door that lays them down; it
+# scaffolded into a plan). init is the door that lays them down; it
 # handles the NOT_SCAFFOLDED state itself. The absence of the tracker is the
 # clean single signal — a scaffoldCheck that also fails only corroborates it.
 if [ ! -f "$TRACKER" ]; then
-  emit init-project "ceremony=phased but no $TRACKER — greenfield; init-project scaffolds the plan"
+  emit init "ceremony=phased but no $TRACKER — greenfield; init scaffolds the plan"
 fi
 
 # A tracker that EXISTS but carries ONLY verbatim placeholder stubs is still
 # GREENFIELD ([23.1]): the skeleton scaffold seeds `- ⬜ [Deliverable N …]` stubs
-# that init-project/plan overwrite with authored wording ([19.1] placeholder-as-
+# that init/plan overwrite with authored wording ([19.1] placeholder-as-
 # unauthored). A split scaffold writes that skeleton tracker FIRST, so the `! -f`
 # probe above does not fire — and without this the resolver below reads the ⬜
 # stubs as an open (LEGACY) frontier and the router misroutes to next instead of
@@ -199,7 +199,7 @@ PLACEHOLDER_RE='^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*\[Deliverable [0-9]'
 MARKER_RE='^\s*-\s*(✅|🔄|⬜|❌|🔒)'
 if grep -qE "$MARKER_RE" "$TRACKER" 2>/dev/null \
    && ! grep -E "$MARKER_RE" "$TRACKER" 2>/dev/null | grep -qvE "$PLACEHOLDER_RE"; then
-  emit init-project "ceremony=phased but $TRACKER carries only verbatim placeholder stubs (unauthored) — greenfield; init-project authors the plan"
+  emit init "ceremony=phased but $TRACKER carries only verbatim placeholder stubs (unauthored) — greenfield; init authors the plan"
 fi
 
 # A live plan exists — the resolver is the single oracle for its state. Its

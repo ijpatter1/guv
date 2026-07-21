@@ -55,7 +55,7 @@ done
 # (rule 12 — no model in the loop). Greenfield is always ceremony=phased: an
 # init-from-spec build is where structure is legitimately built (the resolver's
 # detect path proposes 'onboard' for an existing repo; greenfield overrides it,
-# matching /init-project which sets phased regardless).
+# matching /init which sets phased regardless).
 if [ -n "$GF_NAME" ] || [ -n "$GF_CLASS" ]; then
   # Both halves are required — the class IS the judgment, so a bare --greenfield
   # with no class is incomplete; silently defaulting the topology is the
@@ -429,5 +429,5 @@ if [ "$CEREMONY" = "phased" ]; then
 elif [ -n "$MALFORMED_TRACKER" ]; then
   log "WARNING: a phase tracker exists at $MALFORMED_TRACKER but is MALFORMED — it carries **[N.M]** IDs yet the resolver cannot parse it (run 'bash .claude/resolve-ready.sh $MALFORMED_TRACKER' to see the offenders). This repo is clearly mid-plan-but-broken, NOT pre-scaffold. ceremony stays 'onboard' so a proposal is still produced, but DO NOT scaffold over it: fix the tracker and re-run, or confirm deliberately that onboarding should clobber the broken plan (rule 15 — refuse-and-report over a silent overwrite)."
 else
-  log "ceremony defaults to 'onboard'; /init-project (/guv:init-project under the plugin) should set it to 'phased'."
+  log "ceremony defaults to 'onboard'; /init (/guv:init under the plugin) should set it to 'phased'."
 fi

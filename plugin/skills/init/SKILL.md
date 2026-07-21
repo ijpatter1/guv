@@ -1,9 +1,14 @@
 ---
-name: init-project
+name: init
 description: "Scaffold the project documentation from a PRD or spec document."
 user-invocable: true
 ---
 
+**Canonical name: `/guv:init`** (operator ruling §6 #1, 2026-07-20). Under a
+plugin install only the namespaced form resolves, and it is the documented
+canonical surface. In a source-clone install this skill's bare `/init` shadows
+Claude Code's built-in `/init`; that bare surface is non-canonical by the same
+ruling — the short name was deliberately not re-picked.
 
 ## Step 0 — Routing Guard
 
@@ -15,12 +20,12 @@ select the entry; no user disambiguation):
 The router's exit code is the contract, identical across all entry doors:
 
 ```bash
-bash .claude/route.sh --for init-project
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/route.sh --for init
 ```
 
 - **`match=yes`** (exit 0) — this is the right door; continue. (Either
   greenfield is confirmed — a `phased` manifest with no phase docs yet — or this
-  is a **pre-scaffold** repo where init-project is the manifest-writing door,
+  is a **pre-scaffold** repo where init is the manifest-writing door,
   see exit 4.)
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
   names the correct door in `door=` — e.g. `door=next`/`door=phase` if a
@@ -35,7 +40,7 @@ bash .claude/route.sh --for init-project
   the `reason=` and **stop** rather than scaffold over an undetermined state
   (rule 15). An existing-but-broken project is NOT pre-scaffold.
 - **Exit 4 (pre-scaffold)** — no manifest here yet (the common greenfield case).
-  This is the state init-project exists for: under `--for init-project` the
+  This is the state init exists for: under `--for init` the
   router returns `match=yes`, so the exit-0 branch above already covers it — you
   are about to write the manifest this guard would have read. **Proceed.**
 
@@ -91,7 +96,7 @@ Before writing any files, extract and present a summary for the user to confirm:
 **Repo topology** (decide explicitly — don't default silently to single-repo):
 
 - **Single-repo** (`roots` both `"."`) — the framework files, docs, and product code share one tree and one history. The proposal for an **internal app** where the sandbox/Makefile/`.claude/` riding along is harmless.
-- **Control-plane split** (`roots.code` = a sibling, the named map `{ <product>: { path: "../<product>" } }` with `codePrimary`) — the product lives in its own repo; this control plane holds docs + `.claude/` + the sandbox. **This is the default — proactively propose the split whenever the spec describes a publishable or standalone artifact** ([11.5]; a library, a public CLI, anything that gets its own GitHub repo): otherwise the product's Makefile collides with the sandbox Makefile and the framework files pollute the product's public history. The proposal is mechanical given the product class — `bash .claude/resolve-stack.sh --greenfield <product> --class publishable` emits exactly this split manifest (`--class internal` emits single-repo), and `bash .claude/scaffold-split.sh <code-repo>` lays the split layout down (sibling `<product>-guv` control plane + the code repo provisioned via `provision-code-repo.sh`). Confirm the class with the user and record the topology in `roots`.
+- **Control-plane split** (`roots.code` = a sibling, the named map `{ <product>: { path: "../<product>" } }` with `codePrimary`) — the product lives in its own repo; this control plane holds docs + `.claude/` + the sandbox. **This is the default — proactively propose the split whenever the spec describes a publishable or standalone artifact** ([11.5]; a library, a public CLI, anything that gets its own GitHub repo): otherwise the product's Makefile collides with the sandbox Makefile and the framework files pollute the product's public history. The proposal is mechanical given the product class — `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-stack.sh --greenfield <product> --class publishable` emits exactly this split manifest (`--class internal` emits single-repo), and `bash "${CLAUDE_PLUGIN_ROOT}"/scripts/scaffold-split.sh <code-repo>` lays the split layout down (sibling `<product>-guv` control plane + the code repo provisioned via `provision-code-repo.sh`). Confirm the class with the user and record the topology in `roots`.
 
 **Spec provenance** — if you copy the spec into the repo, follow the "Spec provenance" convention in the `phase-docs` skill (`docs/spec/<original-name>.md` + provenance header), and reference it from the rendered `CLAUDE.md`'s "Project facts" section.
 
@@ -122,7 +127,7 @@ note above for why ordering matters). If the workspace already has stack files (
 confirm/override its values:
 
 ```bash
-bash .claude/resolve-stack.sh .   # proposes a manifest from detected stack files
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-stack.sh .   # proposes a manifest from detected stack files
 ```
 
 If nothing is detectable yet (typical for greenfield before scaffolding), write the
@@ -162,7 +167,7 @@ a pre-feature one that the migration nudge would grandfather.
   runs). Then record it:
 
   ```bash
-  bash .claude/context-management.sh set-mode .claude/project.json <hard-stop|continue>
+  bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json <hard-stop|continue>
   ```
 
 - **Headless / bypass — the loud-unset path** (no human to choose): write the explicit
@@ -171,7 +176,7 @@ a pre-feature one that the migration nudge would grandfather.
   mode is chosen:
 
   ```bash
-  bash .claude/context-management.sh set-mode .claude/project.json unset
+  bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json unset
   ```
 
 Reconciling the two governors to the chosen mode is [16.4]; the auto-compaction env carrier is [16.3].
@@ -179,7 +184,7 @@ Reconciling the two governors to the chosen mode is [16.4]; the auto-compaction 
 ### Step 3 — Generate docs/REQUIREMENTS.md
 
 Write `docs/REQUIREMENTS.md` following the structure and rules in the **`phase-docs`
-skill** (`.claude/skills/phase-docs/SKILL.md` — shared with `/plan`; the
+skill** (plugin-shipped — shared with `/guv:plan`; the
 templates live there, once). This is greenfield: omit the lineage header, number phases
 from 1.
 
@@ -198,17 +203,17 @@ Write `docs/PHASE_STATUS.md` per the phase-docs skill, copying every deliverable
 
 With the tracker written and the manifest `phased`, bank the **opening forecast** —
 the cost-to-complete projection for the whole new project, made at project open (n=0
-structural, no landings yet). It is the greenfield analog of `/plan`'s opening
+structural, no landings yet). It is the greenfield analog of `/guv:plan`'s opening
 forecast and is banked at the same `plan` boundary, so the lineage starts at the
 opening forecast and a future initiative-close `grade` settles it ("how good was the
 plan?"):
 
 ```bash
-bash .claude/projection.sh bank --at plan
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/projection.sh bank --at plan
 ```
 
 Idempotent — re-running this door does not double-bank. Greenfield init does not yet
-ratify per-deliverable sizing (the [13.2] rubric step `/plan` runs), so this takeoff
+ratify per-deliverable sizing (the [13.2] rubric step `/guv:plan` runs), so this takeoff
 leans on the **default** estimate (1 per deliverable) and **discloses** it in
 `spine.quantity.default_estimate_ids` — an honest opening forecast, sharpened as
 estimates are ratified and landings accrue. (Ratifying sizing here is a [13.2]
@@ -261,13 +266,13 @@ with a **project** README rendered from `README.template.md`:
    hand-written one — that is the one-parser tradeoff):
 
    ```bash
-   bash .claude/resolve-ready.sh docs/PHASE_STATUS.md --json \
-     | bash .claude/status-line.sh - \
-     | bash .claude/update-readme-status.sh README.md
+   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/resolve-ready.sh docs/PHASE_STATUS.md --json \
+     | bash "${CLAUDE_PLUGIN_ROOT}"/scripts/status-line.sh - \
+     | bash "${CLAUDE_PLUGIN_ROOT}"/scripts/update-readme-status.sh README.md
    ```
 
 Thereafter the §3.3 render hooks keep that block current — the native PostToolUse hook
-regenerates it when a tracker edit lands (e.g. `/handoff` Step 7 marking a deliverable
+regenerates it when a tracker edit lands (e.g. `/guv:handoff` Step 7 marking a deliverable
 ✅), and a dogfooding control plane's git post-commit hook refreshes it on every tracker
 commit. Never hand-edit between the markers.
 
@@ -290,4 +295,4 @@ git commit -m "docs: scaffold project from spec"
 git checkout -b phase/1-[phase-name]
 ```
 
-Then they can start their first session with `/phase 1`.
+Then they can start their first session with `/guv:phase 1`.

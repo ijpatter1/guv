@@ -1179,13 +1179,13 @@ RO_PLANS=$(jq -s '[ .[] | select(.kind=="forecast" and .boundary=="plan") ] | le
 # boundary — so the engine is actually reached by the lifecycle, not just present.
 PLAN_SKILL="$CLAUDE_DIR/skills/plan/SKILL.md"
 HANDOFF_SKILL="$CLAUDE_DIR/skills/handoff/SKILL.md"
-INIT_SKILL="$CLAUDE_DIR/skills/init-project/SKILL.md"
+INIT_SKILL="$CLAUDE_DIR/skills/init/SKILL.md"
 { [ -f "$PLAN_SKILL" ] && grep -qE 'projection\.sh bank --at plan' "$PLAN_SKILL"; } \
   && ok "WIRING: /plan banks the opening forecast (projection.sh bank --at plan)" \
   || no "the /plan skill must wire the opening-forecast bank (projection.sh bank --at plan)"
 { [ -f "$INIT_SKILL" ] && grep -qE 'projection\.sh bank --at plan' "$INIT_SKILL"; } \
-  && ok "WIRING: /init-project banks the greenfield opening forecast (projection.sh bank --at plan)" \
-  || no "the /init-project skill must wire the greenfield opening-forecast bank (projection.sh bank --at plan)"
+  && ok "WIRING: /init banks the greenfield opening forecast (projection.sh bank --at plan)" \
+  || no "the /init skill must wire the greenfield opening-forecast bank (projection.sh bank --at plan)"
 { [ -f "$PLAN_SKILL" ] && grep -qE 'projection\.sh grade' "$PLAN_SKILL"; } \
   && ok "WIRING: /plan grades the closing initiative at archive (projection.sh grade)" \
   || no "the /plan skill must wire the close-time grade (projection.sh grade) before archival"

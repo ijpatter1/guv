@@ -80,7 +80,7 @@ OUT=$(run "$P" --check); RC=$?
 
 # T3b — --check on a freshly-scaffolded tracker: exit 4 NONE, not INCOMPLETE.
 # The scaffold seeds docs/PHASE_STATUS.md with verbatim placeholder deliverables
-# (`- ⬜ [Deliverable N …]` stubs that /init-project and /plan overwrite). On the
+# (`- ⬜ [Deliverable N …]` stubs that /init and /plan overwrite). On the
 # single most common path — fresh onboard → first /plan — /plan Step 1's --check
 # must read a placeholder-ONLY tracker as "no real initiative, nothing to archive,
 # number from 1" (NONE/exit 4), NOT INCOMPLETE off the placeholder ⬜s, which would

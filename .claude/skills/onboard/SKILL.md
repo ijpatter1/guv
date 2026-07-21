@@ -5,7 +5,7 @@ user-invocable: true
 ---
 
 
-Use this for code that **already exists**. Unlike `/init-project` (greenfield, full
+Use this for code that **already exists**. Unlike `/init` (greenfield, full
 phased plan), `/onboard` reads what's there and records it. It does not scaffold new
 conventions, and it does not create phase docs. Most real work is on existing code —
 this is the path that unlocks it.
@@ -51,10 +51,13 @@ bash .claude/route.sh --for onboard
   from source), **proceed** — you are about to write the manifest this guard
   would have read.
 
-> **`/onboard` supersedes Claude Code's native `/init` in guv projects.** `/init`
-> inlines commands and stack facts into `CLAUDE.md`, which violates the manifest
-> contract (commands live in `.claude/project.json` and are never restated). Run this
-> command instead; don't run `/init` in a guv-governed repo.
+> **`/onboard` supersedes Claude Code's built-in `/init` in guv projects.** The
+> built-in `/init` inlines commands and stack facts into `CLAUDE.md`, which
+> violates the manifest contract (commands live in `.claude/project.json` and are
+> never restated) — don't run the built-in `/init` in a guv-governed repo. The
+> built-in is distinct from guv's `/init` (the greenfield door, whose bare
+> surface shadows it in a source-clone install): that door scaffolds from a
+> spec; this one adopts an existing repo.
 
 ## Input
 
@@ -168,7 +171,7 @@ must be respected (the "Match the codebase's conventions" rule). Decide by what'
 
 - **The repo's README is the guv template README** (e.g. it still says "Claude Code
   Development Environment" — common when someone copied this template without rendering):
-  render `README.template.md` → `README.md` as `/init-project` does, describing what's
+  render `README.template.md` → `README.md` as `/init` does, describing what's
   already there, and replace the greenfield line with a one-time status note (below).
 - **The repo has its own real project README:** leave its prose alone. Optionally, with
   the user's ok, insert the `<!-- STATUS:START/END -->` marker block near the top (with a

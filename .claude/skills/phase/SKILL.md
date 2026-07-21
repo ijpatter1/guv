@@ -32,7 +32,7 @@ across all entry doors):
   Continue to Step 1.
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
   names the correct door in `door=` (e.g. `door=next` mid-phase, `door=task`
-  in a scoped project, `door=init-project` greenfield). Tell the user the
+  in a scoped project, `door=init` greenfield). Tell the user the
   routed door and the `reason=`, and defer to it — run that door instead of
   this sequence. This is the misroute-impossible guarantee: you land on the
   right door without the user disambiguating.
@@ -41,7 +41,7 @@ across all entry doors):
   `reason=` and **stop** (rule 15) — do not proceed off an undetermined state.
 - **Exit 4 (pre-scaffold)** — no manifest here yet: there is no phase to enter.
   The router returns `match=no` (phase does not apply to a fresh repo);
-  tell the user to scaffold first — `/init-project` for a spec, `/onboard` for an
+  tell the user to scaffold first — `/init` for a spec, `/onboard` for an
   existing repo — and **stop** rather than enter a phase off no project.
 - **Exit 2** — the router itself is unavailable/misinvoked (it is absent, a flag
   is wrong, or `jq` is missing). Fall back to the mode check below and proceed;

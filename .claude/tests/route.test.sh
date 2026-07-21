@@ -11,7 +11,7 @@
 # What this suite pins (the acceptance matrix, one fixture per state, asserting
 # the routed door — plus the loud-stop on ambiguity and the redirect-not-error
 # path):
-#   - greenfield (phased, no phase docs)        → init-project
+#   - greenfield (phased, no phase docs)        → init
 #   - onboard (ceremony=onboard)                → onboard
 #   - phased mid-phase (open GRAMMAR frontier)  → next
 #   - phased complete (all ✅, empty frontier)  → phase (boundary/next)
@@ -88,14 +88,14 @@ run() {
   ERR=$(cat "$errf"); rm -f "$errf"
 }
 
-# ── 1. greenfield: phased ceremony, no phase docs yet → init-project ─────────
+# ── 1. greenfield: phased ceremony, no phase docs yet → init ─────────
 GF=$(mkproj greenfield); manifest "$GF" phased
 # no docs/PHASE_STATUS.md, no scaffold marker
 run "$GF"
 [ "$RC" -eq 0 ] && ok "greenfield: exit 0" || no "greenfield should resolve (rc=$RC; err=$ERR)"
-[ "$(val door "$OUT")" = "init-project" ] \
-  && ok "greenfield (phased, no phase docs) → init-project" \
-  || no "greenfield must route to init-project (got door=$(val door "$OUT"))"
+[ "$(val door "$OUT")" = "init" ] \
+  && ok "greenfield (phased, no phase docs) → init" \
+  || no "greenfield must route to init (got door=$(val door "$OUT"))"
 
 # ── 2. onboard ceremony → onboard ────────────────────────────────────────────
 OB=$(mkproj onboard); manifest "$OB" onboard
@@ -204,7 +204,7 @@ run "$TASK"
 #   exit 3 = AMBIGUOUS existing state (malformed plan, unknown ceremony) — a
 #            genuine loud stop, no door, every door's Step 0 halts.
 #   exit 4 = PRE-SCAFFOLD (no manifest here yet) — NOT a stop. The scaffolding
-#            doors (init-project/onboard) are about to WRITE the manifest this
+#            doors (init/onboard) are about to WRITE the manifest this
 #            guard would have read, so they PROCEED; the live-plan doors
 #            (next/phase/task) have nothing to resume and defer to a
 #            scaffolding door. The doors key off the EXIT CODE uniformly, not
@@ -222,21 +222,21 @@ run "$NOMAN"
 echo "$OUT" | grep -qi 'manifest' \
   && ok "pre-scaffold: the reason names the missing manifest (state preserved for a person)" \
   || no "pre-scaffold should name why (missing manifest)"
-echo "$OUT" | grep -qiE 'init-project|onboard|scaffold' \
-  && ok "pre-scaffold: the reason points at the scaffolding doors (init-project/onboard), not 'stop'" \
+echo "$OUT" | grep -qE 'init \(from a spec\)|onboard \(existing code\)' \
+  && ok "pre-scaffold: the reason points at the scaffolding doors (init/onboard), not 'stop'" \
   || no "pre-scaffold reason should name the scaffolding route"
 
 # 7a' — under --for, the SCAFFOLDING doors PROCEED on a pre-scaffold repo: asking
-# --for init-project / --for onboard confirms (match=yes, exit 0) — they own the
+# --for init / --for onboard confirms (match=yes, exit 0) — they own the
 # pre-scaffold state because they are about to write the manifest.
 run "$NOMAN" --for onboard
 [ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
   && ok "pre-scaffold + --for onboard → PROCEED (match=yes, exit 0) — the canonical fresh-onboard case is no longer a stop" \
   || no "onboard must proceed on a manifest-less repo (got rc=$RC match=$(val match "$OUT"))"
-run "$NOMAN" --for init-project
+run "$NOMAN" --for init
 [ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
-  && ok "pre-scaffold + --for init-project → PROCEED (match=yes, exit 0)" \
-  || no "init-project must proceed on a manifest-less repo (got rc=$RC match=$(val match "$OUT"))"
+  && ok "pre-scaffold + --for init → PROCEED (match=yes, exit 0)" \
+  || no "init must proceed on a manifest-less repo (got rc=$RC match=$(val match "$OUT"))"
 
 # 7a'' — under --for, the LIVE-PLAN doors do NOT proceed on a pre-scaffold repo:
 # resume/phase/task have nothing to resume; the router surfaces exit 4 so
@@ -422,12 +422,12 @@ run "$INPROG"
   && ok "a 🔄 in the Current Phase is mid-phase (work underway) → next, not a boundary" \
   || no "a phase with an in-progress 🔄 must route to next (got door=$(val door "$OUT"))"
 
-# ── 11. UNAUTHORED GREENFIELD: placeholder-only tracker → init-project ([23.1]) ─
+# ── 11. UNAUTHORED GREENFIELD: placeholder-only tracker → init ([23.1]) ─
 # The second misroute, same root cause: a skeleton scaffold writes docs/PHASE_STATUS.md
 # FIRST (so the `! -f` greenfield probe does not fire), seeded with verbatim
-# `- ⬜ [Deliverable N …]` stubs that init-project/plan overwrite. A tracker that
+# `- ⬜ [Deliverable N …]` stubs that init/plan overwrite. A tracker that
 # carries ONLY those stubs is UNAUTHORED — still greenfield ([19.1] placeholder-as-
-# unauthored) — and the door that AUTHORS the plan is init-project. Before the fix
+# unauthored) — and the door that AUTHORS the plan is init. Before the fix
 # the resolver read the ⬜ stubs as an open frontier and the router said door=next.
 UNAUTH=$(mkproj phased-unauthored); manifest "$UNAUTH" phased
 touch "$UNAUTH/.scaffolded"
@@ -442,28 +442,28 @@ MD
 cp "$UNAUTH/docs/PHASE_STATUS.md" "$UNAUTH/docs/REQUIREMENTS.md"
 run "$UNAUTH"
 [ "$RC" -eq 0 ] && ok "unauthored: exit 0" || no "unauthored should resolve (rc=$RC; err=$ERR)"
-[ "$(val door "$OUT")" = "init-project" ] \
-  && ok "a placeholder-only (unauthored) tracker is greenfield → init-project, not next" \
-  || no "an unauthored placeholder tracker must route to init-project (got door=$(val door "$OUT"))"
+[ "$(val door "$OUT")" = "init" ] \
+  && ok "a placeholder-only (unauthored) tracker is greenfield → init, not next" \
+  || no "an unauthored placeholder tracker must route to init (got door=$(val door "$OUT"))"
 echo "$OUT" | grep -qiE 'placeholder|unauthored|greenfield' \
   && ok "unauthored: the reason names the placeholder/unauthored state" \
   || no "unauthored reason should explain the placeholder state (got: $(val reason "$OUT"))"
 
-# 11b — under --for, init-project CONFIRMS on a placeholder tracker (it owns the
-# author-the-plan job); next REDIRECTS to init-project.
-run "$UNAUTH" --for init-project
+# 11b — under --for, init CONFIRMS on a placeholder tracker (it owns the
+# author-the-plan job); next REDIRECTS to init.
+run "$UNAUTH" --for init
 [ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
-  && ok "unauthored + --for init-project → confirm (match=yes) — init-project authors the plan" \
-  || no "init-project must confirm on an unauthored tracker (got rc=$RC match=$(val match "$OUT"))"
+  && ok "unauthored + --for init → confirm (match=yes) — init authors the plan" \
+  || no "init must confirm on an unauthored tracker (got rc=$RC match=$(val match "$OUT"))"
 run "$UNAUTH" --for next
-[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "init-project" ] \
-  && ok "unauthored + --for next → redirect to init-project (nothing authored to resume)" \
-  || no "next on an unauthored tracker must redirect to init-project (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "init" ] \
+  && ok "unauthored + --for next → redirect to init (nothing authored to resume)" \
+  || no "next on an unauthored tracker must redirect to init (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
 
 # 11c — GUARD: an AUTHORED tracker whose prose merely contains the word
 # "Deliverable" (not the verbatim `[Deliverable N` stub) is NOT a placeholder —
 # it routes by its real frontier (here: a started ✅ → mid-phase → next), never
-# hijacked to init-project. This is the exact false-positive the placeholder regex
+# hijacked to init. This is the exact false-positive the placeholder regex
 # guards against (the literal bracket is required).
 NOTPH=$(mkproj phased-deliverable-prose); manifest "$NOTPH" phased
 touch "$NOTPH/.scaffolded"
@@ -478,7 +478,7 @@ MD
 cp "$NOTPH/docs/PHASE_STATUS.md" "$NOTPH/docs/REQUIREMENTS.md"
 run "$NOTPH"
 [ "$(val door "$OUT")" = "next" ] \
-  && ok "authored prose containing 'Deliverable' is NOT a placeholder → routes by frontier (next), not init-project" \
+  && ok "authored prose containing 'Deliverable' is NOT a placeholder → routes by frontier (next), not init" \
   || no "an authored tracker must not be misread as a placeholder greenfield (got door=$(val door "$OUT"))"
 
 # ── [21.3] — the spike entry door (ceremony=spike → door=spike) ───────────────

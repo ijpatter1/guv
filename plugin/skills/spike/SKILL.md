@@ -32,14 +32,14 @@ The router's exit code is the contract, identical across all entry doors:
 - **`match=yes`** (exit 0) — this is the right door; continue to Step 1.
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
   names the correct door in `door=` (e.g. `door=next`/`door=phase` in a phased
-  project, `door=task` in a scoped one, `door=onboard`/`door=init-project` on a
+  project, `door=task` in a scoped one, `door=onboard`/`door=init` on a
   fresh repo). Tell the user the routed door and the `reason=`, and defer to it.
 - **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
   ceremony, or a MALFORMED tracker). The router emits no `door=`; surface its
   `reason=` and **stop** (rule 15) — do not start a spike off an undetermined state.
 - **Exit 4 (pre-scaffold)** — no manifest here yet: there is nothing to explore in
   an empty repo. The router returns `match=no`; tell the user to scaffold first —
-  `/guv:onboard` for an existing repo, `/guv:init-project` for a spec — and **stop**.
+  `/guv:onboard` for an existing repo, `/guv:init` for a spec — and **stop**.
 - **Exit 2** — the router is unavailable/misinvoked (absent, a wrong flag, or `jq`
   missing); fall back to the mode check below and proceed.
 

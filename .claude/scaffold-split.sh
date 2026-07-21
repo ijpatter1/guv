@@ -2,7 +2,7 @@
 # .claude/scaffold-split.sh — CONSUMER-facing split scaffold ([11.5]).
 #
 # (Slash commands named in this file are guv:-namespaced under a plugin install —
-# e.g. /init-project resolves as /guv:init-project — so the report's next-step
+# e.g. /init resolves as /guv:init — so the report's next-step
 # hint points at the right command in either install mode.)
 #
 # Lay down a control-plane / code split for a greenfield publishable or standalone
@@ -165,6 +165,6 @@ log ""
 log "Split scaffold complete:"
 log "  control plane: $PLANE   (roots.code → $CODE_REL)"
 log "  code repo:     $CODE_ABS   (provisioned as a guv lane target)"
-log "  Next:  cd \"$PLANE\" && claude   then  /init-project <spec>  (writes the phase docs over the split manifest)"
+log "  Next:  cd \"$PLANE\" && claude   then  /init <spec>  (writes the phase docs over the split manifest)"
 echo "$PLANE"
 exit 0

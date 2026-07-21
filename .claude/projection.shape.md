@@ -191,7 +191,7 @@ calibration record (append-only NDJSON, like the metering log).
 projection is banked **when made**, at three boundaries the skills run as documented
 steps (the `meter.sh capture` convention, not a hook):
 
-- **`/plan` (or `/init-project` greenfield) → `bank --at plan`** — the **opening
+- **`/plan` (or `/init` greenfield) → `bank --at plan`** — the **opening
   forecast** (n=0 structural), the cost to complete the whole new initiative. The
   greenfield door banks against default estimates (disclosed) since it does not yet
   ratify per-deliverable sizing (a [13.2] follow-up).

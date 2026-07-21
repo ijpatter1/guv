@@ -62,7 +62,7 @@ fi
 # T3 — the generator chain: both generators defer to the phase-docs skill,
 # and the skill's templates emit ID'd, token'd deliverables. Together these
 # are "both generators emit the new format" without a second grammar copy.
-for cmd in plan init-project; do
+for cmd in plan init; do
   if grep -q 'phase-docs' "$ROOT/.claude/skills/$cmd/SKILL.md"; then
     ok "$cmd.md routes doc generation through the phase-docs skill"
   else
@@ -280,7 +280,7 @@ SWEPT_HARNESS_FREE="
 maintainers/render-smoke.js
 .claude/skills/feedback/SKILL.md
 .claude/skills/handoff/SKILL.md
-.claude/skills/init-project/SKILL.md
+.claude/skills/init/SKILL.md
 .claude/skills/onboard/SKILL.md
 .claude/skills/plan/SKILL.md
 .claude/skills/status/SKILL.md
@@ -365,6 +365,44 @@ if grep -q '^## Vocabulary' "$ROOT/README.md" \
 else
   no "README must carry the ## Vocabulary block (Appendix B)"
 fi
+
+# ── [24.1] R3 door rename: no shipped surface names the retired door ──────────
+# The init skill carried the retired hyphenated name until R3 (ruling §6 #1:
+# /guv:init is the canonical form). The guard pins the retirement: that token
+# may appear ONLY on history surfaces — CHANGELOG.md and .claude/agent-memory/
+# (event records; mention, not use — the same carve [24.4] rules for the prose
+# sweep). Everything else — README, templates, skills, scripts, tests, the
+# plugin mirror, maintainer surfaces — is a live surface and must carry the new
+# door name. The pattern is split so this guard's own text never trips itself.
+RETIRED_TOKEN='init-''project'
+# Stale positive-control fixture from a crashed prior run → clean BEFORE the
+# main scan so residue can't fail it (T12d's crashed-run lesson, applied earlier).
+G241_FIX="$ROOT/zz-24-1-guard-fixture.md"
+[ -e "$G241_FIX" ] && { echo "  - cleaning a stale [24.1] fixture (prior crashed run): $G241_FIX"; rm -f "$G241_FIX"; }
+RETIRED=$(grep -rl "$RETIRED_TOKEN" "$ROOT" \
+  --exclude-dir=.git \
+  --exclude-dir=agent-memory \
+  --exclude=CHANGELOG.md 2>/dev/null)
+if [ -z "$RETIRED" ]; then
+  ok "[24.1] no shipped surface names the retired door (history surfaces only)"
+else
+  no "[24.1] retired door name still on live surfaces: $(echo "$RETIRED" | tr '\n' ' ')"
+fi
+# positive control — the same scan must FLAG a planted violation; a guard that
+# can only ever report success is not a guard (T12d's pass-5 lesson).
+trap 'rm -f "$G241_FIX"' EXIT
+printf 'planted control: %s\n' "$RETIRED_TOKEN" > "$G241_FIX"
+RETIRED2=$(grep -rl "$RETIRED_TOKEN" "$ROOT" \
+  --exclude-dir=.git \
+  --exclude-dir=agent-memory \
+  --exclude=CHANGELOG.md 2>/dev/null)
+if printf '%s\n' "$RETIRED2" | grep -q 'zz-24-1-guard-fixture.md'; then
+  ok "[24.1] positive control: the scan flags a planted retired-token file"
+else
+  no "[24.1] positive control failed — the scan did not flag the planted file"
+fi
+rm -f "$G241_FIX"
+trap - EXIT
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

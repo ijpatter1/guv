@@ -422,7 +422,15 @@ CMDS=$(
 # (NOT namespace-rewritten), so a bare /command in them is legitimate when it
 # carries a guv: decoder — exactly the shared-scripts regime (plugin/scripts/ is
 # not scanned here either). T12e enforces the decoder on those bundled scripts.
-BARE=$(grep -rE --exclude-dir=scripts "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
+# The qualified-mention filter mirrors the build's protect/restore carve
+# ([24.1]): "built-in `/cmd`" / "native `/cmd`" / "bare `/cmd`" name a token
+# literally and legitimately stay bare — T12f asserts they survive unmangled.
+# Token-granular, matching the carve: the sed strips the qualified mention and
+# the line's REMAINDER is re-tested, so a line carrying both a qualified
+# mention and a bare use still counts as a violation.
+BARE=$(grep -rE --exclude-dir=scripts "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" "$PLUGIN/skills" "$PLUGIN/agents" \
+  | sed -E 's#(built-in|native|bare) `/[^`]+`##g' \
+  | grep -E "(^|[^[:alnum:].:-])/($CMDS)($|[^[:alnum:]:_-])" | wc -l | tr -d ' ')
 [ "$BARE" -eq 0 ] \
   && ok "no bare /command references in plugin skills or agents (all /guv:-namespaced)" \
   || no "$BARE bare /command reference(s) remain in plugin skills/agents"
@@ -430,6 +438,28 @@ SPAWN=$(grep -rE '`(evaluator|reviewer)` subagent|@(evaluator|reviewer)([^-]|$)'
 [ "$SPAWN" -eq 0 ] \
   && ok "no bare reviewer-spawn references in plugin skills or agents" \
   || no "$SPAWN bare reviewer-spawn reference(s) remain"
+
+# T12f — qualified mentions survive the namespace rewrite ([24.1]). A slash
+# token qualified as "built-in `/cmd`", "native `/cmd`", or "bare `/cmd`"
+# NAMES the token (Claude Code's built-in /init, the source-clone bare
+# surface) — mention, not invocation — and the build's protect/restore carve
+# must ship it literal. The garble signature is a qualified mention wearing
+# the namespace: renaming the door onto the built-in's token turned every
+# built-in mention into the namespaced form, and the plugin told consumers
+# not to run the canonical door (the [24.1] review's critical finding).
+# Case-insensitive: the build's protect matches only lowercase qualifiers, so a
+# sentence-initial "Bare `/init`" garbles to "Bare `/guv:init`" — this scan must
+# catch that slip loudly rather than let the case gap evade it (pass-3 finding).
+GARBLED=$(grep -riE '(built-in|native|bare) `/guv:' "$PLUGIN/skills" "$PLUGIN/agents" | wc -l | tr -d ' ')
+[ "$GARBLED" -eq 0 ] \
+  && ok "T12f: no qualified mention wears the namespace (mention/use carve holds)" \
+  || no "T12f: $GARBLED qualified mention(s) namespaced: $(grep -riEl '(built-in|native|bare) `/guv:' "$PLUGIN/skills" "$PLUGIN/agents" | tr '\n' ' ')"
+grep -q 'built-in `/init`' "$PLUGIN/skills/onboard/SKILL.md" \
+  && ok "T12f: onboard's callout keeps the literal built-in /init token" \
+  || no "T12f: onboard's callout lost the literal built-in /init mention"
+grep -q 'built-in `/init`' "$PLUGIN/skills/init/SKILL.md" \
+  && ok "T12f: the init canonicality note keeps the literal built-in /init token" \
+  || no "T12f: the init canonicality note lost the literal built-in /init mention"
 
 # T12c — no template-clone topology paths survive in plugin skills or agents:
 # a plugin consumer has no .claude/skills/, .claude/workflows/, or

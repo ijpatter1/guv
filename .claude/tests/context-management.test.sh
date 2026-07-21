@@ -275,7 +275,7 @@ jq -e '.properties.contextManagement.additionalProperties == false' "$SCHEMA" >/
 # what would fail when business logic (the door prose) drifts (Rule 8).
 # ─────────────────────────────────────────────────────────────────────────────
 DOORS="
-init-project:$ROOT/.claude/skills/init-project/SKILL.md
+init:$ROOT/.claude/skills/init/SKILL.md
 onboard:$ROOT/.claude/skills/onboard/SKILL.md
 scaffold:$ROOT/maintainers/plugin-src/skills/scaffold/SKILL.md
 "

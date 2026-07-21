@@ -445,7 +445,7 @@ fi
 # T10 — the README's template-clone fallback states the DECIDED consumer
 # disposition (Phase 5 D4): an existing clone is told whether to migrate to
 # plugin updates or keep syncing — an answer, not an inherited parenthetical.
-# Gated on the README being the TEMPLATE's: /init-project replaces README.md
+# Gated on the README being the TEMPLATE's: /init replaces README.md
 # with a rendered project README, and deleting maintainers/ is optional — a
 # post-init consumer shape must skip here, not fail (the consumer-suite
 # contract: correct consumer usage never reads as a violation). The detector

@@ -1,12 +1,12 @@
 ---
 name: phase-docs
-description: Shared templates and rules for generating the three phase docs (REQUIREMENTS, ARCHITECTURE, PHASE_STATUS) plus initiative lineage and archival conventions. Referenced by /guv:init-project (greenfield) and /guv:plan (existing project) so the structures live once. Not a workflow — a reference.
+description: Shared templates and rules for generating the three phase docs (REQUIREMENTS, ARCHITECTURE, PHASE_STATUS) plus initiative lineage and archival conventions. Referenced by /guv:init (greenfield) and /guv:plan (existing project) so the structures live once. Not a workflow — a reference.
 user-invocable: false
 ---
 
 # Phase Docs — Shared Structures & Rules
 
-Both generators (`/guv:init-project` for greenfield, `/guv:plan` for an initiative on
+Both generators (`/guv:init` for greenfield, `/guv:plan` for an initiative on
 an existing project) write the same three documents. The structures and sync rules below
 are the single source for both; the commands stay linear and reference this skill instead
 of inlining templates.

@@ -29,7 +29,7 @@ bash .claude/route.sh --for next
 - **`match=yes`** (exit 0) — this is the right door; continue to Step 1.
 - **`match=no`** (exit 0) — **wrong door: redirect, don't error.** The router
   names the correct door in `door=` (e.g. `door=phase` at a phase
-  boundary, `door=task` in a scoped project, `door=init-project` greenfield).
+  boundary, `door=task` in a scoped project, `door=init` greenfield).
   Tell the user the routed door and the `reason=`, and defer to it.
 - **Exit 3 (loud stop)** — an **ambiguous existing** project (unrecognized
   ceremony, or a MALFORMED tracker; the resolver's exit-5 condition surfaces
@@ -37,7 +37,7 @@ bash .claude/route.sh --for next
   (rule 15) — do not present a plan off an undetermined state.
 - **Exit 4 (pre-scaffold)** — no manifest here yet: there is no plan to resume.
   The router returns `match=no` (resume does not apply to a fresh repo); tell the
-  user to scaffold first — `/onboard` for an existing repo, `/init-project` for a
+  user to scaffold first — `/onboard` for an existing repo, `/init` for a
   spec — and **stop** rather than resume off no project.
 - **Exit 2** — the router is unavailable/misinvoked (absent, a wrong flag, or
   `jq` missing); fall back to the mode check below and proceed.

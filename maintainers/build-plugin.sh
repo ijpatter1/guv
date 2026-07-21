@@ -88,7 +88,16 @@ slash_names() {
 }
 
 _namespace_pass() {
+  # Qualified mentions are literal ([24.1]): "built-in `/cmd`", "native
+  # `/cmd`", "bare `/cmd`" NAME a token rather than invoke a skill — renaming
+  # the door onto the built-in's token made the distinction load-bearing (an
+  # unprotected pass rewrote mentions of Claude Code's built-in /init into
+  # the namespaced form and shipped instructions against the canonical door).
+  # Protect the qualified forms with a sentinel before the rewrite loop;
+  # restore after. T12b filters the same forms; T12f pins the shipped result.
+  local lit; lit=$(printf '\001')
   local args=(-E
+    -e "s#(built-in|native|bare) \`/#\\1 \`${lit}#g"
     -e 's|the saved `/eval-parallel` workflow|the `/eval-parallel` skill|g'
     -e 's|\(`\.claude/workflows/eval-parallel\.js`\)|(launching the plugin-shipped workflow)|g'
     -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g'
@@ -107,6 +116,7 @@ _namespace_pass() {
     agname=$(basename "$agf" .md)
     args+=(-e "s|\`$agname\` subagent|\`guv:$agname\` subagent|g" -e "s|@$agname|@guv:$agname|g")
   done
+  args+=(-e "s#${lit}#/#g")
   sed "${args[@]}"
 }
 

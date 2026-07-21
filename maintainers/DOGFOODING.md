@@ -145,6 +145,18 @@ decided by audience:
   updates structurally cannot serve the loop. `--sync` is the only mechanism that moves
   not-yet-released core into a live control plane.
 
+**Authoring convention (the namespace pass, [24.1]):** the build rewrites every bare
+`/name` skill reference in skill/agent prose to `/guv:name`. A mention qualified as
+"built-in `/init`" / "native `/init`" / "bare `/init`" (any skill token) is preserved
+**literally** — it names the token (Claude Code's built-in, the source-clone bare
+surface) rather than invoking the skill. Prose that means the platform command must
+use one of those qualified forms, qualifier directly before the backticked token
+and **lowercase** (a sentence-initial "Bare `/init`" is not protected — rephrase so
+the qualifier sits mid-sentence) — any other phrasing is silently namespaced. The
+mechanism is `_namespace_pass` in `build-plugin.sh`; T12b/T12f in `plugin.test.sh`
+hold the carve, with T12f's garble scan case-insensitive so a capitalized-qualifier
+slip reds the test battery loudly instead of shipping unnoticed.
+
 ### Standing plugin install (dual load)
 
 A maintainer machine may also have `guv@guv` installed at user scope — dogfooding the
@@ -170,7 +182,7 @@ either way.
 
 **This repo's own `.claude/project.json`** stays `ceremony: task`: it matches how the
 template's defaults are maintained and ships no phase docs. The full greenfield
-`phased` flow remains available to consumers — `/init-project` sets `phased` when it
+`phased` flow remains available to consumers — `/init` sets `phased` when it
 scaffolds from a spec.
 
 ## Setup

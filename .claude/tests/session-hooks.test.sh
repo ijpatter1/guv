@@ -338,17 +338,17 @@ echo "$CTXT" | grep -q 'door=task' \
   && ok "task ceremony: additionalContext surfaces door=task" \
   || no "task ceremony: should surface door=task, got: $CTXT"
 
-# ── 4. greenfield (no manifest): the router still resolves it (init-project) ──
+# ── 4. greenfield (no manifest): the router still resolves it (init) ──
 # A no-manifest dir is greenfield, not an error: route.sh routes it to
-# init-project, and surfacing that at session-open is useful (it tells a fresh
+# init, and surfacing that at session-open is useful (it tells a fresh
 # repo to scaffold). The hook must surface it, exit 0, never block.
 GF=$(mkproj greenfield "")   # helpers symlinked, but no manifest written
 run "$GF"
 [ "$RC" -eq 0 ] && ok "greenfield: exit 0" || no "greenfield must exit 0 (got rc=$RC)"
 CTXG=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
-echo "$CTXG" | grep -q 'door=init-project' \
-  && ok "greenfield (no manifest): surfaces door=init-project (scaffold-here routing)" \
-  || no "greenfield: should surface door=init-project, got: $CTXG"
+echo "$CTXG" | grep -q 'door=init' \
+  && ok "greenfield (no manifest): surfaces door=init (scaffold-here routing)" \
+  || no "greenfield: should surface door=init, got: $CTXG"
 
 # ── 5. helpers absent: the genuine nothing-to-surface rung — clean exit 0 ─────
 # When the sibling scripts can't be resolved (a stripped or broken install),

@@ -97,7 +97,7 @@ else
 fi
 
 # ── docs templates: the three phase-doc skeletons (consumer-owned the moment
-# they exist — /guv:init-project and /guv:plan fill them in) ──
+# they exist — /guv:init and /guv:plan fill them in) ──
 for d in REQUIREMENTS.md ARCHITECTURE.md PHASE_STATUS.md; do
   keep_file "$SHELL_DIR/docs/$d" "docs/$d"
 done

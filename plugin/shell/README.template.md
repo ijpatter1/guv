@@ -1,7 +1,7 @@
 <!--
 ═══════════════════════════════════════════════════════════════════════════
   TEMPLATE — not the live project README. Rendered into `README.md` by:
-    /init-project — greenfield: render this whole file, filling placeholders.
+    /init — greenfield: render this whole file, filling placeholders.
     /onboard      — existing repo: do NOT clobber an existing README. If one
                     exists, only inject/update the STATUS block (and optionally a
                     one-line "developed with guv" note). Render this in

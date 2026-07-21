@@ -90,7 +90,7 @@ fi
 for doc in README.md CLAUDE.template.md \
            .claude/skills/eval/SKILL.md .claude/skills/handoff/SKILL.md; do
   target="$DOCROOT/$doc"
-  # /init-project replaces README.md with a rendered project README, and a
+  # /init replaces README.md with a rendered project README, and a
   # fork may delete it — both are consumer shapes that skip this one guard
   # rather than failing (matching setup-control-plane.test.sh T10's gates).
   # Detector = the explicit guv-template-readme marker, reword-proof; the
