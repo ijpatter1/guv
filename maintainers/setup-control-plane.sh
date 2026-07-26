@@ -23,14 +23,15 @@
 #              feedback untouched. Run this after editing guv.
 #
 #   BOTH modes also write OUTSIDE the control plane when the guv plugin is installed:
-#   the plugin cache's scripts/, hooks/ and workflows/ are refreshed from this repo's
-#   built plugin/, because a plugin-registered hook runs the CACHE's copy of core, never
-#   the plane's. That cache is user-scope, so it is the core every guv project on this
-#   machine runs. Trees read by NAME (skills/, agents/, rules/) are left at the release
-#   on purpose. The refresh names every file it changes or prunes, keeps its delete
-#   inside those three guv-owned trees, verifies the result by re-reading the cache, and
-#   is skipped LOUDLY whenever it cannot establish that the cache is this repo's
-#   artifact. See refresh_plugin_cache below.
+#   the plugin cache's guv-owned trees are refreshed from this repo's built plugin/,
+#   because a plugin-registered hook runs the CACHE's copy of core, never the plane's.
+#   That cache is user-scope, so it is the core every guv project on this machine runs.
+#   It is refreshed WHOLE — one vintage, never a blend of release text over source code
+#   (a half-refresh once left the greenfield door's routing guard failing open). The
+#   refresh names every file it changes or prunes, keeps its delete inside those
+#   guv-owned trees, verifies the result by re-reading the cache, and is skipped LOUDLY
+#   whenever it cannot establish that the cache is this repo's artifact. See
+#   refresh_plugin_cache below.
 
 set -u
 
@@ -210,18 +211,43 @@ dedup_hook_registration() {
 # This is the other half of [19.5]: having made the plugin authoritative, we must not
 # leave it stale. (No new deliverable ID is minted here — [19.5] is the cause, cited.)
 #
-# SCOPE — three trees, and deliberately not the whole plugin. The defect is that the
-# plugin path EXECUTES stale code, so the fix reaches exactly what executes: every hook
-# command in hooks.json is ${CLAUDE_PLUGIN_ROOT}/scripts/*, hooks.json itself IS the
-# authoritative registration since [19.5], and skill/agent bodies invoke
-# ${CLAUDE_PLUGIN_ROOT}/scripts/* and /workflows/*. skills/, agents/, rules/, shell/,
-# tests/ and .claude-plugin/ are READ BY NAME, not executed from source, and leaving
-# them at the release is what preserves the dual-load comparison DOGFOODING.md
-# documents — bare names are the plane's synced copy, /guv: names are the release.
-# Narrowing is also what keeps the prune below inside guv-owned ground: these three
-# trees are wholly ours, so a delete can never reach .in_use/ (Claude Code's per-session
-# PID locks), .DS_Store at the cache root, or anything else Claude Code put there.
-GUV_CACHE_TREES="scripts hooks workflows"
+# SCOPE — every guv-owned content tree, ONE vintage, no mixing. A first cut of this fix
+# refreshed only what the plugin literally executes (scripts/, hooks/, workflows/) and
+# froze the rest at the release, on the theory that skills/ and rules/ are "read by name"
+# and that leaving them preserved DOGFOODING.md's dual-load comparison. Both halves of
+# that theory were wrong, and the second one shipped a live fail-open regression before
+# review caught it:
+#
+#   * "Read by name" is false. scaffold-shell.sh sets SHELL_DIR="$PLUGIN_ROOT/shell" and
+#     RULES_DIR="$PLUGIN_ROOT/rules" — an executed script reading those trees by path,
+#     the same pattern that put scripts/ in scope.
+#   * A mixed cache is INCOHERENT, not conservative. Release skill text calls source
+#     scripts, and a skill's contract is an interface: [24.1] renamed the greenfield
+#     door, so the frozen skill ran `route.sh --for <its old name>` against a refreshed
+#     router that knows only the new one. The router exited 2 — which that skill documents
+#     as "router unavailable, proceed with scaffolding". The [8.1] routing guard degraded
+#     to FAIL-OPEN on a live machine. A stale cache is at least self-consistent; a
+#     half-refreshed one is a vintage that was never built, shipped, or tested.
+#
+# So the cache carries source or it carries the release, never a blend (Rule 7 — pick
+# one, don't average). A genuine release-vs-source comparison needs a tagged checkout or
+# a second install, which is where it always had to come from.
+#
+# .claude-plugin/ is the ONE deliberate exclusion, for two reasons that survive the
+# above: it holds the manifest this function reads to CONFIRM the cache's identity
+# (overwriting it would make that check self-fulfilling on every run after the first),
+# and the cache path is version-keyed, so copying a bumped plugin.json into a .../0.10.0/
+# directory would contradict the plugin DB's own record.
+#
+# What keeps the delete off Claude Code's ground is the prune being TREE-SCOPED — the
+# walk only ever enters a named tree — NOT the number of trees named. .in_use/ (per-
+# session PID locks) and every other cache-ROOT entry are siblings of these trees, so
+# they are unreachable whether this list holds three names or eight.
+GUV_CACHE_TREES="agents hooks rules scripts shell skills tests workflows"
+# Set by refresh_plugin_cache, read by refresh_one_plugin_cache. Declared here with a
+# default rather than passed: it is one fact about the SOURCE, computed once for every
+# cache, and `set -u` must not depend on a `local` leaking through dynamic scope.
+GUV_PLUGIN_BEHIND=""
 #
 # BLAST RADIUS, stated because it is wider than the command's name suggests: the plugin
 # cache is USER-scope. Refreshing it changes what every guv-governed project on this
@@ -233,10 +259,11 @@ GUV_CACHE_TREES="scripts hooks workflows"
 # OWN plugin.json must then agree that it is the artifact this repo builds. Every rung
 # that cannot establish that DISCLOSES and writes nothing — a missing built plugin, a
 # guv entry with no installPath, a relative path, an absent directory, a foreign
-# manifest, an unenumerable source tree. Only two rungs are silent, and each means the
-# guv plugin is simply not installed here (no jq, no plugin DB / no guv entry) — the
-# ordinary state of a consumer plane, and not news. This verifies a cache; it never
-# provisions one.
+# manifest, an unenumerable source tree. Three rungs are silent: no plugin DB and no guv
+# entry both mean the plugin is simply not installed here — the ordinary state of a
+# consumer plane, and not news — while no jq means the check could not RUN, and is silent
+# only because every other jq-dependent step in this script degrades the same way. This
+# verifies a cache; it never provisions one.
 
 _cache_tree_files() {   # <root> <tree> → tree-prefixed relative paths, deterministic order
   [ -d "$1/$2" ] || return 0
@@ -250,6 +277,44 @@ _cache_drift() {        # files the built plugin ships that the cache has wrong 
     _cache_tree_files "$built" "$t" | while IFS= read -r f; do
       cmp -s "$built/$f" "$cache/$f" 2>/dev/null || echo "$f"
     done
+  done
+}
+
+# Is the BUILT plugin itself behind .claude/? This refresh copies plugin/ into the cache,
+# so a stale plugin/ makes a coherent-but-old cache and the operator is never told: cache
+# drift is measured against plugin/, so when plugin/ is the thing that is behind, drift
+# reads ZERO and every advisory tied to it is suppressed — silence exactly where the
+# hazard is. Measured directly instead, on the surfaces build-plugin.sh copies VERBATIM
+# (helpers and hooks -> scripts/, guv-* rules, skill-bundled scripts). Skills and agents
+# are excluded on purpose: the builder rewrites their frontmatter, so a byte diff there
+# means nothing. One-directional by design — plugin/scripts/ also carries plugin-only
+# sources from maintainers/plugin-src/ that have no .claude/ counterpart.
+_built_plugin_stale() {  # <built> → source-relative names whose built copy differs or is missing
+  local built=$1 f b
+  for f in "$GUV_DIR/.claude/"*.sh "$GUV_DIR/.claude/hooks/"*.sh; do
+    [ -e "$f" ] || continue
+    b="$built/scripts/$(basename "$f")"
+    [ -e "$b" ] && cmp -s "$f" "$b" 2>/dev/null || echo "scripts/$(basename "$f")"
+  done
+  for f in "$GUV_DIR/.claude/rules/"guv-*.md; do
+    [ -e "$f" ] || continue
+    b="$built/rules/$(basename "$f")"
+    [ -e "$b" ] && cmp -s "$f" "$b" 2>/dev/null || echo "rules/$(basename "$f")"
+  done
+  for f in "$GUV_DIR/.claude/skills/"*/scripts/*.sh; do
+    [ -e "$f" ] || continue
+    b="$built/skills/$(basename "$(dirname "$(dirname "$f")")")/scripts/$(basename "$f")"
+    [ -e "$b" ] && cmp -s "$f" "$b" 2>/dev/null \
+      || echo "skills/$(basename "$(dirname "$(dirname "$f")")")/scripts/$(basename "$f")"
+  done
+  # Tests walk the other way. The builder ships a FILTERED subset (MAINTAINER_ONLY
+  # suites stay source-side), so source->built would report every held-back suite as
+  # drift; built->source asks only "is each suite that DOES ship current", which needs
+  # no copy of the filter's logic to be right.
+  for b in "$built/tests/"*.test.sh; do
+    [ -e "$b" ] || continue
+    f="$GUV_DIR/.claude/tests/$(basename "$b")"
+    [ -e "$f" ] && cmp -s "$f" "$b" 2>/dev/null || echo "tests/$(basename "$b")"
   done
 }
 
@@ -276,10 +341,14 @@ refresh_one_plugin_cache() {
     echo "[setup] plugin cache NOT verified — the plugin DB records installPath '$cache' but nothing is there; hook-invoked core is running from a copy this sync could not inspect"
     return 0
   fi
-  # Identity. 'guv@* and the directory exists' is what the DB claims; the manifest is
-  # what the artifact itself says. A maintainer with the RELEASE installed and a FORK
-  # checked out at $GUV_DIR would otherwise have the release silently overwritten — and
-  # since the prune landed, partly deleted — across every guv project on the machine.
+  # Identity, and only as much of it as a name match can carry. 'guv@* and the directory
+  # exists' is what the DB CLAIMS; the manifest is what the artifact itself SAYS. Matching
+  # them stops the write when the recorded installPath actually holds some other plugin —
+  # a mis-keyed DB entry, a hand-edited path, a cache root reused. What it does NOT
+  # establish is provenance: a fork also declares the name "guv", so a fork's cache and
+  # upstream's are indistinguishable here, and no version or source-URL check is made.
+  # That residual is accepted deliberately — the alternative is refusing to refresh the
+  # fork case, which is the case this whole path exists to serve.
   local bn cn
   bn=$(jq -r '.name // empty' "$built/.claude-plugin/plugin.json" 2>/dev/null)
   cn=$(jq -r '.name // empty' "$cache/.claude-plugin/plugin.json" 2>/dev/null)
@@ -305,7 +374,7 @@ refresh_one_plugin_cache() {
   [ -n "$drift" ] || [ -n "$stale" ] || return 0   # current — stay quiet, so the signal keeps meaning something
   echo "[setup] PLUGIN CACHE DRIFT — hook-invoked core was STALE; refreshing $cache"
   echo "        (user-scope: this is the core EVERY guv project on this machine runs)"
-  echo "        (source is the BUILT plugin, plugin/ — rebuild first if you have edited .claude/ since the last build)"
+  echo "        (source is the BUILT plugin, plugin/; whether that build is itself current is reported once, above)"
   [ -n "$drift" ] && printf '%s\n' "$drift" | sed 's|^|  drifted: |'
   [ -n "$stale" ] && printf '%s\n' "$stale" | sed 's|^|  removed upstream: |'
   # Overlay what source ships, then prune what source dropped. Both stay inside the
@@ -326,28 +395,34 @@ refresh_one_plugin_cache() {
   for t in $GUV_CACHE_TREES; do
     [ -d "$cache/$t" ] && find "$cache/$t" -name '.DS_Store' -delete 2>/dev/null
   done
-  # Provenance: the DB's gitCommitSha/lastUpdated described the RELEASE and are false
-  # once overlaid, so leave a marker saying which source this cache now carries. It sits
-  # at the cache root, outside the walked trees, so it is never its own prune candidate.
-  # The marker records dirty state because this loop exists to move UNRELEASED work: a
-  # bare HEAD sha would name a commit that does not describe what was copied.
+  # VERIFY, don't claim. cp -R is documented to keep going after an error, so its exit
+  # status cannot carry this: re-run the same comparison and report what is left.
+  local rdrift rstale verified=yes
+  rdrift=$(_cache_drift "$built" "$cache")
+  rstale=$(_cache_stale "$built" "$cache")
+  [ -z "$rdrift" ] && [ -z "$rstale" ] || verified=no
+  # Provenance, written AFTER the verify and carrying its outcome. The DB's
+  # gitCommitSha/lastUpdated described the RELEASE and are false once overlaid, so this
+  # marker is the only record of which source the cache now carries — and a marker that
+  # asserted a refresh before the check that can contradict it would be the same
+  # claim-don't-verify mistake the block above exists to avoid. It sits at the cache root,
+  # outside the walked trees, so it is never its own prune candidate. It records dirty
+  # state because this loop exists to move UNRELEASED work: a bare HEAD sha would name a
+  # commit that does not describe what was copied.
   local dirty=no
   [ -n "$(git -C "$GUV_DIR" status --porcelain -- plugin 2>/dev/null)" ] && dirty=yes
   if ! { echo "# hand-refreshed from guv source by maintainers/setup-control-plane.sh"
          echo "source_repo=$GUV_DIR"
          echo "source_commit=$(git -C "$GUV_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
          echo "source_plugin_dirty=$dirty"
+         echo "source_plugin_behind_claude=${GUV_PLUGIN_BEHIND:+yes}"
          echo "refreshed_trees=$GUV_CACHE_TREES"
          echo "refreshed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+         echo "verified=$verified"
        } > "$cache/.guv-source-refresh" 2>/dev/null; then
     echo "[setup] WARNING — could not write $cache/.guv-source-refresh; this cache now carries unreleased source with no record of which"
   fi
-  # VERIFY, don't claim. cp -R is documented to keep going after an error, so its exit
-  # status cannot carry this: re-run the same comparison and report what is left.
-  local rdrift rstale
-  rdrift=$(_cache_drift "$built" "$cache")
-  rstale=$(_cache_stale "$built" "$cache")
-  if [ -z "$rdrift" ] && [ -z "$rstale" ]; then
+  if [ "$verified" = yes ]; then
     echo "[setup] verified: hook-invoked core at $cache now matches the BUILT plugin across ($GUV_CACHE_TREES)"
   else
     echo "[setup] plugin cache refresh INCOMPLETE — '$cache' is now MIXED VINTAGE${cp_failed:+ (a copy failed; see the cp error above)}; these still differ from source:"
@@ -375,6 +450,16 @@ refresh_plugin_cache() {
   if [ ! -d "$built" ]; then
     echo "[setup] plugin cache NOT verified — no built plugin at $built (run maintainers/build-plugin.sh first); hook-invoked core keeps running the installed cache"
     return 0
+  fi
+  # Say this BEFORE any cache is compared, because it is the case cache drift cannot see.
+  # Proceeding is the designed rung, not a shortcut: plugin/ is a real build, so the cache
+  # still lands on ONE coherent vintage — just not the newest source. Refusing would leave
+  # it on an older vintage still, which is the defect this whole path exists to end.
+  GUV_PLUGIN_BEHIND=$(_built_plugin_stale "$built")
+  if [ -n "$GUV_PLUGIN_BEHIND" ]; then
+    echo "[setup] BUILT PLUGIN IS BEHIND .claude/ — refreshing caches from a STALE build"
+    echo "        (run: bash maintainers/build-plugin.sh — then re-run this sync)"
+    printf '%s\n' "$GUV_PLUGIN_BEHIND" | sed 's|^|  not rebuilt since edited: |'
   fi
   # EVERY recorded install, not the first: user- and local-scope entries coexist, and so
   # do several guv@<marketplace> keys. Refreshing one and staying quiet about the rest

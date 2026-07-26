@@ -173,15 +173,25 @@ from the built `plugin/` on create and `--sync`: without it, a fix could sit in
 `.claude/` while every hook kept executing the release-frozen copy (see the
 `refresh_plugin_cache` comment for the incident that found this).
 
-The refresh covers exactly what the plugin path *executes*: `scripts/`, `hooks/` and
-`workflows/`. Everything read **by name** — `skills/`, `agents/`, `rules/` — is left at
-the release deliberately, so the dual load stays a real comparison: bare names are the
-plane's synced copy, `/guv:` names are the last release. Mind the seam that leaves. After
-a sync the cache is a hybrid *by design* — release skill text calling source scripts. It
-stays coherent as long as a script's interface is stable across the gap, and it is the
-first thing to check when a `/guv:` command behaves oddly right after a script change
-landed: rebuild and release, or invoke the bare name. The reviewer read-only guard is
-agent-type-gated either way, so it stays inert outside `guv:`-spawned reviewers.
+The refresh covers every guv-owned tree in the cache, **whole** — `agents/`, `hooks/`,
+`rules/`, `scripts/`, `shell/`, `skills/`, `tests/`, `workflows/`. Only
+`.claude-plugin/` is held back, because its manifest is what the refresh reads to
+confirm the cache's identity and the cache path is version-keyed.
+
+So after a sync, **both** surfaces carry source: `/guv:` names are no longer "the last
+release" but this repo's built plugin. **That is deliberate, and partial refreshes are
+not an option.** A first cut refreshed only the executed trees and froze skill text at
+the release; the result was a vintage that was never built or shipped. [24.1] renamed
+the greenfield door, so the frozen skill invoked `route.sh --for <its old name>` against
+a refreshed router that knows only the new one; the router exited 2, which that skill
+documents as "router unavailable — proceed with scaffolding," and the [8.1] routing guard
+degraded to fail-open on a live machine. A skill's command line is an interface, and interfaces
+do not survive being split across two vintages.
+
+The cost is that this plane no longer gives you a release-vs-source comparison — get
+that from a tagged checkout or a second install, which is where it always had to come
+from. The reviewer read-only guard is agent-type-gated either way, so it stays inert
+outside `guv:`-spawned reviewers.
 
 ## Ceremony: seeded `task`, flipped per initiative
 

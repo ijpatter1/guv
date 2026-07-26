@@ -1053,10 +1053,14 @@ fi
 # Every rung that cannot establish that discloses and writes nothing; only "guv is not
 # installed here" is silent. GUV_PLUGINS_DB carries installPath, so the whole seam is
 # testable without touching the real ~/.claude cache.
-# The refresh covers three trees — scripts/, hooks/, workflows/ — because those are what
-# the plugin path EXECUTES or reads as registration. skills/, agents/ and rules/ are read
-# by name and stay at the release, which is both the documented dual-load (DOGFOODING.md)
-# and what keeps the prune from ever reaching a directory Claude Code owns.
+# The refresh covers every guv-owned tree WHOLE — one vintage, never a blend. A first cut
+# refreshed only the executed trees (scripts/, hooks/, workflows/) and froze skill text at
+# the release; that shipped a live fail-open regression, because [24.1] renamed the
+# greenfield door and the frozen skill then invoked the refreshed router with a door name
+# it no longer knew (exit 2, which that skill reads as "router unavailable — proceed").
+# T13g pins both halves of the lesson: a rename lands WHOLE across trees, and the delete
+# still never leaves those trees. What protects Claude Code's own cache-root entries is
+# the prune being TREE-SCOPED, not the number of trees in scope.
 PLUGIN_JSON='{"name":"guv","version":"0.10.0","description":"fixture"}'
 seed_cache() {   # $1 = cache dir; a STALE script, the identity manifest, and Claude Code's own
   mkdir -p "$1/scripts" "$1/.claude-plugin" "$1/.in_use"
@@ -1069,9 +1073,21 @@ seed_cache() {   # $1 = cache dir; a STALE script, the identity manifest, and Cl
   printf 'claude-code owns this\n' > "$1/.last_inuse_sweep"
 }
 seed_built() {   # $1 = guv home; the built plugin tree --sync refreshes FROM
-  mkdir -p "$1/plugin/scripts" "$1/plugin/.claude-plugin"
+  mkdir -p "$1/plugin/scripts" "$1/plugin/.claude-plugin" "$1/plugin/rules"
   printf 'CURRENT GATE — windowed\n' > "$1/plugin/scripts/budget-gate.sh"
   printf '%s\n' "$PLUGIN_JSON" > "$1/plugin/.claude-plugin/plugin.json"
+  # A FAITHFUL build, not just the one file under test: the refresh now also reports
+  # whether plugin/ is itself behind .claude/ (helpers and hooks -> scripts/, guv-*
+  # rules), and a fixture whose plugin/ never mirrored its own source would fly that
+  # banner in every case — turning a real signal into background noise nobody reads.
+  # T13m perturbs this deliberately to prove the banner still fires.
+  for f in "$1/.claude/"*.sh "$1/.claude/hooks/"*.sh; do
+    [ -e "$f" ] && cp "$f" "$1/plugin/scripts/$(basename "$f")"
+  done
+  for f in "$1/.claude/rules/"guv-*.md; do
+    [ -e "$f" ] && cp "$f" "$1/plugin/rules/$(basename "$f")"
+  done
+  return 0
 }
 db_with_path() { # $1 = installPath → a guv-family DB naming it
   printf '{"version":2,"plugins":{"guv@guv":[{"scope":"user","version":"0.10.0","installPath":"%s"}]}}\n' "$1"
@@ -1138,8 +1154,14 @@ printf '%s' "$OUT13D" | grep -q 'NOT verified' \
 # T13e — no drift → idempotent: nothing is claimed refreshed on a cache already current.
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-current"; C="$WORK/cx-current-installed"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
-mkdir -p "$C/scripts" "$C/.claude-plugin"
-cp "$H/plugin/scripts/budget-gate.sh" "$C/scripts/budget-gate.sh"
+# "Current" means current across EVERY refreshed tree, so mirror the built plugin whole
+# rather than hand-copying the one file under test — a fixture that copies a single file
+# reports drift the moment the built tree grows a second one, which is a fixture defect
+# masquerading as a behavior change.
+mkdir -p "$C/.claude-plugin"
+for t in $(cd "$H/plugin" && for d in */; do d=${d%/}; [ "$d" = ".claude-plugin" ] || printf '%s ' "$d"; done); do
+  mkdir -p "$C/$t"; cp -R "$H/plugin/$t/." "$C/$t/"
+done
 printf '%s\n' "$PLUGIN_JSON" > "$C/.claude-plugin/plugin.json"
 db_with_path "$C" > "$WORK/db-current.json"
 OUT13E=$( GUV_PLUGINS_DB="$WORK/db-current.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
@@ -1171,26 +1193,27 @@ printf '%s' "$OUT13F" | grep -q 'removed upstream: scripts/nested/resolve-stacks
   && ok "[19.5] the replacement asset is delivered alongside the prune (rename lands whole)" \
   || no "[19.5] the prune must not race the overlay — the new entry point has to be present"
 
-# T13g — the prune STOPS. It is a delete in a user-scope directory Claude Code also
-# writes to, so its scope limit is the safety property, not an implementation detail:
-# .in_use/ (Claude Code's per-session PID locks) sits at the cache root and must be
-# untouched, and skills/ is left at the RELEASE on purpose — that is the dual-load
-# DOGFOODING.md documents, and it is why the walk never leaves the three guv trees.
+# T13g — the two properties that a first cut of this fix got wrong, pinned together.
+# (1) ONE VINTAGE: a rename lands WHOLE across trees. Refreshing only the executed trees
+# and freezing skill text left release skill text calling source scripts — and because a
+# skill's command line IS an interface, [24.1]'s door rename turned the [8.1] routing
+# guard fail-open on a live machine (the frozen skill invoked the refreshed router with a
+# door it no longer knew; exit 2 reads as "router unavailable — proceed").
+# (2) THE DELETE STILL STOPS: .in_use/ (Claude Code's per-session PID locks) and every
+# other cache-ROOT entry survive. That protection comes from the prune being TREE-SCOPED,
+# not from how few trees are in scope — which is exactly why (1) could be fixed without
+# weakening (2), and why both belong in one case.
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-scope"; C="$WORK/cx-scope-installed"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"
-# A skill RENAME staged in the one tree the refresh must NOT touch (the shape [24.1]
-# had): source ships the new name, the cache still carries the old. Both halves must be
-# inert — the release door survives AND the source door is never delivered. Planting the
-# built side matters: the stale walk skips a tree the built plugin does not ship at all,
-# so without plugin/skills here a widened scope would sail past this assertion. The names
-# are fabricated on purpose — a live surface may not carry a retired door name, which
-# docs-sweep enforces repo-wide.
+# The [24.1] shape, staged in a read-by-name tree: source ships the new door, the cache
+# still carries the old. The names are fabricated because a live surface may not carry a
+# retired door name — docs-sweep enforces that repo-wide, and caught it here.
 mkdir -p "$H/plugin/skills/newdoor"; printf 'source door\n' > "$H/plugin/skills/newdoor/SKILL.md"
 mkdir -p "$C/skills/olddoor"; printf 'release door\n' > "$C/skills/olddoor/SKILL.md"
-# A removed-upstream file so the PRUNE path actually runs: the empty-directory sweep is
-# gated on there being something to prune, so without this the unscoped-sweep bug would
-# sail past every assertion below.
+# A removed-upstream file in a DIFFERENT tree, so the prune demonstrably runs even if the
+# skills half regressed: the empty-directory sweep is gated on there being something to
+# prune, so without this an unscoped sweep would sail past the .in_use assertion.
 printf 'retired\n' > "$C/scripts/retired.sh"
 db_with_path "$C" > "$WORK/db-scope.json"
 ( GUV_PLUGINS_DB="$WORK/db-scope.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
@@ -1198,11 +1221,11 @@ db_with_path "$C" > "$WORK/db-scope.json"
   && ok "[19.5] the prune ran in this fixture — the scope assertions below are live, not vacuous" \
   || no "[19.5] the prune must fire here, or the scope-limit assertions that follow prove nothing"
 [ -d "$C/.in_use" ] && [ -f "$C/.last_inuse_sweep" ] \
-  && ok "[19.5] the prune never reaches Claude Code's own .in_use/ or the cache root — the delete stays inside the three guv trees" \
+  && ok "[19.5] the prune never reaches Claude Code's own .in_use/ or the cache root — a TREE-scoped delete cannot see a root sibling" \
   || no "[19.5] the refresh must not delete a cache-root entry Claude Code owns (.in_use is its PID-lock dir, and EMPTY is its ordinary state)"
-[ -f "$C/skills/olddoor/SKILL.md" ] && [ ! -e "$C/skills/newdoor/SKILL.md" ] \
-  && ok "[19.5] skills/ is left at the release, both halves — the refresh reaches what EXECUTES, preserving the documented dual load" \
-  || no "[19.5] the refresh must not rewrite read-by-name trees; the defect is executed code, and DOGFOODING.md's dual load depends on this"
+[ -f "$C/skills/newdoor/SKILL.md" ] && [ ! -e "$C/skills/olddoor/SKILL.md" ] \
+  && ok "[19.5] a rename lands WHOLE across trees — the cache carries ONE vintage, never release text over source code" \
+  || no "[19.5] freezing a read-by-name tree while refreshing scripts/ ships a vintage that was never built: [24.1] renamed a door and the stale skill drove the fresh router fail-open"
 
 # T13h — a guv entry whose installPath cannot be resolved is the rung where silence is
 # most dangerous: the dedup has just announced "the plugin is authoritative", so hearing
@@ -1256,6 +1279,94 @@ diff -q "$C1/scripts/budget-gate.sh" "$H/plugin/scripts/budget-gate.sh" >/dev/nu
   && diff -q "$C2/scripts/budget-gate.sh" "$H/plugin/scripts/budget-gate.sh" >/dev/null 2>&1 \
   && ok "[19.5] every recorded guv install is refreshed — a second cache left stale is a cache still running the defect" \
   || no "[19.5] the refresh must cover all recorded installPaths; picking the first silently leaves the others stale"
+
+# T13m — plugin/ itself behind .claude/. This is the one staleness cache drift is blind
+# to: the cache is compared AGAINST plugin/, so when plugin/ is what is behind, drift
+# reads zero, the function returns early, and every advisory hanging off the drift banner
+# is suppressed — silence in exactly the case that poisons the cache. The check runs
+# before any cache is compared and names the files. Proceeding is deliberate: plugin/ is
+# still a real build, so the cache lands on ONE coherent vintage, just not the newest.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-behind"; C="$WORK/cx-behind-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"
+printf 'edited in source, never rebuilt\n' > "$H/.claude/resolve-ready.sh"   # source moves, plugin/ does not
+db_with_path "$C" > "$WORK/db-behind.json"
+OUT13M=$( GUV_PLUGINS_DB="$WORK/db-behind.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+printf '%s' "$OUT13M" | grep -q 'BUILT PLUGIN IS BEHIND' \
+  && printf '%s' "$OUT13M" | grep -q 'not rebuilt since edited: scripts/resolve-ready.sh' \
+  && ok "[19.5] a plugin/ behind .claude/ is disclosed and NAMED — the staleness cache drift cannot see" \
+  || no "[19.5] editing .claude/ without rebuilding must be announced; drift against plugin/ reads zero and hides it"
+
+# T13m2 — and it stays quiet when the build IS current, so the banner keeps meaning
+# something. Same fixture, no source edit.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-current-build"; C="$WORK/cx-current-build-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"
+db_with_path "$C" > "$WORK/db-cbuild.json"
+OUT13M2=$( GUV_PLUGINS_DB="$WORK/db-cbuild.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+printf '%s' "$OUT13M2" | grep -q 'BUILT PLUGIN IS BEHIND' \
+  && no "[19.5] the behind-build banner fired on a current build — a warning that always fires is not a warning" \
+  || ok "[19.5] no behind-build banner when plugin/ is a current build of .claude/"
+
+# T13n — the provenance marker records the VERIFY outcome, and is written after it. A
+# marker asserting a refresh before the check that can contradict it is the same
+# claim-don't-verify mistake the verify step exists to prevent.
+printf '%s' "$OUT13M2" | grep -q 'verified: hook-invoked core' \
+  && grep -q '^verified=yes' "$C/.guv-source-refresh" 2>/dev/null \
+  && grep -q '^source_commit=' "$C/.guv-source-refresh" 2>/dev/null \
+  && ok "[19.5] the provenance marker carries the verify outcome (verified=yes) and the source commit" \
+  || no "[19.5] .guv-source-refresh must record what the verify found, not merely that a copy was attempted"
+
+# T13L — the SCOPE DECLARATION itself, which nothing above constrains. Every T13 case
+# plants only scripts/, so narrowing GUV_CACHE_TREES back to "scripts" left all of them
+# green — and that variable is exactly what the fail-open regression turned on: a cut
+# scope shipped release-frozen skills/ beside source-vintage scripts/, and the greenfield
+# door's routing guard degraded to fail-open on a live machine. Two assertions, because
+# either alone is vacuous: L1 pins WHICH trees are declared (a derived list would narrow
+# silently along with the code), L2 pins that each declared tree is actually copied (a
+# declaration nothing acts on is a comment).
+#
+# L1 — the scope is every top-level tree the BUILT plugin ships, with exactly one
+# exception: .claude-plugin/ (the identity manifest, deliberately held back so the cache
+# keeps declaring the release it was installed as). Derived from the real plugin/, not a
+# hard-coded literal, so adding a tree to the build without adding it to scope reds here
+# rather than shipping a half-vintage cache.
+REAL_PLUGIN="$(cd "$(dirname "$0")/../.." && pwd)/plugin"
+if [ -d "$REAL_PLUGIN" ]; then
+  SHIPPED=$(cd "$REAL_PLUGIN" && for d in */; do
+              d=${d%/}; [ "$d" = ".claude-plugin" ] || printf '%s\n' "$d"
+            done | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
+  DECLARED=$(grep '^GUV_CACHE_TREES=' "$REAL_SCRIPT" | head -1 \
+             | sed 's/^GUV_CACHE_TREES=//; s/^"//; s/"$//' \
+             | tr ' ' '\n' | grep -v '^$' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
+  [ -n "$SHIPPED" ] && [ "$DECLARED" = "$SHIPPED" ] \
+    && ok "[19.5] refresh scope declares every guv-owned tree the built plugin ships (.claude-plugin held back)" \
+    || no "[19.5] refresh scope must cover every shipped tree — declared '$DECLARED' vs shipped '$SHIPPED'; a partial refresh is a vintage that was never built or tested"
+else
+  no "[19.5] SETUP: no built plugin at $REAL_PLUGIN — cannot pin the refresh scope against what ships"
+fi
+
+# L2 — each declared tree round-trips. One uniquely-named file per tree on the built
+# side; every one must arrive in the cache. Deleting a tree from the copy loop (while
+# leaving it declared) reds here; L1 catches the reverse.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-trees"; C="$WORK/cx-trees-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"
+DECL=$(grep '^GUV_CACHE_TREES=' "$H/maintainers/setup-control-plane.sh" | head -1 \
+       | sed 's/^GUV_CACHE_TREES=//; s/^"//; s/"$//')
+for t in $DECL; do
+  mkdir -p "$H/plugin/$t"
+  printf 'tree-probe %s\n' "$t" > "$H/plugin/$t/zz-tree-probe.txt"
+done
+db_with_path "$C" > "$WORK/db-trees.json"
+( GUV_PLUGINS_DB="$WORK/db-trees.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
+MISSING=""
+for t in $DECL; do
+  cmp -s "$H/plugin/$t/zz-tree-probe.txt" "$C/$t/zz-tree-probe.txt" 2>/dev/null || MISSING="$MISSING $t"
+done
+[ -n "$DECL" ] && [ -z "$MISSING" ] \
+  && ok "[19.5] every declared tree is actually copied into the cache (probe landed in: $DECL)" \
+  || no "[19.5] declared trees that never reached the cache:${MISSING:-<none — empty declaration>}"
 
 fi  # SCP_TEST_INNER guard (T12 [19.5] block)
 

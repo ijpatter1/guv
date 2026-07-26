@@ -55,13 +55,48 @@ copy**, not the live tree:
 
 - `setup-control-plane.test.sh` — builds a scratch guv repo under `$WORK`
   (`make_guv` → `"$WORK/guv"`) and runs `setup-control-plane.sh` against scratch
-  control planes; never touches the live `.claude/`.
+  control planes; never touches the live `.claude/`. Also seam-isolated on the
+  second axis below.
 - `render-hook.test.sh` — assembles a fixture guv repo at `H="$WORK/guv"` and
-  runs `setup-control-plane.sh` against scratch planes under `$WORK`.
+  runs `setup-control-plane.sh` against scratch planes under `$WORK`. Also
+  seam-isolated on the second axis below.
 - `release.test.sh` — references `build-plugin.sh` only for absence checks; never
   invokes it against the live source.
 
 These remain in the bounded parallel pool.
+
+## The second axis — writes OUTSIDE the repo (user-scope state)
+
+The audit above is about the shared **live source tree**, and its remedy is the
+serial carve. There is a second, independent axis with a different remedy:
+a suite that reaches **user-scope state outside the repo entirely**. Serializing
+does not help here — one suite touching the maintainer's real machine state is
+wrong however few suites run beside it.
+
+One such surface exists today. Since `[19.5]`'s cache half,
+`maintainers/setup-control-plane.sh` refreshes the **installed plugin cache** as
+well as the control plane it is given — deliberately, because a plugin-registered
+hook executes `${CLAUDE_PLUGIN_ROOT}/scripts/*`, never the plane's synced copy, so
+a `--sync` that skipped the cache would leave the machine running stale core. The
+cache is **user-scope**: `~/.claude/plugins/cache/…`, the core every guv project
+on that machine runs. Any suite invoking `setup-control-plane.sh` therefore
+reaches it unless the seam is set.
+
+**The seam is `GUV_PLUGINS_DB`** — it overrides the installed-plugin DB path the
+refresh reads. Point it at a path under the suite's own `mktemp` (existing fixture
+DB, or a name that does not exist) and the refresh returns at its absent-DB rung
+before resolving any real `installPath`:
+
+```bash
+export GUV_PLUGINS_DB="$WORK/no-such-plugins-db.json"
+```
+
+Both current callers set it: `setup-control-plane.test.sh` (fixture DBs, which is
+also how its T13 cases exercise the refresh) and `render-hook.test.sh` (absent
+path, plus a positive control asserting no plugin-cache line reaches its setup
+log). **Any new suite that runs `setup-control-plane.sh` owes the same line.**
+Do not rely on the fixture repo shipping no `plugin/` — that rung disclosed and
+returned by accident, and an accident is not isolation.
 
 ## Enrolling a new suite
 

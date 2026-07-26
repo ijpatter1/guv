@@ -61,12 +61,10 @@ cannot accidentally arm the gate on a supervised run.
 That script refreshes the installed plugin cache from source (a plugin-registered hook
 runs the cache's copy of core, so a stale cache silently outlives every `--sync`; see
 `refresh_plugin_cache`). The install itself is still the public-distribution one, but
-after any sync its `scripts/`, `hooks/` and `workflows/` are unreleased source — the
-executed half — while `skills/`, `agents/` and `rules/` remain the published text. So
-the maintainer exercises a hybrid, not the published artifact. The evidence criterion
-(b) collects is therefore "the public install path works", not "the published bits
-work" — verify the latter on a machine that has never synced, or from a fresh install
-after a release.
+after any sync every guv-owned tree in it is unreleased source, so what the maintainer
+exercises is not the published artifact. The evidence criterion (b) collects is
+therefore "the public install path works", not "the published bits work" — verify the
+latter on a machine that has never synced, or from a fresh install after a release.
 
 Both were set as pre-resolved decisions in the native-alignment spec
 (2026-06-10) and criterion (b) was reframed by the plan-as-data initiative

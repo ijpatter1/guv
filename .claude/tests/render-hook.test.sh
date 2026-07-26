@@ -44,6 +44,18 @@ fi
 WORK=$(mktemp -d)
 trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' EXIT
 
+# HERMETICITY — this suite invokes the REAL setup-control-plane.sh, which since
+# [19.5]'s cache half also refreshes the installed plugin cache OUTSIDE the plane
+# it is given. Left unset, GUV_PLUGINS_DB resolves to the maintainer's real
+# ~/.claude/plugins/installed_plugins.json and the run reaches the live
+# user-scope cache every guv project on this machine executes. Today the fixture
+# repos ship no plugin/, so the refresh lands on its "no built plugin" rung and
+# writes nothing — but that is fixture accident, not isolation. Point the seam at
+# a file that does not exist: the refresh returns before it reads any path.
+# Any future suite that runs setup-control-plane.sh owes the same line
+# (maintainers/BATTERY-HERMETICITY.md).
+export GUV_PLUGINS_DB="$WORK/no-such-plugins-db.json"
+
 # ── Fixture guv repo: the real setup script plus the real render chain, so
 # the hook the fixture control plane receives exercises the real machinery.
 H="$WORK/guv"
@@ -61,6 +73,19 @@ CP="$WORK/cp"
 bash "$H/maintainers/setup-control-plane.sh" "$CP" > "$WORK/setup.log" 2>&1 \
   || { echo "  ✗ SETUP: control-plane create failed: $(cat "$WORK/setup.log")"; exit 1; }
 git -C "$CP" config user.email t@t && git -C "$CP" config user.name t
+
+# Positive control for the GUV_PLUGINS_DB seam above. With the seam in force the
+# refresh returns at the absent-DB rung and says nothing. Delete the export and
+# this run reads the REAL plugin DB, resolves the real user-scope installPaths,
+# and discloses "no built plugin at $H/plugin" — so the line's presence is the
+# regression signal. Honest bound: on a machine with no guv plugin installed the
+# real DB carries no guv@ entry and the refresh is silent anyway, so this control
+# fires only where the hazard is real — which is the maintainer machine it guards.
+if grep -q 'plugin cache' "$WORK/setup.log" 2>/dev/null; then
+  no "hermeticity: suite runs must not reach the real plugin cache (GUV_PLUGINS_DB seam)"
+else
+  ok "hermeticity: suite runs never reach the real plugin cache (GUV_PLUGINS_DB seam)"
+fi
 
 # A README carrying the STATUS markers, so the post-commit hook's README-block
 # refresh ([8.3] §3.3) has a block to update (it no-ops without the markers).
