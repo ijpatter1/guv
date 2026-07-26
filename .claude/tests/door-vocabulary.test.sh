@@ -29,7 +29,10 @@
 # skill-prose suite that reached the shipped partition would walk an empty set
 # and pass on nothing; the non-vacuity assertion below turns that into a red
 # instead, which is how this placement was found. Do not rewrite the reference
-# above into a glob to "tidy" it — that is what ships the suite.
+# above into a glob to "tidy" it — that is what ships the suite. That instruction
+# is not the only guard: this basename is named in the by-name must-not-ship lists
+# in plugin.test.sh (T18) and ship-suite.test.sh (T3b), so a tidy-up reds there
+# rather than shipping quietly and passing on an empty set.
 # Pure bash, no runner required.
 # Run: bash .claude/tests/door-vocabulary.test.sh
 set -u

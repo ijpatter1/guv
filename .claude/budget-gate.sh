@@ -34,8 +34,13 @@
 # the inflated unit lets more real work through than it was meant to) and exits
 # 0. It is a disclosure, not a conversion and not a stop: re-denominating a
 # setpoint is a human commit to project.json, exactly like raising one. The scan
-# is scoped to the SAME window as the burn it describes, so a closed initiative's
-# vintage never raises a warning about the live one.
+# reads the SAME entries the burn sums — same lineage window, and same
+# contributing set (bounded slices plus the differenced legacy cumulatives) — so
+# neither a closed initiative's vintage nor an entry that contributes no burn at
+# all can raise a warning about the live figure. Note what the banner does NOT
+# do: nothing clears it. A window that has once spanned both vintages spans them
+# for its whole life, because the log is append-only — so the disclosure is a
+# standing property of this initiative, not a task to work off.
 #
 # THE ESCALATION PATH (Rule 15 — designed degradation, loud stop) ──────────────
 # A BREACH (burn ≥ budget) PAUSES and escalates with work PRESERVED: the gate
@@ -262,6 +267,7 @@ INITIATIVE_BURN=0
 # Declared out here with the burns, not inside the log branch: with no log there is
 # no vintage to report, and `set -u` must not turn "nothing to disclose" into an abort.
 BURN_VINTAGES=""
+BURN_VINTAGE_N=0
 if [ -f "$LOG" ]; then
   # Burn is summed SLICE-AWARE ([13.5] — the [13.6] migration budget-gate was
   # disclosed as owing). An entry's tokens is a BOUNDED per-session slice only when
@@ -340,13 +346,33 @@ if [ -f "$LOG" ]; then
   else
     VSEL='true'
   fi
+  # The scan must read the entries burn_sum CONTRIBUTES FROM, not merely the ones
+  # sharing its ts window — a vintage raised by an entry that adds nothing to the
+  # figure is a false alarm about a number it never touched. So the same structural
+  # filter applies here: bounded slices, plus the legacy cumulatives burn_sum
+  # differences. unbounded_cumulative is excluded there (the disclosed degradation,
+  # never a burn sample), so it must not raise a vintage here. Not modelled: a legacy
+  # entry whose differenced delta lands negative and is dropped contributes zero on
+  # that pass while remaining a burn sample by shape — it still counts as a vintage,
+  # which is the conservative direction (disclose) rather than the silent one.
   BURN_VINTAGES=$(jq -rs "
     [ .[] | select((.schema // \"\") | startswith(\"guv.meter\"))
           | select(.tokens != null)
           | select($VSEL)
+          | select( ((.slice_basis // \"\") as \$sb | \$sb == \"per_deliverable\" or \$sb == \"since_process_start\")
+                    or (has(\"slice_basis\") | not) )
           | (if has(\"harvest_basis\") then (.harvest_basis // empty) else \"pre-dedupe\" end) ]
-    | unique | join(\", \")
+    | group_by(.)
+    | (length | tostring) + \"|\"
+      + (map(\"\(.[0]) (\(length) \(if length == 1 then \"entry\" else \"entries\" end))\") | join(\", \"))
   " "$LOG" 2>/dev/null)
+  # Split the count off the display string. The count drives the decision below —
+  # counting commas in the display would break the moment a vintage name carried one.
+  case "$BURN_VINTAGES" in
+    *'|'*) BURN_VINTAGE_N=${BURN_VINTAGES%%|*}; BURN_VINTAGES=${BURN_VINTAGES#*|} ;;
+    *)     BURN_VINTAGE_N=0; BURN_VINTAGES="" ;;
+  esac
+  case "$BURN_VINTAGE_N" in ''|*[!0-9]*) BURN_VINTAGE_N=0 ;; esac
 fi
 
 # Where this gate is speaking from — needed by every declaration below, so it is
@@ -355,9 +381,8 @@ WHERE=$([ "$PHASE" = "entry" ] && echo "at session entry" || echo "at session ex
 
 # --- vintage disclosure: is this comparison apples-to-apples? ------------------
 # Printed BEFORE any breach or overrun, because it qualifies every number below it.
-case "$BURN_VINTAGES" in
-  *,*)
-    cat <<EOF
+if [ "$BURN_VINTAGE_N" -gt 1 ]; then
+  cat <<EOF
 [budget-gate] MIXED HARVEST VINTAGE ${WHERE} — the burn window spans more than one harvest unit.
 
   vintages in window:  ${BURN_VINTAGES}
@@ -372,12 +397,14 @@ measurement. The likeliest direction is PHANTOM HEADROOM: a ceiling set in the
 inflated unit lets far more real work through than it was meant to.
 
 This is a DECLARATION, not a stop, and nothing here has been changed or converted.
-Re-denominating a budget is a person's commit to budgets.{initiative,session}.tokens
-in .claude/project.json; re-banking the forecast is 'projection.sh bank'. Both are
-cheapest while the window is still single-vintage.
+The remedy is one commit by a person: re-denominate budgets.{initiative,session}.tokens
+in .claude/project.json into the post-fix unit. The machinery never moves a setpoint.
+
+Nothing clears this banner. The log is append-only, so a window that has once spanned
+both vintages spans them for the rest of its life — expect this at every boundary
+until the initiative closes, and read the burn above as a mixed total throughout.
 EOF
-    ;;
-esac
+fi
 
 # --- the tension decision: a breach is burn ≥ a chosen setpoint ----------------
 # On tension ONLY do we raise. Each present granularity is checked; the first

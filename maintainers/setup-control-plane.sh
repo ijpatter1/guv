@@ -306,7 +306,14 @@ _cache_drift() {        # files the built plugin ships that the cache has wrong 
 #   - .claude-plugin/plugin.json: outside GUV_CACHE_TREES, so no refresh ever carries it.
 #   - shell/settings.json and hooks/hooks.json: DERIVED by jq, not copied. Handled on
 #     their own terms below, because comparing them to source bytes answers nothing.
+#   - DELETIONS, in either direction. This detector walks SOURCES and asks whether each
+#     one's built copy matches; a source that no longer exists is walked by nothing, so
+#     its built copy survives as an orphan and is never named. The check answers "is
+#     every source's output current", not "is the built tree exactly the sources" — a
+#     rebuild is what removes an orphan, and only a rebuild proves the tree. Named here
+#     so the gap reads as a known limit rather than a detector that missed something.
 _stale_pair() {   # <source-file> <built-root> <built-relative>; names it when behind or missing
+  # A vanished source returns clean, NOT stale — see the DELETIONS exclusion above.
   [ -e "$1" ] || return 0
   if [ -e "$2/$3" ] && cmp -s "$1" "$2/$3" 2>/dev/null; then return 0; fi
   echo "$3"

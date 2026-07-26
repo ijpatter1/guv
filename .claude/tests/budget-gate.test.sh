@@ -911,6 +911,46 @@ printf '%s' "$V7OUT" | grep -q 'MIXED HARVEST VINTAGE' \
   && ok "[9.1] a mixed-vintage window that also breaches prints BOTH banners and still exits 3" \
   || no "[9.1] the vintage disclosure must not pre-empt or soften the actual-burn stop (rc=$V7RC out='$V7OUT')"
 
+# V8 — the scan reads the entries the burn CONTRIBUTES FROM, not merely the ones sharing
+# its ts window. burn_sum skips unbounded_cumulative entirely (the disclosed degradation,
+# never a burn sample), so such an entry adds nothing to the figure — and a vintage raised
+# by an entry that touched no part of the number is a false alarm about a comparison that
+# was apples-to-apples all along. The fixture pins both halves at once: the 900,000-token
+# unbounded entry is the ONLY pre-dedupe one and would breach the 100,000 ceiling nine
+# times over if it were summed, so a silent exit 0 proves it contributed neither burn nor
+# vintage. Without this, the disclosure fires on records whose burn is single-vintage.
+P=$(mk_project '{"initiative":{"tokens":100000}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.1"],
+           tokens:{input:900000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"unbounded_cumulative",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:1200,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V8OUT=$(gate "$P" exit); V8RC=$?
+printf '%s' "$V8OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && no "[9.1] an unbounded_cumulative entry raised a vintage while contributing zero burn — the scan must select burn_sum's entry set, not just its ts window (out='$V8OUT')" \
+  || { [ $V8RC -eq 0 ] \
+       && ok "[9.1] an entry the burn sum skips raises no vintage about it (no banner, and no breach off its 900k)" \
+       || no "[9.1] the unbounded_cumulative entry was summed into the burn — the vintage fix must not disturb burn_sum's exclusions (rc=$V8RC)"; }
+
+# V9 — the disclosure reports how many entries each vintage covers. Without it the
+# operator reads "pre-dedupe, per_response" and cannot tell a record that is one stale
+# line away from clean from one that is almost entirely inflated — the same decision
+# (re-denominate now, or wait) with opposite answers. The fixture is deliberately
+# lopsided (2 pre-dedupe, 1 post) so a swapped or hard-coded count cannot pass.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:500,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  >> "$P/.claude/metering/metering.ndjson"
+V9OUT=$(gate "$P" exit)
+printf '%s' "$V9OUT" | grep -q 'per_response (1 entry)' \
+  && printf '%s' "$V9OUT" | grep -q 'pre-dedupe (2 entries)' \
+  && ok "[9.1] the disclosure counts the entries behind each vintage, so the operator sees how contaminated the window is" \
+  || no "[9.1] naming the vintages without their weights leaves the operator unable to judge how much of the burn is inflated (out='$V9OUT')"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -845,7 +845,7 @@ if [ -d "$PLUGIN/tests" ]; then
   ok "committed plugin/tests/ ships the consumer suites"
   # named maintainer-only suites must be absent from the committed tree
   T18_LEAK=0
-  for b in plugin.test.sh setup-control-plane.test.sh single-writer.test.sh release.test.sh; do
+  for b in plugin.test.sh setup-control-plane.test.sh single-writer.test.sh release.test.sh door-vocabulary.test.sh; do
     [ -e "$PLUGIN/tests/$b" ] && { no "maintainer-only suite leaked into committed plugin/tests/: $b"; T18_LEAK=1; }
   done
   [ "$T18_LEAK" -eq 0 ] && ok "no named maintainer-only suite in committed plugin/tests/"

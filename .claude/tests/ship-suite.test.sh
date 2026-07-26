@@ -97,7 +97,7 @@ done
 # names these as the must-not-ship set; assert by name so a filter regression
 # that re-includes one fails loud regardless of the derived partition).
 T3B_OK=1
-for b in plugin.test.sh setup-control-plane.test.sh single-writer.test.sh release.test.sh scaffold.test.sh; do
+for b in plugin.test.sh setup-control-plane.test.sh single-writer.test.sh release.test.sh scaffold.test.sh door-vocabulary.test.sh; do
   [ -e "$PTESTS/$b" ] && { no "named maintainer-only suite present: $b"; T3B_OK=0; }
 done
 [ "$T3B_OK" -eq 1 ] && ok "the named maintainer-only suites are absent from plugin/tests/"

@@ -298,10 +298,19 @@ not performance**:
 - The close-time [13.4] grade will therefore report a large *favourable* **rate**
   error that is entirely this unit change.
 
-Re-banking the forecast on post-fix samples is the fix, together with re-denominating
-`budgets.initiative.tokens` beside it. Neither is the machinery's to do — both are a
-person's commit, which is exactly why the gate declares and stops there. Until that
-happens, read both figures in the old unit.
+Re-denominating `budgets.initiative.tokens` into the post-fix unit is the fix, and it
+is a person's commit — which is exactly why the gate declares and stops there. Until
+that happens, read both figures in the old unit.
+
+What is **not** available as a remedy, though it reads like one: re-banking the
+forecast. `projection.sh bank --at plan` is idempotent per initiative, so on a live
+initiative it is a no-op; a `--at phase-N` bank is neither the lineage window's anchor
+nor the [13.4] grade's baseline. And `observed_rate()` applies no ts window and no
+vintage filter at all — it blends the whole record deliberately — so 004's 54 pre-fix
+samples stay in that blend permanently, diluted by new ones but never removed. A
+clean-unit forecast for this initiative is not reachable by any command that exists
+today; it needs a vintage-aware `observed_rate()`, which is unbuilt. Do not send an
+operator to `bank` expecting it to clear anything.
 
 The vintage guard below makes the first-ever `unbounded_cumulative` entry certain —
 this log had never carried one (54 entries: 15 legacy, 30 `per_deliverable`, 9
