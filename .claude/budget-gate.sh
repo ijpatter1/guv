@@ -39,18 +39,42 @@
 # only be raised by an entry that actually contributes burn, and the per-vintage
 # subtotals reconcile to the printed total by construction rather than by care.
 #
-# Two things the banner does NOT do. It never clears: a window that has once
+# One thing the banner does NOT do: it never clears. A window that has once
 # spanned both vintages spans them for its whole life, because the log is
 # append-only — the disclosure is a standing property of this initiative, not a
-# task to work off. And it keys off the BURN's vintages, never the setpoint's, so
-# the mirror case is silent by construction: a fresh initiative whose window is
-# entirely post-fix, gated by a ceiling carried over from a pre-fix one, is
-# apples-to-oranges in the same direction and raises nothing here. That is a
-# limit, not an oversight — only the person who set a ceiling knows which unit
-# they chose it in, and until a setpoint records its own denomination there is no
-# evidence in the log to detect it from; inferring it would be a guess (Rule 15).
-# The banner text names the case so the operator carries it across a boundary
-# this gate cannot see.
+# task to work off.
+#
+# SETPOINT UNIT MISMATCH ([9.1], 2026-07-26) ───────────────────────────────────
+# The banner above keys off the BURN's vintages, and for a long time that was the
+# whole check — which left its exact mirror silent by construction. A window that
+# is uniformly ONE vintage raises nothing there (correctly: nothing about it is
+# mixed), yet if the setpoint was chosen in the OTHER vintage the comparison is
+# just as invalid. Initiative 004 sat in that hole: one pre-dedupe entry
+# (186,946,906) against a ceiling re-denominated post-fix, reported as ~18.7% of
+# budget consumed where the truth was ~3-4%, with nothing printed at either
+# boundary.
+#
+# The missing evidence was never in the log — a setpoint is an integer and
+# integers carry no unit, so no amount of scanning recovers it. It has to be
+# DECLARED: `budgets.initiative.harvest_basis` ("per_response" | "pre-dedupe"),
+# written by the same person's commit that sets the ceiling. With it present the
+# gate compares units and raises its own declaration when they differ, naming a
+# DERIVED direction — pre-dedupe burn under a post-dedupe ceiling reads HIGH and
+# stops early (a phantom BREACH: wasteful, never leaky), post-dedupe burn under a
+# pre-dedupe ceiling reads LOW and stops late (PHANTOM HEADROOM: the dangerous
+# one), and an `unknown` burn vintage supports neither claim so it says so.
+#
+# Absent, the check stays OFF and silent (ratified 2026-07-26). The gate genuinely
+# cannot tell what unit an undeclared ceiling was chosen in, and a banner that
+# fires for every project that never set the field is not a warning — the same
+# reasoning that keeps the mixed banner meaningful. Declaring the basis is what
+# buys the check. A MALFORMED value is worse than an absent one and is treated
+# accordingly: it can equal no vintage, so acting on it would raise a mismatch
+# forever and the obvious remedy for a permanent alarm is to move a setpoint that
+# was never wrong — so it is named once with the legal values and degrades to
+# undeclared. The two banners are mutually exclusive: a mixed window matches no
+# single declared basis by construction, and two headlines with two different
+# remedies for one defect is worse than one.
 #
 # THE ESCALATION PATH (Rule 15 — designed degradation, loud stop) ──────────────
 # A BREACH (burn ≥ budget) PAUSES and escalates with work PRESERVED: the gate
@@ -198,6 +222,35 @@ INITIATIVE_BUDGET=$(jq -r '.budgets.initiative.tokens // empty' "$MANIFEST" 2>/d
 case "$SESSION_BUDGET" in    ''|*[!0-9]*) SESSION_BUDGET="" ;; esac
 case "$INITIATIVE_BUDGET" in ''|*[!0-9]*) INITIATIVE_BUDGET="" ;; esac
 
+# The unit the initiative setpoint was CHOSEN in — the half of the comparison a
+# number cannot carry. A setpoint is an integer; integers record no unit, so the
+# mixed-vintage scan below can describe the burn's harvest unit precisely and still
+# have nothing to compare it TO. That gap is not theoretical: a window that is
+# uniformly one vintage raises no mixed banner by design, and if the setpoint was
+# chosen in the OTHER vintage the gate compares across the seam in total silence.
+#
+# Person-supplied and OPT-IN (ratified 2026-07-26). An absent marker means the unit
+# is genuinely unknown, and the gate stays silent about it rather than nagging every
+# project that never set the field — a warning that fires unconditionally is not a
+# warning, the same principle that keeps the mixed banner meaningful. Declaring the
+# basis is what buys the check. Like every setpoint field it is written by a person's
+# commit; nothing here ever writes it, and it never changes an exit code.
+INITIATIVE_BASIS=$(jq -r '.budgets.initiative.harvest_basis // empty' "$MANIFEST" 2>/dev/null)
+# Validated against the vintage vocabulary the scan actually emits, because an
+# unrecognized value is the expensive failure here rather than a harmless one: it can
+# never equal any vintage, so the mismatch banner would fire forever, and the obvious
+# remedy for a permanent mismatch alarm is to re-denominate a setpoint that was already
+# correct. A typo must read as a malformed manifest, not as evidence about units. So it
+# is named once, with the legal values, and then degrades to undeclared (Rule 15 — the
+# designed rung is "unknown", which is exactly what an unparseable declaration leaves
+# behind). "unknown" itself is not legal: it is what the scan emits for a DEGRADED
+# harvest, and a setpoint whose unit is declared unknown declares nothing.
+BASIS_MALFORMED=""
+case "$INITIATIVE_BASIS" in
+  ''|per_response|pre-dedupe) ;;
+  *) BASIS_MALFORMED="$INITIATIVE_BASIS"; INITIATIVE_BASIS="" ;;
+esac
+
 # Both granularities absent/invalid → nothing to gate (still unlimited).
 [ -z "$SESSION_BUDGET" ] && [ -z "$INITIATIVE_BUDGET" ] && exit 0
 
@@ -278,6 +331,7 @@ INITIATIVE_BURN=0
 # no vintage to report, and `set -u` must not turn "nothing to disclose" into an abort.
 BURN_VINTAGES=""
 BURN_VINTAGE_N=0
+BURN_VINTAGE_NAMES=""
 if [ -f "$LOG" ]; then
   # Burn is summed SLICE-AWARE ([13.5] — the [13.6] migration budget-gate was
   # disclosed as owing). An entry's tokens is a BOUNDED per-session slice only when
@@ -384,17 +438,29 @@ JQ
   # question: one pre-dedupe entry beside one per_response entry reads 1:1 by count
   # while being ~99% pre-dedupe by tokens, which is the opposite of the signal the
   # operator needs to decide whether re-denominating is urgent.
+  # Three fields, pipe-separated: the COUNT, the BARE vintage names, the display
+  # string. The bare names are emitted rather than recovered from the display for the
+  # same reason the count is — the setpoint-unit check below compares a vintage name
+  # for equality, and a name sliced back out of "pre-dedupe (1 entry, 4000 tokens)"
+  # is a parse of prose that the next display tweak silently breaks.
   BURN_VINTAGES=$(jq -rs "$(contrib_jq "$VSEL")
     | group_by(.v)
     | (length | tostring) + \"|\"
+      + (map(.[0].v) | join(\",\")) + \"|\"
       + (map(\"\(.[0].v) (\(length) \(if length == 1 then \"entry\" else \"entries\" end), \(map(.b) | add) tokens)\")
          | join(\", \"))
   " "$LOG" 2>/dev/null)
-  # Split the count off the display string. The count drives the decision below —
-  # counting commas in the display would break the moment a vintage name carried one.
+  # Split the count and the names off the display string. The count drives the decision
+  # below — counting commas in the display would break the moment a vintage name
+  # carried one.
   case "$BURN_VINTAGES" in
-    *'|'*) BURN_VINTAGE_N=${BURN_VINTAGES%%|*}; BURN_VINTAGES=${BURN_VINTAGES#*|} ;;
-    *)     BURN_VINTAGE_N=0; BURN_VINTAGES="" ;;
+    *'|'*)
+      BURN_VINTAGE_N=${BURN_VINTAGES%%|*}
+      BURN_VINTAGE_REST=${BURN_VINTAGES#*|}
+      BURN_VINTAGE_NAMES=${BURN_VINTAGE_REST%%|*}
+      BURN_VINTAGES=${BURN_VINTAGE_REST#*|}
+      ;;
+    *) BURN_VINTAGE_N=0; BURN_VINTAGES=""; BURN_VINTAGE_NAMES="" ;;
   esac
   case "$BURN_VINTAGE_N" in ''|*[!0-9]*) BURN_VINTAGE_N=0 ;; esac
 fi
@@ -434,8 +500,8 @@ EOF
 Pre-dedupe entries over-count by roughly 2.5x, so the burn above is a total in no
 single unit — an upper bound of unknown tightness, not a measurement. Against a
 ceiling chosen in the inflated unit it OVERSTATES remaining headroom. Do not size,
-compare, or forecast off it. The full statement — the remedy, and the two cases it
-cannot cover — prints at the session-exit gate and in .claude/metering-log.md.
+compare, or forecast off it. The full statement — the remedy, and the case it
+cannot cover — prints at the session-exit gate.
 EOF
   else
     cat <<'EOF'
@@ -456,13 +522,94 @@ that has once spanned both vintages spans them for the rest of its life. Expect 
 every boundary until the initiative closes, read the burn above as a mixed total
 throughout, and do NOT read its reappearance as the re-denomination having failed.
 
-One case this banner CANNOT see: it reads the burn's vintages, never the setpoint's.
-Carry this ceiling into a fresh initiative whose entries are all post-fix and the
-comparison is skewed the same way with nothing printed here, because a setpoint does
-not record the unit it was chosen in. If you open an initiative, denominate its
-ceiling in the post-fix unit deliberately — no banner will remind you.
+This banner reads the burn's vintages. To have the SETPOINT's unit read too, declare
+it: budgets.initiative.harvest_basis, "per_response" or "pre-dedupe". With it set, a
+window that is uniformly one vintage but denominated against the other raises its own
+setpoint-unit declaration — the case this banner structurally cannot reach, since
+there is nothing mixed about it. Undeclared, that comparison stays silent.
+
+(Lowercase there deliberately: the other banner's headline is the exact uppercase
+string, and repeating it in prose makes every grep for that headline match this
+paragraph instead — which is precisely how a caller ends up reporting the wrong
+declaration. Name it, do not quote it.)
 EOF
   fi
+fi
+
+# --- setpoint-unit disclosure: the case the mixed banner cannot reach --------------
+# Fires only when the mixed banner did NOT. The two describe the same hazard from
+# opposite sides — that banner says the burn is in no single unit, this one says the
+# burn is in a single unit that is not the setpoint's — and printing both for one
+# window would be two names for one defect. When the window IS mixed it already
+# cannot match any single declared basis, so the mixed banner subsumes this.
+#
+# Requires a declared basis: with none, the gate has one unit and no second unit to
+# compare it against, and inventing the missing half is the guess this whole section
+# exists to refuse.
+if [ "$BURN_VINTAGE_N" -eq 1 ] && [ -n "$INITIATIVE_BASIS" ] \
+   && [ "$BURN_VINTAGE_NAMES" != "$INITIATIVE_BASIS" ]; then
+  # The DIRECTION is derived, never fixed, and it is the opposite of the mixed
+  # banner's in the commonest case. Pre-dedupe readings are inflated ~2.5x, so:
+  #   pre-dedupe burn under a post-dedupe ceiling  → burn reads HIGH → stops EARLY
+  #     (a phantom BREACH — conservative, wasteful, but it never lets work through)
+  #   post-dedupe burn under a pre-dedupe ceiling  → burn reads LOW  → stops LATE
+  #     (phantom HEADROOM — the ceiling admits ~2.5x more real work than intended)
+  # A burn vintage of "unknown" (a degraded harvest) supports NEITHER claim, and
+  # naming a direction there would state an inference as evidence — the same error
+  # V12 pins on the vintage axis itself. So it says the direction is undetermined.
+  case "$BURN_VINTAGE_NAMES|$INITIATIVE_BASIS" in
+    'pre-dedupe|per_response')
+      MM_DIR="the burn OVERSTATES against this ceiling — a PHANTOM BREACH. Pre-dedupe
+readings run ~2.5x high, so the gate will pause on a setpoint the real work has not
+reached. Conservative, not dangerous: it wastes attention, it does not leak budget." ;;
+    'per_response|pre-dedupe')
+      MM_DIR="the burn UNDERSTATES against this ceiling — PHANTOM HEADROOM. The
+setpoint was chosen in the inflated unit, so it admits roughly 2.5x more real work
+than it was meant to before it ever raises. This is the dangerous direction." ;;
+    *)
+      MM_DIR="the direction is UNDETERMINED. One side of this comparison is an
+unrecorded unit, so neither overstatement nor headroom can be claimed — the size of
+the error is unknown, not small." ;;
+  esac
+  cat <<EOF
+[budget-gate] SETPOINT UNIT MISMATCH ${WHERE} — the burn and the setpoint are denominated in different harvest units.
+
+  burn vintage:        ${BURN_VINTAGES}
+  setpoint basis:      ${INITIATIVE_BASIS} (declared in budgets.initiative.harvest_basis)
+  burn window:         ${INITIATIVE_WINDOW}
+  initiative burn:     ${INITIATIVE_BURN} tokens
+  initiative setpoint: ${INITIATIVE_BUDGET:-<none set — session setpoint only>} tokens
+
+Every entry in this window shares one harvest unit, so nothing here is MIXED — and
+that is exactly why it was silent before this check existed. The comparison is still
+invalid: ${MM_DIR}
+
+This is a DECLARATION, not a stop. Nothing has been changed or converted, and the
+machinery never moves a setpoint. Two remedies, both a person's commit: re-denominate
+budgets.initiative.tokens into the unit this window is actually recorded in, or — if
+the setpoint is right and the marker is wrong — correct
+budgets.initiative.harvest_basis. Do not treat the burn above as a measurement until
+one of them is done.
+EOF
+fi
+
+# --- a malformed basis marker is reported, then ignored ---------------------------
+# Printed whether or not any other banner fired, because it describes the INSTRUMENT
+# rather than the reading: while it stands, the setpoint-unit check silently does not
+# run, and a check believed to be running is worse than one known to be off.
+if [ -n "$BASIS_MALFORMED" ]; then
+  cat <<EOF
+[budget-gate] MALFORMED SETPOINT BASIS ${WHERE} — budgets.initiative.harvest_basis is "${BASIS_MALFORMED}", which is not a harvest unit.
+
+  legal values:        per_response (post-dedupe) | pre-dedupe
+  effect:              the setpoint-unit check is OFF for this initiative
+
+Ignored rather than guessed at: the value matches no vintage the meter records, so
+acting on it would raise a mismatch against every window forever, and the obvious fix
+for a permanent alarm is to move a setpoint that was never wrong. Correct the value or
+remove the field — an absent marker is a supported state and simply leaves the check
+off.
+EOF
 fi
 
 # --- the tension decision: a breach is burn ≥ a chosen setpoint ----------------

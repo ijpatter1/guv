@@ -277,30 +277,49 @@ delta path checks it **before** the [13.6] magnitude guard: when the prior readi
 vintage differs from the current one, the delta is refused and `slice_basis` degrades
 to `unbounded_cumulative` — disclosed, and excluded from `observed_rate()`.
 
-**Consumer migration status — one reader is vintage-aware, and it discloses rather
-than corrects.** `harvest_basis` makes the two vintages *separable*; only
-`budget-gate.sh` separates them, and only to say so out loud. When its burn window
-spans both, the gate prints a `MIXED HARVEST VINTAGE` declaration naming the vintages
-and the likely direction (phantom headroom), then compares the mixed total exactly as
-it did before — the disclosure **qualifies** the number, it does not convert it, and
-it never moves a setpoint. Every other consumer still selects on `slice_basis` or on
-nothing at all: `observed_rate()` ([9.7]), the [13.4] close-time `ACTUAL_RATE`, and
-`emit-metrics.sh` ([9.5]) average pre-fix and post-fix samples together with nothing
-said. Two consequences are live for initiative 004, and both are **unit artifacts,
-not performance**:
+**Consumer migration status — two readers are vintage-aware; one discloses, one
+excludes.** `harvest_basis` makes the two vintages *separable*, and the two consumers
+that separate them do it differently on purpose:
 
-- `budgets.initiative.tokens` (4,741,208,137) and the banked opening forecast
-  (`blended_tokens` 105,712,556, derived from `observed_mean_tokens_per_session`
-  103,183,079 over n=53 — 53, not the 54 entries counted below, because the forecast
-  was banked one entry before the count was taken) are denominated in the **pre-fix** unit — every sample
-  behind them came from the inflated log. Post-fix sessions read ~2.5x lower, so the
-  initiative will appear to run far under budget.
-- The close-time [13.4] grade will therefore report a large *favourable* **rate**
-  error that is entirely this unit change.
+- **`budget-gate.sh` discloses.** BURN legitimately sums every entry in the window in
+  whatever unit it was recorded, so the gate cannot drop pre-fix entries without
+  under-reporting spend. It reports the mix instead. A window spanning both vintages
+  raises `MIXED HARVEST VINTAGE`; a window uniformly in one vintage, measured against
+  a setpoint declared in the other, raises `SETPOINT UNIT MISMATCH` — the second check
+  needs `budgets.initiative.harvest_basis`, because a setpoint is an integer and
+  integers record no unit. Both **qualify** the number without converting it, and
+  neither ever moves a setpoint.
+- **`projection.sh observed_rate()` excludes.** A RATE is an average, and an average
+  across two units is not a number, so pre-fix and degraded-`null` entries are not
+  samples at all — they are filtered out and the emitted document discloses the
+  window and vintage it sampled (`basis.sample_window`, `basis.sample_vintage`).
 
-Re-denominating `budgets.initiative.tokens` into the post-fix unit is the fix, and it
-is a person's commit — which is exactly why the gate declares and stops there. Until
-that happens, read both figures in the old unit.
+Still unmigrated and averaging across the seam with nothing said: the [13.4]
+close-time `ACTUAL_RATE` and `emit-metrics.sh` ([9.5]).
+
+Two consequences were live for initiative 004, and both are **unit artifacts, not
+performance**. Both have since been acted on — recorded here because the record is
+what makes the next one recognizable:
+
+- `budgets.initiative.tokens` was **4,741,208,137**, denominated in the **pre-fix**
+  unit: every one of the 53 samples behind it came from the inflated log. It was
+  **re-denominated to 1,000,000,000 on 2026-07-26**, derived bottom-up from measured
+  post-fix cost rather than by dividing the old figure — the meter error is
+  shape-dependent (subagent output 1.04x, main-loop output 3.20x), so no single
+  divisor converts a pre-fix number and none was applied.
+- The banked opening forecast (`blended_tokens` 105,712,556, from
+  `observed_mean_tokens_per_session` 103,183,079 over n=53 — 53, not the 54 entries
+  counted below, because the forecast was banked one entry before the count was taken)
+  is **still** in the pre-fix unit and stays that way: the calibration record is
+  append-only. The close-time [13.4] grade will therefore report a large *favourable*
+  **rate** error that is entirely this unit change, against a setpoint that is no
+  longer in that unit.
+
+Re-denominating is a person's commit — which is exactly why the gate declares and
+stops there. Note what re-denominating does **not** fix: the gate's burn figure is
+still summed from whatever the log holds, so a post-fix ceiling over a pre-fix window
+is the mismatch case above, not a solved one. Declare
+`budgets.initiative.harvest_basis` alongside the ceiling or the gate cannot see it.
 
 What is **not** available as a remedy, though it reads like one: re-banking the
 forecast. `projection.sh bank --at plan` is idempotent per initiative, so on a live

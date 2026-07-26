@@ -1106,10 +1106,196 @@ done
 # V14c — and the entry form still tells the reader what to DO, which is the only thing
 # an agent mid-session can act on. A profile with no instruction invites exactly the
 # use the banner exists to prevent: treating a mixed total as a measurement.
+#
+# The onward pointer names the SESSION-EXIT GATE and nothing else. It used to also cite
+# .claude/metering-log.md, which does not carry what was promised there — no remedy, no
+# statement of the cases the banner cannot cover — and cites a setpoint superseded on
+# 2026-07-26. A pointer to a doc that lacks the thing it is cited for costs the reader a
+# detour and returns a stale number, so it is gone rather than patched: the exit gate
+# prints the full statement, and that is the one place it is guaranteed current.
 printf '%s' "$V14ENT" | grep -q 'not a measurement' \
-  && printf '%s' "$V14ENT" | grep -qi 'metering-log.md' \
+  && printf '%s' "$V14ENT" | grep -qi 'session-exit gate' \
   && ok "[9.1] the entry banner names the hazard and points at where the full statement lives" \
   || no "[9.1] the entry form must still say the figure is not a measurement and where to read the rest, or it is a number with no warning attached (out='$V14ENT')"
+
+# V14d — and that pointer resolves. A cited destination that does not carry the statement
+# is worse than no citation: it spends the reader's attention and hands back a stale
+# figure, which is how the superseded 4,741,208,137 setpoint stayed quotable after
+# 2026-07-26. Pin the promise against the artifact rather than trusting the prose.
+printf '%s' "$V14EXT" | grep -qi 'phantom headroom' \
+  && printf '%s' "$V14EXT" | grep -q 'budgets.{initiative,session}.tokens' \
+  && ok "[9.1] the exit gate the entry banner points at actually carries the remedy and the direction" \
+  || no "[9.1] the entry banner's onward pointer must resolve to the full statement — citing a destination that lacks it is the defect the metering-log.md pointer had (out='$V14EXT')"
+
+# ── SETPOINT UNIT MISMATCH: the case the mixed banner structurally cannot see ──────
+# V4/V5 pin that a SINGLE-vintage window stays silent, and that is right as far as it
+# goes: with one unit in the window there is nothing MIXED to disclose. But the gate
+# compares that burn to a setpoint, and a setpoint records no unit — so a window that
+# is uniformly pre-dedupe, measured against a ceiling chosen post-dedupe, is exactly as
+# invalid a comparison as a mixed one and prints NOTHING. The old exit banner conceded
+# this in prose ("it reads the burn's vintages, never the setpoint's") and left it
+# there, which makes the hazard a paragraph rather than a check.
+#
+# It is not hypothetical: initiative 004's live window is ONE pre-dedupe entry
+# (186,946,906) against a setpoint re-denominated post-fix, so the gate reports ~18.7%
+# of budget consumed where the real figure is ~3-4%. budgets.initiative.harvest_basis
+# is the missing half — a person declaring the unit their setpoint was chosen in, so
+# the gate can compare units instead of inferring one.
+
+# V15 — the live 004 shape. A uniformly pre-dedupe window against a post-dedupe
+# setpoint is disclosed, WITHIN BUDGET, exit 0, manifest untouched. Same argument as
+# V1: the breach path already talks; it is the quiet path that was lying.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response"}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V15MANIF=$(cat "$P/.claude/project.json")
+V15OUT=$(gate "$P" exit); V15RC=$?
+printf '%s' "$V15OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && printf '%s' "$V15OUT" | grep -q 'pre-dedupe' \
+  && printf '%s' "$V15OUT" | grep -q 'per_response' \
+  && [ $V15RC -eq 0 ] \
+  && [ "$V15MANIF" = "$(cat "$P/.claude/project.json")" ] \
+  && ok "[9.1] a single-vintage burn measured against a setpoint declared in the OTHER unit is disclosed — within budget, exit 0, manifest byte-identical" \
+  || no "[9.1] the gate compared a pre-dedupe burn to a post-dedupe ceiling and said nothing — this is the live 004 case, and single-vintage silence is what hides it (rc=$V15RC out='$V15OUT')"
+
+# V16 — and it names the direction, which is NOT the same direction as the mixed
+# banner's. A pre-dedupe burn read against a post-dedupe ceiling is INFLATED against
+# that ceiling: the gate over-reports consumption and would stop early — a phantom
+# BREACH, the conservative failure. Printing "phantom headroom" here would be exactly
+# backwards and would push the operator to extend a budget they have barely touched.
+printf '%s' "$V15OUT" | grep -qi 'phantom breach' \
+  && printf '%s' "$V15OUT" | grep -qi 'overstate' \
+  && ok "[9.1] a pre-dedupe burn under a post-dedupe ceiling is named as OVERSTATED (phantom breach), not as headroom" \
+  || no "[9.1] the mismatch disclosure must name which way THIS mismatch runs — the direction is opposite to the mixed banner's, and naming it wrong sends the operator to extend a budget they have hardly spent (out='$V15OUT')"
+
+# V17 — the opposite polarity, and the dangerous one. A post-dedupe burn under a
+# ceiling chosen pre-dedupe UNDER-reports: the ceiling admits ~2.5x more real work than
+# it was meant to. Without this test V16 passes against a banner that hardcodes one
+# direction, which is the same defect as hardcoding no direction.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"pre-dedupe"}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V17OUT=$(gate "$P" exit)
+printf '%s' "$V17OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && printf '%s' "$V17OUT" | grep -qi 'phantom headroom' \
+  && ok "[9.1] a post-dedupe burn under a pre-dedupe ceiling is named as PHANTOM HEADROOM — the opposite polarity, reported as such" \
+  || no "[9.1] the disclosure hardcoded one direction; a ceiling chosen in the inflated unit admits ~2.5x more real work and must be called out as headroom, not as an overstatement (out='$V17OUT')"
+
+# V18 — units AGREE: silent. Without this, V15/V17 pass against a banner that fires
+# whenever the marker is present at all, which would make declaring the basis a
+# permanent alarm and teach the operator to ignore it.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response"}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V18OUT=$(gate "$P" exit)
+printf '%s' "$V18OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && no "[9.1] the mismatch banner fired on a window whose unit MATCHES the declared setpoint basis — that is the state every healthy project is in" \
+  || ok "[9.1] no mismatch disclosure when the burn's unit and the declared setpoint basis agree"
+
+# V19 — the marker ABSENT stays silent, which is the ratified default (2026-07-26) and
+# the reason this is a check rather than a nag. The gate genuinely cannot tell what unit
+# an undeclared setpoint was chosen in, and a banner that fires for every project that
+# never set the field is not a warning — the same principle V4 pins. Declaring the basis
+# is what buys the check; the marker is opt-in.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V19OUT=$(gate "$P" exit)
+printf '%s' "$V19OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && no "[9.1] the mismatch banner fired with no declared setpoint basis — an undeclared unit is unknown, and inventing a comparison against it is the guess this whole section exists to refuse" \
+  || ok "[9.1] no mismatch disclosure when budgets.initiative.harvest_basis is absent — the check is opt-in, bought by declaring the basis"
+
+# V20 — an UNRECOGNIZED basis value is named loudly and degrades to undeclared. This is
+# the failure that would otherwise be silent and expensive: "per-response" (hyphen) never
+# equals any vintage the scan emits, so the banner would fire forever, and the operator's
+# fix for a permanent mismatch alarm is to re-denominate a setpoint that was already
+# correct. A typo must read as a malformed manifest, not as evidence about units.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per-response"}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V20MANIF=$(cat "$P/.claude/project.json")
+V20OUT=$(gate "$P" exit); V20RC=$?
+printf '%s' "$V20OUT" | grep -q 'per-response' \
+  && printf '%s' "$V20OUT" | grep -q 'per_response' \
+  && ! printf '%s' "$V20OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && [ $V20RC -eq 0 ] \
+  && [ "$V20MANIF" = "$(cat "$P/.claude/project.json")" ] \
+  && ok "[9.1] an unrecognized harvest_basis is named with the legal values and degrades to undeclared — never a standing mismatch alarm off a typo" \
+  || no "[9.1] a malformed setpoint basis must be reported as malformed and then ignored; treating it as a real unit produces a permanent banner whose only obvious remedy is to move a correct setpoint (rc=$V20RC out='$V20OUT')"
+
+# V21 — the legacy-SERIES gap in the vintage subtotals. V10 covers the legacy branch
+# with ONE entry, where the delta equals the raw value, so it cannot tell a differenced
+# subtotal from a raw one. A multi-entry runtime_session can: cumulative 40000 then
+# 100000 contributes 40000 + 60000 = 100000 of burn, while a raw sum reads 140000. If
+# the scan reports 140000 the operator gets a vintage subtotal 40% larger than the burn
+# it is supposed to explain — V9b's reconciliation broken on exactly the entry shape
+# most likely to be pre-fix.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-14-001",runtime_session:"rt-9",
+           tokens:{input:40000,output:0,cache_read:0,cache_creation:0},perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",runtime_session:"rt-9",
+           tokens:{input:100000,output:0,cache_read:0,cache_creation:0},perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:100,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V21OUT=$(gate "$P" exit)
+printf '%s' "$V21OUT" | grep -q 'pre-dedupe (2 entries, 100000 tokens)' \
+  && ok "[9.1] a legacy runtime_session SERIES reports its DIFFERENCED subtotal (100000), not the raw cumulative sum (140000)" \
+  || no "[9.1] the vintage subtotal for a multi-entry legacy series must reconcile to the differenced burn — a raw sum inflates the pre-dedupe subtotal above the burn it explains (out='$V21OUT')"
+
+# V22 — a DEGRADED harvest (harvest_basis:null → "unknown") mismatches a declared
+# setpoint too, but supports NO claim about direction. V12 already pins that an
+# explicit null must not be folded into "pre-dedupe"; the same discipline has to hold
+# one layer up, or the direction line converts an unrecorded unit into a confident
+# "phantom headroom" and states an inference as evidence. Undetermined is the honest
+# answer and the operator can act on it — it says the error's size is unknown, which
+# is different from saying it is small.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response"}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:null,perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V22OUT=$(gate "$P" exit)
+printf '%s' "$V22OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && printf '%s' "$V22OUT" | grep -qi 'UNDETERMINED' \
+  && ! printf '%s' "$V22OUT" | grep -qi 'phantom headroom' \
+  && ! printf '%s' "$V22OUT" | grep -qi 'phantom breach' \
+  && ok "[9.1] an unknown burn vintage against a declared setpoint is disclosed with the direction UNDETERMINED, claiming neither polarity" \
+  || no "[9.1] a degraded harvest records no unit, so no direction can be derived from it — naming one anyway is the guess V12 refuses, restated at the setpoint layer (out='$V22OUT')"
+
+# V23 — the two banners are MUTUALLY EXCLUSIVE, which is a design claim and therefore
+# needs a check rather than a comment. A mixed window satisfies "not equal to the
+# declared basis" trivially — it equals no single basis — so without the count guard
+# both fire and the operator reads two headline declarations for one defect, each
+# prescribing a different remedy. The mixed banner subsumes this case: a burn in no
+# single unit cannot be re-denominated to match a setpoint, it has to be understood
+# first.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response"}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.1"],
+           tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:100,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V23OUT=$(gate "$P" exit)
+printf '%s' "$V23OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && ! printf '%s' "$V23OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && ok "[9.1] a mixed window raises the MIXED banner only — the setpoint-unit check defers rather than stacking a second headline on one defect" \
+  || no "[9.1] both vintage banners fired for one window; a mixed burn matches no single declared basis by construction, so the count guard is what keeps this from double-reporting with two different remedies (out='$V23OUT')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
