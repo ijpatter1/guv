@@ -211,6 +211,27 @@ not stop the handoff for it (it exited 0); do surface it. (The header leads with
 `FORESEEN OVERRUN`, distinct from the actual-burn `[budget-gate] BREACH` stop in this
 step above — a skim tells the signal from the exit-3 pause; [15.6].)
 
+**Every other `[budget-gate]` headline is captured the same way.** The gate's exit
+comment names this reader by name — "a person at the extend/harvest/kill decision,
+**writing the handoff that carries it forward**" — so a declaration that reaches only
+the live session output has not reached the record it was written for. Capture each of
+these verbatim under **Issues & Technical Debt** (or **Blocked**), exactly as above:
+
+- `MIXED HARVEST VINTAGE` — the burn window spans more than one harvest unit, so the
+  total is in no single unit.
+- `SETPOINT UNIT MISMATCH` — the window is uniformly one unit and the setpoint is
+  declared in the other. Carry the **direction** it names (phantom breach / phantom
+  headroom / undetermined): the remedy differs by direction, and under phantom breach
+  the designed rung is to WAIT rather than move anything.
+- `MALFORMED SETPOINT BASIS` — `budgets.initiative.harvest_basis` holds a value that
+  is not a harvest unit, so the setpoint-unit check is silently OFF until it is fixed.
+
+None of these stops the handoff (all exit 0). All of them qualify the burn and forecast
+figures recorded elsewhere in the artifact, so a handoff that copies the numbers without
+the banner that qualifies them records a measurement the gate explicitly refused to call
+one. **Do not paraphrase or summarize a banner** — the wording carries the direction and
+the remedy, and both are what the next reader acts on.
+
 ## Step 7 — Update Phase Status
 
 **Phased projects only.** Read `ceremony` from `.claude/project.json`. If it is not
