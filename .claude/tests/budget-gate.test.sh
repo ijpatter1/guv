@@ -813,6 +813,104 @@ W11BURN=$(profile_burn "$W11OUT")
   && ok "[13.4] file-order anchoring pinned: an out-of-order qualifying append widens the window conservatively (120000 breaches, 06-05 basis disclosed)" \
   || no "[13.4] the anchor must be the file-order last qualifying entry, failing conservative (rc=$W11RC burn='${W11BURN:-none}' out='$W11OUT')"
 
+# ── MIXED HARVEST VINTAGE: the gate discloses when its own comparison is invalid ──
+# harvest_basis was written by the meter and read by NOTHING, which is the phantom-
+# HEADROOM mirror of a phantom breach. Pre-dedupe entries counted usage once per
+# transcript LINE instead of once per API response (~2.5x over, and shape-dependent),
+# so summing them beside per_response entries yields a total in no unit at all — while
+# the gate compares it to a setpoint chosen in one unit and stays SILENT, because
+# silence is what within-budget looks like. This is the one case where the gate's
+# silence is itself the defect.
+#
+# V1 — a window spanning both vintages is disclosed, and it is disclosed WITHIN BUDGET.
+# That is the whole point: the breach path already talks, and it is the quiet path that
+# was lying.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:500,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  >> "$P/.claude/metering/metering.ndjson"
+V1OUT=$(gate "$P" exit); V1RC=$?
+printf '%s' "$V1OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && printf '%s' "$V1OUT" | grep -q 'pre-dedupe' \
+  && printf '%s' "$V1OUT" | grep -q 'per_response' \
+  && [ $V1RC -eq 0 ] \
+  && ok "[9.1] a burn window spanning two harvest vintages is disclosed within budget, both vintages named" \
+  || no "[9.1] mixing harvest vintages makes the burn/setpoint comparison meaningless — the gate must say so, not stay silent (rc=$V1RC out='$V1OUT')"
+
+# V2 — and it says the direction of the error rather than merely that one exists.
+# "The numbers may be off" is not actionable; "the ceiling lets more through than it
+# was meant to" is.
+printf '%s' "$V1OUT" | grep -qi 'phantom headroom' \
+  && ok "[9.1] the disclosure names the LIKELY DIRECTION (phantom headroom), not just the existence of a mismatch" \
+  || no "[9.1] a vintage disclosure that does not say which way the error runs leaves the operator no decision to make"
+
+# V3 — DECLARATION, not a stop, and it moves nothing. The machinery never re-denominates
+# a setpoint any more than it raises one: that is a person's commit.
+MANIF_BEFORE=$(cat "$P/.claude/project.json")
+gate "$P" exit >/dev/null 2>&1; V3RC=$?
+[ "$MANIF_BEFORE" = "$(cat "$P/.claude/project.json")" ] && [ $V3RC -eq 0 ] \
+  && ok "[9.1] the vintage disclosure exits 0 and leaves the manifest byte-identical (declaration, never a conversion)" \
+  || no "[9.1] the gate must never re-denominate or rewrite a setpoint (rc=$V3RC)"
+
+# V4 — a SINGLE-vintage window stays silent, so the disclosure keeps meaning something.
+# Without this, V1 would pass against a banner that fires unconditionally.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
+V4OUT=$(gate "$P" exit); V4RC=$?
+printf '%s' "$V4OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && no "[9.1] the vintage disclosure fired on a single-vintage window — a warning that always fires is not a warning" \
+  || ok "[9.1] no vintage disclosure when every windowed entry shares one harvest basis"
+
+# V5 — an all-post-dedupe window is silent too. V4's fixture is all pre-dedupe, so on
+# its own it cannot tell "one vintage" from "the pre-dedupe vintage specifically".
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
+: > "$P/.claude/metering/metering.ndjson"
+for i in 1 2; do
+  jq -nc --arg s "session-2026-06-15-001" \
+    '{schema:"guv.meter.v1",session:$s,deliverable_ids:["9.2"],
+      tokens:{input:500,output:0,cache_read:0,cache_creation:0},
+      slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+    >> "$P/.claude/metering/metering.ndjson"
+done
+V5OUT=$(gate "$P" exit)
+printf '%s' "$V5OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && no "[9.1] the vintage disclosure fired on an all-per_response window" \
+  || ok "[9.1] no vintage disclosure once every windowed entry is post-dedupe (the state re-banking reaches)"
+
+# V6 — the vintage scan is windowed to the live lineage, exactly like the burn sum it
+# describes. A pre-dedupe entry from a CLOSED initiative is not part of the figure being
+# compared, so it must not raise a disclosure about a window it does not contaminate:
+# unwindowed, every mature record warns forever, and a warning that never clears is one
+# the operator learns to skip past — the same silence this section exists to break.
+VP6=$(mk_lineage '{"initiative":{"tokens":100000}}' 5000000 10000)
+{ grade_line "2026-06-10T00:00:00Z"; plan_bank "2026-06-12T00:00:00Z"; } > "$VP6/.claude/metering/calibration.ndjson"
+# retag ONLY the in-window entry as post-dedupe; the 2026-06-01 one stays pre-dedupe
+jq -c 'if (.ts // "") >= "2026-06-12T00:00:00Z" then .harvest_basis = "per_response" else . end' \
+  "$VP6/.claude/metering/metering.ndjson" > "$VP6/.claude/metering/m.tmp"
+mv "$VP6/.claude/metering/m.tmp" "$VP6/.claude/metering/metering.ndjson"
+V6OUT=$(gate "$VP6" exit)
+printf '%s' "$V6OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && no "[9.1] the vintage scan reached outside the burn window — a closed initiative's vintage is not this window's problem (out='$V6OUT')" \
+  || ok "[9.1] the vintage scan is windowed to the live lineage, like the burn sum it describes"
+
+# V7 — the disclosure rides ALONGSIDE the burn outcome; it does not replace it or
+# swallow the stop. The two say different things: the breach says a setpoint was
+# crossed, the disclosure says the crossing is denominated in no single unit. An
+# operator who sees only one of them at an extend/harvest/kill pause is deciding
+# on half the picture — and if the disclosure ever pre-empted the exit 3, this
+# section would have converted a stop into a declaration, which it must never do.
+P=$(mk_project '{"initiative":{"tokens":1000}}' 5000 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:5000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  >> "$P/.claude/metering/metering.ndjson"
+V7OUT=$(gate "$P" exit); V7RC=$?
+printf '%s' "$V7OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && printf '%s' "$V7OUT" | grep -q 'budget-gate] BREACH' \
+  && [ $V7RC -eq 3 ] \
+  && ok "[9.1] a mixed-vintage window that also breaches prints BOTH banners and still exits 3" \
+  || no "[9.1] the vintage disclosure must not pre-empt or soften the actual-burn stop (rc=$V7RC out='$V7OUT')"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

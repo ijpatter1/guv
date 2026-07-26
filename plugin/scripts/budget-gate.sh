@@ -22,6 +22,21 @@
 # projection (no tracker / projection error) the foreseen check degrades silently to
 # burn-only (Rule 15) — never a fabricated forecast.
 #
+# MIXED HARVEST VINTAGE ([9.1]) ────────────────────────────────────────────────
+# Burn and setpoint are only comparable if both are denominated in the same unit.
+# The meter's pre-dedupe harvest counted usage once per transcript LINE rather
+# than once per API response, so those entries overstate by the response's
+# content-block count — by a factor that varies with the shape of the work, which
+# is why no single divisor converts them. Entries harvested after the fix
+# self-describe with `harvest_basis: per_response`; earlier ones carry no such
+# field. When the burn WINDOW spans both, the gate prints a DECLARATION naming
+# the vintages and the likely direction (phantom headroom — a ceiling chosen in
+# the inflated unit lets more real work through than it was meant to) and exits
+# 0. It is a disclosure, not a conversion and not a stop: re-denominating a
+# setpoint is a human commit to project.json, exactly like raising one. The scan
+# is scoped to the SAME window as the burn it describes, so a closed initiative's
+# vintage never raises a warning about the live one.
+#
 # THE ESCALATION PATH (Rule 15 — designed degradation, loud stop) ──────────────
 # A BREACH (burn ≥ budget) PAUSES and escalates with work PRESERVED: the gate
 # emits a loud decision gate that names the breach, surfaces the BURN PROFILE
@@ -92,11 +107,15 @@
 # BREACH …". A FORESEEN overrun ([13.5]) prints a declaration to stdout and exits 0
 # — a signal, not a stop, headed "[budget-gate] FORESEEN OVERRUN …" ([15.6]: the
 # signal header leads with words distinct from the stop's so a skim tells them apart;
-# "BREACH" names the exit-3 stop alone). Within budget / absent budget / no log:
-# silent, exit 0.
+# "BREACH" names the exit-3 stop alone). A MIXED HARVEST VINTAGE window prints its
+# own declaration and exits 0, headed "[budget-gate] MIXED HARVEST VINTAGE …" — it
+# rides ALONGSIDE whichever of the three burn outcomes the window produced, because
+# it says the comparison is in no single unit, not what the comparison came out to.
+# Within budget / absent budget / no log: silent, exit 0.
 #
-# Exit: 0 within budget, absent budget, no measurable burn, OR a FORESEEN breach
-#         ([13.5] — declared on stdout for the handoff, never a stop)
+# Exit: 0 within budget, absent budget, no measurable burn, a FORESEEN breach
+#         ([13.5] — declared on stdout for the handoff, never a stop), or a MIXED
+#         HARVEST VINTAGE disclosure ([9.1] — likewise declared, never a stop)
 #       2 usage (unknown phase, unknown flag, or jq missing)
 #       3 ACTUAL-BURN BREACH — the loud pause (a setpoint was crossed by real burn;
 #         the decision gate is on stdout for the person; raising the ceiling is their commit)
@@ -240,6 +259,9 @@ fi
 # when no boundary exists — the degradation above).
 SESSION_BURN=0
 INITIATIVE_BURN=0
+# Declared out here with the burns, not inside the log branch: with no log there is
+# no vintage to report, and `set -u` must not turn "nothing to disclose" into an abort.
+BURN_VINTAGES=""
 if [ -f "$LOG" ]; then
   # Burn is summed SLICE-AWARE ([13.5] — the [13.6] migration budget-gate was
   # disclosed as owing). An entry's tokens is a BOUNDED per-session slice only when
@@ -297,7 +319,65 @@ if [ -f "$LOG" ]; then
   SESSION_BURN=$(burn_sum "(.session == \"$CURRENT_SESSION\")")
   case "$INITIATIVE_BURN" in ''|*[!0-9]*) INITIATIVE_BURN=0 ;; esac
   case "$SESSION_BURN" in    ''|*[!0-9]*) SESSION_BURN=0 ;; esac
+
+  # Is the windowed burn even in ONE unit? harvest_basis says HOW a reading was
+  # harvested — the axis orthogonal to slice_basis's unit — and until now it was
+  # written by the meter and read by nobody. That gap is the phantom-HEADROOM mirror
+  # of a phantom breach: sum pre-dedupe entries (inflated ~2.5x by counting usage per
+  # transcript line instead of per API response) into the same window as post-dedupe
+  # ones and the total is in no unit at all, while this gate compares it against a
+  # setpoint chosen in exactly one of them — and stays SILENT, because silence is what
+  # within-budget looks like. Slicing does not catch it: slice_basis's vintage guard
+  # only refuses a DELTA across the seam inside one runtime_session; a new
+  # runtime_session's first post-fix entry is summed straight in beside the old ones.
+  #
+  # So this is the one case where the gate's own silence is the defect, and it
+  # discloses instead. DISCLOSURE ONLY — it never adjusts a setpoint, never changes an
+  # exit code, and never re-denominates a number. Re-banking a budget is a human commit
+  # to budgets.{initiative,session}.tokens; the machinery never moves a setpoint.
+  if [ -n "$INITIATIVE_SINCE" ]; then
+    VSEL="((.ts // \"\") >= \"$INITIATIVE_SINCE\")"
+  else
+    VSEL='true'
+  fi
+  BURN_VINTAGES=$(jq -rs "
+    [ .[] | select((.schema // \"\") | startswith(\"guv.meter\"))
+          | select(.tokens != null)
+          | select($VSEL)
+          | (if has(\"harvest_basis\") then (.harvest_basis // empty) else \"pre-dedupe\" end) ]
+    | unique | join(\", \")
+  " "$LOG" 2>/dev/null)
 fi
+
+# Where this gate is speaking from — needed by every declaration below, so it is
+# derived once here rather than beside the first one that happened to need it.
+WHERE=$([ "$PHASE" = "entry" ] && echo "at session entry" || echo "at session exit")
+
+# --- vintage disclosure: is this comparison apples-to-apples? ------------------
+# Printed BEFORE any breach or overrun, because it qualifies every number below it.
+case "$BURN_VINTAGES" in
+  *,*)
+    cat <<EOF
+[budget-gate] MIXED HARVEST VINTAGE ${WHERE} — the burn window spans more than one harvest unit.
+
+  vintages in window:  ${BURN_VINTAGES}
+  burn window:         ${INITIATIVE_WINDOW:-<unwindowed — every entry>}
+  initiative burn:     ${INITIATIVE_BURN} tokens
+
+Entries harvested "pre-dedupe" counted token usage once per transcript LINE rather
+than once per API response, which over-counts by roughly 2.5x and varies with the
+shape of the work. Summing them beside "per_response" entries produces a total in no
+single unit, and comparing that total to a setpoint chosen in one unit is not a
+measurement. The likeliest direction is PHANTOM HEADROOM: a ceiling set in the
+inflated unit lets far more real work through than it was meant to.
+
+This is a DECLARATION, not a stop, and nothing here has been changed or converted.
+Re-denominating a budget is a person's commit to budgets.{initiative,session}.tokens
+in .claude/project.json; re-banking the forecast is 'projection.sh bank'. Both are
+cheapest while the window is still single-vintage.
+EOF
+    ;;
+esac
 
 # --- the tension decision: a breach is burn ≥ a chosen setpoint ----------------
 # On tension ONLY do we raise. Each present granularity is checked; the first
@@ -314,8 +394,6 @@ elif [ -n "$INITIATIVE_BUDGET" ] && [ "$INITIATIVE_BURN" -ge "$INITIATIVE_BUDGET
   BREACH_BURN="$INITIATIVE_BURN"
   BREACH_BUDGET="$INITIATIVE_BUDGET"
 fi
-
-WHERE=$([ "$PHASE" = "entry" ] && echo "at session entry" || echo "at session exit")
 
 # An initiative breach names its window basis in the profile (a session breach
 # has no window to name — its basis is the session id already in the label).

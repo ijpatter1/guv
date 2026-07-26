@@ -277,12 +277,17 @@ delta path checks it **before** the [13.6] magnitude guard: when the prior readi
 vintage differs from the current one, the delta is refused and `slice_basis` degrades
 to `unbounded_cumulative` — disclosed, and excluded from `observed_rate()`.
 
-**Consumer migration status — no reader is vintage-aware yet.** `harvest_basis` makes
-the two vintages *separable*; as of this fix, nothing separates them. Every consumer
-selects on `slice_basis` or on nothing at all: `budget-gate.sh`'s `INITIATIVE_BURN`,
-`observed_rate()` ([9.7]), the [13.4] close-time `ACTUAL_RATE`, and `emit-metrics.sh`
-([9.5]) all average pre-fix and post-fix samples together. Two consequences are live
-for initiative 004, and both are **unit artifacts, not performance**:
+**Consumer migration status — one reader is vintage-aware, and it discloses rather
+than corrects.** `harvest_basis` makes the two vintages *separable*; only
+`budget-gate.sh` separates them, and only to say so out loud. When its burn window
+spans both, the gate prints a `MIXED HARVEST VINTAGE` declaration naming the vintages
+and the likely direction (phantom headroom), then compares the mixed total exactly as
+it did before — the disclosure **qualifies** the number, it does not convert it, and
+it never moves a setpoint. Every other consumer still selects on `slice_basis` or on
+nothing at all: `observed_rate()` ([9.7]), the [13.4] close-time `ACTUAL_RATE`, and
+`emit-metrics.sh` ([9.5]) average pre-fix and post-fix samples together with nothing
+said. Two consequences are live for initiative 004, and both are **unit artifacts,
+not performance**:
 
 - `budgets.initiative.tokens` (4,741,208,137) and the banked opening forecast
   (`blended_tokens` 105,712,556, derived from `observed_mean_tokens_per_session`
@@ -293,8 +298,10 @@ for initiative 004, and both are **unit artifacts, not performance**:
 - The close-time [13.4] grade will therefore report a large *favourable* **rate**
   error that is entirely this unit change.
 
-Re-banking the forecast on post-fix samples is the fix. Until that happens, read both
-figures in the old unit.
+Re-banking the forecast on post-fix samples is the fix, together with re-denominating
+`budgets.initiative.tokens` beside it. Neither is the machinery's to do — both are a
+person's commit, which is exactly why the gate declares and stops there. Until that
+happens, read both figures in the old unit.
 
 The vintage guard below makes the first-ever `unbounded_cumulative` entry certain —
 this log had never carried one (54 entries: 15 legacy, 30 `per_deliverable`, 9
