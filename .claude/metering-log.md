@@ -129,10 +129,18 @@ The fix records the **delta**, not the total:
 - `compaction_cycles` counts the real compaction events the slice spanned (`isCompactSummary == true`, `timestamp ≥` the prior capture) — raw evidence powering **balloon detection** and Phase 14.
 
 **Migration (append-only, read-time).** The log is append-only, so pre-[13.6]
-entries are **not** rewritten. The downstream `observed_rate()` ([9.7]) is slice-aware:
+entries are **not** rewritten. `budget-gate.sh`'s `burn_sum` ([13.5]) is slice-aware:
 it reads slice-tagged entries directly, excludes `unbounded_cumulative`, and
 **differences legacy cumulative entries per `runtime_session`** at read time — recovering
 the real per-session deltas from the existing history without a destructive migration.
+
+`observed_rate()` ([9.7]) shares the slice-awareness but **not** the differencing, and
+the divergence is deliberate rather than a gap. A **burn** legitimately sums every entry
+in its window and then discloses the mix, because the question is "what has this cost".
+A **rate** cannot average across two harvest units at all, so since the [9.1] dedupe fix
+`observed_rate()` **excludes pre-fix (`pre-dedupe`) entries outright** and windows to the
+live [13.4] lineage, rather than differencing them in. Same log, two questions, two
+correct answers — and an `n=0` is a legible result, not a failure.
 
 **Consumer migration status (follow-up, [13.6] scoped the read-side fix to
 `observed_rate()`).** `budget-gate.sh` ([9.3]) got its read-time migration at
@@ -147,7 +155,7 @@ the total burn), and it now excludes `unbounded_cumulative` from its
 **per-deliverable** rollup. Two caveats remain. Over the **legacy** cumulative
 entries it still double-counts, and its `cost.by_initiative` is a whole-log
 rollup with no lineage window — a different figure from the gate's windowed burn.
-Until it gets the same read-time migration `observed_rate()` got, read
+Until it gets the same read-time migration `budget-gate.sh`'s `burn_sum` got, read
 `emit-metrics` initiative totals over a log containing pre-[13.6] entries with
 that caveat in mind.
 
@@ -331,15 +339,21 @@ plan bank exists, so on a record that never banked at `plan` a phase bank *is* t
 baseline. On **this** record it is not, because 004 opened with a `plan` bank; do not
 carry the shortcut to another record.
 
-And `observed_rate()` applies no ts window and no vintage filter at all — it blends the
-whole record deliberately — so all 54 pre-fix samples stay in that blend permanently,
-diluted by new ones but never removed. Note these are the *record's* 54, not 004's:
-53 of them predate 004's lineage boundary (`2026-07-20T22:45:57Z`) and are outside the
-initiative's burn window entirely, yet they still set the rate every 004 forecast is
-built on — which is precisely why windowing the burn does not window the forecast. A
-clean-unit forecast for this initiative is not reachable by any command that exists
-today; it needs a vintage-aware `observed_rate()`, which is unbuilt. Do not send an
-operator to `bank` expecting it to clear anything.
+`observed_rate()` used to apply no ts window and no vintage filter at all — it blended the
+whole record, so all 54 pre-fix samples sat in that blend permanently, and 53 of them
+predate 004's lineage boundary (`2026-07-20T22:45:57Z`) and are outside the initiative's
+burn window entirely while still setting the rate every 004 forecast was built on. **That
+was fixed at [9.7]/`e16b99d`:** the reader now windows to the live lineage and filters to
+`harvest_basis == "per_response"`, and discloses `basis.sample_window` /
+`basis.sample_vintage` so the result is legible.
+
+The consequence is not a cleaner number — it is an honest `n=0`. With every 004 sample
+pre-fix, the filter correctly admits nothing, and the projection falls back to its
+**structural** constants. Those constants were themselves fitted to pre-fix burns, so the
+forecast got *larger*, not smaller. Re-deriving them is **[28.4]**. Until it lands, read
+any cost-to-complete on this record as modeled rather than measured — the gate now says
+so in the `forecast basis:` line. Do not send an operator to `bank` expecting it to clear
+anything.
 
 The vintage guard below makes the first-ever `unbounded_cumulative` entry certain —
 this log had never carried one (54 entries: 15 legacy, 30 `per_deliverable`, 9
