@@ -73,6 +73,22 @@ The raw metering log summed into a published shape. Tokens are summed **by
 class** (`{input, output, cache_read, cache_creation}`), matching the meter's raw
 shape. `sessions` is a count of contributing log entries.
 
+**The token exclusion cuts tokens, never sessions — at every level.** A log entry
+whose `slice_basis` is `unbounded_cumulative` carries a burn figure that is not a
+slice of this session (it accumulated from process start), so its **tokens** are
+zeroed everywhere they are summed. Its **session** still counts everywhere:
+the session happened and is a real unit of work — it is the token *value* that
+is not attributable, not the session. This is why the three `sessions` figures
+stay reconcilable with each other on any single payload; dropping the entry
+instead would have made `by_deliverable` disagree with `by_initiative` with
+nothing in this document saying which to believe.
+
+The consequence for a consumer: a `{tokens: {0,0,0,0}, sessions: N}` entry means
+**"N sessions, burn not measurable"** — it does not mean "N sessions that cost
+nothing". Any tokens-per-session rate computed off this shape is diluted by
+excluded entries, so filter on the raw log's `slice_basis` if the rate must be
+exact. The distinction is not recoverable from the payload alone.
+
 | field | type | source / meaning |
 |-------|------|------------------|
 | `cost.by_deliverable` | object | keyed by deliverable ID. A session attributed to N deliverables credits its tokens to **each** leg (additive — the per-deliverable view), so an ID appearing in two sessions sums both. `session-scalar` (the meter's no-single-ID attribution) is **not** a deliverable and never appears here as a phantom phase. |
@@ -102,6 +118,11 @@ measured live, nothing is agent-supplied.
   phase/initiative rollups find no phase members rather than dying.
 - **Outside a git repo** → perf degrades to zeros / nulls (perf is git-derived;
   no git, no derivation), never a crash.
+- **An entry whose burn is not a slice** (`slice_basis: unbounded_cumulative`)
+  → its **tokens** are zeroed at every level, its **session** is still counted at
+  every level. The alternative rungs were both worse: dropping the entry loses a
+  session that really happened, and summing it credits a deliverable with burn
+  that accumulated before its work began.
 
 ## Interface (`.claude/emit-metrics.sh`)
 

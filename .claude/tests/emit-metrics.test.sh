@@ -463,6 +463,16 @@ if [ -n "$SHAPEDOC" ]; then
   grep -qiE 'one[- ]parser|never re-derive|read the emitter|consumers read' "$SHAPEDOC" \
     && ok "shape doc states the one-parser discipline (consumers read the emitter)" \
     || no "shape doc does not state the one-parser discipline"
+  # The exclusion is the one emitter behavior a consumer CANNOT infer from a payload:
+  # {tokens:0, sessions:N} reads identically to "N sessions that cost nothing". The
+  # emitter learned this rule in dbfeb1e and wrote it into metering-log.md — a working
+  # log — leaving the published contract describing the pre-fix behavior. Honest about
+  # what this pins: that the contract NAMES the exclusion, not that it describes it
+  # correctly. Prose accuracy is not greppable; a silent omission is.
+  grep -q 'unbounded_cumulative' "$SHAPEDOC" \
+    && grep -qiE 'sessions?[^.]*still count|cuts tokens, never sessions|never sessions' "$SHAPEDOC" \
+    && ok "shape doc documents the token exclusion AND that it spares the session count" \
+    || no "shape doc must name slice_basis=unbounded_cumulative and state that it zeroes tokens without dropping the session — a consumer cannot tell an excluded value from a measured zero"
 fi
 
 # ─── T15 — DEGRADATION (Rule 15): an absent metering log is not a crash ──────
