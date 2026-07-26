@@ -48,6 +48,39 @@ finish() {
   [ "$FAIL" -eq 0 ]
 }
 
+# ── hermetic source root (spike Prong B) ─────────────────────────────────────
+# The build sub-tests below PLANT fixtures and then build. Planting them into the
+# LIVE source tree is what makes this suite unsafe to run beside anything that
+# reads that tree — another copy of itself, ship-suite.test.sh's build, or an
+# agent reading git state mid-run. It is the shared root cause of four friction
+# entries: 2026-06-29T18:50:15Z-1575732184 (a leftover fixture from a crashed run
+# reds the next battery), 2026-07-18T17:33:15Z-149671608 (the tree goes
+# transiently phantom-dirty), 2026-07-21T17:00:10Z-1640628803 (concurrent QA
+# agents false-red each other), 2026-07-18T05:23:41Z-7113820 (whole-live-tree
+# diff picks up junk).
+#
+# So plant into a COPY. No builder flag is needed and none was added:
+# build-plugin.sh derives its ROOT from its own location, so a copied tree's
+# builder builds that copy — verified byte-identical to a live-tree build. .git
+# and plugin/ are excluded because the builder reads neither, and .git is 26M of
+# the repo's 30M; what remains is ~2.8M and copies in well under a second.
+mk_source_copy() {   # echoes a scratch root holding a buildable copy of $ROOT
+  local d; d=$(mktemp -d)
+  ( cd "$ROOT" && tar -cf - --exclude=.git --exclude=plugin . ) 2>/dev/null \
+    | ( cd "$d" && tar -xf - ) 2>/dev/null
+  printf '%s' "$d"
+}
+# The copy's own builder, at the same repo-relative path as $BUILD, so a
+# PLUGIN_BUILD_SCRIPT override pointing inside the repo is still honored. An
+# override pointing elsewhere is used as-is (only the enclosing `[ -f "$BUILD" ]`
+# gate cares about it, and that gate has already decided a build exists).
+copy_build() {  # <scratch-root> → the build script to invoke inside it
+  case "$BUILD" in
+    "$ROOT"/*) printf '%s' "$1/${BUILD#"$ROOT"/}" ;;
+    *)         printf '%s' "$BUILD" ;;
+  esac
+}
+
 # The helper/hook script-name alternation, DERIVED by glob ([7.1]) — used by
 # T6's body comparison (the build path-rewrites agent bodies) and T12's
 # stale-path detector. The hand list this replaces had fallen behind the
@@ -625,56 +658,64 @@ jq -e '.scripts // .install // .postinstall' "$MANIFEST" >/dev/null 2>&1 && { no
 # silently and never as a failure.
 if [ -f "$BUILD" ]; then
   TMP=$(mktemp -d)
-  if bash "$BUILD" --out "$TMP/plugin" >/dev/null 2>&1 && diff -r "$TMP/plugin" "$PLUGIN" >/dev/null 2>&1; then
+  # Built from a scratch copy, not the live tree: this guard READS the whole
+  # source, so a concurrent planter (including the sub-tests below, before this
+  # change) could poison it and red the battery for a reason that has nothing to
+  # do with drift.
+  SCOPY=$(mk_source_copy)
+  if bash "$(copy_build "$SCOPY")" --out "$TMP/plugin" >/dev/null 2>&1 && diff -r "$TMP/plugin" "$PLUGIN" >/dev/null 2>&1; then
     ok "rebuild reproduces the committed plugin/ byte-for-byte (no drift)"
   else
     no "build-plugin.sh --out output differs from committed plugin/ (rebuild needed?)"
   fi
-  rm -rf "$TMP"
+  rm -rf "$TMP" "$SCOPY"
 
   # T15 — the build fails loud on an authored/derived skill-name collision
-  # instead of silently clobbering the authored copy. Fixture: a plugin-src
-  # skill named like an existing command; cleaned up by trap even on failure.
-  FIXTURE="$ROOT/maintainers/plugin-src/skills/status"
-  # Leftover from a crashed run → clean and proceed (throwaway path), never
-  # hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
-  [ -e "$FIXTURE" ] && { echo "  - cleaning a stale collision fixture (prior crashed run): $FIXTURE"; rm -rf "$FIXTURE"; }
-  trap 'rm -rf "$FIXTURE"' EXIT
+  # instead of silently clobbering the authored copy. Fixture: a plugin-src skill
+  # named like an existing command, planted in a scratch copy of the source tree.
+  # The stale-fixture cleanup and the EXIT trap this block used to carry are gone
+  # with the live-tree plant they existed for: a crashed run now leaves a mktemp
+  # directory behind, not a fixture that reds the next battery.
+  SCOPY=$(mk_source_copy)
+  FIXTURE="$SCOPY/maintainers/plugin-src/skills/status"
   mkdir -p "$FIXTURE"
   printf -- '---\ndescription: "collision fixture"\n---\nx\n' > "$FIXTURE/SKILL.md"
+  # HERMETICITY (Prong B) — asserted while the fixture EXISTS, so it observes the
+  # live tree rather than linting this file. Red before the scratch-root rewrite,
+  # when this exact path was the plant target and any concurrent reader (another
+  # build, a git status, a second copy of this suite) could see it.
+  [ ! -e "$ROOT/maintainers/plugin-src/skills/status" ] \
+    && ok "the collision fixture is planted outside the live source tree (no concurrent reader can see it)" \
+    || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($ROOT/maintainers/plugin-src/skills/status exists mid-run)"
   TMP2=$(mktemp -d)
-  if bash "$BUILD" --out "$TMP2/plugin" >/dev/null 2>&1; then
+  if bash "$(copy_build "$SCOPY")" --out "$TMP2/plugin" >/dev/null 2>&1; then
     no "build must fail when a derived command collides with an authored skill"
   else
     ok "build fails loud on authored/derived skill-name collision"
   fi
-  rm -rf "$TMP2" "$FIXTURE"
-  trap - EXIT
+  rm -rf "$TMP2" "$SCOPY"
 
   # T15b — adjacent-mention rewrite: the boundary guard consumes the char
   # between two adjacent /commands, so a single sed pass misses the second —
   # the double-pass exists for exactly this. Fixture command exercises it
   # end-to-end through a real build.
-  FIX2DIR="$SRC/skills/zzadjacency-fixture"
+  SCOPY=$(mk_source_copy)
+  FIX2DIR="$SCOPY/.claude/skills/zzadjacency-fixture"
   FIX2="$FIX2DIR/SKILL.md"
-  # A pre-existing fixture is a leftover from a crashed run (the path is a known
-  # zz-throwaway, never a real skill) — clean it and proceed, never hard-fail
-  # the battery. Hard-failing here is what let one crashed run poison the next
-  # and false-fail overlapping runs (feedback 2026-06-12T04:35:14Z-143815213).
-  [ -e "$FIX2DIR" ] && { echo "  - cleaning a stale adjacency fixture (prior crashed run): $FIX2DIR"; rm -rf "$FIX2DIR"; }
-  trap 'rm -rf "$FIX2DIR"' EXIT
   mkdir -p "$FIX2DIR"
   printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /eval too.\n' > "$FIX2"
+  [ ! -e "$SRC/skills/zzadjacency-fixture" ] \
+    && ok "the adjacency fixture is planted outside the live source tree (no concurrent reader can see it)" \
+    || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($SRC/skills/zzadjacency-fixture exists mid-run)"
   TMP3=$(mktemp -d)
-  if bash "$BUILD" --out "$TMP3/plugin" >/dev/null 2>&1 \
+  if bash "$(copy_build "$SCOPY")" --out "$TMP3/plugin" >/dev/null 2>&1 \
      && grep -q '/guv:task /guv:handoff' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md" \
      && grep -q '/guv:status /guv:eval' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
     ok "adjacent /command mentions both rewritten (double-pass verified end-to-end)"
   else
     no "adjacent /command mentions must both be namespaced by the double-pass"
   fi
-  rm -rf "$TMP3" "$FIX2DIR"
-  trap - EXIT
+  rm -rf "$TMP3" "$SCOPY"
 
   # T15c — glob-derived helper registry ([7.1]): a helper dropped into
   # .claude/ ships and gets path-rewritten with ZERO enumeration-list edits.
@@ -682,26 +723,25 @@ if [ -f "$BUILD" ]; then
   # helper must land in scripts/ byte-identical AND the mention must be
   # rewritten to ${CLAUDE_PLUGIN_ROOT}. Red until the HELPERS list and
   # rewrite_paths derive from the source tree.
-  FIX3="$SRC/zzregistry-fixture.sh"
-  FIX3DIR="$SRC/skills/zzregistry-fixture-cmd"
+  SCOPY=$(mk_source_copy)
+  FIX3="$SCOPY/.claude/zzregistry-fixture.sh"
+  FIX3DIR="$SCOPY/.claude/skills/zzregistry-fixture-cmd"
   FIX3CMD="$FIX3DIR/SKILL.md"
-  # Leftovers from a crashed run → clean and proceed (throwaway paths), never
-  # hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
-  { [ -e "$FIX3" ] || [ -e "$FIX3DIR" ]; } && { echo "  - cleaning stale registry fixtures (prior crashed run)"; rm -rf "$FIX3" "$FIX3DIR"; }
-  trap 'rm -rf "$FIX3" "$FIX3DIR"' EXIT
   printf '#!/bin/bash\necho zzregistry-fixture\n' > "$FIX3"
   mkdir -p "$FIX3DIR"
   printf 'Registry fixture.\n\nRun `bash .claude/zzregistry-fixture.sh` to exercise the registry.\n' > "$FIX3CMD"
+  { [ ! -e "$SRC/zzregistry-fixture.sh" ] && [ ! -e "$SRC/skills/zzregistry-fixture-cmd" ]; } \
+    && ok "the registry fixtures are planted outside the live source tree (no concurrent reader can see them)" \
+    || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($SRC/zzregistry-fixture.sh or $SRC/skills/zzregistry-fixture-cmd exists mid-run)"
   TMP4=$(mktemp -d)
-  if bash "$BUILD" --out "$TMP4/plugin" >/dev/null 2>&1 \
+  if bash "$(copy_build "$SCOPY")" --out "$TMP4/plugin" >/dev/null 2>&1 \
      && cmp -s "$FIX3" "$TMP4/plugin/scripts/zzregistry-fixture.sh" \
      && grep -q 'CLAUDE_PLUGIN_ROOT.*scripts/zzregistry-fixture\.sh' "$TMP4/plugin/skills/zzregistry-fixture-cmd/SKILL.md"; then
     ok "fixture helper ships and rewrites with zero enumeration-list edits (registry is glob-derived)"
   else
     no "a dropped-in helper must ship in scripts/ and be path-rewritten without touching any list"
   fi
-  rm -rf "$TMP4" "$FIX3" "$FIX3DIR"
-  trap - EXIT
+  rm -rf "$TMP4" "$SCOPY"
 
   # T16 — consumer-fork resilience: with the build script absent, the whole
   # suite must still exit 0 (the drift guard skips; nothing else needs
