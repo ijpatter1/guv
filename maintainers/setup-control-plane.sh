@@ -284,37 +284,108 @@ _cache_drift() {        # files the built plugin ships that the cache has wrong 
 # so a stale plugin/ makes a coherent-but-old cache and the operator is never told: cache
 # drift is measured against plugin/, so when plugin/ is the thing that is behind, drift
 # reads ZERO and every advisory tied to it is suppressed — silence exactly where the
-# hazard is. Measured directly instead, on the surfaces build-plugin.sh copies VERBATIM
-# (helpers and hooks -> scripts/, guv-* rules, skill-bundled scripts). Skills and agents
-# are excluded on purpose: the builder rewrites their frontmatter, so a byte diff there
-# means nothing. One-directional by design — plugin/scripts/ also carries plugin-only
-# sources from maintainers/plugin-src/ that have no .claude/ counterpart.
+# hazard is. Measured directly instead, on the surfaces build-plugin.sh copies VERBATIM —
+# ALL of them, which the first cut of this function did not do while its comment claimed
+# it did (found at review; the gaps landed on shell/, the very tree the scope widening
+# had just brought into the cache for the first time):
+#
+#   .claude/*.sh, .claude/hooks/*.sh          -> scripts/
+#   maintainers/plugin-src/scripts/*.sh       -> scripts/          (plugin-only sources)
+#   maintainers/plugin-src/skills/*/SKILL.md  -> skills/<name>/    (authored, NOT rewritten)
+#   .claude/rules/guv-*.md                    -> rules/
+#   .claude/skills/<name>/<bundle>/**         -> skills/<name>/<bundle>/**
+#   CLAUDE.template.md, README.template.md, Makefile, .gitignore (-> gitignore),
+#     .claude/project.schema.json, .claude/settings.sandbox-example.json,
+#     sandbox/*, docs/{REQUIREMENTS,ARCHITECTURE,PHASE_STATUS}.md   -> shell/
+#   plugin/tests/*.test.sh                    <- .claude/tests/    (reversed; see below)
+#
+# EXCLUDED on purpose, named so the omissions read as decisions and not oversights:
+#   - core .claude/skills/ and .claude/agents/ BODIES, and .claude/workflows/: the builder
+#     rewrites frontmatter, paths and namespaces, so a byte diff there means nothing.
+#     (Their bundled subdirs above ARE checked — those are copied byte-identical.)
+#   - .claude-plugin/plugin.json: outside GUV_CACHE_TREES, so no refresh ever carries it.
+#   - shell/settings.json and hooks/hooks.json: DERIVED by jq, not copied. Handled on
+#     their own terms below, because comparing them to source bytes answers nothing.
+_stale_pair() {   # <source-file> <built-root> <built-relative>; names it when behind or missing
+  [ -e "$1" ] || return 0
+  if [ -e "$2/$3" ] && cmp -s "$1" "$2/$3" 2>/dev/null; then return 0; fi
+  echo "$3"
+}
+_hook_scripts() { # <settings.json|hooks.json> → basenames of every wired hook command
+  jq -r '[.hooks | .. | objects | select(has("command")) | .command] | .[]' "$1" 2>/dev/null \
+    | sed 's|.*/||' | LC_ALL=C sort -u
+}
 _built_plugin_stale() {  # <built> → source-relative names whose built copy differs or is missing
-  local built=$1 f b
-  for f in "$GUV_DIR/.claude/"*.sh "$GUV_DIR/.claude/hooks/"*.sh; do
-    [ -e "$f" ] || continue
-    b="$built/scripts/$(basename "$f")"
-    [ -e "$b" ] && cmp -s "$f" "$b" 2>/dev/null || echo "scripts/$(basename "$f")"
+  local built=$1 f rel
+  for f in "$GUV_DIR/.claude/"*.sh "$GUV_DIR/.claude/hooks/"*.sh \
+           "$GUV_DIR/maintainers/plugin-src/scripts/"*.sh; do
+    _stale_pair "$f" "$built" "scripts/$(basename "$f")"
   done
   for f in "$GUV_DIR/.claude/rules/"guv-*.md; do
-    [ -e "$f" ] || continue
-    b="$built/rules/$(basename "$f")"
-    [ -e "$b" ] && cmp -s "$f" "$b" 2>/dev/null || echo "rules/$(basename "$f")"
+    _stale_pair "$f" "$built" "rules/$(basename "$f")"
   done
-  for f in "$GUV_DIR/.claude/skills/"*/scripts/*.sh; do
+  for f in "$GUV_DIR/maintainers/plugin-src/skills/"*/SKILL.md; do
     [ -e "$f" ] || continue
-    b="$built/skills/$(basename "$(dirname "$(dirname "$f")")")/scripts/$(basename "$f")"
-    [ -e "$b" ] && cmp -s "$f" "$b" 2>/dev/null \
-      || echo "skills/$(basename "$(dirname "$(dirname "$f")")")/scripts/$(basename "$f")"
+    _stale_pair "$f" "$built" "skills/$(basename "$(dirname "$f")")/SKILL.md"
   done
+  # Skill-bundled assets. The builder cp -R's ANY subdir of a skill byte-identical (the
+  # [8.3] single-owner bundle), so the walk has to be as wide as the copy — not scripts/
+  # only and not *.sh only, which is all it looked at before.
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    rel=${f#"$GUV_DIR/.claude/"}
+    _stale_pair "$f" "$built" "$rel"
+  done <<EOF
+$(find "$GUV_DIR/.claude/skills" -mindepth 3 -type f ! -name '.DS_Store' 2>/dev/null)
+EOF
+  # shell/ — the scaffold payload. Every file here is deployed verbatim into every project
+  # guv scaffolds, and shell/ is read on the executed path (scaffold-shell.sh derives
+  # SHELL_DIR from its own dirname), so a stale copy ships silently into real repos.
+  _stale_pair "$GUV_DIR/CLAUDE.template.md"  "$built" "shell/CLAUDE.template.md"
+  _stale_pair "$GUV_DIR/README.template.md"  "$built" "shell/README.template.md"
+  _stale_pair "$GUV_DIR/Makefile"            "$built" "shell/Makefile"
+  _stale_pair "$GUV_DIR/.gitignore"          "$built" "shell/gitignore"
+  _stale_pair "$GUV_DIR/.claude/project.schema.json"           "$built" "shell/project.schema.json"
+  _stale_pair "$GUV_DIR/.claude/settings.sandbox-example.json" "$built" "shell/settings.sandbox-example.json"
+  for f in "$GUV_DIR/sandbox/"*; do
+    [ -f "$f" ] && _stale_pair "$f" "$built" "shell/sandbox/$(basename "$f")"
+  done
+  for f in REQUIREMENTS ARCHITECTURE PHASE_STATUS; do
+    _stale_pair "$GUV_DIR/docs/$f.md" "$built" "shell/docs/$f.md"
+  done
+  # The two DERIVED outputs, both cut from .claude/settings.json by jq in one build run.
+  # shell/settings.json is `del(.hooks)` — re-deriving that is one call and forks no
+  # meaningful logic, so it gets an exact check. hooks.json's derivation is a dozen lines
+  # of walk/rewrite/inject, and copying it here would be the hand-maintained second copy
+  # the builder's own comment warns against; so check instead the surface that comment
+  # NAMES — the [9.2] dead-hook class: every hook script settings.json wires must reach
+  # the built hooks.json. A SUBSET test, not equality, because the builder legitimately
+  # injects one extra (reviewer-readonly.sh, the plugin-only guard). Residual stated
+  # rather than implied: a matcher-only or ordering-only edit moves neither set and is
+  # NOT detected — rebuild after touching settings.json rather than trusting this to
+  # catch every shape of edit.
+  if [ -e "$GUV_DIR/.claude/settings.json" ]; then
+    if [ -e "$built/shell/settings.json" ] \
+       && jq 'del(.hooks)' "$GUV_DIR/.claude/settings.json" 2>/dev/null \
+          | cmp -s - "$built/shell/settings.json" 2>/dev/null; then :; else
+      echo "shell/settings.json"
+    fi
+    if [ -n "$(comm -23 <(_hook_scripts "$GUV_DIR/.claude/settings.json") \
+                        <(_hook_scripts "$built/hooks/hooks.json"))" ]; then
+      echo "hooks/hooks.json"
+    fi
+  fi
   # Tests walk the other way. The builder ships a FILTERED subset (MAINTAINER_ONLY
   # suites stay source-side), so source->built would report every held-back suite as
   # drift; built->source asks only "is each suite that DOES ship current", which needs
-  # no copy of the filter's logic to be right.
-  for b in "$built/tests/"*.test.sh; do
-    [ -e "$b" ] || continue
-    f="$GUV_DIR/.claude/tests/$(basename "$b")"
-    [ -e "$f" ] && cmp -s "$f" "$b" 2>/dev/null || echo "tests/$(basename "$b")"
+  # no copy of the filter's logic to be right. What that direction CANNOT see, stated
+  # because the choice is what hides it: a NEWLY added shipping-eligible suite has no
+  # built entry to iterate, so plugin/ is behind and this stays quiet. The walk grades
+  # the suites that ship, not the decision about which ones should — adding a suite
+  # means rebuilding, and nothing here will remind you.
+  for f in "$built/tests/"*.test.sh; do
+    [ -e "$f" ] || continue
+    _stale_pair "$GUV_DIR/.claude/tests/$(basename "$f")" "$built" "tests/$(basename "$f")"
   done
 }
 
@@ -378,8 +449,10 @@ refresh_one_plugin_cache() {
   [ -n "$drift" ] && printf '%s\n' "$drift" | sed 's|^|  drifted: |'
   [ -n "$stale" ] && printf '%s\n' "$stale" | sed 's|^|  removed upstream: |'
   # Overlay what source ships, then prune what source dropped. Both stay inside the
-  # three guv-owned trees; nothing walks the cache root, where Claude Code's own
-  # .in_use/ session locks live.
+  # guv-owned trees named by GUV_CACHE_TREES; nothing walks the cache root, where Claude
+  # Code's own .in_use/ session locks live. That containment comes from the walks being
+  # tree-SCOPED, not from how many trees are listed — which is why widening the list from
+  # three to eight left the locks exactly as unreachable as before.
   local cp_failed=""
   for t in $GUV_CACHE_TREES; do
     [ -d "$built/$t" ] || continue
@@ -409,13 +482,17 @@ refresh_one_plugin_cache() {
   # outside the walked trees, so it is never its own prune candidate. It records dirty
   # state because this loop exists to move UNRELEASED work: a bare HEAD sha would name a
   # commit that does not describe what was copied.
-  local dirty=no
+  # Both flags are spelled out yes/no rather than left empty for the good state: this file
+  # is read by catting it, and an absent value is indistinguishable from a check that
+  # never ran — the one reading where "fine" and "unmeasured" must not look alike.
+  local dirty=no behind=no
   [ -n "$(git -C "$GUV_DIR" status --porcelain -- plugin 2>/dev/null)" ] && dirty=yes
+  [ -n "$GUV_PLUGIN_BEHIND" ] && behind=yes
   if ! { echo "# hand-refreshed from guv source by maintainers/setup-control-plane.sh"
          echo "source_repo=$GUV_DIR"
          echo "source_commit=$(git -C "$GUV_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
          echo "source_plugin_dirty=$dirty"
-         echo "source_plugin_behind_claude=${GUV_PLUGIN_BEHIND:+yes}"
+         echo "source_plugin_behind_claude=$behind"
          echo "refreshed_trees=$GUV_CACHE_TREES"
          echo "refreshed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
          echo "verified=$verified"

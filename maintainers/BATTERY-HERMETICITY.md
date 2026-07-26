@@ -100,8 +100,11 @@ returned by accident, and an accident is not isolation.
 
 ## Enrolling a new suite
 
-If a new suite writes to or builds from the shared live source tree at a fixed
-path, add its basename to `SERIAL_SET` in **all three** runner copies:
+Both axes get asked about, in this order. Answering only the first is how the
+second one was missed for as long as it was.
+
+**Axis 1 — does it write to the shared live source tree at a fixed path?**
+If so, add its basename to `SERIAL_SET` in **all three** runner copies:
 
 - the `write_runner` heredoc in `maintainers/setup-control-plane.sh`
   (generates `.claude/run-core-tests.sh`),
@@ -115,3 +118,26 @@ T11k proves the runner declares the set, and the T7 drift guard keeps the CI loo
 in step. Prefer making a new suite hermetic (write under `mktemp`) over enrolling
 it — the serial pass is the documented fallback for suites that genuinely must
 touch the live tree, not the default.
+
+**Axis 2 — does it execute anything that can reach state OUTSIDE the repo?**
+In practice that means `setup-control-plane.sh`, whose `--sync` refreshes the
+user-scope plugin cache. `SERIAL_SET` does nothing here: serializing suites
+against each other does not stop one of them writing to
+`~/.claude/plugins/cache/`. Export the seam suite-wide instead, before the first
+run:
+
+```bash
+export GUV_PLUGINS_DB="$WORK/no-such-plugins-db.json"
+```
+
+and add a positive control asserting the real cache was never reached, so the
+isolation stays proven rather than assumed:
+
+```bash
+grep -q 'plugin cache' "$WORK/setup.log" && no "hermeticity: …" || ok "hermeticity: …"
+```
+
+The control fires only on a machine where the hazard is real — the maintainer
+machine this guards — and that is the machine it needs to fire on. A suite that
+happens not to reach the cache today because no plugin is installed is isolated
+by accident, and an accident is not isolation.
