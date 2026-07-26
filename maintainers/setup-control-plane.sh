@@ -659,14 +659,26 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # A timeout kill surfaces as rc 124 (or 137 on SIGKILL after the kill-after grace)
 # — both are nonzero, so the gate fails loud; the aggregation pass names it.
 run_one() {  # $1 = suite path  $2 = scratch key
-  local t="$1" key="$2"
+  local t="$1" key="$2" rc started ended
+  started=$(date +%s)
   if [ -n "$TIMEOUT_BIN" ]; then
     "$TIMEOUT_BIN" -k 5 "$SUITE_TIMEOUT" bash "$t" \
       >"$WORKDIR/$key.out" 2>"$WORKDIR/$key.err"
   else
     bash "$t" >"$WORKDIR/$key.out" 2>"$WORKDIR/$key.err"
   fi
-  printf '%s\n' "$?" > "$WORKDIR/$key.rc"
+  rc=$?
+  printf '%s\n' "$rc" > "$WORKDIR/$key.rc"
+  ended=$(date +%s)
+  printf '%s\n' "$((ended - started))" > "$WORKDIR/$key.dur"
+  # PROGRESS goes to the RUNNER's stderr — deliberately NOT into $key.err, which is
+  # the suite's captured stream that gate (c) fails on any byte of. Announcing here
+  # rather than in the aggregation pass is the whole point: the aggregation cannot
+  # start until every suite is done, which is exactly the window that used to be
+  # silent. Whole seconds (no awk, no float): the NOTO fixture's PATH whitelist is
+  # the floor for what this runner may depend on, and sub-second precision buys
+  # nothing on a battery measured in minutes.
+  printf '[run-core-tests] done %s (%ss)\n' "$(basename "$t")" "$((ended - started))" >&2
 }
 
 # ── fix (b): the AUDITED serial set (the shared-live-source-tree writers) ──
@@ -690,11 +702,28 @@ if [ "${#SUITES[@]}" -eq 0 ]; then
   exit 4
 fi
 
+# Announce the run's SHAPE before any suite starts. Completion lines alone leave the
+# silence exactly where it does the most damage: the serial carve runs first and its
+# first member is one of the slowest suites in the battery (measured 193s), so a
+# person watching a fresh run would still see nothing for over three minutes — which
+# is precisely the window in which friction entry 2026-07-18T17:37:57Z-2084922661 was
+# filed, a contended battery killed as a suspected single-suite hang. Knowing what is
+# running and in what order is what distinguishes "slow" from "stuck".
+printf '[run-core-tests] running %s suites: serial carve first (%s), then the rest at %s-way parallelism\n' \
+  "${#SUITES[@]}" "$(echo $SERIAL_SET)" "$JOBS" >&2
+
 # Serial carve FIRST: the shared-live-tree suites run strictly one at a time,
 # before the pool, so neither they nor the pool ever touch the live source tree
 # concurrently. (Sequential foreground runs — no & — guarantee non-overlap.)
 for i in "${!SUITES[@]}"; do
-  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) run_one "${SUITES[$i]}" "$i" ;; esac
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*)
+    # Announced on START, not only on completion: these two are the long poles and
+    # they run alone, so this is the one place a start line buys real information.
+    # The pool suites are not announced on start — a burst of $JOBS lines at once
+    # is noise, and their completions arrive steadily enough to show liveness.
+    printf '[run-core-tests] start %s (serial carve)\n' "$(basename "${SUITES[$i]}")" >&2
+    run_one "${SUITES[$i]}" "$i" ;;
+  esac
 done
 
 # Launch the HERMETIC remainder under a bounded pool: at most $JOBS in flight.
@@ -748,6 +777,27 @@ for i in "${!SUITES[@]}"; do
     fail=1
   fi
 done
+
+# Per-suite wall-clock, slowest first, on stderr. This is RETAINED measurement, not
+# just progress: sizing the focused-suite path and the hermeticity change needs the
+# suite-time DISTRIBUTION, and the standing lesson ([22.1] Q3) is that a modeled
+# distribution was ~4x wrong and only measurement caught it.
+#
+# These are POOL timings — suites overlap under the bounded pool, so a number here
+# includes contention from its neighbours. They name the long poles honestly; they
+# are NOT isolated per-suite costs, and an isolated census must run suites alone.
+# Said in the output rather than only here, because an unqualified number in a
+# terminal becomes a quoted fact three sessions later.
+#
+# Ordering: this sits BEFORE the exit and writes ONLY to stderr. It cannot alter
+# $fail and cannot mask a suite failure — the [15.1] exit-masking invariant below
+# is that nothing follows the exit, and nothing does.
+{
+  echo "[run-core-tests] per-suite wall-clock, slowest first (POOL timings — suites overlap, so these name the long poles but are NOT isolated costs):"
+  for i in "${!SUITES[@]}"; do
+    printf '%s %s\n' "$(cat "$WORKDIR/$i.dur" 2>/dev/null || echo 0)" "$(basename "${SUITES[$i]}")"
+  done | sort -rn | while read -r d n; do printf '  %5ss  %s\n' "$d" "$n"; done
+} >&2
 
 # The runner's verdict IS its exit status, and NOTHING follows it: a trailing
 # post-runner command cannot mask a suite failure (the [15.1] exit-masking hole).

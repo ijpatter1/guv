@@ -741,6 +741,61 @@ run_battery "$BP"
   && ok "[15.1] battery: a clean passing suite keeps the run green (positive control)" \
   || no "[15.1] battery must pass a clean suite (rc=$BATT_RC: $(printf '%s' "$BATT_OUT" | tail -2))"
 
+# T11p — PROGRESS INSTRUMENTATION (Prong C of the battery-cost attack). The runner
+# used to print NOTHING until every suite had finished, so a 12-minute battery was
+# indistinguishable from a hang — the misread recorded in friction entry
+# 2026-07-18T17:37:57Z-2084922661, where a contended full battery was killed as a
+# suspected single-suite hang. On a machine with no timeout binary (this one) there
+# is no per-suite ceiling either, so silence is the ONLY signal a hang has.
+#
+# Why this asserts on the STREAM and not merely on presence: the battery's own gate
+# fails a suite on ANY stderr byte, so instrumentation that leaked into a suite's
+# captured stream would red the battery it exists to measure. Progress therefore
+# belongs on the RUNNER's stderr, and stdout must stay clean so the deterministic
+# sorted aggregation — the thing that makes the verdict reproducible — is unchanged.
+# A test that only checked "some progress appears" would pass an implementation
+# that breaks either property.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "alpha.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC" "beta.test.sh"  $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+PROG_O=$(mktemp); PROG_E=$(mktemp)
+( cd "$BP" && bash .claude/run-core-tests.sh ) >"$PROG_O" 2>"$PROG_E"; PROG_RC=$?
+PROG_OUT=$(cat "$PROG_O"); PROG_ERR=$(cat "$PROG_E"); rm -f "$PROG_O" "$PROG_E"
+
+printf '%s' "$PROG_ERR" | grep -q 'alpha.test.sh' \
+  && printf '%s' "$PROG_ERR" | grep -q 'beta.test.sh' \
+  && [ "$PROG_RC" -eq 0 ] \
+  && ok "[prong-C] the runner announces each suite's completion on stderr as it lands (a long battery is no longer a silent void)" \
+  || no "[prong-C] a battery that prints nothing until the end is indistinguishable from a hang — each suite must announce completion (rc=$PROG_RC err=$(printf '%s' "$PROG_ERR" | tail -3))"
+
+# The run's SHAPE must be announced BEFORE the first suite finishes. Completion
+# lines alone are not enough: the serial carve runs first and its first member is
+# a 193s suite on the real battery, so a fresh run would still open with three
+# minutes of silence — the exact window in which a contended battery was once
+# killed as a suspected hang. Asserted on ORDER, not presence, because a shape
+# line printed at the end would satisfy a presence check and inform nobody.
+PROG_SHAPE=$(printf '%s\n' "$PROG_ERR" | grep -n 'running .* suites' | head -1 | cut -d: -f1)
+PROG_FIRSTDONE=$(printf '%s\n' "$PROG_ERR" | grep -n 'done ' | head -1 | cut -d: -f1)
+[ -n "$PROG_SHAPE" ] && [ -n "$PROG_FIRSTDONE" ] && [ "$PROG_SHAPE" -lt "$PROG_FIRSTDONE" ] \
+  && ok "[prong-C] the run's shape is announced before the first suite completes (silence at startup, not just at the end, is what gets a battery killed)" \
+  || no "[prong-C] the runner must say what it is about to do before it does it — a shape line after the first completion informs nobody (shape=$PROG_SHAPE first-done=$PROG_FIRSTDONE)"
+
+# Discriminate on the PROGRESS markers, not on the "[run-core-tests]" prefix alone:
+# the pre-existing no-timeout degradation notice legitimately carries that prefix on
+# stdout, so a prefix-only check would red on a correct implementation.
+printf '%s' "$PROG_OUT" | grep -qE 'run-core-tests\] done |per-suite wall-clock' \
+  && no "[prong-C] progress leaked into STDOUT — the deterministic sorted aggregation must stay clean, or a reproducible verdict was traded for a progress bar" \
+  || ok "[prong-C] progress stays off stdout; the deterministic aggregation is unchanged"
+
+# And the timings must be RETAINED, not merely streamed — the census that sizes
+# Prong A1 and Prong B needs the distribution, and [22.1] Q3 is the standing lesson
+# that a MODELED suite-time distribution was ~4x wrong and was caught only by
+# measurement.
+printf '%s' "$PROG_ERR" | grep -qiE 'per-suite|slowest' \
+  && printf '%s' "$PROG_ERR" | grep -qE '[0-9]+s[[:space:]]+(alpha|beta)\.test\.sh' \
+  && ok "[prong-C] per-suite wall-clock is retained and reported, so the next sizing decision is measured rather than modeled" \
+  || no "[prong-C] per-suite durations must be reported, not just completion events — without the distribution neither A1 nor B can be sized honestly (err=$(printf '%s' "$PROG_ERR" | tail -5))"
+
 # T11a — fix (c) stdout-only-failure blindness: a suite that announces its FAILURE
 # only on stdout AND lies with exit 0 must NOT yield a green battery. This is the
 # exact hole that once let a red suite show green (roots-map.test.sh writes its ✗
