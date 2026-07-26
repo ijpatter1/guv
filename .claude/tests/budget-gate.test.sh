@@ -627,7 +627,7 @@ grep -qi 'FORESEEN OVERRUN' "$HANDOFF_SKILL" 2>/dev/null \
 # the burn and forecast figures it qualifies get recorded without it. The headline list is
 # DERIVED from the gate, never enumerated here: a new banner must be picked up by the
 # session-close path in the same commit that adds it, which is exactly what did not happen
-# when SETPOINT UNIT MISMATCH and MALFORMED SETPOINT BASIS shipped.
+# when the setpoint-unit and malformed-marker checks shipped.
 GATE_HEADLINES=$(grep -oE '\[budget-gate\] [A-Z][A-Z]+( [A-Z]+)*' "$GATE" 2>/dev/null | sed 's/\[budget-gate\] //' | sort -u)
 [ -n "$GATE_HEADLINES" ] \
   && ok "[15.6] the gate's emitted headlines are discoverable (the handoff drift guard has a subject)" \
@@ -875,7 +875,7 @@ W11BURN=$(profile_burn "$W11OUT")
   && ok "[13.4] file-order anchoring pinned: an out-of-order qualifying append widens the window conservatively (120000 breaches, 06-05 basis disclosed)" \
   || no "[13.4] the anchor must be the file-order last qualifying entry, failing conservative (rc=$W11RC burn='${W11BURN:-none}' out='$W11OUT')"
 
-# ── MIXED HARVEST VINTAGE: the gate discloses when its own comparison is invalid ──
+# ── HARVEST UNIT HAZARD, kind=mixed: the gate discloses when its comparison is invalid ──
 # harvest_basis was written by the meter and read by NOTHING, which is the phantom-
 # HEADROOM mirror of a phantom breach. Pre-dedupe entries counted usage once per
 # transcript LINE instead of once per API response (~2.5x over, and shape-dependent),
@@ -893,7 +893,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
   >> "$P/.claude/metering/metering.ndjson"
 V1OUT=$(gate "$P" exit); V1RC=$?
-printf '%s' "$V1OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V1OUT" | grep -q 'hazard: *mixed' \
   && printf '%s' "$V1OUT" | grep -q 'pre-dedupe' \
   && printf '%s' "$V1OUT" | grep -q 'per_response' \
   && [ $V1RC -eq 0 ] \
@@ -919,7 +919,7 @@ gate "$P" exit >/dev/null 2>&1; V3RC=$?
 # Without this, V1 would pass against a banner that fires unconditionally.
 P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
 V4OUT=$(gate "$P" exit); V4RC=$?
-printf '%s' "$V4OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V4OUT" | grep -q 'hazard: *mixed' \
   && no "[9.1] the vintage disclosure fired on a single-vintage window — a warning that always fires is not a warning" \
   || ok "[9.1] no vintage disclosure when every windowed entry shares one harvest basis"
 
@@ -935,7 +935,7 @@ for i in 1 2; do
     >> "$P/.claude/metering/metering.ndjson"
 done
 V5OUT=$(gate "$P" exit)
-printf '%s' "$V5OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V5OUT" | grep -q 'hazard: *mixed' \
   && no "[9.1] the vintage disclosure fired on an all-per_response window" \
   || ok "[9.1] no vintage disclosure once every windowed entry is post-dedupe (the state a NEW initiative opens in)"
 
@@ -951,7 +951,7 @@ jq -c 'if (.ts // "") >= "2026-06-12T00:00:00Z" then .harvest_basis = "per_respo
   "$VP6/.claude/metering/metering.ndjson" > "$VP6/.claude/metering/m.tmp"
 mv "$VP6/.claude/metering/m.tmp" "$VP6/.claude/metering/metering.ndjson"
 V6OUT=$(gate "$VP6" exit)
-printf '%s' "$V6OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V6OUT" | grep -q 'hazard: *mixed' \
   && no "[9.1] the vintage scan reached outside the burn window — a closed initiative's vintage is not this window's problem (out='$V6OUT')" \
   || ok "[9.1] the vintage scan is windowed to the live lineage, like the burn sum it describes"
 
@@ -967,7 +967,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
   >> "$P/.claude/metering/metering.ndjson"
 V7OUT=$(gate "$P" exit); V7RC=$?
-printf '%s' "$V7OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V7OUT" | grep -q 'hazard: *mixed' \
   && printf '%s' "$V7OUT" | grep -q 'budget-gate] BREACH' \
   && [ $V7RC -eq 3 ] \
   && ok "[9.1] a mixed-vintage window that also breaches prints BOTH banners and still exits 3" \
@@ -991,7 +991,7 @@ P=$(mk_project '{"initiative":{"tokens":100000}}' 0 0)
            slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
 } > "$P/.claude/metering/metering.ndjson"
 V8OUT=$(gate "$P" exit); V8RC=$?
-printf '%s' "$V8OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V8OUT" | grep -q 'hazard: *mixed' \
   && no "[9.1] an unbounded_cumulative entry raised a vintage while contributing zero burn — the scan must select burn_sum's entry set, not just its ts window (out='$V8OUT')" \
   || { [ $V8RC -eq 0 ] \
        && ok "[9.1] an entry the burn sum skips raises no vintage about it (no banner, and no breach off its 900k)" \
@@ -1043,7 +1043,7 @@ P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
            slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
 } > "$P/.claude/metering/metering.ndjson"
 V10OUT=$(gate "$P" exit)
-printf '%s' "$V10OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V10OUT" | grep -q 'hazard: *mixed' \
   && printf '%s' "$V10OUT" | grep -q 'pre-dedupe (1 entry, 4000 tokens)' \
   && ok "[9.1] a LEGACY (no slice_basis) pre-dedupe entry raises its vintage and carries its differenced burn" \
   || no "[9.1] the vintage scan skipped the legacy branch — legacy entries are the oldest in any record and the likeliest to be pre-fix, so silence there is the worst place for it (out='$V10OUT')"
@@ -1060,7 +1060,7 @@ P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
            slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
 } > "$P/.claude/metering/metering.ndjson"
 V11OUT=$(gate "$P" exit)
-printf '%s' "$V11OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+printf '%s' "$V11OUT" | grep -q 'hazard: *mixed' \
   && printf '%s' "$V11OUT" | grep -q 'pre-dedupe (1 entry, 7000 tokens)' \
   && ok "[9.1] a since_process_start pre-dedupe entry raises its vintage and carries its burn" \
   || no "[9.1] the vintage scan skipped the since_process_start branch — it sums into burn, so it must be able to disclose its unit (out='$V11OUT')"
@@ -1148,8 +1148,8 @@ V14EXT=$(gate "$P" exit)
 V14ELINES=$(printf '%s\n' "$V14ENT" | wc -l | tr -d ' ')
 V14XLINES=$(printf '%s\n' "$V14EXT" | wc -l | tr -d ' ')
 [ "$V14ELINES" -lt "$V14XLINES" ] \
-  && ! printf '%s' "$V14ENT" | grep -q 'The remedy is one commit by a person' \
-  && printf '%s' "$V14EXT" | grep -q 'The remedy is one commit by a person' \
+  && ! printf '%s' "$V14ENT" | grep -q 'budgets.initiative.harvest_basis' \
+  && printf '%s' "$V14EXT" | grep -q 'budgets.initiative.harvest_basis' \
   && ok "[9.1] the standing banner is terse at entry and full at exit (${V14ELINES} vs ${V14XLINES} lines) — the remedy prose is paid for where it is acted on" \
   || no "[9.1] a banner that never clears must not re-inject its full prose into every session's context; entry carries the warning, exit carries the remedy (entry=${V14ELINES}L exit=${V14XLINES}L)"
 
@@ -1158,7 +1158,7 @@ V14XLINES=$(printf '%s\n' "$V14EXT" | wc -l | tr -d ' ')
 # Without this, "make entry terse" has no floor and degrades to dropping the entry
 # disclosure altogether — which is the original [9.1] defect restored at one boundary.
 V14MISS=""
-for probe in 'MIXED HARVEST VINTAGE' 'vintages in window:' 'per_response (1 entry, 500 tokens)' 'initiative burn:' 'initiative setpoint:'; do
+for probe in 'HARVEST UNIT HAZARD' 'vintages in window:' 'per_response (1 entry, 500 tokens)' 'initiative burn:' 'initiative setpoint:'; do
   printf '%s' "$V14ENT" | grep -q "$probe" || V14MISS="$V14MISS '$probe'"
 done
 [ -z "$V14MISS" ] \
@@ -1185,11 +1185,11 @@ printf '%s' "$V14ENT" | grep -q 'not a measurement' \
 # figure, which is how the superseded 4,741,208,137 setpoint stayed quotable after
 # 2026-07-26. Pin the promise against the artifact rather than trusting the prose.
 printf '%s' "$V14EXT" | grep -qi 'phantom headroom' \
-  && printf '%s' "$V14EXT" | grep -q 'budgets.{initiative,session}.tokens' \
+  && printf '%s' "$V14EXT" | grep -q 'budgets.initiative.tokens' \
   && ok "[9.1] the exit gate the entry banner points at actually carries the remedy and the direction" \
   || no "[9.1] the entry banner's onward pointer must resolve to the full statement — citing a destination that lacks it is the defect the metering-log.md pointer had (out='$V14EXT')"
 
-# ── SETPOINT UNIT MISMATCH: the case the mixed banner structurally cannot see ──────
+# ── HARVEST UNIT HAZARD, kind=mismatch: the case a vintage scan structurally cannot see ──
 # V4/V5 pin that a SINGLE-vintage window stays silent, and that is right as far as it
 # goes: with one unit in the window there is nothing MIXED to disclose. But the gate
 # compares that burn to a setpoint, and a setpoint records no unit — so a window that
@@ -1214,7 +1214,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
   > "$P/.claude/metering/metering.ndjson"
 V15MANIF=$(cat "$P/.claude/project.json")
 V15OUT=$(gate "$P" exit); V15RC=$?
-printf '%s' "$V15OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V15OUT" | grep -q 'hazard: *mismatch' \
   && printf '%s' "$V15OUT" | grep -q 'pre-dedupe' \
   && printf '%s' "$V15OUT" | grep -q 'per_response' \
   && [ $V15RC -eq 0 ] \
@@ -1242,7 +1242,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
   > "$P/.claude/metering/metering.ndjson"
 V17OUT=$(gate "$P" exit)
-printf '%s' "$V17OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V17OUT" | grep -q 'hazard: *mismatch' \
   && printf '%s' "$V17OUT" | grep -qi 'phantom headroom' \
   && ok "[9.1] a post-dedupe burn under a pre-dedupe ceiling is named as PHANTOM HEADROOM — the opposite polarity, reported as such" \
   || no "[9.1] the disclosure hardcoded one direction; a ceiling chosen in the inflated unit admits ~2.5x more real work and must be called out as headroom, not as an overstatement (out='$V17OUT')"
@@ -1256,7 +1256,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
   > "$P/.claude/metering/metering.ndjson"
 V18OUT=$(gate "$P" exit)
-printf '%s' "$V18OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V18OUT" | grep -q 'hazard: *mismatch' \
   && no "[9.1] the mismatch banner fired on a window whose unit MATCHES the declared setpoint basis — that is the state every healthy project is in" \
   || ok "[9.1] no mismatch disclosure when the burn's unit and the declared setpoint basis agree"
 
@@ -1271,7 +1271,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",perf:{}}' \
   > "$P/.claude/metering/metering.ndjson"
 V19OUT=$(gate "$P" exit)
-printf '%s' "$V19OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V19OUT" | grep -q 'hazard: *mismatch' \
   && no "[9.1] the mismatch banner fired with no declared setpoint basis — an undeclared unit is unknown, and inventing a comparison against it is the guess this whole section exists to refuse" \
   || ok "[9.1] no mismatch disclosure when budgets.initiative.harvest_basis is absent — the check is opt-in, bought by declaring the basis"
 
@@ -1289,7 +1289,7 @@ V20MANIF=$(cat "$P/.claude/project.json")
 V20OUT=$(gate "$P" exit); V20RC=$?
 printf '%s' "$V20OUT" | grep -q 'per-response' \
   && printf '%s' "$V20OUT" | grep -q 'per_response' \
-  && ! printf '%s' "$V20OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && ! printf '%s' "$V20OUT" | grep -q 'hazard: *mismatch' \
   && [ $V20RC -eq 0 ] \
   && [ "$V20MANIF" = "$(cat "$P/.claude/project.json")" ] \
   && ok "[9.1] an unrecognized harvest_basis is named with the legal values and degrades to undeclared — never a standing mismatch alarm off a typo" \
@@ -1330,7 +1330,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",harvest_basis:null,perf:{}}' \
   > "$P/.claude/metering/metering.ndjson"
 V22OUT=$(gate "$P" exit)
-printf '%s' "$V22OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V22OUT" | grep -q 'hazard: *mismatch' \
   && printf '%s' "$V22OUT" | grep -qi 'UNDETERMINED' \
   && ! printf '%s' "$V22OUT" | grep -qi 'phantom headroom' \
   && ! printf '%s' "$V22OUT" | grep -qi 'phantom breach' \
@@ -1354,8 +1354,8 @@ P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response"
            slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
 } > "$P/.claude/metering/metering.ndjson"
 V23OUT=$(gate "$P" exit)
-printf '%s' "$V23OUT" | grep -q 'MIXED HARVEST VINTAGE' \
-  && ! printf '%s' "$V23OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V23OUT" | grep -q 'hazard: *mixed' \
+  && ! printf '%s' "$V23OUT" | grep -q 'hazard: *mismatch' \
   && ok "[9.1] a mixed window raises the MIXED banner only — the setpoint-unit check defers rather than stacking a second headline on one defect" \
   || no "[9.1] both vintage banners fired for one window; a mixed burn matches no single declared basis by construction, so the count guard is what keeps this from double-reporting with two different remedies (out='$V23OUT')"
 
@@ -1371,7 +1371,7 @@ PF24=$(mk_proj 10000000)   # a tracker + estimates, so the projection returns a 
 CTC24=$(proj_ctc "$PF24")
 set_init_budget_basis "$PF24" $(( 10001000 + CTC24 / 2 )) per_response   # burn < budget < burn + CTC
 V24OUT=$(gate "$PF24" exit); V24RC=$?
-printf '%s' "$V24OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V24OUT" | grep -q 'hazard: *mismatch' \
   && printf '%s' "$V24OUT" | grep -qi 'FORESEEN OVERRUN' && [ "$V24RC" -eq 0 ] \
   && printf '%s' "$V24OUT" | grep -q 'EXTEND is the wrong first move' \
   && ok "[9.1] a FORESEEN OVERRUN drawn from a UNIT-MISMATCHED record warns off EXTEND — the qualifier reaches the case it was written for" \
@@ -1397,7 +1397,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",perf:{}}' \
   > "$P/.claude/metering/metering.ndjson"
 V26OUT=$(gate "$P" exit)
-printf '%s' "$V26OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+printf '%s' "$V26OUT" | grep -q 'hazard: *mismatch' \
   && no "[9.1] the mismatch banner fired with no initiative setpoint — it asserts a setpoint is mis-denominated when none exists, and its remedy names a field the project never set (out='$V26OUT')" \
   || ok "[9.1] no mismatch disclosure without an initiative setpoint — there is no comparison to be mis-denominated"
 
@@ -1423,7 +1423,7 @@ jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:
          slice_basis:"per_deliverable",harvest_basis:null,perf:{}}' \
   > "$P/.claude/metering/metering.ndjson"
 V28OUT=$(gate "$P" exit)
-V28HEAD=$(printf '%s\n' "$V28OUT" | grep 'SETPOINT UNIT MISMATCH')
+V28HEAD=$(printf '%s\n' "$V28OUT" | grep 'HARVEST UNIT HAZARD')
 printf '%s' "$V28HEAD" | grep -qi 'UNRECORDED' \
   && ! printf '%s' "$V28HEAD" | grep -q 'denominated in different harvest units' \
   && ok "[9.1] an unrecorded burn vintage is headlined as UNRECORDED, not as a known unit difference the record cannot support" \
@@ -1437,9 +1437,12 @@ printf '%s' "$V28HEAD" | grep -qi 'UNRECORDED' \
 # changes — so a menu whose every option is wrong is a standing instruction to break
 # something. Rule 15: the designed path here is to wait, and it has to be named.
 V29OUT=$(gate "$PF24" exit)
-printf '%s' "$V29OUT" | grep -q 'WAIT' \
-  && ! printf '%s' "$V29OUT" | grep -q 'The remedy is one commit by a person' \
-  && ok "[9.1] the phantom-breach remedy names WAIT as the first rung — the ceiling is already right and the burn side self-corrects" \
+# "First rung" is checked by ORDER, not merely by presence: a menu that lists WAIT last,
+# under two moves that both damage a correct state, has named it without recommending it.
+V29WAIT=$(printf '%s\n' "$V29OUT" | grep -n 'WAIT' | head -1 | cut -d: -f1)
+V29REDEN=$(printf '%s\n' "$V29OUT" | grep -n 'RE-DENOMINATE' | head -1 | cut -d: -f1)
+[ -n "$V29WAIT" ] && [ -n "$V29REDEN" ] && [ "$V29WAIT" -lt "$V29REDEN" ] \
+  && ok "[9.1] the phantom-breach remedy names WAIT as the FIRST rung, above re-denominate — the ceiling is already right and the burn side self-corrects" \
   || no "[9.1] the mismatch menu offered only re-denominate/correct-the-marker on a polarity where BOTH corrupt a correct state; the right action is to wait for post-fix entries, and a standing banner that never says so is a standing instruction to break a working setpoint (out='$V29OUT')"
 
 # V30 — the forecast discloses its own basis. projection.sh emits claim/n/observed_weight
@@ -1465,12 +1468,12 @@ done
   && ok "[9.1] the mismatch banner carries its numeric profile — window, burn, setpoint, declared basis" \
   || no "[9.1] the mismatch profile dropped:$V31MISS — the prose is guarded and the numbers it describes are not (out='$V24OUT')"
 
-# V32 — the MALFORMED report prints whether or not another banner fired. The doc comment
-# claims exactly this ("it describes the INSTRUMENT rather than the reading"), and no
-# fixture combined a malformed basis with a mixed window, so gating it on the mixed count
-# left the suite green. While a malformed marker stands the setpoint-unit check is OFF,
-# and a check believed to be running is worse than one known to be off — which is the
-# whole reason it is reported separately.
+# V32 — MALFORMED wins the kind field when another hazard is also present, and the
+# evidence for that other hazard survives the precedence. While a malformed marker
+# stands the setpoint-unit check is OFF, and a check believed to be running is worse
+# than one known to be off — so the instrument's state outranks the reading's. What
+# precedence must NOT do is swallow the mixed window's evidence: the vintages still
+# print, so the operator repairing the marker can see what they will be comparing.
 P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per-response"}}' 0 0)
 {
   jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.1"],
@@ -1481,10 +1484,12 @@ P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per-response"
            slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
 } > "$P/.claude/metering/metering.ndjson"
 V32OUT=$(gate "$P" exit)
-printf '%s' "$V32OUT" | grep -q 'MIXED HARVEST VINTAGE' \
-  && printf '%s' "$V32OUT" | grep -q 'MALFORMED SETPOINT BASIS' \
-  && ok "[9.1] a malformed basis is reported even when the mixed banner also fired — it describes the instrument, not the reading" \
-  || no "[9.1] the malformed-marker report was suppressed by another banner; while it stands the setpoint-unit check is silently OFF, which is the one state worse than a wrong reading (out='$V32OUT')"
+printf '%s' "$V32OUT" | grep -q 'hazard: *malformed' \
+  && ! printf '%s' "$V32OUT" | grep -q 'hazard: *mixed' \
+  && printf '%s' "$V32OUT" | grep -q 'pre-dedupe' \
+  && printf '%s' "$V32OUT" | grep -q 'per_response' \
+  && ok "[9.1] a malformed marker outranks the mixed kind and keeps both vintages on the profile — the instrument's state is reported without hiding the reading's" \
+  || no "[9.1] the malformed marker was outranked (the setpoint-unit check is then silently OFF, the one state worse than a wrong reading) or its precedence swallowed the vintage evidence (out='$V32OUT')"
 
 # V33 — the mismatch banner pays its explanation once, where it is acted on. Same standing
 # cost the mixed banner is trimmed for: nothing clears this until the window itself
@@ -1495,11 +1500,73 @@ V33ENT=$(gate "$PF24" entry)
 V33ELINES=$(printf '%s\n' "$V33ENT" | wc -l | tr -d ' ')
 V33XLINES=$(printf '%s\n' "$V29OUT" | wc -l | tr -d ' ')
 [ "$V33ELINES" -lt "$V33XLINES" ] \
-  && printf '%s' "$V33ENT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && printf '%s' "$V33ENT" | grep -q 'hazard: *mismatch' \
   && printf '%s' "$V33ENT" | grep -q 'not a measurement' \
   && ! printf '%s' "$V33ENT" | grep -q 'WAIT' \
   && ok "[9.1] the mismatch banner is terse at entry and full at exit (${V33ELINES} vs ${V33XLINES} lines) — profile and warning at both, remedy where it is acted on" \
   || no "[9.1] the mismatch banner re-injects its full remedy prose into every session's context; it never clears, so that is a standing charge against the work the disclosure protects (entry=${V33ELINES}L exit=${V33XLINES}L)"
+
+# ── TORN METERING LINES: a corrupt line must not switch the gate off ──────────────
+# The gate's ONLY hard stop is the actual-burn breach. The burn read used to slurp the
+# whole log (`jq -rs`) with stderr redirected, so ONE unparseable line — a torn append
+# from a writer killed mid-write, which an append-only log is exactly the shape to
+# produce — failed the entire parse. The empty result then fell through the non-numeric
+# guard to INITIATIVE_BURN=0, and the gate exited 0 in silence: a real breach switched
+# off, indistinguishable from within-budget. Fail-open on the one path that must fail
+# loud. The fix is the per-line `fromjson?` rung the lineage read 100 lines above
+# already takes — the blast radius decides how much a corrupt line may cost.
+#
+# V34 — a torn line beside a breaching entry still stops. This is the whole defect: the
+# fixture breaches by 5x, and pre-fix the gate said nothing at all.
+P=$(mk_project '{"initiative":{"tokens":100000}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:500000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+  printf '{"schema":"guv.meter.v1","session":"session-2026-06-15-001","tok'
+} > "$P/.claude/metering/metering.ndjson"
+V34OUT=$(gate "$P" exit); V34RC=$?
+[ $V34RC -eq 3 ] \
+  && printf '%s' "$V34OUT" | grep -q 'budget-gate] BREACH' \
+  && printf '%s' "$V34OUT" | grep -q '500000 tokens' \
+  && ok "[9.3] a torn log line drops that LINE, not the whole read — the breach beside it still stops (rc 3), where a slurp exited 0 in silence" \
+  || no "[9.3] one unparseable line switched the gate's only hard stop off; a fail-open breach looks exactly like within-budget, which is the worst shape a governor can take (rc=$V34RC out='$V34OUT')"
+
+# V35 — and the drop is ANNOUNCED. Skipping the line silently trades a fail-open for a
+# quiet under-count: the burn still prints, still looks like a measurement, and is now a
+# floor of unknown depth. The count is what makes it a floor rather than a number.
+printf '%s' "$V34OUT" | grep -q 'TORN METERING LINES' \
+  && printf '%s' "$V34OUT" | grep -q '1 line(s)' \
+  && printf '%s' "$V34OUT" | grep -qi 'floor' \
+  && ok "[9.3] the dropped line is announced with its count and the burn is called a FLOOR — a silent skip is a quiet under-count wearing a measurement's clothes" \
+  || no "[9.3] the gate absorbed a torn line without saying so; every figure below it is then an under-count presented as a measurement (out='$V34OUT')"
+
+# V36 — a clean log announces nothing. Without this, V35 passes against a notice that
+# fires unconditionally, and the standing-banner cost this suite polices elsewhere
+# (V14/V33) is paid at every boundary of every session for nothing.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
+V36OUT=$(gate "$P" exit)
+printf '%s' "$V36OUT" | grep -q 'TORN METERING LINES' \
+  && no "[9.3] the torn-line notice fired on a log with no torn lines — a warning that always fires is not a warning (out='$V36OUT')" \
+  || ok "[9.3] no torn-line notice when every log line parses"
+
+# V37 — the vintage scan takes the same rung as the burn sum it describes. Both read the
+# log through contrib_jq; fixing only the sum would leave the scan slurping, so a torn
+# line would blank the vintages and silently switch the unit disclosure off — the same
+# fail-open one layer over, and invisible because silence is what "no hazard" looks like.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:500,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+  printf '{"schema":"guv.meter.v1","tok'
+} >> "$P/.claude/metering/metering.ndjson"
+V37OUT=$(gate "$P" exit)
+printf '%s' "$V37OUT" | grep -q 'hazard: *mixed' \
+  && printf '%s' "$V37OUT" | grep -q 'pre-dedupe' \
+  && printf '%s' "$V37OUT" | grep -q 'per_response' \
+  && ok "[9.1] a torn line does not blank the vintage scan — the unit disclosure survives the same corruption the burn sum does" \
+  || no "[9.1] the vintage scan still slurps: one torn line emptied it, switching the unit disclosure off silently while the burn beside it kept printing (out='$V37OUT')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

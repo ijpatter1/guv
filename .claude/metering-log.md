@@ -291,12 +291,13 @@ that separate them do it differently on purpose:
 
 - **`budget-gate.sh` discloses.** BURN legitimately sums every entry in the window in
   whatever unit it was recorded, so the gate cannot drop pre-fix entries without
-  under-reporting spend. It reports the mix instead. A window spanning both vintages
-  raises `MIXED HARVEST VINTAGE`; a window uniformly in one vintage, measured against
-  a setpoint declared in the other, raises `SETPOINT UNIT MISMATCH` — the second check
-  needs `budgets.initiative.harvest_basis`, because a setpoint is an integer and
-  integers record no unit. Both **qualify** the number without converting it, and
-  neither ever moves a setpoint.
+  under-reporting spend. It reports the mix instead, under one `HARVEST UNIT HAZARD`
+  banner carrying the kind as a field: `mixed` (the window spans both vintages),
+  `mismatch` (the window is uniformly one vintage and the setpoint is declared in the
+  other), or `malformed` (the declaration is not a harvest unit, so that second check
+  is off). `mismatch` needs `budgets.initiative.harvest_basis`, because a setpoint is
+  an integer and integers record no unit. It **qualifies** the number without
+  converting it, and never moves a setpoint.
 - **`projection.sh observed_rate()` excludes.** A RATE is an average, and an average
   across two units is not a number, so pre-fix and degraded-`null` entries are not
   samples at all — they are filtered out and the emitted document discloses the

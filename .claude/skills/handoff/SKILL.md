@@ -217,14 +217,15 @@ comment names this reader by name — "a person at the extend/harvest/kill decis
 the live session output has not reached the record it was written for. Capture each of
 these verbatim under **Issues & Technical Debt** (or **Blocked**), exactly as above:
 
-- `MIXED HARVEST VINTAGE` — the burn window spans more than one harvest unit, so the
-  total is in no single unit.
-- `SETPOINT UNIT MISMATCH` — the window is uniformly one unit and the setpoint is
-  declared in the other. Carry the **direction** it names (phantom breach / phantom
-  headroom / undetermined): the remedy differs by direction, and under phantom breach
-  the designed rung is to WAIT rather than move anything.
-- `MALFORMED SETPOINT BASIS` — `budgets.initiative.harvest_basis` holds a value that
-  is not a harvest unit, so the setpoint-unit check is silently OFF until it is fixed.
+- `HARVEST UNIT HAZARD` — the burn and the ceiling are not in the same harvest unit, so
+  the comparison is invalid. Carry the `hazard:` kind (`mixed` — the window spans both
+  units; `mismatch` — the window is uniformly one and the setpoint declares the other;
+  `malformed` — `budgets.initiative.harvest_basis` is not a harvest unit, so the
+  setpoint-unit check is silently OFF), and carry the **direction** it names (phantom
+  breach / phantom headroom / undetermined): the remedy differs by direction, and under
+  phantom breach the designed rung is to WAIT rather than move anything.
+- `TORN METERING LINES` — one or more log lines did not parse and were skipped, so every
+  burn figure in this handoff is a **floor**, not a measurement. Record the count.
 
 None of these stops the handoff (all exit 0). All of them qualify the burn and forecast
 figures recorded elsewhere in the artifact, so a handoff that copies the numbers without
