@@ -475,6 +475,31 @@ rm -f "$P15/.claude/metering/metering.ndjson"
   && ok "absent metering log -> valid shape with empty cost aggregates (designed degradation)" \
   || no "absent log must degrade to empty aggregates, not crash (rc=$RC15, err=$(cat "$WORK/empty.err"))"
 
+# ─── T16 — unbounded_cumulative is EXCLUDED from token sums (the vintage fallout) ──
+# An unbounded_cumulative entry is NOT a slice: it carries the full process-to-date
+# cumulative, disclosed precisely because it cannot be attributed to one deliverable.
+# observed_rate() and budget-gate's burn_sum both exclude it; the emitter did not,
+# so it credited the whole cumulative to whatever deliverable that session named.
+# This was latent while no such entry existed (54 live entries: 15 legacy, 30
+# per_deliverable, 9 since_process_start — zero unbounded). The harvest_basis
+# vintage guard makes one CERTAIN on the next capture in any runtime_session with a
+# pre-fix prior, so the defect is now armed rather than theoretical.
+# The session COUNT must still include it — the session really happened; it is the
+# token VALUE that is not a slice.
+P16=$(make_fixture)
+printf '%s\n' '{"schema":"guv.meter.v1","ts":"2026-06-13T12:00:00Z","session":"session-2026-06-13-001","deliverable_ids":["9.1"],"model":"m","tokens":{"input":999999,"output":88888,"cache_read":0,"cache_creation":0},"slice_basis":"unbounded_cumulative","dollars":null,"spike_c_rung":"B","perf":{"op_wallclock_s":0.10,"suite_runtime_s":1.0}}' \
+  >> "$P16/.claude/metering/metering.ndjson"
+( cd "$P16" && bash "$SCRIPT" ) >"$WORK/unb.json" 2>"$WORK/unb.err"
+jq -e '.cost.by_deliverable["9.1"].tokens.input == 100' "$WORK/unb.json" >/dev/null 2>&1 \
+  && ok "emitter excludes an unbounded_cumulative entry from by_deliverable token sums" \
+  || no "unbounded_cumulative was summed into by_deliverable: expected input 100, got $(jq -c '.cost.by_deliverable["9.1"].tokens.input' "$WORK/unb.json")"
+jq -e '.cost.by_initiative.tokens.input == 340' "$WORK/unb.json" >/dev/null 2>&1 \
+  && ok "emitter excludes an unbounded_cumulative entry from by_initiative token sums" \
+  || no "unbounded_cumulative was summed into by_initiative: expected input 340, got $(jq -c '.cost.by_initiative.tokens.input' "$WORK/unb.json")"
+jq -e '.cost.by_initiative.sessions == 4' "$WORK/unb.json" >/dev/null 2>&1 \
+  && ok "the excluded entry is still counted as a session (only its token VALUE is not a slice)" \
+  || no "session count must still include the unbounded entry: expected 4, got $(jq -c '.cost.by_initiative.sessions' "$WORK/unb.json")"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

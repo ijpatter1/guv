@@ -54,7 +54,8 @@ are explicit nulls, never omissions).
 | `model`           | string \| null  | model identifier, harvested from the transcript's last assistant message; null when unharvestable.  |
 | `tokens`          | object \| null  | token counts **by class** — `{input, output, cache_read, cache_creation}` — the **bounded per-session SLICE** ([13.6]): the transcript delta (main + subagents) from the last same-`runtime_session` capture to now, NOT the cumulative whole-transcript sum. `null` when the transcript is unreachable. |
 | `transcript_tokens` | object \| null | the **raw cumulative high-water reading** by class at capture (main + subagents to that instant) — the value the NEXT slice differences against ([13.6]). NOT a per-session figure; `slice_basis` names the unit. `null` when the transcript is unreachable. |
-| `slice_basis`     | string \| null  | self-describes `tokens`' unit ([13.6], Rule 15): `per_deliverable` (a bounded delta against a prior same-`runtime_session` capture) · `since_process_start` (the first capture in this transcript — the full reading IS the first slice) · `unbounded_cumulative` (a non-monotone/unbounded degradation — disclosed and **excluded** from `observed_rate()`) · `null` when nothing was harvested. |
+| `slice_basis`     | string \| null  | self-describes `tokens`' unit ([13.6], Rule 15): `per_deliverable` (a bounded delta against a prior same-`runtime_session` capture) · `since_process_start` (the first capture in this transcript — the full reading IS the first slice) · `unbounded_cumulative` (**two distinct causes**: a non-monotone/unbounded degradation, OR a `harvest_basis` vintage break where the prior reading was harvested under a different unit — either way disclosed and **excluded** from `observed_rate()`) · `null` when nothing was harvested. |
+| `harvest_basis`   | string \| null  | self-describes how the raw reading was **harvested**, the axis orthogonal to `slice_basis`'s unit: `per_response` (usage grouped by `requestId`, one API response counted once — the post-fix harvest); `null` on a **degraded** entry, where no harvest happened and there is no unit to name. **Absent on every entry written before the per-response dedupe landed**, and that absence is load-bearing: a prior reading whose `harvest_basis` differs from the current one is a *different unit*, so differencing against it is refused (`slice_basis` degrades to `unbounded_cumulative`). See "per-response dedupe" below. |
 | `compaction_cycles` | number \| null | count of real compaction events (`isCompactSummary == true`) the slice spanned — main-transcript events with `timestamp ≥` the prior capture ([13.6]). Raw evidence (a count); powers balloon detection and Phase 14. `null` when the transcript is unreachable. |
 | `dollars`         | null            | **always null** on the current rung — token-only, no guessed price table (pricing tables drift; the spec forbids a guessed conversion). |
 | `spike_c_rung`    | string          | the harvest rung this entry achieved (see below): `"B"` when tokens were harvested, `"degraded"` when not. |
@@ -72,7 +73,10 @@ without agent I/O. Probe result: **yes for tokens, no for dollars.**
   `<cwd-slug>` is the absolute working directory with `/` replaced by `-`. Each
   assistant message carries a `usage` object with `input_tokens`,
   `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`.
-  The writer sums these by class — **rung B**: session-scalar token attribution.
+  The writer groups those lines **per API response** and sums the responses by
+  class — **rung B**: session-scalar token attribution. The per-response grouping
+  is not incidental: one response occupies N transcript lines, so a per-*line*
+  sum over-counts (see "per-response dedupe" below).
 - **Dollars are not mechanically present** (no price field on the transcript;
   pricing tables drift). Per Spike C's ladder, the dollar axis sits at **rung C**
   — token-only, `dollars: null`, no guessed conversion.
@@ -162,10 +166,143 @@ mechanical (`ts`, `session`, `deliverable_ids`, `model` if any, and the
 `spike_c_rung: "degraded"`. The log existing never depends on Spike C — a "no"
 degrades the meter's resolution, never blocks the line.
 
+### 2026-07-25 — per-response dedupe (the harvest-unit fix)
+
+[13.1] got the harvest's **scope** right (subagents in). [13.6] got its **slice
+unit** right (delta, not cumulative). Both were still reading the transcript one
+**line** at a time — and a line is not a response.
+
+**The defect.** The runtime serializes a single assistant response as N transcript
+lines, one per content block (thinking / text / tool_use), and those lines carry
+**duplicate usage** in one of two forms: 66.2% of responses repeat a byte-identical
+`message.usage` on every line, and the other 33.8% carry near-zero placeholders until
+the response's final line (measured over 41,949 responses, 2026-07-25). Summing per
+line therefore multiplies `input`, `cache_read` and `cache_creation` by the block count — i.e. by
+roughly the number of tool calls in the turn — and inflates `output` too under the
+main-transcript serialization. Measured on the local corpus (2026-07-25; the corpus
+grows, so treat the counts as as-of and the **ratio** as the finding): 21,323 usage
+lines collapsing to 8,422 responses, naive 2.19B vs deduped 867M — **2.5x
+inflation, ~1.32B phantom tokens**.
+
+This was never cosmetic. `burn = input+output+cache_read+cache_creation` feeds
+`budget-gate.sh`'s BREACH decision, the [13.4] forecast grade, and the calibration
+record. And the error is **shape-dependent** — tool-heavy turns inflate far more
+than prose turns (**corpus-wide, 2026-07-25**: main-loop output 3.02x vs subagent
+output 1.03x) — so it biases any comparison between differently-shaped work instead
+of cancelling out. Every ratio in this section is stamped and population-labelled
+because they all drift as the corpus grows; re-measure rather than reuse them.
+
+**The fix.** The harvest groups usage by `requestId` and takes the **max** per class
+before summing. `max` is correct under both observed serializations: identical
+repeats, and near-zero output placeholders until the response's final line. It also
+ignores an aborted all-zero line sharing a live `requestId`. Lines carrying neither
+`requestId` nor `uuid` — **or an empty one** — get a per-line synthetic key, so a
+key-less transcript meters exactly as it did before rather than collapsing to a
+single max.
+
+**Evidence, and its limits.** The load-bearing proof is structural: **no
+`message.id` spans two `requestId`s** (0 of ~42k responses corpus-wide), so a
+`requestId` is a response boundary. The billing cross-check is **partial** — Claude
+Code's `/cost` reports a scope this analysis could not reconstruct (no window start,
+project slug, or session tree reproduces its per-model totals), so there is no
+absolute per-model reconciliation; on opus-5, the one model whose corpus usage is
+concentrated in the billed period, deduped output is **1.03x** of billed against
+**2.35x** per-line. Both figures are an **instant reading** (2026-07-25), not a stable
+constant — opus-5's per-line/deduped output ratio moves between ~1.8x and ~3.1x across
+the three days that model has existed in this corpus, so re-measure rather than reuse
+these two numbers. Corroboration, not proof.
+
+**Known under-count, disclosed not corrected.** `message.usage.iterations[]`
+decomposes a `requestId` that was retried or continued into its billed calls, and
+the top-level `usage` this harvest reads reports only the **last** one. Measured: 3
+requestIds in 105,109 usage lines, costing ~563k `cache_read` — **~0.01%** of corpus
+burn. Summing iterations would add a branch for a research-preview field absent from
+a third of lines to recover a rounding error; it is declared here instead. No
+tripwire is built for this (Rule 3 — the branch would be the very thing declined);
+the manual re-measure is the check, and the threshold that should trigger the fix is
+`iterations`-bearing burn exceeding **1%** of corpus burn — two orders of magnitude
+above today's 0.01%:
+
+```bash
+jq -s '[.[]|.message.usage//.usage|select(.!=null)]
+       | { multi: [.[]|select((.iterations//[])|length > 1)]|length, lines: length }' \
+  ~/.claude/projects/*/*.jsonl
+```
+
+**Migration — a vintage marker, and why the legacy entries are left inflated.**
+[13.6] could migrate its legacy entries at read time (difference the cumulative ones
+per `runtime_session`). That pattern does not transfer here — but the reason is
+**transcript survival, not arithmetic.** An earlier draft of this section claimed
+read-time recovery was *impossible* because the inflation is shape-dependent. That
+claim does not hold up, and the measurement that refutes it is worth recording:
+
+- Reconstructed per *entry* against surviving transcripts, the inflation runs
+  **2.31–2.88x across 18 real entries** of widely varying shape (weighted 2.53x). A
+  single ~2.55x deflator would recover every one of them to within ±13%, against
+  leaving them ~155% high.
+- The shape spread is real but far narrower than it looks on the **output** class
+  alone (corpus-wide today, 3.02x main-loop vs 1.03x subagent). Entry burn is ~93%
+  `cache_read`, which compresses the **all-class** spread to **2.65x main-loop vs
+  2.27x subagent** over the 18-entry population above (corpus-wide the same
+  all-class pair reads 2.49x / 2.35x — narrower still).
+
+What actually blocks a backfill is that the evidence is mostly **gone**: of the 14
+`runtime_session`s in this log, only **2 still have transcripts — 18 of 54 entries**.
+A deflator applied to the other 36 would be an estimate wearing the same field name
+as a measurement, inside an append-only record whose entire value is that its lines
+are raw evidence. So pre-fix entries stay **as-written and disclosed** — known to be
+~2.5x high, never silently corrected. (The 18 survivors are, as it happens, precisely
+the entries feeding live decisions. A deliberate re-derivation of *those* is a
+defensible future move — but as a new, separately-labelled record, never an in-place
+edit of the log.)
+
+What the fix can do is stop the two vintages being **subtracted from each other**.
+The new **`harvest_basis`** field marks the harvest unit (`per_response`), and the
+delta path checks it **before** the [13.6] magnitude guard: when the prior reading's
+vintage differs from the current one, the delta is refused and `slice_basis` degrades
+to `unbounded_cumulative` — disclosed, and excluded from `observed_rate()`.
+
+**Consumer migration status — no reader is vintage-aware yet.** `harvest_basis` makes
+the two vintages *separable*; as of this fix, nothing separates them. Every consumer
+selects on `slice_basis` or on nothing at all: `budget-gate.sh`'s `INITIATIVE_BURN`,
+`observed_rate()` ([9.7]), the [13.4] close-time `ACTUAL_RATE`, and `emit-metrics.sh`
+([9.5]) all average pre-fix and post-fix samples together. Two consequences are live
+for initiative 004, and both are **unit artifacts, not performance**:
+
+- `budgets.initiative.tokens` (4,741,208,137) and the banked opening forecast
+  (`blended_tokens` 105,712,556, derived from `observed_mean_tokens_per_session`
+  103,183,079 over n=53 — 53, not the 54 entries counted below, because the forecast
+  was banked one entry before the count was taken) are denominated in the **pre-fix** unit — every sample
+  behind them came from the inflated log. Post-fix sessions read ~2.5x lower, so the
+  initiative will appear to run far under budget.
+- The close-time [13.4] grade will therefore report a large *favourable* **rate**
+  error that is entirely this unit change.
+
+Re-banking the forecast on post-fix samples is the fix. Until that happens, read both
+figures in the old unit.
+
+`emit-metrics.sh` carries a newly **live** hazard on top of its [13.6] one: it has no
+`slice_basis` filter at all, and this log has never yet contained an
+`unbounded_cumulative` entry (54 entries: 15 legacy, 30 `per_deliverable`, 9
+`since_process_start`). The vintage guard below makes one certain, and the emitter
+will credit that entry's full cumulative reading to whatever deliverable its session
+names. [13.6] framed the emitter caveat as a *legacy* problem; it is now a current one.
+
+That ordering is the whole point. The [13.6] guard is **magnitude-based**
+(`all(. >= 0)`), so it cannot see a unit change: once a deduped cumulative reading
+outgrows the last inflated one, every class turns positive again and a **cross-unit
+subtraction** would be written as a valid `per_deliverable` slice and summed into the
+initiative burn and `observed_rate()`. A magnitude guard catches a reading that went
+*backwards*; only a vintage marker catches one that changed *meaning*. So the first
+capture after the fix, for a `runtime_session` that **has** a pre-fix prior, correctly
+discloses `unbounded_cumulative` rather than inventing a plausible slice (Rule 15). A
+`runtime_session` with no prior entry at all is unaffected — it discloses
+`since_process_start` exactly as before, and that reading is a valid sample.
+
 ## Example entry
 
 ```json
-{"schema":"guv.meter.v1","ts":"2026-06-13T21:40:12Z","session":"session-2026-06-13-004","session_derived":true,"runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","deliverable_ids":["9.1"],"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"transcript_tokens":{"input":72804,"output":662186,"cache_read":104991852,"cache_creation":7563948},"slice_basis":"per_deliverable","compaction_cycles":1,"dollars":null,"spike_c_rung":"B","perf":{"op_wallclock_s":0.041,"suite_runtime_s":1.232}}
+{"schema":"guv.meter.v1","ts":"2026-06-13T21:40:12Z","session":"session-2026-06-13-004","session_derived":true,"runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","deliverable_ids":["9.1"],"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"transcript_tokens":{"input":72804,"output":662186,"cache_read":104991852,"cache_creation":7563948},"slice_basis":"per_deliverable","harvest_basis":"per_response","compaction_cycles":1,"dollars":null,"spike_c_rung":"B","perf":{"op_wallclock_s":0.041,"suite_runtime_s":1.232}}
 ```
 
 ## Wiring
@@ -213,7 +350,8 @@ dollars are never settable by a caller.
 | `model`            | string \| null  | model id, harvested from the transcript's last assistant message; null when unharvestable.              |
 | `tokens`           | object \| null  | token counts by class — `{input, output, cache_read, cache_creation}` — the **bounded per-deliverable SLICE** ([13.6]): the transcript delta (main + subagents, [13.1]) from the last same-`runtime_session` capture (session OR queue boundary — both advance one high-water mark per transcript), NOT the cumulative sum; `null` when unreachable. |
 | `transcript_tokens`| object \| null  | the raw cumulative high-water reading by class at capture — the value the next slice differences against ([13.6]); `null` when unreachable. |
-| `slice_basis`      | string \| null  | self-describes `tokens`' unit ([13.6]): `per_deliverable` · `since_process_start` · `unbounded_cumulative` (excluded from `observed_rate()`) · `null`. Identical semantics to the session-boundary field above. |
+| `slice_basis`      | string \| null  | self-describes `tokens`' unit ([13.6]): `per_deliverable` · `since_process_start` · `unbounded_cumulative` (a non-monotone degradation OR a `harvest_basis` vintage break; excluded from `observed_rate()`) · `null`. Identical semantics to the session-boundary field above. |
+| `harvest_basis`    | string \| null  | self-describes the **harvest** unit: `per_response` (usage grouped by `requestId`); `null` on a degraded entry. Absent on pre-dedupe entries; a vintage mismatch against the prior reading refuses the delta. Identical semantics to the session-boundary field above. |
 | `compaction_cycles`| number \| null  | count of real compaction events (`isCompactSummary == true`, `timestamp ≥` the prior capture) the slice spanned ([13.6]); `null` when unreachable. |
 | `dollars`          | null            | **always null** — token-only rung, no guessed price table.                                              |
 | `spike_c_rung`     | string          | `"B"` when tokens were harvested, `"degraded"` when not.                                                |
@@ -240,5 +378,5 @@ of the rejected attempt.
 ## Example entry
 
 ```json
-{"schema":"guv.meter.queue.v1","ts":"2026-06-14T18:22:05Z","deliverable_id":"9.4","dispatch_outcome":"landed","runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","footprint":{"files":3,"insertions":42,"deletions":7},"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"transcript_tokens":{"input":72804,"output":662186,"cache_read":104991852,"cache_creation":7563948},"slice_basis":"per_deliverable","compaction_cycles":0,"dollars":null,"spike_c_rung":"B","perf":{"landing_wallclock_s":1.25}}
+{"schema":"guv.meter.queue.v1","ts":"2026-06-14T18:22:05Z","deliverable_id":"9.4","dispatch_outcome":"landed","runtime_session":"6c1048bb-a31b-45bb-afbb-de9a6e5d2c0b","footprint":{"files":3,"insertions":42,"deletions":7},"model":"claude-fable-5","tokens":{"input":36402,"output":331093,"cache_read":52495926,"cache_creation":3781974},"transcript_tokens":{"input":72804,"output":662186,"cache_read":104991852,"cache_creation":7563948},"slice_basis":"per_deliverable","harvest_basis":"per_response","compaction_cycles":0,"dollars":null,"spike_c_rung":"B","perf":{"landing_wallclock_s":1.25}}
 ```

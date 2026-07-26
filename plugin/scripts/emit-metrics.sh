@@ -126,8 +126,13 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 if [ -f "$LOG" ]; then
   COST_BY_DELIV=$(jq -s '
-      # explode each entry into (id, tokens) legs, one per attributed id
-      [ .[] | . as $e
+      # explode each entry into (id, tokens) legs, one per attributed id.
+      # EXCLUDE unbounded_cumulative: it is not a slice — it carries the full
+      # process-to-date cumulative, disclosed precisely because it cannot be
+      # attributed to one deliverable. observed_rate() ([9.7]) and the budget gate
+      # burn_sum ([13.5]) both exclude it; summing it here would credit a whole
+      # process of burn to whatever deliverable that session happened to name.
+      [ .[] | select((.slice_basis // "") != "unbounded_cumulative") | . as $e
         | ($e.deliverable_ids // [])[]
         | { id: ., tok: ($e.tokens // {input:0,output:0,cache_read:0,cache_creation:0}) } ]
       # group by id, sum token classes + session count
@@ -155,12 +160,16 @@ if [ -f "$LOG" ]; then
   # So this rolls up directly over the raw entries, never over the exploded
   # legs. sessions = the entry count.
   COST_BY_INIT=$(jq -s '
-      {
+      # Same unbounded_cumulative exclusion as by_deliverable. `sessions` is
+      # deliberately NOT filtered: the session really happened and is a real unit
+      # of work — it is the token VALUE that is not a slice, not the session.
+      [ .[] | select((.slice_basis // "") != "unbounded_cumulative") ] as $slices
+      | {
         tokens: {
-          input:          ([ .[] | (.tokens.input          // 0) ] | add // 0),
-          output:         ([ .[] | (.tokens.output         // 0) ] | add // 0),
-          cache_read:     ([ .[] | (.tokens.cache_read     // 0) ] | add // 0),
-          cache_creation: ([ .[] | (.tokens.cache_creation // 0) ] | add // 0)
+          input:          ([ $slices[] | (.tokens.input          // 0) ] | add // 0),
+          output:         ([ $slices[] | (.tokens.output         // 0) ] | add // 0),
+          cache_read:     ([ $slices[] | (.tokens.cache_read     // 0) ] | add // 0),
+          cache_creation: ([ $slices[] | (.tokens.cache_creation // 0) ] | add // 0)
         },
         sessions: length
       }

@@ -190,20 +190,79 @@ if [ -n "$TRANSCRIPT" ]; then
     while IFS= read -r -d '' f; do TOKEN_FILES+=("$f"); done \
       < <(find "$SUBAGENT_TREE" -name '*.jsonl' -type f -print0 2>/dev/null)
   fi
-  # Sum the per-message usage objects by class across ALL token sources. Missing
+  # Sum the per-RESPONSE usage objects by class across ALL token sources. Missing
   # fields default to 0; no usage lines anywhere yields null (still a valid
   # harvest). This is extraction over the transcripts, NOT aggregation into a
   # derived field — the four class counts are the raw evidence the boundary affords.
+  #
+  # DEDUPE BY requestId — one API response counts ONCE. The runtime serializes a
+  # single assistant response as N transcript lines, one per content block
+  # (thinking / text / tool_use), carrying duplicate usage in one of two forms:
+  # 66.2% of responses repeat a byte-identical usage object on every line, the
+  # other 33.8% carry near-zero placeholders until the final line (41,949
+  # responses, 2026-07-25). A per-LINE sum multiplies input/cache_read/cache_creation
+  # by the block count — i.e. by the number of tool calls in the turn — and
+  # inflates output too under the main-transcript serialization. Measured
+  # 2026-07-25 on the guv-guv transcript tree (192 files, 8,422 responses across
+  # 21,323 usage lines — the corpus grows, so treat the counts as as-of, the
+  # RATIO as the finding): 2.5x, ~1.32B phantom tokens. Burn feeds
+  # budget-gate.sh, the [13.4] grade, and calibration, and the error is
+  # SHAPE-DEPENDENT (tool-heavy turns inflate more), so it biases comparisons
+  # between differently-shaped work instead of cancelling.
+  #
+  # BILLING CROSS-CHECK (2026-07-25) — PARTIAL. An earlier revision of this
+  # comment claimed deduped lands within 0.88–1.14x of Claude Code's /cost on
+  # every model and class; that does NOT reproduce. /cost reports a scope this
+  # analysis could not reconstruct (no window start, project slug, or session
+  # tree reproduces its per-model totals), so there is no absolute per-model
+  # reconciliation. What does reproduce, on the one model whose corpus usage is
+  # concentrated in the billed period (opus-5): deduped output 1.03x of billed,
+  # per-line output 2.35x. Both are an INSTANT reading (2026-07-25), not a constant —
+  # that ratio moves ~1.8-3.1x across the three days opus-5 exists in this corpus.
+  # Re-measure rather than reuse them. Corroboration, not proof.
+  #
+  # The load-bearing evidence is STRUCTURAL: no message.id spans two requestIds
+  # (0 of ~42k responses corpus-wide), so a requestId is a response boundary.
+  # KNOWN UNDER-COUNT, disclosed not corrected: `message.usage.iterations[]`
+  # decomposes a requestId that was retried/continued into its billed calls, and
+  # the TOP-LEVEL usage this harvest reads reports only the LAST one. Measured:
+  # 3 requestIds in 105,109 usage lines, costing ~563k cache_read (~0.01% of
+  # corpus burn). Summing iterations would add a branch for a research-preview
+  # field absent from a third of lines to recover a rounding error — not worth
+  # the surface (Rule 3). Revisit if the multi-iteration share grows.
+  #
+  # max (not first/last) is correct under BOTH observed serializations: identical
+  # repeats, and near-zero output placeholders until the response's final line.
+  # It also ignores an aborted all-zero line sharing a live requestId (a real
+  # instance carries 91,628 tokens that `last` would silently discard) — T21.
+  # Lines carrying NEITHER requestId nor uuid — or an EMPTY one — get a per-line
+  # synthetic key, so key-less transcripts meter exactly as before (never
+  # collapsed to one max). Empty is checked explicitly: in jq only null/false are
+  # falsy, so a bare `// ` fallback would let "" through and collapse the lot.
+  # >>> per-response token harvest >>>
   TOKENS_JSON=$(jq -s '
-      [ .[] | (.message.usage // .usage) | select(. != null) ] as $u
-      | if ($u | length) == 0 then null
-        else {
-          input:          ([ $u[].input_tokens // 0 ]          | add),
-          output:         ([ $u[].output_tokens // 0 ]         | add),
-          cache_read:     ([ $u[].cache_read_input_tokens // 0 ]| add),
-          cache_creation: ([ $u[].cache_creation_input_tokens // 0 ] | add)
-        } end
+      [ .[] | { rid: (.requestId // .uuid), u: (.message.usage // .usage) }
+            | select(.u != null) ] as $lines
+      | if ($lines | length) == 0 then null
+        else ( $lines
+               | to_entries
+               | map({ rid: (if (.value.rid // "") == "" then ("__line_" + (.key | tostring)) else .value.rid end), u: .value.u })
+               | group_by(.rid)
+               | map({
+                   input:          (map(.u.input_tokens                // 0) | max),
+                   output:         (map(.u.output_tokens               // 0) | max),
+                   cache_read:     (map(.u.cache_read_input_tokens     // 0) | max),
+                   cache_creation: (map(.u.cache_creation_input_tokens // 0) | max)
+                 }) ) as $resp
+          | {
+              input:          ([ $resp[].input ]          | add),
+              output:         ([ $resp[].output ]         | add),
+              cache_read:     ([ $resp[].cache_read ]     | add),
+              cache_creation: ([ $resp[].cache_creation ] | add)
+            }
+        end
     ' "${TOKEN_FILES[@]}" 2>/dev/null) || TOKENS_JSON="null"
+  # <<< per-response token harvest <<<
   [ -n "$TOKENS_JSON" ] || TOKENS_JSON="null"
   if [ "$TOKENS_JSON" != "null" ]; then RUNG="B"; fi
   # model id: the last assistant message's model — from the MAIN transcript ONLY
@@ -229,6 +288,21 @@ fi
 # This block is BYTE-IDENTICAL in both meters — meter-queue.test.sh asserts it; edit
 # both or neither.
 TRANSCRIPT_TOKENS="$TOKENS_JSON"   # the raw cumulative high-water reading
+# The HARVEST UNIT this entry's numbers are denominated in — the [13.6] slice_basis
+# discipline applied to the other axis. `per_response` means the harvest deduped by
+# requestId (one API call counted once); entries written before that fix carry NO
+# harvest_basis and are ~2.5x inflated (measured per-entry band 2.31-2.88x over the
+# 18 entries whose transcripts survive). They are NOT backfilled — not because the
+# arithmetic is impossible, but because the evidence is gone: only 2 of the 14
+# runtime_sessions in the live log still have transcripts (18 of 54 entries), and a
+# deflator on the other 36 would be an estimate wearing a measurement's field name in
+# an append-only record. The marker keeps the two vintages separable, and the delta
+# below refuses to subtract across them. See .claude/metering-log.md.
+HARVEST_BASIS="per_response"
+# A degraded harvest has no unit to describe — nothing was read. Go null on this
+# axis exactly as slice_basis does, rather than asserting how a reading that never
+# happened was taken.
+[ "$TOKENS_JSON" != "null" ] || HARVEST_BASIS="null"
 SLICE_BASIS="null"
 COMPACTION_CYCLES="null"
 PRIOR_TS=""
@@ -236,7 +310,7 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
   # the most recent prior guv.meter.* entry for THIS runtime_session that carries a
   # usable cumulative reading (a [13.6] transcript_tokens, or a legacy cumulative
   # `tokens`), across BOTH boundaries (session + queue advance one high-water mark
-  # per transcript). Emits "<cumulative-json>\t<ts>" or nothing.
+  # per transcript). Emits "<cumulative-json>\t<ts>\t<harvest_basis>" or nothing.
   PRIOR=""
   if [ -f "$LOG" ]; then
     PRIOR=$(jq -rs --arg rs "$RUNTIME_SESSION" '
@@ -245,12 +319,15 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
             | select(((.transcript_tokens // .tokens) // null) != null) ]
       | last
       | if . == null then empty
-        else ((.transcript_tokens // .tokens) | @json) + "\t" + (.ts // "") end
+        else ((.transcript_tokens // .tokens) | @json) + "\t" + (.ts // "")
+             + "\t" + (.harvest_basis // "") end
     ' "$LOG" 2>/dev/null)
   fi
   if [ -n "$PRIOR" ]; then
     PRIOR_CUM=${PRIOR%%$'\t'*}
-    PRIOR_TS=${PRIOR#*$'\t'}
+    PRIOR_REST=${PRIOR#*$'\t'}
+    PRIOR_TS=${PRIOR_REST%%$'\t'*}
+    PRIOR_HARVEST=${PRIOR_REST#*$'\t'}
     # per-class delta = now - prior. The cumulative is monotone within a transcript
     # (the file only grows), so a NEGATIVE class delta means the high-water reading
     # is unreliable (e.g. subagent files pruned) — disclose unbounded_cumulative and
@@ -260,7 +337,21 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
         output:         (($now.output//0)         - ($prior.output//0)),
         cache_read:     (($now.cache_read//0)     - ($prior.cache_read//0)),
         cache_creation: (($now.cache_creation//0) - ($prior.cache_creation//0)) }' 2>/dev/null)
-    if [ -n "$DELTA" ] && [ "$(printf '%s' "$DELTA" | jq '[.input,.output,.cache_read,.cache_creation] | all(. >= 0)')" = "true" ]; then
+    # VINTAGE GUARD (checked BEFORE the magnitude guard, because magnitude cannot
+    # see this): the prior reading must have been harvested under the SAME unit, or
+    # the subtraction is across two different accountings and its result is
+    # meaningless. The magnitude guard alone catches the boundary only while the
+    # deduped cumulative is still below the last inflated one — once it outgrows it
+    # (inevitable; the transcript only grows) every delta turns positive and a
+    # cross-unit figure would be written as a valid per_deliverable slice, then
+    # summed into INITIATIVE_BURN and observed_rate(). Disclose it instead.
+    if [ "$PRIOR_HARVEST" != "$HARVEST_BASIS" ]; then
+      SLICE_BASIS="unbounded_cumulative"   # TOKENS_JSON stays the full cumulative
+      # LOUD (Rule 10): this entry's burn drops out of every downstream sum the
+      # moment it is tagged unbounded_cumulative. Say so where a person sees it —
+      # an undeclared ~2.5x step change reads as "suddenly under budget".
+      echo "[meter] VINTAGE BREAK: prior reading for this runtime_session was harvested as '${PRIOR_HARVEST:-<pre-dedupe>}', this one as '$HARVEST_BASIS' — different units (~2.5x apart), so NO delta was taken. Entry discloses slice_basis=unbounded_cumulative and is EXCLUDED from burn sums and observed_rate(): it is not a burn sample. Expect this once per runtime_session (see .claude/metering-log.md)." >&2
+    elif [ -n "$DELTA" ] && [ "$(printf '%s' "$DELTA" | jq '[.input,.output,.cache_read,.cache_creation] | all(. >= 0)')" = "true" ]; then
       TOKENS_JSON="$DELTA"
       SLICE_BASIS="per_deliverable"
     else
@@ -333,6 +424,7 @@ ENTRY=$(jq -cn \
   --argjson tokens "$TOKENS_JSON" \
   --argjson transcript_tokens "$TRANSCRIPT_TOKENS" \
   --arg slice_basis "$SLICE_BASIS" \
+  --arg harvest_basis "$HARVEST_BASIS" \
   --argjson compaction_cycles "$COMPACTION_CYCLES" \
   --arg rung "$RUNG" \
   --argjson op "$OP_WALLCLOCK" \
@@ -348,6 +440,7 @@ ENTRY=$(jq -cn \
      tokens: $tokens,
      transcript_tokens: $transcript_tokens,
      slice_basis: (if $slice_basis == "null" then null else $slice_basis end),
+     harvest_basis: (if $harvest_basis == "null" then null else $harvest_basis end),
      compaction_cycles: $compaction_cycles,
      dollars: null,
      spike_c_rung: $rung,

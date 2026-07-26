@@ -250,13 +250,17 @@ mk_compaction_transcript() {  # $1=plane $2=home $3=sid $4=n $5=cts
     i=$((i + 1))
   done
 }
-seed_prior_q() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  (a SESSION-boundary prior)
-  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" \
+seed_prior_q() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  [$5=harvest vintage]
+  # (a SESSION-boundary prior.) $5 defaults to "per_response" — a prior banked by the
+  # CURRENT harvester, which is what every delta test means by "a prior capture".
+  # Pass "legacy" to seed a PRE-dedupe entry (field absent), the boundary T16d pins.
+  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" --arg hb "${5:-per_response}" \
     '{schema:"guv.meter.v1", ts:$ts, session:"session-2026-06-16-001",
       session_derived:true, runtime_session:$rs, deliverable_ids:["9.4"],
       model:"m", tokens:$cum, transcript_tokens:$cum, dollars:null,
       spike_c_rung:"B", slice_basis:"since_process_start", compaction_cycles:0,
-      perf:{op_wallclock_s:0.1, suite_runtime_s:null}}')" >> "$1"
+      perf:{op_wallclock_s:0.1, suite_runtime_s:null}}
+     + (if $hb == "legacy" then {} else {harvest_basis:$hb} end)')" >> "$1"
 }
 
 # ── T14 — BOUNDED SLICE (lockstep with meter.sh T15): the landing's tokens are the
@@ -320,6 +324,40 @@ tail -1 "$LOG16b" | jq -e '.compaction_cycles == 3' >/dev/null 2>&1 \
   && ok "[13.6] queue: an UNSIZED landing past threshold declares NO balloon (lockstep with the session meter)" \
   || no "[13.6] queue unsized landing must stay silent: cycles=$(tail -1 "$LOG16b" | jq -c '.compaction_cycles') err=$(cat "$WORK/qt16b.err")"
 
+# ── T16c — PER-RESPONSE DEDUPE (lockstep with meter.test.sh T19): one API
+#           response counts ONCE however many transcript lines it occupies. The
+#           runtime writes one line per content block, each repeating the
+#           IDENTICAL usage object, so a per-line sum multiplies input/cache by
+#           the tool-call count (2.55x measured on real transcripts). The queue
+#           meter harvests "exactly as the session meter", so it must dedupe too
+#           — otherwise queue-boundary entries keep inflating the same burn the
+#           budget gate and the [13.4] grade read. This is the INTEGRATION half —
+#           it proves the queue path actually reaches a deduping harvester. It is
+#           NOT sufficient on its own: its fixture carries a requestId on every
+#           line with identical values, so first/last/naive-key mutants all
+#           satisfy it (measured, 2026-07-25 eval). T17b is the half that pins the
+#           reducer itself — the two are complementary, not redundant.
+#           main req_M (2 identical lines) + subagent req_S (2 identical lines)
+#           = the T13 totals, not double them. ──
+P16c=$(make_plane); LOG16c="$P16c/.claude/metering/metering.ndjson"
+FH16c="$WORK/home.$RANDOM"; SID16c="16c16c16-8888-7777-6666-555555555555"
+slug16c=$(cd "$P16c" && pwd -P | sed 's#/#-#g'); base16c="$FH16c/.claude/projects/$slug16c"
+mkdir -p "$base16c/$SID16c/subagents"
+{
+  printf '%s\n' '{"type":"assistant","requestId":"req_M","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"req_M","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}'
+} > "$base16c/$SID16c.jsonl"
+{
+  printf '%s\n' '{"type":"assistant","requestId":"req_S","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"req_S","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}'
+} > "$base16c/$SID16c/subagents/agent-dedupe.jsonl"
+( cd "$P16c" && HOME="$FH16c" CLAUDE_CODE_SESSION_ID="$SID16c" bash "$SCRIPT" capture \
+    --deliverable 9.4 --outcome landed --files 1 --insertions 1 --deletions 0 --wallclock 0.5 ) \
+    >/dev/null 2>"$WORK/t16c.err"
+tail -1 "$LOG16c" | jq -e '.tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+  && ok "queue harvest dedupes per response (duplicated main+sub lines total {12,6,1000,10}, not double)" \
+  || no "queue meter does not dedupe by requestId: expected {12,6,1000,10}, got $(tail -1 "$LOG16c" | jq -c '.tokens') (err=$(cat "$WORK/t16c.err"))"
+
 # ── T17 — LOCKSTEP BY CONSTRUCTION: the bounded-slice harvest block is BYTE-IDENTICAL
 # between meter.sh and meter-queue.sh. The two harvesters "share the bounded harvest"
 # ([13.6] acceptance); rather than risk drift between two copies, the shared logic is
@@ -333,6 +371,52 @@ BLK_Q=$(extract_block "$MQ"); BLK_S=$(extract_block "$MS")
 [ -n "$BLK_S" ] && [ "$BLK_Q" = "$BLK_S" ] \
   && ok "[13.6] the bounded-slice harvest block is byte-identical in meter.sh and meter-queue.sh (lockstep by construction)" \
   || no "[13.6] the bounded-slice block DRIFTED between the two meters (or its sentinels are missing) — they must stay in lockstep"
+
+# ── T17b — the same lockstep-by-construction discipline for the PER-RESPONSE TOKEN
+# HARVEST (the requestId dedupe reducer). T16c is behavioural and its fixture cannot
+# distinguish max from first/last or a naive key — measured at the 2026-07-25 eval,
+# it caught 1 of 4 reducer mutations while meter.test.sh caught 3. Rather than grow a
+# second behavioural fixture set here (30 lines to re-test what T19/T19b/T21 already
+# pin next door), the reducer is delimited by sentinels in both meters and asserted
+# byte-identical — so ANY divergence, including a silent max→last, fails loud on the
+# queue side too. Parity is the cheap half; the behavioural half lives where the
+# fixtures already are.
+extract_harvest() {  # $1=file — the lines strictly between the harvest sentinels
+  awk '/# >>> per-response token harvest >>>/{f=1; next} /# <<< per-response token harvest <<</{f=0} f' "$1"
+}
+HRV_Q=$(extract_harvest "$MQ"); HRV_S=$(extract_harvest "$MS")
+[ -n "$HRV_S" ] && [ "$HRV_Q" = "$HRV_S" ] \
+  && ok "the per-response token harvest is byte-identical in meter.sh and meter-queue.sh (reducer lockstep by construction)" \
+  || no "the per-response token harvest DRIFTED between the two meters (or its sentinels are missing) — they must stay in lockstep"
+
+# ── T16d — VINTAGE GUARD at the queue boundary (lockstep with meter.test.sh T20).
+# A queue capture differencing a deduped cumulative against a PRE-dedupe prior
+# produces a cross-unit slice. The magnitude guard cannot see it once the new-unit
+# cumulative outgrows the last old-unit reading, so the legacy prior here is
+# deliberately small ({1,1,1,1} vs {12,6,1000,10}) — every delta is positive and the
+# magnitude guard is satisfied. The entry must STILL disclose unbounded_cumulative.
+P16d=$(make_plane); LOG16d="$P16d/.claude/metering/metering.ndjson"
+FH16d="$WORK/home.$RANDOM"; SID16d="16d16d16-8888-7777-6666-555555555555"
+slug16d=$(cd "$P16d" && pwd -P | sed 's#/#-#g'); base16d="$FH16d/.claude/projects/$slug16d"
+mkdir -p "$base16d/$SID16d/subagents" "$P16d/.claude/metering"
+printf '%s\n' '{"type":"assistant","requestId":"req_M","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}' \
+  > "$base16d/$SID16d.jsonl"
+printf '%s\n' '{"type":"assistant","requestId":"req_S","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}' \
+  > "$base16d/$SID16d/subagents/agent-v.jsonl"
+seed_prior_q "$LOG16d" "$SID16d" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}' legacy
+( cd "$P16d" && HOME="$FH16d" CLAUDE_CODE_SESSION_ID="$SID16d" bash "$SCRIPT" capture \
+    --deliverable 9.4 --outcome landed --files 1 --insertions 1 --deletions 0 --wallclock 0.5 ) \
+    >/dev/null 2>"$WORK/t16d.err"
+E16D=$(tail -1 "$LOG16d")
+echo "$E16D" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+  && ok "queue: a PRE-dedupe prior is never differenced against (vintage boundary discloses unbounded_cumulative)" \
+  || no "queue produced a cross-unit slice: expected unbounded_cumulative + full cumulative, got $(echo "$E16D" | jq -c '{slice_basis, tokens}') (err=$(cat "$WORK/t16d.err"))"
+grep -q 'VINTAGE BREAK' "$WORK/t16d.err" \
+  && ok "queue: the vintage boundary is declared loudly on stderr, not just recorded" \
+  || no "queue vintage boundary was silent: no 'VINTAGE BREAK' on stderr, got: $(cat "$WORK/t16d.err")"
+echo "$E16D" | jq -e '.harvest_basis == "per_response"' >/dev/null 2>&1 \
+  && ok "queue: every entry declares its harvest unit (harvest_basis = per_response)" \
+  || no "queue harvest_basis must be present and per_response, got $(echo "$E16D" | jq -c '.harvest_basis')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

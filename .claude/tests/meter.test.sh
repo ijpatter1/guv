@@ -254,10 +254,16 @@ SHAPEDOC=$(ls "$CLAUDE_DIR"/metering*.md "$CLAUDE_DIR"/meter*.md 2>/dev/null | h
   && ok "shape doc exists ($([ -n "$SHAPEDOC" ] && basename "$SHAPEDOC"))" \
   || no "no shape doc file under .claude/ (metering*.md / meter*.md)"
 if [ -n "$SHAPEDOC" ]; then
-  # the doc must name every top-level field the writer emits, so it stays a
-  # contract and not decoration
+  # The doc must name every top-level field the writer emits, so it stays a
+  # contract and not decoration. DERIVE that list from the writer — a hardcoded one
+  # silently stops pinning "every field" the moment a field is added, which is
+  # exactly what happened to harvest_basis (caught in review, 2026-07-25, not here).
+  EMITTED=$(sed -n "/^ENTRY=\$(jq -cn/,/^   }')/p" "$SCRIPT" | sed -nE 's/^     ([a-z_]+):.*/\1/p')
+  [ -n "$EMITTED" ] \
+    && ok "the emitted-field list is derived from the writer, not hardcoded ($(printf '%s' "$EMITTED" | wc -w | tr -d ' ') fields)" \
+    || no "could not derive the writer's emitted field list — the shape-doc guard would silently pass"
   MISSING=""
-  for f in ts session deliverable_ids model tokens transcript_tokens slice_basis compaction_cycles dollars perf spike_c_rung; do
+  for f in $EMITTED; do
     grep -q "$f" "$SHAPEDOC" || MISSING="$MISSING $f"
   done
   [ -z "$MISSING" ] \
@@ -363,13 +369,17 @@ tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B"' >/
 
 # Seed a PRIOR same-runtime_session capture carrying a cumulative high-water
 # reading, so the next capture has something to difference against.
-seed_prior() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json
-  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" \
+seed_prior() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  [$5=harvest vintage]
+  # $5 defaults to "per_response" — a prior banked by the CURRENT harvester, which
+  # is what every delta test means by "a prior capture". Pass "legacy" to seed a
+  # PRE-dedupe entry (the field absent entirely), the vintage boundary T20 pins.
+  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" --arg hb "${5:-per_response}" \
     '{schema:"guv.meter.v1", ts:$ts, session:"session-2026-06-16-001",
       session_derived:true, runtime_session:$rs, deliverable_ids:["13.6"],
       model:"m", tokens:$cum, transcript_tokens:$cum, dollars:null,
       spike_c_rung:"B", slice_basis:"since_process_start", compaction_cycles:0,
-      perf:{op_wallclock_s:0.1, suite_runtime_s:null}}')" >> "$1"
+      perf:{op_wallclock_s:0.1, suite_runtime_s:null}}
+     + (if $hb == "legacy" then {} else {harvest_basis:$hb} end)')" >> "$1"
 }
 
 # A main transcript carrying a usage line PLUS $4 real compaction summaries
@@ -533,6 +543,204 @@ seed_prior "$LOG18f" "$SID18f" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"ca
 tail -1 "$LOG18f" | jq -e '.compaction_cycles == 2' >/dev/null 2>&1 \
   && ok "[13.6] a same-second compaction is counted (second-precision boundary, not dropped by the ms-vs-s string compare)" \
   || no "[13.6] same-second compaction must count: got $(tail -1 "$LOG18f" | jq -c '.compaction_cycles') (err=$(cat "$WORK/t18f.err"))"
+
+# ════════════════════════════════════════════════════════════════════════════
+# PER-RESPONSE DEDUPE — one API response counts ONCE, however many transcript
+# lines it occupies. The runtime serializes a single assistant response as N
+# lines, one per content block (thinking / text / tool_use), and EVERY line
+# repeats the IDENTICAL message.usage object. Summing per line therefore
+# multiplies input/cache_read/cache_creation by the block count — i.e. by the
+# number of tool calls in the turn. Measured 2026-07-25 on the guv-guv transcript
+# tree (192 files, 8,422 responses across 21,323 usage lines — the corpus grows, so
+# the counts are as-of and the RATIO is the finding): 2.5x inflation, ~1.32B
+# phantom tokens. The billing cross-check is PARTIAL — /cost reports a scope this
+# analysis could not reconstruct, so there is no absolute per-model reconciliation;
+# on opus-5 (the one model concentrated in the billed period) deduped output is
+# 1.03x of billed vs 2.35x per-line. The load-bearing evidence is structural: no
+# message.id spans two requestIds, so a requestId is a response boundary.
+# This is NOT cosmetic: burn = input+output+cache_read+cache_creation feeds
+# budget-gate.sh's BREACH decision, the [13.4] forecast grade, and the
+# calibration record. Worse, the error is SHAPE-DEPENDENT (tool-heavy turns
+# inflate more than prose turns), so it biases any comparison between
+# differently-shaped work rather than cancelling out.
+# The harvest groups usage by requestId and takes the max per class — max is
+# correct under BOTH observed serializations (identical repeats, and
+# placeholder-output-until-the-final-line) and ignores aborted all-zero lines.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── T19 — a multi-block response is counted once; distinct responses still sum;
+# the true output is the max across the response's lines (the placeholder
+# serialization writes a near-zero output on every line but the last).
+# req_A: 3 identical lines {10,5,100,3}          -> contributes {10,5,100,3}
+# req_B: 3 lines, output 3/3/500, rest identical -> contributes {7,500,200,1}
+# expected total {17,505,300,4}. RED pre-fix: per-line sum gives {51,521,900,12}.
+mk_multiblock() {  # $1=proj $2=home $3=sid
+  local p="$1" fh="$2" sid="$3" slug base
+  slug=$(cd "$p" && pwd -P | sed 's#/#-#g'); base="$fh/.claude/projects/$slug"
+  mkdir -p "$base"
+  {
+    printf '%s\n' '{"type":"assistant","requestId":"req_A","message":{"model":"claude-main","content":[{"type":"thinking"}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}'
+    printf '%s\n' '{"type":"assistant","requestId":"req_A","message":{"model":"claude-main","content":[{"type":"text"}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}'
+    printf '%s\n' '{"type":"assistant","requestId":"req_A","message":{"model":"claude-main","content":[{"type":"tool_use"}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}'
+    printf '%s\n' '{"type":"assistant","requestId":"req_B","message":{"model":"claude-main","content":[{"type":"thinking"}],"usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":200,"cache_creation_input_tokens":1}}}'
+    printf '%s\n' '{"type":"assistant","requestId":"req_B","message":{"model":"claude-main","content":[{"type":"tool_use"}],"usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":200,"cache_creation_input_tokens":1}}}'
+    printf '%s\n' '{"type":"assistant","requestId":"req_B","message":{"model":"claude-main","content":[{"type":"tool_use"}],"usage":{"input_tokens":7,"output_tokens":500,"cache_read_input_tokens":200,"cache_creation_input_tokens":1}}}'
+  } > "$base/$sid.jsonl"
+}
+P19=$(make_project); LOG19="$P19/.claude/metering/metering.ndjson"
+FH19="$WORK/home.$RANDOM"; SID19="19191919-1111-2222-3333-444444444444"
+mk_multiblock "$P19" "$FH19" "$SID19"
+( cd "$P19" && HOME="$FH19" CLAUDE_CODE_SESSION_ID="$SID19" bash "$SCRIPT" capture --deliverables "9.1" ) >/dev/null 2>"$WORK/t19.err"
+E19=$(tail -1 "$LOG19")
+echo "$E19" | jq -e '.tokens == {input:17,output:505,cache_read:300,cache_creation:4}' >/dev/null 2>&1 \
+  && ok "a multi-block response counts ONCE per class (req_A+req_B = {17,505,300,4}, not the per-line {51,521,900,12})" \
+  || no "per-response dedupe missing: expected {17,505,300,4}, got $(echo "$E19" | jq -c '.tokens') (err=$(cat "$WORK/t19.err"))"
+# the response's TRUE output is the max across its lines, never the placeholder
+echo "$E19" | jq -e '.tokens.output == 505' >/dev/null 2>&1 \
+  && ok "output takes the max across a response's lines (500 final, not the 3-token placeholder)" \
+  || no "output must be the per-response max: expected 505, got $(echo "$E19" | jq -c '.tokens.output')"
+
+# ── T19b — BACK-COMPAT: usage lines carrying NO requestId are NOT collapsed
+# together. The dedupe key falls back to a per-line synthetic when neither
+# requestId nor uuid is present, so pre-existing transcripts (and every fixture
+# above) meter exactly as before. Guards the fallback: a naive `.requestId //
+# .uuid` would group all key-less lines under null and take one max, silently
+# DROPPING real burn — the opposite failure, and a worse one.
+P19b=$(make_project); LOG19b="$P19b/.claude/metering/metering.ndjson"
+FH19b="$WORK/home.$RANDOM"; SID19b="19b19b19-1111-2222-3333-444444444444"
+slug19b=$(cd "$P19b" && pwd -P | sed 's#/#-#g')
+mkdir -p "$FH19b/.claude/projects/$slug19b"
+{
+  printf '%s\n' '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":40,"cache_creation_input_tokens":2}}}'
+  printf '%s\n' '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":40,"cache_creation_input_tokens":2}}}'
+} > "$FH19b/.claude/projects/$slug19b/$SID19b.jsonl"
+( cd "$P19b" && HOME="$FH19b" CLAUDE_CODE_SESSION_ID="$SID19b" bash "$SCRIPT" capture ) >/dev/null 2>"$WORK/t19b.err"
+tail -1 "$LOG19b" | jq -e '.tokens == {input:2,output:2,cache_read:80,cache_creation:4}' >/dev/null 2>&1 \
+  && ok "key-less usage lines each count (no requestId -> per-line synthetic key, back-compat {2,2,80,4})" \
+  || no "key-less lines were collapsed: expected {2,2,80,4}, got $(tail -1 "$LOG19b" | jq -c '.tokens') (err=$(cat "$WORK/t19b.err"))"
+
+# ── T19bb — the same drop, one rung down: an EMPTY requestId. In jq only null and
+# false are falsy, so `"" // .uuid` returns "" and `"" // "__line_N"` returns "" —
+# a bare `//` fallback covers an ABSENT key but not an empty one, and three
+# distinct responses would collapse to a single max (burn silently dropped, the
+# exact failure T19b exists to prevent). Zero occurrences in the real corpus at
+# time of writing, so this pins the guard's own contract, not an observed bug.
+P19bb=$(make_project); LOG19bb="$P19bb/.claude/metering/metering.ndjson"
+FH19bb="$WORK/home.$RANDOM"; SID19bb="19bb19bb-1111-2222-3333-444444444444"
+slug19bb=$(cd "$P19bb" && pwd -P | sed 's#/#-#g')
+mkdir -p "$FH19bb/.claude/projects/$slug19bb"
+{
+  printf '%s\n' '{"type":"assistant","requestId":"","message":{"model":"m","usage":{"input_tokens":5,"output_tokens":1,"cache_read_input_tokens":10,"cache_creation_input_tokens":1}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"","message":{"model":"m","usage":{"input_tokens":5,"output_tokens":1,"cache_read_input_tokens":10,"cache_creation_input_tokens":1}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"","message":{"model":"m","usage":{"input_tokens":5,"output_tokens":1,"cache_read_input_tokens":10,"cache_creation_input_tokens":1}}}'
+} > "$FH19bb/.claude/projects/$slug19bb/$SID19bb.jsonl"
+( cd "$P19bb" && HOME="$FH19bb" CLAUDE_CODE_SESSION_ID="$SID19bb" bash "$SCRIPT" capture ) >/dev/null 2>"$WORK/t19bb.err"
+tail -1 "$LOG19bb" | jq -e '.tokens == {input:15,output:3,cache_read:30,cache_creation:3}' >/dev/null 2>&1 \
+  && ok "EMPTY-string requestIds are not collapsed either (three responses total {15,3,30,3}, not one max)" \
+  || no "empty requestIds were collapsed: expected {15,3,30,3}, got $(tail -1 "$LOG19bb" | jq -c '.tokens') (err=$(cat "$WORK/t19bb.err"))"
+
+# ── T19c — the dedupe spans the SIBLING subagent tree without collapsing across
+# agents: main req_M (2 lines) + subagent req_S (2 lines) each count once and
+# still sum to the T14 totals. Pins that [13.1]'s subagent capture and the
+# dedupe compose — a per-file dedupe, or a global one, would break one or the other.
+P19c=$(make_project); LOG19c="$P19c/.claude/metering/metering.ndjson"
+FH19c="$WORK/home.$RANDOM"; SID19c="19c19c19-1111-2222-3333-444444444444"
+slug19c=$(cd "$P19c" && pwd -P | sed 's#/#-#g'); base19c="$FH19c/.claude/projects/$slug19c"
+mkdir -p "$base19c/$SID19c/subagents"
+{
+  printf '%s\n' '{"type":"assistant","requestId":"req_M","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"req_M","message":{"model":"claude-main","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":3}}}'
+} > "$base19c/$SID19c.jsonl"
+{
+  printf '%s\n' '{"type":"assistant","requestId":"req_S","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"req_S","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}'
+} > "$base19c/$SID19c/subagents/agent-dedupe.jsonl"
+( cd "$P19c" && HOME="$FH19c" CLAUDE_CODE_SESSION_ID="$SID19c" bash "$SCRIPT" capture --deliverables "13.1" ) >/dev/null 2>"$WORK/t19c.err"
+tail -1 "$LOG19c" | jq -e '.tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+  && ok "dedupe composes with subagent capture (main+sub duplicated lines still total {12,6,1000,10})" \
+  || no "dedupe/subagent composition broken: expected {12,6,1000,10}, got $(tail -1 "$LOG19c" | jq -c '.tokens') (err=$(cat "$WORK/t19c.err"))"
+
+# ── T20 — VINTAGE GUARD: never difference a deduped cumulative against a PRE-dedupe
+# one. The [13.6] delta guard is MAGNITUDE-based (all classes >= 0), so it catches the
+# vintage boundary only while the new-unit cumulative is still smaller than the last
+# old-unit reading. The moment it outgrows it — inevitable, since the transcript only
+# grows — all four deltas go positive and the entry would be written as a valid
+# per_deliverable slice while being a subtraction across two DIFFERENT UNITS (a naive
+# per-line sum vs a per-response one, ~2.5x apart). That slice then feeds
+# INITIATIVE_BURN and observed_rate() as a real sample. Magnitude cannot detect it;
+# only the recorded vintage can. Here the legacy prior is DELIBERATELY small
+# ({1,1,1,1} vs a now-cumulative of {12,6,1000,10}) so every delta is positive and the
+# magnitude guard is satisfied — the entry must STILL disclose unbounded_cumulative.
+P20=$(make_project); LOG20="$P20/.claude/metering/metering.ndjson"
+FH20="$WORK/home.$RANDOM"; SID20="20202020-1111-2222-3333-444444444444"
+mk_transcript "$P20" "$FH20" "$SID20"   # cumulative now = {12,6,1000,10}
+mkdir -p "$P20/.claude/metering"
+seed_prior "$LOG20" "$SID20" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}' legacy
+( cd "$P20" && HOME="$FH20" CLAUDE_CODE_SESSION_ID="$SID20" bash "$SCRIPT" capture --deliverables "13.6" ) >/dev/null 2>"$WORK/t20.err"
+E20=$(tail -1 "$LOG20")
+echo "$E20" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+  && ok "a PRE-dedupe prior is never differenced against: vintage boundary discloses unbounded_cumulative, tokens = full cumulative" \
+  || no "vintage boundary produced a cross-unit slice: expected unbounded_cumulative + full cumulative, got $(echo "$E20" | jq -c '{slice_basis, tokens}') (err=$(cat "$WORK/t20.err"))"
+
+# ── T20b — the harvest unit is SELF-DESCRIBING on every entry (the [13.6]
+# slice_basis discipline applied to the other axis). Without this field the log is
+# silently mixed-vintage: no consumer — the gate, observed_rate(), a [13.4] grade,
+# or a human — can tell a 2.5x-inflated pre-dedupe reading from a corrected one.
+# Read-time recovery is not available here the way [13.6]'s legacy differencing was:
+# only 2 of the 14 runtime_sessions in the live log still have transcripts (18 of 54
+# entries), so a backfill would be an estimate wearing a measurement's field name.
+# The marker is what keeps old and new entries separable instead.
+echo "$E20" | jq -e '.harvest_basis == "per_response"' >/dev/null 2>&1 \
+  && ok "every entry declares its harvest unit (harvest_basis = per_response)" \
+  || no "harvest_basis must be present and per_response, got $(echo "$E20" | jq -c '.harvest_basis')"
+
+# ── T20c — the vintage boundary is DECLARED, not merely recorded. This entry's burn
+# silently drops out of every burn sum (gate, observed_rate(), the [13.4] grade) the
+# moment it is tagged unbounded_cumulative. An operator who is not told will read the
+# resulting step change as the initiative suddenly running under budget. The balloon
+# path already declares on stderr for a FUZZIER condition ([13.5]); a unit break in
+# the record is at least as load-bearing. Rule 10: a silent designed degradation is
+# still silent.
+grep -q 'VINTAGE BREAK' "$WORK/t20.err" \
+  && ok "the vintage boundary is declared loudly on stderr, not just recorded in the entry" \
+  || no "vintage boundary was silent: no 'VINTAGE BREAK' on stderr, got: $(cat "$WORK/t20.err")"
+
+# ── T20d — a DEGRADED harvest declares no harvest unit. harvest_basis describes how
+# a reading was taken; when no reading was taken there is no unit to describe, and
+# asserting one is a small lie in a record whose whole value is that its fields mean
+# what they say. slice_basis already goes null on this path — this is the same
+# discipline on the other axis. (No functional impact today: the prior-lookup skips
+# entries with a null cumulative, so such an entry is never chosen as a prior. It is
+# a self-description invariant, and it is cheap to hold.)
+P20d=$(make_project); LOG20D="$P20d/.claude/metering/metering.ndjson"
+FH20D="$WORK/home.$RANDOM"
+mkdir -p "$P20d/.claude/metering"
+# No CLAUDE_CODE_SESSION_ID -> the transcript is unreachable -> designed degradation.
+( cd "$P20d" && HOME="$FH20D" bash "$SCRIPT" capture --deliverables "9.1" ) >/dev/null 2>&1
+E20D=$(tail -1 "$LOG20D")
+echo "$E20D" | jq -e '.spike_c_rung == "degraded" and .tokens == null and .harvest_basis == null' >/dev/null 2>&1 \
+  && ok "a degraded harvest declares no harvest unit (harvest_basis null, matching slice_basis)" \
+  || no "degraded entry must carry harvest_basis null, got $(echo "$E20D" | jq -c '{spike_c_rung, tokens, slice_basis, harvest_basis}')"
+
+# ── T21 — max is LOAD-BEARING, not cosmetic: neither first nor last is correct.
+# Real corpus evidence (2026-07-25, 192 files): requestId req_011CcLJpisVXagzw
+# carries an all-zero stop_sequence line sharing a LIVE requestId — `last` would
+# silently discard 91,628 tokens there. The observed serializations also include
+# placeholder-then-final (early lines near-zero), which is what breaks `first`.
+# This fixture reproduces both in one response: zero, real, zero. Only max survives.
+P21=$(make_project); LOG21="$P21/.claude/metering/metering.ndjson"
+FH21="$WORK/home.$RANDOM"; SID21="21212121-1111-2222-3333-444444444444"
+slug21=$(cd "$P21" && pwd -P | sed 's#/#-#g')
+mkdir -p "$FH21/.claude/projects/$slug21"
+{
+  printf '%s\n' '{"type":"assistant","requestId":"req_Z","message":{"model":"m","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"req_Z","message":{"model":"m","usage":{"input_tokens":10,"output_tokens":500,"cache_read_input_tokens":200,"cache_creation_input_tokens":5}}}'
+  printf '%s\n' '{"type":"assistant","requestId":"req_Z","message":{"model":"m","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+} > "$FH21/.claude/projects/$slug21/$SID21.jsonl"
+( cd "$P21" && HOME="$FH21" CLAUDE_CODE_SESSION_ID="$SID21" bash "$SCRIPT" capture ) >/dev/null 2>"$WORK/t21.err"
+tail -1 "$LOG21" | jq -e '.tokens == {input:10,output:500,cache_read:200,cache_creation:5}' >/dev/null 2>&1 \
+  && ok "per-response reduction takes MAX (an all-zero line sharing a live requestId never zeroes the response; first/last both wrong)" \
+  || no "expected max {10,500,200,5}, got $(tail -1 "$LOG21" | jq -c '.tokens') (err=$(cat "$WORK/t21.err"))"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
