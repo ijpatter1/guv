@@ -256,6 +256,42 @@ for g in initiative session; do
     && ok "budgets.$g.tokens is an integer setpoint" \
     || no "budgets.$g.tokens must be an integer (got=$T)"
 done
+# EVERY manifest key the gate READS must be declared in the schema. Both granularities
+# are additionalProperties:false, so a key the gate reads and the schema omits makes any
+# manifest that sets it INVALID — the feature's own activation switch rejected by the
+# document that defines what may be set. That is not hypothetical: harvest_basis shipped
+# read-but-undeclared and left the live control-plane manifest schema-invalid. The key
+# list is DERIVED from the gate, never enumerated here, so the next read cannot drift
+# past this the same way.
+GATE_KEYS=$(grep -oE '\.budgets\.(initiative|session)\.[a-z_]+' "$GATE" 2>/dev/null | sort -u)
+[ -n "$GATE_KEYS" ] \
+  && ok "the gate reads at least one budgets.* manifest key (the drift guard has a subject)" \
+  || no "expected the gate to read budgets.* keys from the manifest — guard cannot run"
+for k in $GATE_KEYS; do
+  KG=$(printf '%s' "$k" | cut -d. -f3)
+  KP=$(printf '%s' "$k" | cut -d. -f4)
+  jq -e --arg g "$KG" --arg p "$KP" '.properties.budgets.properties[$g].properties[$p]' "$SCHEMA" >/dev/null 2>&1 \
+    && ok "schema declares budgets.$KG.$KP (the gate reads it)" \
+    || no "the gate reads budgets.$KG.$KP but the schema omits it — additionalProperties:false makes any manifest setting it INVALID"
+done
+# The gate's accepted-value set and the schema's enum must name the SAME units. If they
+# drift, the gate either reports MALFORMED for a value the schema blesses, or silently
+# accepts one no manifest may legally hold. The MALFORMED banner's "legal values:" line
+# is what an operator is told to write, so that line is the surface checked.
+BASIS_ENUM=$(jq -r '.properties.budgets.properties.initiative.properties.harvest_basis.enum[]?' "$SCHEMA" 2>/dev/null)
+[ -n "$BASIS_ENUM" ] \
+  && ok "schema constrains budgets.initiative.harvest_basis to an enum (a typo'd unit is caught)" \
+  || no "budgets.initiative.harvest_basis must declare an enum — an unconstrained string admits any unit"
+LEGAL_LINE=$(grep -E 'legal values:' "$GATE" 2>/dev/null)
+for v in $BASIS_ENUM; do
+  case "$LEGAL_LINE" in
+    *"$v"*) ok "the gate's legal-values line names the schema unit '$v' (operator can act on it)" ;;
+    *)      no "schema blesses harvest_basis '$v' but the gate never names it as legal" ;;
+  esac
+  grep -qE "^ *''\|.*${v}.*\)" "$GATE" 2>/dev/null \
+    && ok "the gate accepts schema unit '$v' without reporting it MALFORMED" \
+    || no "the gate would report the schema-legal unit '$v' as MALFORMED"
+done
 
 # ── ACCEPTANCE 9: PROVENANCE IS project.json HISTORY — NO APPROVAL FLOW ──
 # A budget edit is a commit; there is no approval flow and no side channel. The
@@ -424,6 +460,10 @@ MD
   echo "$d"
 }
 set_init_budget() { jq --argjson b "$2" '.budgets = {initiative:{tokens:$b}}' "$1/.claude/project.json" > "$1/.b" && mv "$1/.b" "$1/.claude/project.json"; }
+# Same, but keeps a declared harvest basis alongside the computed ceiling — the foreseen
+# tests need a budget derived from the live projection AND a declared unit, and the plain
+# helper replaces the whole budgets object.
+set_init_budget_basis() { jq --argjson b "$2" --arg hb "$3" '.budgets = {initiative:{tokens:$b, harvest_basis:$hb}}' "$1/.claude/project.json" > "$1/.b" && mv "$1/.b" "$1/.claude/project.json"; }
 # the projection's central cost-to-complete = remaining_sessions × blended rate
 proj_ctc() { ( cd "$1" && bash "$ROOT/.claude/projection.sh" project 2>/dev/null ) | jq -r '(.spine.quantity.remaining_sessions // 0) * (.spine.unit_rate.blended_tokens // 0)'; }
 
@@ -579,6 +619,28 @@ XSOUT=$(gate "$XS" exit); XSRC=$?
 grep -qi 'FORESEEN OVERRUN' "$HANDOFF_SKILL" 2>/dev/null \
   && ok "[15.6] the handoff skill records a FORESEEN OVERRUN declaration (the call-site tracks the renamed gate header)" \
   || no "[15.6] the handoff must capture the gate's FORESEEN OVERRUN declaration by its renamed header (acceptance: declared in the session handoff)"
+
+# And the same for EVERY headline the gate can emit, not only the two that happened to be
+# written down. The gate's own exit comment names this reader — "a person at the
+# extend/harvest/kill decision, WRITING THE HANDOFF that carries it forward" — so a
+# declaration the handoff never captures reaches the live session and dies there, while
+# the burn and forecast figures it qualifies get recorded without it. The headline list is
+# DERIVED from the gate, never enumerated here: a new banner must be picked up by the
+# session-close path in the same commit that adds it, which is exactly what did not happen
+# when SETPOINT UNIT MISMATCH and MALFORMED SETPOINT BASIS shipped.
+GATE_HEADLINES=$(grep -oE '\[budget-gate\] [A-Z][A-Z]+( [A-Z]+)*' "$GATE" 2>/dev/null | sed 's/\[budget-gate\] //' | sort -u)
+[ -n "$GATE_HEADLINES" ] \
+  && ok "[15.6] the gate's emitted headlines are discoverable (the handoff drift guard has a subject)" \
+  || no "[15.6] could not extract any [budget-gate] headline from the gate — the handoff coverage guard cannot run"
+HL_MISS=""
+printf '%s\n' "$GATE_HEADLINES" | while IFS= read -r hl; do
+  [ -n "$hl" ] || continue
+  grep -q "$hl" "$HANDOFF_SKILL" 2>/dev/null || printf '%s\n' "$hl"
+done > "$WORK/.hl_miss"
+HL_MISS=$(tr '\n' ' ' < "$WORK/.hl_miss" | sed 's/ *$//')
+[ -z "$HL_MISS" ] \
+  && ok "[15.6] every headline the gate can emit is named in the handoff's session-close capture list" \
+  || no "[15.6] the gate emits headlines the handoff never captures:$HL_MISS — each qualifies the burn/forecast figures the artifact does record, so omitting it writes a measurement the gate refused to call one"
 
 # ════════════════════════════════════════════════════════════════════════════
 # [9.3]/[13.4] THE INITIATIVE BURN IS WINDOWED TO THE LIVE LINEAGE
@@ -1296,6 +1358,148 @@ printf '%s' "$V23OUT" | grep -q 'MIXED HARVEST VINTAGE' \
   && ! printf '%s' "$V23OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
   && ok "[9.1] a mixed window raises the MIXED banner only — the setpoint-unit check defers rather than stacking a second headline on one defect" \
   || no "[9.1] both vintage banners fired for one window; a mixed burn matches no single declared basis by construction, so the count guard is what keeps this from double-reporting with two different remedies (out='$V23OUT')"
+
+# V24 — THE CRITICAL. The anti-EXTEND qualifier on the FORESEEN OVERRUN menu must fire on
+# a MISMATCH window too, not only a mixed one. V13 pins it for the mixed case; this pins
+# the case that was structurally unreachable, because the qualifier was gated on N > 1
+# while the mismatch banner required N == 1 — mutually exclusive BY CONSTRUCTION. The
+# consequence is the live 004 shape: an operator who has just correctly re-denominated
+# their ceiling DOWN reads a banner saying the burn is not a measurement, and twelve lines
+# later a menu leading with EXTEND off that same inflated figure. Both halves of the
+# original finding, not just the headline.
+PF24=$(mk_proj 10000000)   # a tracker + estimates, so the projection returns a real CTC
+CTC24=$(proj_ctc "$PF24")
+set_init_budget_basis "$PF24" $(( 10001000 + CTC24 / 2 )) per_response   # burn < budget < burn + CTC
+V24OUT=$(gate "$PF24" exit); V24RC=$?
+printf '%s' "$V24OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && printf '%s' "$V24OUT" | grep -qi 'FORESEEN OVERRUN' && [ "$V24RC" -eq 0 ] \
+  && printf '%s' "$V24OUT" | grep -q 'EXTEND is the wrong first move' \
+  && ok "[9.1] a FORESEEN OVERRUN drawn from a UNIT-MISMATCHED record warns off EXTEND — the qualifier reaches the case it was written for" \
+  || no "[9.1] the foreseen menu led with EXTEND on a mismatched record: the qualifier was gated on a mixed window while the banner required a uniform one, so it could never fire here — this is the live 004 shape and EXTEND is the one move waiting cannot undo (rc=$V24RC out='$V24OUT')"
+
+# V25 — and the direction the qualifier argues is the direction the banner named. On this
+# shape (inflated burn, correct ceiling) EXTEND is wrong because the BURN is overstated;
+# on the opposite polarity it is wrong because the CEILING is. A qualifier that gives the
+# same reason for both is not reading the evidence, and the reason is what an operator
+# acts on once they have decided not to extend.
+printf '%s' "$V24OUT" | grep -qi 'BURN side is inflated' \
+  && ok "[9.1] the anti-EXTEND qualifier names WHICH side is inflated, so the operator knows what to fix rather than only what to avoid" \
+  || no "[9.1] the qualifier warned off EXTEND without naming the inflated side — on this polarity the ceiling is already correct, and an operator told only 'not EXTEND' re-denominates a setpoint that was right (out='$V24OUT')"
+
+# V26 — no initiative SETPOINT, no mismatch banner. The headline asserts that "the burn
+# and the setpoint are denominated in different harvest units"; with no ceiling there is
+# no setpoint to be denominated at all, so the headline states a comparison that does not
+# exist and remedy 1 points at a field nobody has set. A session-only budget is a real
+# configuration, not a corner case.
+P=$(mk_project '{"session":{"tokens":100000000},"initiative":{"harvest_basis":"per_response"}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V26OUT=$(gate "$P" exit)
+printf '%s' "$V26OUT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && no "[9.1] the mismatch banner fired with no initiative setpoint — it asserts a setpoint is mis-denominated when none exists, and its remedy names a field the project never set (out='$V26OUT')" \
+  || ok "[9.1] no mismatch disclosure without an initiative setpoint — there is no comparison to be mis-denominated"
+
+# V27 — the MIXED banner reads the declared basis too. Reusing V23's fixture (mixed window,
+# basis declared per_response): the ceiling is declared to be in the TRUE unit, so the
+# inflated portion of the burn overstates against it — a phantom BREACH. The banner used
+# to hardcode "the likeliest direction is PHANTOM HEADROOM", which is the exact opposite,
+# and it inherits every mismatch case the moment one post-fix entry lands and the window
+# stops being uniform. Printing the backwards direction there sends the operator to extend
+# a budget they have barely touched — the same failure V16 pins on the sibling banner.
+printf '%s' "$V23OUT" | grep -qi 'phantom breach' \
+  && ! printf '%s' "$V23OUT" | grep -qi 'likeliest direction is PHANTOM HEADROOM' \
+  && ok "[9.1] the mixed banner DERIVES its direction from the declared setpoint basis rather than assuming headroom" \
+  || no "[9.1] the mixed banner named a direction its own manifest refutes: with the ceiling declared in the post-fix unit the mixed burn OVERSTATES, and this banner takes over from the mismatch one as soon as a window stops being uniform (out='$V23OUT')"
+
+# V28 — the headline must not out-claim the body. With a DEGRADED harvest the body
+# correctly reports the direction as undetermined (V22), but "denominated in different
+# harvest units" asserts the two units are KNOWN to differ — a stronger claim than an
+# unrecorded unit can support, made in the half of the banner most readers act on.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response"}}' 0 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:null,perf:{}}' \
+  > "$P/.claude/metering/metering.ndjson"
+V28OUT=$(gate "$P" exit)
+V28HEAD=$(printf '%s\n' "$V28OUT" | grep 'SETPOINT UNIT MISMATCH')
+printf '%s' "$V28HEAD" | grep -qi 'UNRECORDED' \
+  && ! printf '%s' "$V28HEAD" | grep -q 'denominated in different harvest units' \
+  && ok "[9.1] an unrecorded burn vintage is headlined as UNRECORDED, not as a known unit difference the record cannot support" \
+  || no "[9.1] the headline claimed the units are known to differ while the body said the direction is undetermined — an unrecorded unit is not a known-different unit, and the headline is the half that gets acted on (head='$V28HEAD')"
+
+# V29 — WAIT is a first-class rung, not the absence of a remedy. On the phantom-breach
+# polarity the ceiling is ALREADY correct and the burn is the stale side, which decays on
+# its own as post-fix entries land. Both "fix it" moves damage a working state: re-
+# denominating raises a ceiling that was right, and correcting the marker writes a
+# falsehood. The banner is standing — it re-prints at every boundary until the window
+# changes — so a menu whose every option is wrong is a standing instruction to break
+# something. Rule 15: the designed path here is to wait, and it has to be named.
+V29OUT=$(gate "$PF24" exit)
+printf '%s' "$V29OUT" | grep -q 'WAIT' \
+  && ! printf '%s' "$V29OUT" | grep -q 'The remedy is one commit by a person' \
+  && ok "[9.1] the phantom-breach remedy names WAIT as the first rung — the ceiling is already right and the burn side self-corrects" \
+  || no "[9.1] the mismatch menu offered only re-denominate/correct-the-marker on a polarity where BOTH corrupt a correct state; the right action is to wait for post-fix entries, and a standing banner that never says so is a standing instruction to break a working setpoint (out='$V29OUT')"
+
+# V30 — the forecast discloses its own basis. projection.sh emits claim/n/observed_weight
+# precisely so an n=0 read is legible, and this gate — the ONLY consumer that prints a
+# forecast to a person — read the spine and the range and never the basis. A modeled
+# number and a measured one are indistinguishable once both are just digits, and the
+# extend/harvest/accept call is made off those digits. On the live plane the projection
+# rides 0 observed sessions and pure structural constants.
+printf '%s' "$V24OUT" | grep -qi 'forecast basis:' \
+  && printf '%s' "$V24OUT" | grep -qi 'MODELED' \
+  && ok "[9.1] a forecast built from zero observed sessions says so — the projection's basis reaches the person deciding on it" \
+  || no "[9.1] the foreseen overrun printed a cost-to-complete with no indication it is modeled rather than measured; projection.sh discloses n and claim, and the gate never reads them (out='$V24OUT')"
+
+# V31 — the mismatch banner's decision-relevant NUMBERS are pinned, not just its prose.
+# The mixed banner's equivalents carry assertions (V9/V9b); deleting these three lines
+# from the mismatch banner left the whole suite green, which means the profile a person
+# actually reads was unguarded while five tests guarded the paragraphs around it.
+V31MISS=""
+for probe in 'burn window:' 'initiative burn:' 'initiative setpoint:' 'setpoint basis:'; do
+  printf '%s' "$V24OUT" | grep -q "$probe" || V31MISS="$V31MISS '$probe'"
+done
+[ -z "$V31MISS" ] \
+  && ok "[9.1] the mismatch banner carries its numeric profile — window, burn, setpoint, declared basis" \
+  || no "[9.1] the mismatch profile dropped:$V31MISS — the prose is guarded and the numbers it describes are not (out='$V24OUT')"
+
+# V32 — the MALFORMED report prints whether or not another banner fired. The doc comment
+# claims exactly this ("it describes the INSTRUMENT rather than the reading"), and no
+# fixture combined a malformed basis with a mixed window, so gating it on the mixed count
+# left the suite green. While a malformed marker stands the setpoint-unit check is OFF,
+# and a check believed to be running is worse than one known to be off — which is the
+# whole reason it is reported separately.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per-response"}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.1"],
+           tokens:{input:4000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:100,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V32OUT=$(gate "$P" exit)
+printf '%s' "$V32OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && printf '%s' "$V32OUT" | grep -q 'MALFORMED SETPOINT BASIS' \
+  && ok "[9.1] a malformed basis is reported even when the mixed banner also fired — it describes the instrument, not the reading" \
+  || no "[9.1] the malformed-marker report was suppressed by another banner; while it stands the setpoint-unit check is silently OFF, which is the one state worse than a wrong reading (out='$V32OUT')"
+
+# V33 — the mismatch banner pays its explanation once, where it is acted on. Same standing
+# cost the mixed banner is trimmed for: nothing clears this until the window itself
+# changes, and hooks/session-start.sh pipes the gate's whole stdout into every session's
+# additionalContext. The direction and the remedy are identical every time; the profile
+# and the warning are what an agent mid-session needs.
+V33ENT=$(gate "$PF24" entry)
+V33ELINES=$(printf '%s\n' "$V33ENT" | wc -l | tr -d ' ')
+V33XLINES=$(printf '%s\n' "$V29OUT" | wc -l | tr -d ' ')
+[ "$V33ELINES" -lt "$V33XLINES" ] \
+  && printf '%s' "$V33ENT" | grep -q 'SETPOINT UNIT MISMATCH' \
+  && printf '%s' "$V33ENT" | grep -q 'not a measurement' \
+  && ! printf '%s' "$V33ENT" | grep -q 'WAIT' \
+  && ok "[9.1] the mismatch banner is terse at entry and full at exit (${V33ELINES} vs ${V33XLINES} lines) — profile and warning at both, remedy where it is acted on" \
+  || no "[9.1] the mismatch banner re-injects its full remedy prose into every session's context; it never clears, so that is a standing charge against the work the disclosure protects (entry=${V33ELINES}L exit=${V33XLINES}L)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

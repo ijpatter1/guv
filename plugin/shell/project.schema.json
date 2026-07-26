@@ -235,6 +235,11 @@
               "type": "integer",
               "minimum": 1,
               "description": "Token ceiling for the initiative. The gate breaches when burn attributable to the live initiative — the [9.1] metering log windowed to the [13.4] lineage boundary (the whole-log sum only as the no-lineage degradation) — reaches this. Size it against the initiative's opening forecast, not all-time historical burn. Tokens (not dollars) are the budget denomination: [9.1]'s Spike C keeps dollars null (no guessed price table), so tokens are the mechanical burn evidence the boundary affords."
+            },
+            "harvest_basis": {
+              "type": "string",
+              "enum": ["per_response", "pre-dedupe"],
+              "description": "OPTIONAL, and only meaningful for a project whose metering log predates 2026-07-26. Declares which harvest unit the `tokens` ceiling above was CHOSEN in, so the gate can tell whether comparing burn to that ceiling is apples-to-apples. A new project never needs this: the meter has recorded 'per_response' (one sample per API response) since the [9.1] dedupe fix, so a log with no older entries is uniformly in that unit and there is nothing to declare. 'pre-dedupe' names the pre-fix unit, which counted usage once per transcript LINE rather than once per API response and therefore over-counts by roughly 2.5x — shape-dependently, so no single divisor converts a figure between the two. Set this ONLY when the ceiling was sized against pre-fix evidence and you want the gate to say so. ABSENT MEANS THE CHECK IS OFF, not that the setpoint is per_response: with nothing declared the gate has the burn's unit and no second unit to compare against, and inventing the missing half is the guess the check exists to refuse. Declaring it buys the SETPOINT UNIT MISMATCH disclosure — the case where the burn window is uniformly one unit but the ceiling was chosen in the other, which the MIXED HARVEST VINTAGE banner structurally cannot reach because nothing about such a window is mixed. This is a DECLARATION about a past human decision, never a conversion: setting it changes no number and moves no setpoint. A value outside the enum turns the check off and is reported as MALFORMED rather than guessed at."
             }
           }
         },

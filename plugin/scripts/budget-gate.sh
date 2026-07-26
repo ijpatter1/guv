@@ -340,11 +340,18 @@ if [ -f "$LOG" ]; then
   # totals: DIFFERENCED per runtime_session at READ time (the log stays append-only).
   # unbounded_cumulative (the disclosed degradation) and tokens:null are NOT burn
   # samples. A negative legacy delta (out-of-order / pruned) is dropped, never a
-  # fabricated burn (Rule 15). This is the SAME read projection.sh observed_rate()
-  # uses — the unit honesty that keeps a cumulative snapshot from inflating burn
-  # ~4.6× (the forensic bug found during guv's own development; the analysis is a
-  # maintainer artifact, not a doc shipped in this code repo — [15.6]). A raw sum of
-  # cumulative snapshots is exactly the over-count that bug produced.
+  # fabricated burn (Rule 15). The differencing is the unit honesty that keeps a
+  # cumulative snapshot from inflating burn ~4.6× (the forensic bug found during guv's
+  # own development; the analysis is a maintainer artifact, not a doc shipped in this
+  # code repo — [15.6]). A raw sum of cumulative snapshots is exactly the over-count
+  # that bug produced.
+  #
+  # This is NOT the same read projection.sh observed_rate() performs, and saying so was
+  # false from the moment [9.7]'s vintage filter landed. The two readers diverge on
+  # purpose: a BURN legitimately sums every entry in its window and then DISCLOSES the
+  # mix, because the question is "what has this cost". A RATE cannot average across two
+  # harvest units at all, so observed_rate() EXCLUDES pre-fix entries outright rather
+  # than differencing them in. Same log, two questions, two correct answers.
   #
   # THE CONTRIBUTING SET IS DEFINED ONCE, HERE. Two readers need it — the burn sum
   # and the vintage scan that describes the burn's unit — and when they were written
@@ -469,6 +476,145 @@ fi
 # derived once here rather than beside the first one that happened to need it.
 WHERE=$([ "$PHASE" = "entry" ] && echo "at session entry" || echo "at session exit")
 
+# --- the unit hazard, derived ONCE for every consumer below -----------------------
+# Three states:
+#   none     — the burn is in one unit and nothing on record contradicts it
+#   mixed    — the window spans more than one harvest unit, so the total is in no unit
+#   mismatch — the window is uniformly ONE unit, and the setpoint is DECLARED as the other
+#
+# Derived here rather than inside whichever banner needs it first, because THREE
+# consumers need the same answer: the two banners AND the FORESEEN OVERRUN remedy menu.
+# Deriving it separately in each is exactly the defect this replaces — the menu's
+# anti-remedy-loop qualifier was gated on a mixed window (N > 1) while the mismatch
+# banner required a uniform one (N == 1), so the two were mutually exclusive BY
+# CONSTRUCTION and the qualifier could never fire in the case it was written for. An
+# operator who had just correctly re-denominated their ceiling DOWN was met, twelve
+# lines later and with no caveat, by a menu leading with EXTEND. One derivation, three
+# readers, no seam for them to drift across.
+#
+# The mismatch arm requires an initiative SETPOINT as well as a declared basis: with no
+# ceiling there is no comparison to be mis-denominated, and the headline ("the burn and
+# the setpoint are denominated in different units") would assert a setpoint that does
+# not exist while remedy 1 pointed at a field nobody had set.
+UNIT_HAZARD="none"
+UNIT_DIR="undetermined"
+UNIT_DIR_WHY=""
+if [ "$BURN_VINTAGE_N" -gt 1 ]; then
+  UNIT_HAZARD="mixed"
+elif [ "$BURN_VINTAGE_N" -eq 1 ] && [ -n "$INITIATIVE_BASIS" ] && [ -n "$INITIATIVE_BUDGET" ] \
+     && [ "$BURN_VINTAGE_NAMES" != "$INITIATIVE_BASIS" ]; then
+  UNIT_HAZARD="mismatch"
+fi
+
+# The DIRECTION is derived from the DECLARED setpoint basis, never fixed, and it is what
+# makes the hazard actionable — "the units differ" tells an operator nothing about which
+# way to move. Pre-dedupe readings are inflated ~2.5x, so the CEILING's unit decides:
+#   ceiling in per_response (the true unit) → the inflated burn OVERSTATES → phantom BREACH
+#     (conservative — the gate pauses on a setpoint the real work has not reached)
+#   ceiling in pre-dedupe (the inflated unit) → the burn UNDERSTATES → phantom HEADROOM
+#     (dangerous — the ceiling admits ~2.5x more real work than it was meant to)
+# This holds for a MIXED window too: whatever the mix, the pre-dedupe portion inflates
+# against a per_response ceiling and the per_response portion deflates against a
+# pre-dedupe one. The mixed banner used to hardcode "the likeliest direction is PHANTOM
+# HEADROOM" — a prior about how ceilings had historically been chosen, not evidence, and
+# refuted the moment a manifest declares otherwise. It held the evidence and guessed anyway.
+if [ "$UNIT_HAZARD" != "none" ]; then
+  case "$INITIATIVE_BASIS" in
+    per_response) UNIT_DIR="breach" ;;
+    pre-dedupe)   UNIT_DIR="headroom" ;;
+    # UNDECLARED is not the same as unknowable, and collapsing the two costs the operator
+    # the only actionable half of the disclosure. With no declaration there is still a
+    # defensible PRIOR — ceilings have historically been sized against whatever the meter
+    # reported at the time, which was the inflated unit — so headroom remains the likeliest
+    # direction. It is carried as an explicitly-labelled prior, never as a reading of the
+    # manifest, and the banner says which it is. What was wrong before was asserting this
+    # prior while HOLDING a declaration that refuted it; the fix is to prefer the evidence
+    # when it exists, not to go silent when it does not.
+    *)            UNIT_DIR="headroom_prior"; UNIT_DIR_WHY="undeclared" ;;
+  esac
+  # An "unknown" burn vintage (a degraded harvest) supports NEITHER claim no matter what
+  # the ceiling is declared in: an unrecorded unit is not known to be inflated ~2.5x, or
+  # to be anything at all. Naming a direction there would state an inference as evidence —
+  # the same error V12 pins one layer down, on the vintage axis itself.
+  case "$BURN_VINTAGE_NAMES" in
+    *unknown*) UNIT_DIR="undetermined"; UNIT_DIR_WHY="unrecorded" ;;
+  esac
+fi
+
+# One sentence per direction, composed once and shared by both banners so they cannot
+# contradict each other about the same window — which is exactly what happened while
+# each carried its own copy.
+case "${UNIT_DIR}:${UNIT_DIR_WHY}" in
+  breach:*)
+    UNIT_DIR_TEXT="the burn OVERSTATES against this ceiling — a PHANTOM BREACH. Pre-dedupe
+readings run ~2.5x high, so the gate will pause on a setpoint the real work has not
+reached. Conservative, not dangerous: it wastes attention, it does not leak budget." ;;
+  headroom:*)
+    UNIT_DIR_TEXT="the burn UNDERSTATES against this ceiling — PHANTOM HEADROOM. The
+setpoint was chosen in the inflated unit, so it admits roughly 2.5x more real work
+than it was meant to before it ever raises. This is the dangerous direction." ;;
+  headroom_prior:*)
+    UNIT_DIR_TEXT="the likeliest direction is PHANTOM HEADROOM: a ceiling set in the
+inflated unit lets far more real work through than it was meant to. Read that as a PRIOR
+— ceilings get sized against whatever the meter reported at the time — and not as a
+reading of this manifest, which declares nothing either way. Declare
+budgets.initiative.harvest_basis and this is DERIVED instead of assumed." ;;
+  *:unrecorded)
+    UNIT_DIR_TEXT="the direction is UNDETERMINED. One side of this comparison is an
+unrecorded unit, so neither overstatement nor headroom can be claimed — the size of
+the error is unknown, not small." ;;
+  *)
+    UNIT_DIR_TEXT="the direction is UNDETERMINED — neither overstatement nor headroom can
+be claimed from the record as it stands." ;;
+esac
+
+# The remedy follows from the DIRECTION, and naming the wrong one is worse than naming
+# none: the banner is standing (nothing clears it), so an operator re-reads it at every
+# boundary for the rest of the initiative. Telling someone to re-denominate a ceiling
+# that is already correct is a standing instruction to break a working state. WAIT is a
+# first-class rung here, not the absence of a remedy — when the ceiling is already in the
+# post-fix unit the inflated side is the burn, and the burn is self-correcting because
+# every new entry is post-fix. Composed out here because a heredoc cannot hold a
+# conditional.
+case "$UNIT_DIR" in
+  headroom|headroom_prior)
+    MX_REMEDY="The remedy is one commit by a person: re-denominate budgets.{initiative,session}.tokens
+in .claude/project.json into the post-fix unit. The machinery never moves a setpoint." ;;
+  breach)
+    MX_REMEDY="There is nothing to re-denominate. The ceiling is ALREADY declared in the post-fix
+unit — it is the BURN side that is inflated, and that side is self-correcting: every new
+entry is harvested post-fix, so the window's mixed total converges on the true unit as
+work continues. WAIT is the remedy here. Moving the setpoint now would break a ceiling
+that is already right. The machinery never moves one either." ;;
+  *)
+    MX_REMEDY="No remedy can be chosen yet: while the setpoint's own unit is undeclared there is
+nothing to say which side is wrong. Declare budgets.initiative.harvest_basis first — the
+direction above follows from it, and so does which side needs correcting (if either)." ;;
+esac
+
+# The instruction to declare a basis must not print to someone who already has. Complying
+# and then being told to comply again is the acknowledgment-path defect in a new costume,
+# and it teaches an operator that the banner is not reading their manifest.
+if [ -n "$INITIATIVE_BASIS" ]; then
+  MX_DECLARE="
+The setpoint's unit is declared as \"${INITIATIVE_BASIS}\" (budgets.initiative.harvest_basis),
+so the direction named above was DERIVED from your manifest, not assumed from how ceilings
+are usually chosen."
+else
+  MX_DECLARE="
+This banner reads the burn's vintages. To have the SETPOINT's unit read too, declare
+it: budgets.initiative.harvest_basis, \"per_response\" or \"pre-dedupe\". With it set, the
+direction above stops being a guess, the remedy names the side that is actually wrong,
+and a window that is uniformly one vintage but denominated against the other raises its
+own setpoint-unit declaration — the case this banner structurally cannot reach, since
+there is nothing mixed about it. Undeclared, that comparison stays silent.
+
+(Lowercase there deliberately: the other banner's headline is the exact uppercase
+string, and repeating it in prose makes every grep for that headline match this
+paragraph instead — which is precisely how a caller ends up reporting the wrong
+declaration. Name it, do not quote it.)"
+fi
+
 # --- vintage disclosure: is this comparison apples-to-apples? ------------------
 # Printed BEFORE any breach or overrun, because it qualifies every number below it.
 if [ "$BURN_VINTAGE_N" -gt 1 ]; then
@@ -504,34 +650,22 @@ compare, or forecast off it. The full statement — the remedy, and the case it
 cannot cover — prints at the session-exit gate.
 EOF
   else
-    cat <<'EOF'
+    cat <<EOF
 
 Entries harvested "pre-dedupe" counted token usage once per transcript LINE rather
 than once per API response, which over-counts by roughly 2.5x and varies with the
 shape of the work. Summing them beside "per_response" entries produces a total in no
 single unit, and comparing that total to a setpoint chosen in one unit is not a
-measurement. The likeliest direction is PHANTOM HEADROOM: a ceiling set in the
-inflated unit lets far more real work through than it was meant to.
+measurement. Against this ceiling, ${UNIT_DIR_TEXT}
 
 This is a DECLARATION, not a stop, and nothing here has been changed or converted.
-The remedy is one commit by a person: re-denominate budgets.{initiative,session}.tokens
-in .claude/project.json into the post-fix unit. The machinery never moves a setpoint.
+${MX_REMEDY}
 
 Nothing clears this banner — not even the remedy. The log is append-only, so a window
 that has once spanned both vintages spans them for the rest of its life. Expect it at
 every boundary until the initiative closes, read the burn above as a mixed total
 throughout, and do NOT read its reappearance as the re-denomination having failed.
-
-This banner reads the burn's vintages. To have the SETPOINT's unit read too, declare
-it: budgets.initiative.harvest_basis, "per_response" or "pre-dedupe". With it set, a
-window that is uniformly one vintage but denominated against the other raises its own
-setpoint-unit declaration — the case this banner structurally cannot reach, since
-there is nothing mixed about it. Undeclared, that comparison stays silent.
-
-(Lowercase there deliberately: the other banner's headline is the exact uppercase
-string, and repeating it in prose makes every grep for that headline match this
-paragraph instead — which is precisely how a caller ends up reporting the wrong
-declaration. Name it, do not quote it.)
+${MX_DECLARE}
 EOF
   fi
 fi
@@ -546,51 +680,91 @@ fi
 # Requires a declared basis: with none, the gate has one unit and no second unit to
 # compare it against, and inventing the missing half is the guess this whole section
 # exists to refuse.
-if [ "$BURN_VINTAGE_N" -eq 1 ] && [ -n "$INITIATIVE_BASIS" ] \
-   && [ "$BURN_VINTAGE_NAMES" != "$INITIATIVE_BASIS" ]; then
-  # The DIRECTION is derived, never fixed, and it is the opposite of the mixed
-  # banner's in the commonest case. Pre-dedupe readings are inflated ~2.5x, so:
-  #   pre-dedupe burn under a post-dedupe ceiling  → burn reads HIGH → stops EARLY
-  #     (a phantom BREACH — conservative, wasteful, but it never lets work through)
-  #   post-dedupe burn under a pre-dedupe ceiling  → burn reads LOW  → stops LATE
-  #     (phantom HEADROOM — the ceiling admits ~2.5x more real work than intended)
-  # A burn vintage of "unknown" (a degraded harvest) supports NEITHER claim, and
-  # naming a direction there would state an inference as evidence — the same error
-  # V12 pins on the vintage axis itself. So it says the direction is undetermined.
-  case "$BURN_VINTAGE_NAMES|$INITIATIVE_BASIS" in
-    'pre-dedupe|per_response')
-      MM_DIR="the burn OVERSTATES against this ceiling — a PHANTOM BREACH. Pre-dedupe
-readings run ~2.5x high, so the gate will pause on a setpoint the real work has not
-reached. Conservative, not dangerous: it wastes attention, it does not leak budget." ;;
-    'per_response|pre-dedupe')
-      MM_DIR="the burn UNDERSTATES against this ceiling — PHANTOM HEADROOM. The
-setpoint was chosen in the inflated unit, so it admits roughly 2.5x more real work
-than it was meant to before it ever raises. This is the dangerous direction." ;;
+if [ "$UNIT_HAZARD" = "mismatch" ]; then
+  # The headline must not out-claim the body. When the burn's vintage is UNRECORDED the
+  # body correctly says the direction is undetermined — but "the burn and the setpoint
+  # are denominated in different harvest units" asserts they are KNOWN to differ, which
+  # is a stronger claim than an unrecorded unit can support. An unrecorded unit is not a
+  # known-different unit, and the headline is the half most readers act on.
+  if [ "$UNIT_DIR_WHY" = "unrecorded" ]; then
+    MM_HEAD="the burn's harvest unit is UNRECORDED, so this comparison cannot be validated."
+  else
+    MM_HEAD="the burn and the setpoint are denominated in different harvest units."
+  fi
+  # The remedy menu is direction-specific because the CORRECT action genuinely differs,
+  # and the standing-banner problem makes naming the wrong one expensive: this fires at
+  # every boundary until the window changes, so a wrong instruction is re-read dozens of
+  # times. Under a phantom BREACH the ceiling is already right and the burn is the stale
+  # side — WAIT is correct and both "fix it" moves would damage a working state. Under
+  # phantom HEADROOM the ceiling itself is wrong and waiting fixes nothing, because a
+  # setpoint does not decay. Offering the same two remedies for both was how the live 004
+  # case ended up with a menu whose every option was wrong.
+  case "$UNIT_DIR" in
+    breach)
+      MM_REMEDY="Three responses, and for THIS direction the first is usually right:
+
+  WAIT (no commit) — the ceiling is already in the unit you want; it is the BURN that is
+    stale. Every new entry is harvested post-fix, so this clears itself as work continues.
+    When the first post-fix entry lands, the window stops being uniform and this banner is
+    replaced by MIXED HARVEST VINTAGE. Nothing is owed from you meanwhile.
+  RE-DENOMINATE budgets.initiative.tokens — only if the ceiling was in fact chosen in the
+    burn's unit and the setpoint basis named above is what is wrong.
+  CORRECT budgets.initiative.harvest_basis — only if the setpoint is right and the marker
+    misdescribes it.
+
+Read the burn above as an over-count of unknown tightness in the meantime, not as a
+measurement — but note that over-counting is the safe direction, and waiting is a
+designed rung here, not an unfixed defect." ;;
+    headroom)
+      MM_REMEDY="Waiting does NOT clear this one — a setpoint does not decay, and the ceiling is the
+side in the wrong unit. Two remedies, both a person's commit: re-denominate
+budgets.initiative.tokens into the unit this window is actually recorded in, or — if the
+setpoint is right and the marker is wrong — correct budgets.initiative.harvest_basis. Do
+not treat the burn above as a measurement against this ceiling until one of them is done,
+and treat any headroom it appears to show as unearned." ;;
     *)
-      MM_DIR="the direction is UNDETERMINED. One side of this comparison is an
-unrecorded unit, so neither overstatement nor headroom can be claimed — the size of
-the error is unknown, not small." ;;
+      MM_REMEDY="Neither remedy can be chosen from this evidence. The burn's unit is unrecorded, so
+re-denominating the ceiling \"into the unit this window is recorded in\" names a unit that
+does not exist, and the marker is not necessarily wrong either — the LOG is what is
+degraded. Repair the harvest (or discard the unrecorded entries) before treating any
+comparison against this ceiling as a measurement." ;;
   esac
   cat <<EOF
-[budget-gate] SETPOINT UNIT MISMATCH ${WHERE} — the burn and the setpoint are denominated in different harvest units.
+[budget-gate] SETPOINT UNIT MISMATCH ${WHERE} — ${MM_HEAD}
 
   burn vintage:        ${BURN_VINTAGES}
   setpoint basis:      ${INITIATIVE_BASIS} (declared in budgets.initiative.harvest_basis)
   burn window:         ${INITIATIVE_WINDOW}
   initiative burn:     ${INITIATIVE_BURN} tokens
-  initiative setpoint: ${INITIATIVE_BUDGET:-<none set — session setpoint only>} tokens
+  initiative setpoint: ${INITIATIVE_BUDGET} tokens
+EOF
+  # Same entry/exit economy the mixed banner above is built on, and for the same reason:
+  # nothing clears this until the window itself changes, the SessionStart hook pipes the
+  # gate's stdout into every session's context, and the direction/remedy paragraphs are
+  # identical every time. At ENTRY the reader is an agent about to act on a burn figure
+  # and needs one fact — this number is not a measurement. At EXIT the reader is a person
+  # at the extend/harvest/accept decision, writing the handoff that carries it forward.
+  if [ "$PHASE" != "exit" ]; then
+    cat <<'EOF'
+
+Every entry in this window shares one harvest unit, so nothing here is MIXED — which is
+exactly why this was silent before the check existed. The burn above is not a measurement
+against this ceiling: do not size, compare, or forecast off it. The direction, the remedy,
+and what clears it print at the session-exit gate.
+EOF
+  else
+    cat <<EOF
 
 Every entry in this window shares one harvest unit, so nothing here is MIXED — and
 that is exactly why it was silent before this check existed. The comparison is still
-invalid: ${MM_DIR}
+invalid: ${UNIT_DIR_TEXT}
 
 This is a DECLARATION, not a stop. Nothing has been changed or converted, and the
-machinery never moves a setpoint. Two remedies, both a person's commit: re-denominate
-budgets.initiative.tokens into the unit this window is actually recorded in, or — if
-the setpoint is right and the marker is wrong — correct
-budgets.initiative.harvest_basis. Do not treat the burn above as a measurement until
-one of them is done.
+machinery never moves a setpoint.
+
+${MM_REMEDY}
 EOF
+  fi
 fi
 
 # --- a malformed basis marker is reported, then ignored ---------------------------
@@ -663,21 +837,71 @@ if [ -z "$BREACH_KIND" ]; then
           # gets made, so the correction has to be at the menu. Composed before the
           # heredoc because a heredoc cannot hold a conditional.
           MIXNOTE=""
-          if [ "$BURN_VINTAGE_N" -gt 1 ]; then
+          # Fires on ANY unit hazard, not only a mixed window. Gating this on N > 1 while
+          # the mismatch banner required N == 1 made the two mutually exclusive by
+          # construction, so the qualifier was unreachable in precisely the case it was
+          # written for — see the derivation of UNIT_HAZARD above. The menu is where the
+          # wrong move gets made, so the correction has to be AT the menu.
+          if [ "$UNIT_HAZARD" != "none" ]; then
+            # Which banner to send them back to, so the pointer cannot name a banner that
+            # did not print.
+            case "$UNIT_HAZARD" in
+              mixed) MIXBANNER="MIXED HARVEST VINTAGE" ;;
+              *)     MIXBANNER="SETPOINT UNIT MISMATCH" ;;
+            esac
+            # The direction decides whether EXTEND is merely premature or actively
+            # backwards, and they are not the same warning.
+            case "$UNIT_DIR" in
+              breach)
+                MIXADVICE="EXTEND is the wrong first move here. The BURN side is inflated against this ceiling,
+so this overrun may be wholly an artifact of the old unit rather than real work, and raising
+a ceiling to accommodate tokens that were never spent is the one move waiting cannot undo.
+If you have JUST re-denominated the setpoint down into the post-fix unit, expect this
+declaration to keep firing for the rest of this initiative: the log is append-only, so the
+inflated entries never leave the window. That is the arithmetic working, not the remedy
+failing." ;;
+              headroom|headroom_prior)
+                MIXADVICE="EXTEND is the wrong first move here, and for the dangerous reason: the CEILING is the
+side in the inflated unit, so the real overrun is likely LARGER than the figure above, not
+smaller. Waiting does not clear it — a setpoint does not decay. Re-denominate the ceiling
+into the post-fix unit first, then read this line again. And once you have: expect this
+declaration to keep firing for the rest of this initiative, because the burn side is still
+counted in the old unit and the log is append-only. That is the arithmetic working, not
+the remedy failing." ;;
+              *)
+                MIXADVICE="No move can be chosen from this evidence. One side of the comparison is in an
+undetermined unit, so whether this overrun is real or an artifact is not knowable from the
+record as it stands. Settle the units before acting on any option below." ;;
+            esac
             MIXNOTE="
-READ THE MIXED HARVEST VINTAGE BANNER ABOVE FIRST. Both sides of this forecast come
-from a record spanning more than one harvest unit: burn-to-date sums those entries,
-and the cost-to-complete is a rate BLENDED from them. The overrun may be wholly an
-artifact of the inflated unit rather than real work, so treat the figures as an upper
-bound of unknown tightness, not a measurement.
+READ THE ${MIXBANNER} BANNER ABOVE FIRST — it qualifies both figures in this forecast, and
+they are not qualified the same way. Burn-to-date is summed from the entries that banner
+describes. The cost-to-complete is NOT: the observed rate excludes pre-fix entries
+outright, so it either rests on post-fix samples or falls back to the structural estimate
+named in the forecast basis above. The projected total therefore ADDS TWO NUMBERS THAT ARE
+NOT IN THE SAME UNIT AS EACH OTHER, and no single divisor converts one into the other.
 
-EXTEND is the wrong first move while that banner stands — it would raise a real ceiling
-to accommodate tokens that were never spent. Re-denominate the setpoint into the post-fix
-unit first, then read this line again. And if you have JUST re-denominated: expect this
-declaration to keep firing. The burn side is still counted in the old unit and the log is
-append-only, so a correctly re-denominated ceiling will read as a foreseen overrun for the
-rest of this initiative. That is the arithmetic working, not the remedy failing.
+${MIXADVICE}
 "
+          fi
+          # The forecast's own basis, disclosed. projection.sh emits claim/n/observed_weight
+          # precisely so an n=0 read is legible, and this gate — the only consumer that
+          # prints a forecast to a PERSON — read the spine and the range and never the
+          # basis. A modeled number and a measured one look identical once they are both
+          # just digits, and the extend/harvest/accept call is made off these digits.
+          BASISNOTE=""
+          PCLAIM=$(printf '%s' "$PROJ" | jq -r '.basis.claim // empty' 2>/dev/null)
+          PN=$(printf '%s' "$PROJ" | jq -r '.basis.n // empty' 2>/dev/null)
+          case "$PN" in ''|*[!0-9]*) PN="" ;; esac
+          if [ "$PCLAIM" = "structural" ] || { [ -n "$PN" ] && [ "$PN" -eq 0 ]; }; then
+            BASISNOTE="
+    forecast basis:        MODELED — ${PN:-0} observed sessions contributed. The cost-to-complete
+                           above is the structural estimate (remaining sessions x a per-session
+                           constant): a statement about the PLAN'S SHAPE, not about how this
+                           project has actually been burning. The range is the honest width."
+          elif [ -n "$PCLAIM" ]; then
+            BASISNOTE="
+    forecast basis:        ${PCLAIM} — ${PN:-?} observed session(s) contributed."
           fi
           cat <<EOF
 [budget-gate] FORESEEN OVERRUN ${WHERE} — the initiative is PROJECTED to exceed its budget.
@@ -688,7 +912,7 @@ rest of this initiative. That is the arithmetic working, not the remedy failing.
     projected total:       ${PROJECTED_TOTAL} tokens
     initiative budget:     ${INITIATIVE_BUDGET} tokens
     projected over by:     $((PROJECTED_TOTAL - INITIATIVE_BUDGET)) tokens
-    burn window:           ${INITIATIVE_WINDOW}
+    burn window:           ${INITIATIVE_WINDOW}${BASISNOTE}
 ${MIXNOTE}
 This is a DECLARATION, not a stop. A deliverable-budget breach is fuzzy — the
 projection is a RANGE, not a fact — so the session is NOT paused and NOTHING is
