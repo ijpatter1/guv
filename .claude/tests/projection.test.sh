@@ -102,6 +102,25 @@ add_landing() {  # <instance-dir> <deliverable-id> <total-tokens>
       model:"claude-opus-4-8[1m]",
       tokens:{input:($t/2|floor), output:($t/4|floor), cache_read:($t - ($t/2|floor) - ($t/4|floor)), cache_creation:0},
       transcript_tokens:null, slice_basis:"per_deliverable", compaction_cycles:0,
+      harvest_basis:"per_response",
+      dollars:null, spike_c_rung:"B", perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' \
+    >> "$log"
+}
+
+# A PRE-FIX landing: identical to add_landing except it carries NO harvest_basis
+# key — the shape every entry harvested before the [9.1] dedupe fix has. Its
+# tokens are in the inflated unit (usage counted once per transcript LINE, so a
+# multi-block response was multiplied by its block count). The rate must NOT
+# sample it: an average across the vintage boundary is a number in no unit.
+add_landing_prefix() {  # <instance-dir> <deliverable-id> <total-tokens>
+  local d="$1" id="$2" tot="$3"
+  local log="$d/.claude/metering/metering.ndjson"
+  jq -cn --arg id "$id" --argjson t "$tot" \
+    '{schema:"guv.meter.v1", ts:"2026-06-14T00:00:00Z", session:"session-2026-06-14-001",
+      session_derived:true, runtime_session:null, deliverable_ids:[$id],
+      model:"claude-opus-4-8[1m]",
+      tokens:{input:($t/2|floor), output:($t/4|floor), cache_read:($t - ($t/2|floor) - ($t/4|floor)), cache_creation:0},
+      transcript_tokens:null, slice_basis:"per_deliverable", compaction_cycles:0,
       dollars:null, spike_c_rung:"B", perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' \
     >> "$log"
 }
@@ -120,6 +139,7 @@ add_landing_at() {  # <instance-dir> <deliverable-id> <total-tokens> <session-id
       model:"claude-opus-4-8[1m]",
       tokens:{input:($t/2|floor), output:($t/4|floor), cache_read:($t - ($t/2|floor) - ($t/4|floor)), cache_creation:0},
       transcript_tokens:null, slice_basis:"per_deliverable", compaction_cycles:0,
+      harvest_basis:"per_response",
       dollars:null, spike_c_rung:"B", perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' \
     >> "$log"
 }
@@ -857,24 +877,34 @@ echo "$DOC" | jq -e '.spine.unit_rate.occupancy_budget_tokens >= .spine.unit_rat
 # the inflated ~503M anchor; differencing recovers the real per-session burns.
 # ════════════════════════════════════════════════════════════════════════════
 
-# ── T_SLICE_LEGACY — the cumulative-snapshot REGRESSION: three legacy cumulative
-# entries for one runtime_session (1M, 3M, 6M) are NOT three samples of 1M/3M/6M
-# (mean 3.33M, the bug) — they are ONE transcript's running totals, whose real
-# per-session burns are the DELTAS 1M, 2M, 3M (mean 2M). observed_rate must report
-# the differenced mean. RED against the pre-fix averaging of running totals.
+# ── T_VINTAGE_LEGACY — legacy cumulative entries are NOT rate samples. They are
+# pre-[13.6] by definition, and [13.6] PREDATES the [9.1] dedupe fix, so a legacy
+# entry is pre-fix BY CONSTRUCTION: its tokens over-count (usage summed once per
+# transcript LINE). Differencing them yields deltas that are still in the inflated
+# unit, so the migrated deltas were never commensurable with a post-fix setpoint.
+# The rate excludes them and rides the structural band instead. (budget-gate.sh
+# still differences legacy entries and MUST — burn legitimately sums every entry in
+# the window in whatever unit it was recorded, then DISCLOSES the mix. A rate
+# cannot: an average across two units is not a number.) Supersedes the [13.6]
+# read-time migration in this reader only.
 I=$(mk_instance); write_tracker "$I"
 add_legacy_cumulative "$I" "tx-legacy" 1000000
 add_legacy_cumulative "$I" "tx-legacy" 3000000
 add_legacy_cumulative "$I" "tx-legacy" 6000000
 DOC=$( cd "$I" && bash .claude/projection.sh project 2>/dev/null )
-echo "$DOC" | jq -e '.basis.n == 3 and .basis.observed_mean_tokens_per_session == 2000000' >/dev/null 2>&1 \
-  && ok "[13.6] legacy cumulative entries are MIGRATED to per-session deltas (mean 2M = differenced), not averaged as running totals (3.33M = the bug)" \
-  || no "[13.6] cumulative-snapshot regression: expected n=3, observed_mean=2000000 (differenced), got n=$(echo "$DOC" | jq -c '.basis.n'), mean=$(echo "$DOC" | jq -c '.basis.observed_mean_tokens_per_session')"
-# the first cumulative is the since-process-start slice (1M), the band's low edge;
-# the largest delta (3M) is the high edge — differenced, never the 6M cumulative max.
-echo "$DOC" | jq -e '.spine.unit_rate.blended_low_tokens > 0 and .spine.unit_rate.blended_high_tokens >= .spine.unit_rate.blended_low_tokens' >/dev/null 2>&1 \
-  && ok "[13.6] the band edges derive from the differenced slices, not the cumulative min/max" \
-  || no "[13.6] band edges must derive from deltas (got $(echo "$DOC" | jq -c '.spine.unit_rate'))"
+echo "$DOC" | jq -e '.basis.n == 0 and .basis.claim == "structural"' >/dev/null 2>&1 \
+  && ok "[9.1] legacy cumulative entries are pre-fix by construction and NEVER sample the rate (n=0, basis falls back to structural)" \
+  || no "[9.1] legacy entries must not sample a post-fix rate: expected n=0 claim=structural, got n=$(echo "$DOC" | jq -c '.basis.n'), claim=$(echo "$DOC" | jq -c '.basis.claim')"
+# a NON-MONOTONE legacy series (pruned subagent files, an out-of-order append) is
+# excluded by the same filter — the vintage test precedes any delta arithmetic, so
+# there is no negative-sample path left to guard.
+I4=$(mk_instance); write_tracker "$I4"
+add_legacy_cumulative "$I4" "tx-nonmono" 10000000
+add_legacy_cumulative "$I4" "tx-nonmono"  5000000
+DOC4=$( cd "$I4" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC4" | jq -e '.basis.n == 0' >/dev/null 2>&1 \
+  && ok "[9.1] a non-monotone legacy series is excluded by vintage before any delta arithmetic (n=0)" \
+  || no "[9.1] non-monotone legacy must be excluded by vintage: expected n=0, got n=$(echo "$DOC4" | jq -c '.basis.n')"
 
 # ── T_SLICE_EXCLUDE — an unbounded_cumulative entry (the disclosed degradation) is
 # EXCLUDED from observed_rate: it never becomes a phantom sample. Seed one alongside
@@ -894,32 +924,87 @@ echo "$DOC2" | jq -e '.basis.n == 2 and .basis.observed_mean_tokens_per_session 
   && ok "[13.6] an unbounded_cumulative entry is EXCLUDED from observed_rate (n=2, mean=2M; the 999M degradation never samples)" \
   || no "[13.6] unbounded_cumulative must be excluded: expected n=2 mean=2M, got n=$(echo "$DOC2" | jq -c '.basis.n'), mean=$(echo "$DOC2" | jq -c '.basis.observed_mean_tokens_per_session')"
 
-# ── T_SLICE_MIX — slice-tagged samples and legacy cumulatives COEXIST in one log
-# and both contribute correctly: 2 clean slices (1M, 3M) + a legacy series (10M,
-# 30M → deltas 10M, 20M). n=4, samples {1M,3M,10M,20M}, mean 8.5M.
+# ── T_VINTAGE_MIX — a log holding BOTH vintages samples only the post-fix half.
+# 2 post-fix slices (1M, 3M) + a legacy series (10M, 30M): the legacy pair is
+# excluded, so n=2 and the mean is the post-fix mean (2M) — NOT 8.5M, which is what
+# mixing the two units produces. This is the assertion that would have caught the
+# contaminated 004 forecast: a 107,137,720/session blended rate built from 53
+# pre-fix samples, multiplied out to a 4.29B cost-to-complete against a 1B ceiling.
 I3=$(mk_instance); write_tracker "$I3"
 add_landing "$I3" 8.3 1000000
 add_landing "$I3" 8.3 3000000
 add_legacy_cumulative "$I3" "tx-mix" 10000000
 add_legacy_cumulative "$I3" "tx-mix" 30000000
 DOC3=$( cd "$I3" && bash .claude/projection.sh project 2>/dev/null )
-echo "$DOC3" | jq -e '.basis.n == 4 and .basis.observed_mean_tokens_per_session == 8500000' >/dev/null 2>&1 \
-  && ok "[13.6] slice-tagged samples and migrated legacy deltas coexist (n=4, mean 8.5M)" \
-  || no "[13.6] mixed log mis-counted: expected n=4 mean=8500000, got n=$(echo "$DOC3" | jq -c '.basis.n'), mean=$(echo "$DOC3" | jq -c '.basis.observed_mean_tokens_per_session')"
+echo "$DOC3" | jq -e '.basis.n == 2 and .basis.observed_mean_tokens_per_session == 2000000' >/dev/null 2>&1 \
+  && ok "[9.1] a mixed-vintage log samples ONLY the post-fix entries (n=2, mean 2M — never the 8.5M cross-unit average)" \
+  || no "[9.1] mixed-vintage log must sample post-fix only: expected n=2 mean=2000000, got n=$(echo "$DOC3" | jq -c '.basis.n'), mean=$(echo "$DOC3" | jq -c '.basis.observed_mean_tokens_per_session')"
 
-# ── T_SLICE_NONMONOTONE — a NON-MONOTONE legacy series (a later cumulative SMALLER
-# than the earlier — pruned subagent files, an out-of-order append) yields a NEGATIVE
-# delta that is NOT a real per-session burn. observed_rate() drops it rather than
-# fabricate a negative sample (Rule 15). Series 10M then 5M: the first (10M) is the
-# since-process-start slice (kept), the −5M delta is dropped → n=1, mean=10M. This
-# pins the reader-side drop the monotone fixtures never exercise.
-I4=$(mk_instance); write_tracker "$I4"
-add_legacy_cumulative "$I4" "tx-nonmono" 10000000
-add_legacy_cumulative "$I4" "tx-nonmono"  5000000
-DOC4=$( cd "$I4" && bash .claude/projection.sh project 2>/dev/null )
-echo "$DOC4" | jq -e '.basis.n == 1 and .basis.observed_mean_tokens_per_session == 10000000' >/dev/null 2>&1 \
-  && ok "[13.6] a non-monotone legacy delta is DROPPED, not counted as a negative sample (n=1, mean=10M)" \
-  || no "[13.6] negative legacy delta must be dropped: expected n=1 mean=10M, got n=$(echo "$DOC4" | jq -c '.basis.n'), mean=$(echo "$DOC4" | jq -c '.basis.observed_mean_tokens_per_session')"
+# ── T_VINTAGE_PREFIX — a pre-fix entry is identical to a post-fix one in EVERY
+# field except the absent harvest_basis key. Same slice_basis, same shape, same
+# tokens. Only the vintage marker separates them, so this pins that the filter
+# reads the marker and not some incidental difference in the fixture.
+I5=$(mk_instance); write_tracker "$I5"
+add_landing_prefix "$I5" 8.3 1000000
+add_landing_prefix "$I5" 8.3 3000000
+DOC5=$( cd "$I5" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC5" | jq -e '.basis.n == 0 and .basis.claim == "structural"' >/dev/null 2>&1 \
+  && ok "[9.1] a pre-fix slice entry (no harvest_basis key) is not a sample — the vintage marker is what decides, not the entry's shape" \
+  || no "[9.1] pre-fix slice must not sample: expected n=0, got n=$(echo "$DOC5" | jq -c '.basis.n')"
+
+# ── T_VINTAGE_UNKNOWN — an EXPLICIT harvest_basis:null is a DEGRADED harvest: the
+# writer could not determine the unit. Unknown is not the same as post-fix, and
+# Rule 15 says an unknown unit degrades to "not a sample", never to an assumed one.
+I6=$(mk_instance); write_tracker "$I6"
+add_landing "$I6" 8.3 2000000
+LOG6="$I6/.claude/metering/metering.ndjson"
+jq -cn '{schema:"guv.meter.v1", ts:"2026-06-14T00:00:00Z", session:"session-2026-06-14-077",
+  session_derived:true, runtime_session:null, deliverable_ids:["8.3"], model:"m",
+  tokens:{input:0,output:0,cache_read:900000000,cache_creation:0},
+  transcript_tokens:null, slice_basis:"per_deliverable", compaction_cycles:0,
+  harvest_basis:null, dollars:null, spike_c_rung:"B",
+  perf:{op_wallclock_s:0.1, suite_runtime_s:null}}' >> "$LOG6"
+DOC6=$( cd "$I6" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC6" | jq -e '.basis.n == 1 and .basis.observed_mean_tokens_per_session == 2000000' >/dev/null 2>&1 \
+  && ok "[9.1] an explicit harvest_basis:null (degraded harvest, unknown unit) is NOT a sample — the 900M never enters the rate" \
+  || no "[9.1] unknown vintage must not sample: expected n=1 mean=2000000, got n=$(echo "$DOC6" | jq -c '.basis.n'), mean=$(echo "$DOC6" | jq -c '.basis.observed_mean_tokens_per_session')"
+
+# ── T_WINDOW — the rate is windowed to the LIVE INITIATIVE's lineage boundary, the
+# same window budget-gate.sh sums burn over. The cost-to-complete is ADDED to that
+# windowed burn and compared against that initiative's setpoint, so a rate built
+# from a PREVIOUS initiative's sessions makes the comparison meaningless. Bank a
+# plan-boundary forecast, then seed post-fix landings on both sides of it: only the
+# ones at/after the boundary sample.
+I7=$(mk_instance); write_tracker "$I7"
+( cd "$I7" && bash .claude/projection.sh bank --at plan >/dev/null 2>&1 )
+BOUND=$(jq -rs 'map(select(((.kind // "") == "forecast") and ((.boundary // "") == "plan"))) | last | .banked_at' "$I7/.claude/metering/calibration.ndjson" 2>/dev/null)
+add_landing_at "$I7" 8.3  9000000 "session-old-1" "2020-01-01T00:00:00Z"
+add_landing_at "$I7" 8.3 11000000 "session-old-2" "2020-01-02T00:00:00Z"
+add_landing_at "$I7" 8.3  1000000 "session-new-1" "2099-01-01T00:00:00Z"
+add_landing_at "$I7" 8.3  3000000 "session-new-2" "2099-01-02T00:00:00Z"
+DOC7=$( cd "$I7" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC7" | jq -e '.basis.n == 2 and .basis.observed_mean_tokens_per_session == 2000000' >/dev/null 2>&1 \
+  && ok "[9.1] the rate is windowed to the lineage boundary — pre-boundary sessions (9M/11M) are excluded, only in-window ones sample (n=2, mean 2M)" \
+  || no "[9.1] rate must window to the lineage boundary (boundary=$BOUND): expected n=2 mean=2000000, got n=$(echo "$DOC7" | jq -c '.basis.n'), mean=$(echo "$DOC7" | jq -c '.basis.observed_mean_tokens_per_session')"
+echo "$DOC7" | jq -e --arg b "$BOUND" '.basis.sample_window == $b' >/dev/null 2>&1 \
+  && ok "[9.1] the document DISCLOSES the lineage boundary its samples were windowed to" \
+  || no "[9.1] basis.sample_window must name the boundary ($BOUND), got $(echo "$DOC7" | jq -c '.basis.sample_window')"
+
+# ── T_WINDOW_NONE — no calibration record means no boundary to window by (the
+# OPENING forecast's own case: the ceiling is being set before anything is banked).
+# The designed degradation is to use the whole log — the prior initiatives' post-fix
+# sessions are the only signal available and they ARE unit-correct — and to DISCLOSE
+# the absence rather than imply a window that was never applied.
+I8=$(mk_instance); write_tracker "$I8"
+add_landing_at "$I8" 8.3 1000000 "session-a" "2020-01-01T00:00:00Z"
+add_landing_at "$I8" 8.3 3000000 "session-b" "2099-01-01T00:00:00Z"
+DOC8=$( cd "$I8" && bash .claude/projection.sh project 2>/dev/null )
+echo "$DOC8" | jq -e '.basis.n == 2 and .basis.sample_window == null' >/dev/null 2>&1 \
+  && ok "[9.1] with no lineage boundary the rate degrades to the whole log and DISCLOSES sample_window:null (never a silent unwindowed read)" \
+  || no "[9.1] no-boundary case must read whole log and disclose null: got n=$(echo "$DOC8" | jq -c '.basis.n'), window=$(echo "$DOC8" | jq -c '.basis.sample_window')"
+echo "$DOC8" | jq -e '.basis.sample_vintage == "per_response"' >/dev/null 2>&1 \
+  && ok "[9.1] the document DISCLOSES the harvest vintage its samples are denominated in" \
+  || no "[9.1] basis.sample_vintage must name the vintage, got $(echo "$DOC8" | jq -c '.basis.sample_vintage')"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T_MODEL_RECONCILE — [13.3] the modeled rate reconciles with the forensic band

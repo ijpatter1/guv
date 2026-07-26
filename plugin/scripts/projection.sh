@@ -231,6 +231,31 @@ jq -e . "$MANIFEST" >/dev/null 2>&1 \
 [ -n "$SIDECAR" ] || SIDECAR="$ROOT/docs/estimates.json"
 [ -n "$CALIB" ]   || CALIB="$ROOT/.claude/metering/calibration.ndjson"
 
+# ── the lineage boundary the observed samples are windowed to ───────────────────
+# Derived exactly as budget-gate.sh derives it — same record, same `last`-in-FILE-
+# ORDER convention (append order is lineage order): the most recent grade, else the
+# opening plan forecast. The two readers must agree, because the cost-to-complete
+# computed here is ADDED to the burn budget-gate.sh sums over this window and
+# compared against this initiative's setpoint; a rate built from a DIFFERENT window
+# than the burn makes that comparison meaningless. Empty = nothing banked yet (the
+# opening forecast's own case) → no window, disclosed as such in basis.sample_window.
+INITIATIVE_SINCE=""
+if [ -f "$CALIB" ]; then
+  INITIATIVE_SINCE=$(jq -rRn '
+    [ inputs | fromjson? | select(type == "object")
+      | select(((.kind // "") == "grade")
+            or (((.kind // "") == "forecast") and ((.boundary // "") == "plan"))) ]
+    | last | .banked_at // empty' "$CALIB" 2>/dev/null)
+  # exact ISO-8601 UTC shape or it is no boundary. The glob's job is INJECTION
+  # SAFETY — shape-vetting the string before it is interpolated as a jq --arg —
+  # not semantic time validation: this file stamps boundaries with `date -u`, so a
+  # digit-shaped non-time cannot arrive from the real writer.
+  case "$INITIATIVE_SINCE" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+    *) INITIATIVE_SINCE="" ;;
+  esac
+fi
+
 # ── the envelope FLOOR: tokenize the control-plane docs a session loads ─────────
 # Fixed overhead = the bytes a session loads at startup regardless of task:
 # the rendered CLAUDE.md plus every .claude/rules/*.md (the natively-loaded
@@ -306,27 +331,51 @@ remaining_ids() {
 #     cumulatives — the log stays append-only; nothing is rewritten).
 # Emits "n<TAB>mean<TAB>min<TAB>max" (all 0 when n=0) — the mean drives the central
 # blended rate, the min/max the band EDGES. NEVER reads anything but this local log.
+# TWO FILTERS run BEFORE any arithmetic, because an average over this log means
+# nothing until both hold:
+#
+#   VINTAGE — only entries harvested in the CURRENT unit (harvest_basis
+#   "per_response", written after the [9.1] dedupe fix). An ABSENT key is pre-fix
+#   BY CONSTRUCTION and over-counts: the pre-fix meter summed usage once per
+#   transcript LINE, and one API response is serialized as N lines each repeating
+#   the identical usage object. The overstatement is ~2.5x in aggregate but
+#   SHAPE-DEPENDENT (subagent output 1.04x, main-loop output 3.20x), which is
+#   exactly why no divisor can rescue a pre-fix sample. An EXPLICIT null is a
+#   degraded harvest whose unit the writer could not determine; unknown degrades to
+#   "not a sample", never to an assumed one (Rule 15). Averaging ACROSS the vintage
+#   boundary produces a rate in NO unit — the error emit-metrics.shape.md discloses
+#   one layer up and budget-gate.sh's mixed-vintage banner discloses one layer down.
+#
+#   LINEAGE WINDOW — only entries since the live initiative's boundary, the SAME
+#   window budget-gate.sh sums burn over. Reading every initiative's history built
+#   a 004 forecast out of 002 and 003 sessions. No boundary banked yet (the opening
+#   forecast's own case) → no window: the prior initiatives' post-fix sessions are
+#   the only signal available and they ARE unit-correct, so they are used and the
+#   absence is DISCLOSED (basis.sample_window null), never silently implied.
+#
+# LEGACY entries (pre-[13.6] cumulative snapshots, no slice_basis key) are pre-fix
+# by construction — [13.6] predates the dedupe fix — so the vintage filter excludes
+# them and the [13.6] read-time differencing that used to migrate them here is GONE
+# from this reader. budget-gate.sh still differences them and must: BURN
+# legitimately sums every entry in the window in whatever unit it was recorded and
+# then discloses the mix. A RATE cannot do that — an average across two units is
+# not a number. This supersedes [13.6]'s migration in the rate reader only.
+#
+# n=0 is the DESIGNED result on a record with no post-fix sessions yet, not a
+# failure: the blend weight goes to 0 and the projection rides the structural
+# occupancy×turns band (basis.claim "structural"). The document discloses the
+# window and the vintage so an n=0 is LEGIBLE rather than mysterious.
 observed_rate() {
   if [ ! -f "$LOG" ]; then printf '0\t0\t0\t0'; return; fi
-  jq -rs '
+  jq -rs --arg since "$INITIATIVE_SINCE" '
     def burn: (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0);
-    [ .[] | select((.schema // "") | startswith("guv.meter")) ] as $all
+    [ .[] | select((.schema // "") | startswith("guv.meter"))
+          | select((.harvest_basis // "") == "per_response")
+          | select($since == "" or ((.ts // "") >= $since)) ] as $all
     # slice-tagged entries: tokens is the bounded slice, a sample as-is
     | [ $all[] | select(.tokens != null)
               | select((.slice_basis // "") as $sb | $sb == "per_deliverable" or $sb == "since_process_start")
-              | (.tokens | burn) ] as $direct
-    # legacy cumulative entries (no slice_basis key): difference per runtime_session
-    | [ $all[] | select(.tokens != null) | select(has("slice_basis") | not) ] as $legacy
-    | ( $legacy | group_by(.runtime_session)
-        | map( . as $g
-               | [ range(0; ($g | length)) as $i
-                   | ($g[$i].tokens | burn) as $cum
-                   | if $i == 0 then $cum
-                     else $cum - ($g[$i-1].tokens | burn) end ] )
-        | add // [] ) as $legacy_deltas
-    # a non-monotone legacy series yields a negative delta (out-of-order / pruned) —
-    # never a real slice; drop it rather than fabricate a negative sample (Rule 15).
-    | ( $direct + ($legacy_deltas | map(select(. >= 0))) ) as $b
+              | (.tokens | burn) ] as $b
     | ($b | length) as $n
     | if $n == 0 then "0\t0\t0\t0"
       else "\($n)\t\(($b | add) / $n | floor)\t\($b | min)\t\($b | max)" end
@@ -459,6 +508,7 @@ EOF
     --argjson n "$n" \
     --arg ow "$observed_weight_str" \
     --argjson observed_mean "$mean" \
+    --arg sample_window "$INITIATIVE_SINCE" \
     --argjson default_ids "$default_json" '
     {
       schema: $schema,
@@ -469,7 +519,12 @@ EOF
         bound: $bound,
         n: $n,
         observed_weight: ($ow | tonumber),
-        observed_mean_tokens_per_session: $observed_mean
+        observed_mean_tokens_per_session: $observed_mean,
+        # WHERE the n samples came from. Without these two, an n=0 is unreadable —
+        # "no sessions yet" and "sessions exist but none in this unit or window"
+        # are different claims and lead to different decisions.
+        sample_window: (if $sample_window == "" then null else $sample_window end),
+        sample_vintage: "per_response"
       },
       scope: {
         claim: "guv-mediated cost to complete (remaining work, not total)"

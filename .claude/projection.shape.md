@@ -147,8 +147,38 @@ blended_high_rate= (1 − weight) × structural_high_tokens + weight × observed
 ```
 
 - `n` is the count of **local** landings (metering entries with harvested
-  tokens). At `n = 0` the weight is 0 — each edge **is** its structural
-  occupancy×turns anchor, the spine is purely structural (a real modeled band).
+  tokens) that survive **two filters**, both applied before any arithmetic. At
+  `n = 0` the weight is 0 — each edge **is** its structural occupancy×turns
+  anchor, the spine is purely structural (a real modeled band).
+  - **Vintage** — only entries harvested in the current unit
+    (`harvest_basis: "per_response"`, written after the [9.1] dedupe fix). An
+    **absent** key is pre-fix by construction and overstates burn (~2.5x in
+    aggregate, but **shape-dependent** — subagent output 1.04x, main-loop output
+    3.20x — which is why no divisor rescues a pre-fix sample). An **explicit
+    `null`** is a degraded harvest of unknown unit, and unknown degrades to *not
+    a sample*, never to an assumed one. Averaging across the vintage boundary
+    produces a rate in **no unit at all**.
+  - **Lineage window** — only entries at or after the live initiative's boundary
+    (the last `grade`, else the opening `plan` forecast in the calibration
+    record). This is the **same window `budget-gate.sh` sums burn over**, and it
+    must be: the cost-to-complete computed here is *added* to that windowed burn
+    and compared against that initiative's setpoint. Reading every initiative's
+    history built one initiative's forecast out of another's sessions.
+  - **Legacy** entries (pre-[13.6] cumulative snapshots, no `slice_basis` key)
+    are pre-fix by construction — [13.6] predates the dedupe fix — so the vintage
+    filter excludes them and [13.6]'s read-time differencing is **gone from this
+    reader**. `budget-gate.sh` still differences them and must: **burn**
+    legitimately sums every entry in the window in whatever unit it was recorded
+    and then discloses the mix; a **rate** cannot, because an average across two
+    units is not a number.
+- `basis.sample_window` (ISO-8601 string, or `null` when nothing is banked yet)
+  and `basis.sample_vintage` (`"per_response"`) **disclose where the n samples
+  came from**. Without them an `n = 0` is unreadable: "no sessions yet" and
+  "sessions exist but none in this unit or window" are different claims that lead
+  to different decisions. A `null` window is the **opening forecast's own case** —
+  no boundary is banked when the first ceiling is set, so the whole log is read
+  (prior initiatives' post-fix sessions are the only signal available, and they
+  are unit-correct) and the absence is stated rather than silently implied.
 - ([13.3]) **Each edge anchors on its own structural occupancy×turns edge**
   (`structural_low/central/high`) and migrates toward the matching observed edge by
   the **same weight** — the centre toward the observed mean, the low/high edges
