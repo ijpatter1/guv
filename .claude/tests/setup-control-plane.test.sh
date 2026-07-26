@@ -796,6 +796,76 @@ printf '%s' "$PROG_ERR" | grep -qiE 'per-suite|slowest' \
   && ok "[prong-C] per-suite wall-clock is retained and reported, so the next sizing decision is measured rather than modeled" \
   || no "[prong-C] per-suite durations must be reported, not just completion events — without the distribution neither A1 nor B can be sized honestly (err=$(printf '%s' "$PROG_ERR" | tail -5))"
 
+# T11q — FOCUSED-SUITE PATH (Prong A1 of the battery-cost attack). The runner had
+# NO positional-argument handling at all, so `commands.test` could only ever run the
+# whole battery — and passing a filter SILENTLY ran all 68 suites anyway. That silent
+# swallow is the actual complaint in friction entry 2026-07-18T17:37:57Z-2084922661,
+# and it is what makes a one-suite fix loop cost a full battery. The census landed
+# with Prong C shows why it matters: 41 of 68 suites finish under 30s, so the common
+# mid-loop iteration pays ~800s to re-verify seconds of work.
+#
+# The precedent is the plugin runner's --only (maintainers/build-plugin.sh), and the
+# invariant carried over from it is the one that keeps Rule 8 intact: a pattern that
+# matches NOTHING fails LOUD. A filtered proof that silently runs zero suites would
+# let every --only consumer pass on nothing — a vacuous green is worse than no filter.
+only_run() {  # $1=plane-dir, rest=args ; sets ONLY_OUT / ONLY_ERR / ONLY_RC
+  local d="$1"; shift
+  local oo oe; oo=$(mktemp); oe=$(mktemp)
+  ( cd "$d" && bash .claude/run-core-tests.sh "$@" ) >"$oo" 2>"$oe"; ONLY_RC=$?
+  ONLY_OUT=$(cat "$oo"); ONLY_ERR=$(cat "$oe"); rm -f "$oo" "$oe"
+}
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "wanted.test.sh"   $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC" "unwanted.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+
+# The filter must actually EXCLUDE. Asserted on the unwanted suite's ABSENCE, not
+# just the wanted one's presence: an implementation that accepts --only and then
+# runs everything anyway (today's behavior) satisfies a presence-only check.
+only_run "$BP" --only 'wanted.test.sh'
+[ "$ONLY_RC" -eq 0 ] \
+  && printf '%s' "$ONLY_OUT$ONLY_ERR" | grep -q 'wanted.test.sh' \
+  && ! printf '%s' "$ONLY_OUT$ONLY_ERR" | grep -q 'unwanted.test.sh' \
+  && ok "[prong-A1] --only <pattern> runs just the matching suite and EXCLUDES the rest (a one-suite fix loop stops paying for the whole battery)" \
+  || no "[prong-A1] --only must gate suite execution, not be accepted and ignored — a filter that silently runs everything is the friction entry's exact complaint (rc=$ONLY_RC)"
+
+# Zero matches is the vacuous-green trap: a typo'd pattern that runs nothing and
+# exits 0 turns every downstream "the suite passes under --only" claim into a proof
+# about the empty set. It must fail loud AND name the pattern, or the operator
+# cannot tell a typo from a genuinely-passing filtered run.
+only_run "$BP" --only 'nosuch*.test.sh'
+[ "$ONLY_RC" -ne 0 ] \
+  && printf '%s' "$ONLY_ERR" | grep -q 'nosuch' \
+  && ok "[prong-A1] a pattern matching no suite fails LOUD and names the pattern (a filtered proof can never pass vacuously)" \
+  || no "[prong-A1] --only with zero matches must not exit green — a filter that runs nothing and reports success proves nothing (rc=$ONLY_RC err=$(printf '%s' "$ONLY_ERR" | tail -2))"
+
+# The silent swallow itself. An unrecognized argument that is quietly dropped is how
+# a person believes they ran one suite while the machine ran all of them — which is
+# the recorded misread, not a hypothetical.
+only_run "$BP" --bogus
+[ "$ONLY_RC" -ne 0 ] \
+  && printf '%s' "$ONLY_ERR" | grep -qi 'bogus' \
+  && ok "[prong-A1] an unrecognized argument fails loud and names itself (never a silent swallow that runs the full battery instead)" \
+  || no "[prong-A1] arguments must never be silently ignored — the operator has to be able to trust that what they asked for is what ran (rc=$ONLY_RC err=$(printf '%s' "$ONLY_ERR" | tail -2))"
+
+# --only with no operand: the shift-past-the-end case. Left unguarded this reads an
+# empty pattern, which matches nothing and would take the zero-match path — right
+# exit, wrong message. The operator needs to know the flag was malformed, not that
+# their (absent) pattern missed.
+only_run "$BP" --only
+[ "$ONLY_RC" -ne 0 ] \
+  && printf '%s' "$ONLY_ERR" | grep -qi 'only' \
+  && ok "[prong-A1] --only with no pattern fails loud on the malformed flag (distinct from a pattern that simply missed)" \
+  || no "[prong-A1] --only requires a non-empty pattern; a bare flag must not fall through to an empty-glob run (rc=$ONLY_RC err=$(printf '%s' "$ONLY_ERR" | tail -2))"
+
+# The unfiltered path must be byte-identical in BEHAVIOR — this change is additive or
+# it is a regression in the gate that every other assertion here depends on.
+only_run "$BP"
+[ "$ONLY_RC" -eq 0 ] \
+  && printf '%s' "$ONLY_OUT$ONLY_ERR" | grep -q 'wanted.test.sh' \
+  && printf '%s' "$ONLY_OUT$ONLY_ERR" | grep -q 'unwanted.test.sh' \
+  && ok "[prong-A1] no arguments still runs the full battery unchanged (the filter is additive; the session-close gate is untouched)" \
+  || no "[prong-A1] argument handling must not change the unfiltered run — the full battery is still the gate at session close (rc=$ONLY_RC)"
+
 # T11a — fix (c) stdout-only-failure blindness: a suite that announces its FAILURE
 # only on stdout AND lies with exit 0 must NOT yield a green battery. This is the
 # exact hole that once let a red suite show green (roots-map.test.sh writes its ✗
