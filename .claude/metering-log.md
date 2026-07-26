@@ -141,14 +141,29 @@ the real per-session deltas from the existing history without a destructive migr
 is additionally **windowed to the [13.4] lineage** (entries since the lineage
 boundary — the opening plan bank, or between initiatives the last grade;
 whole-log cumulative only as the no-lineage degradation). One reader of
-`tokens` remains NOT slice-aware: `emit-metrics.sh` ([9.5], the aggregate
+`tokens` is only PARTLY slice-aware: `emit-metrics.sh` ([9.5], the aggregate
 emitter). For **new** slice entries it is correct (a sum of per-session slices IS
-the total burn), but over the **legacy** cumulative entries it double-counts, it
-does not exclude `unbounded_cumulative`, and its `cost.by_initiative` is a
-whole-log rollup with no lineage window — a different figure from the gate's
-windowed burn. Until it gets the same read-time migration `observed_rate()` got,
-read `emit-metrics` initiative totals over a log containing pre-[13.6] entries
-with that caveat in mind.
+the total burn), and it now excludes `unbounded_cumulative` from its
+**per-deliverable** rollup. Two caveats remain. Over the **legacy** cumulative
+entries it still double-counts, and its `cost.by_initiative` is a whole-log
+rollup with no lineage window — a different figure from the gate's windowed burn.
+Until it gets the same read-time migration `observed_rate()` got, read
+`emit-metrics` initiative totals over a log containing pre-[13.6] entries with
+that caveat in mind.
+
+**The exclusion cuts tokens, never sessions — at every level.** An
+`unbounded_cumulative` entry is left out of the token sums in both
+`cost.by_deliverable` and `cost.by_initiative`, because the reading is a
+process-to-date cumulative that belongs to no single slice. Its **session count
+still counts, everywhere**: the session really happened and is a real unit of
+work; it is the token value that is not a slice, not the session. So
+`by_deliverable[id].sessions`, `by_initiative.sessions`, and `by_phase.sessions`
+always agree about whether a session existed, and disagree only where they are
+*supposed* to (distinct-session counting at the phase and initiative levels vs.
+per-attribution legs). Implementation note, because it is easy to get wrong:
+`by_deliverable` **zeroes** the excluded entry's tokens rather than filtering the
+entry out — filtering before the deliverable explode would silently take the
+session count with it, and did.
 
 **Balloon detection — declared, never stopped.** When a deliverable's slice spanned
 **more compaction cycles than its sizing** (`compaction_cycles >` the deliverable's
@@ -281,12 +296,14 @@ for initiative 004, and both are **unit artifacts, not performance**:
 Re-banking the forecast on post-fix samples is the fix. Until that happens, read both
 figures in the old unit.
 
-`emit-metrics.sh` carries a newly **live** hazard on top of its [13.6] one: it has no
-`slice_basis` filter at all, and this log has never yet contained an
-`unbounded_cumulative` entry (54 entries: 15 legacy, 30 `per_deliverable`, 9
-`since_process_start`). The vintage guard below makes one certain, and the emitter
-will credit that entry's full cumulative reading to whatever deliverable its session
-names. [13.6] framed the emitter caveat as a *legacy* problem; it is now a current one.
+The vintage guard below makes the first-ever `unbounded_cumulative` entry certain —
+this log had never carried one (54 entries: 15 legacy, 30 `per_deliverable`, 9
+`since_process_start`), so [13.6]'s emitter caveat stopped being a purely *legacy*
+concern the moment the guard armed. That is why the same commit gave
+`emit-metrics.sh` a `slice_basis` filter on its per-deliverable rollup: without it,
+the guard's own first entry would have been credited in full to whatever deliverable
+its session named. See the asymmetry note under "Who reads `tokens`" for what the
+filter does and does not cover.
 
 That ordering is the whole point. The [13.6] guard is **magnitude-based**
 (`all(. >= 0)`), so it cannot see a unit change: once a deduped cumulative reading

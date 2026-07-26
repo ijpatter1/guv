@@ -132,9 +132,18 @@ if [ -f "$LOG" ]; then
       # attributed to one deliverable. observed_rate() ([9.7]) and the budget gate
       # burn_sum ([13.5]) both exclude it; summing it here would credit a whole
       # process of burn to whatever deliverable that session happened to name.
-      [ .[] | select((.slice_basis // "") != "unbounded_cumulative") | . as $e
+      # ZERO the tokens on an excluded entry rather than DROP the entry: filtering before
+      # the explode takes the session count with it, and by_initiative states the rule
+      # this has to match — the session really happened and is a real unit of work; it
+      # is the token VALUE that is not a slice, not the session. Dropping it made
+      # by_deliverable[id].sessions disagree with by_initiative.sessions and
+      # by_phase.sessions on one payload, with nothing saying which to believe.
+      [ .[] | . as $e
         | ($e.deliverable_ids // [])[]
-        | { id: ., tok: ($e.tokens // {input:0,output:0,cache_read:0,cache_creation:0}) } ]
+        | { id: .,
+            tok: (if (($e.slice_basis // "") == "unbounded_cumulative")
+                  then {input:0,output:0,cache_read:0,cache_creation:0}
+                  else ($e.tokens // {input:0,output:0,cache_read:0,cache_creation:0}) end) } ]
       # group by id, sum token classes + session count
       | group_by(.id)
       | map({

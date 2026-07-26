@@ -499,6 +499,24 @@ jq -e '.cost.by_initiative.tokens.input == 340' "$WORK/unb.json" >/dev/null 2>&1
 jq -e '.cost.by_initiative.sessions == 4' "$WORK/unb.json" >/dev/null 2>&1 \
   && ok "the excluded entry is still counted as a session (only its token VALUE is not a slice)" \
   || no "session count must still include the unbounded entry: expected 4, got $(jq -c '.cost.by_initiative.sessions' "$WORK/unb.json")"
+# ...and the SAME rule at the DELIVERABLE level, which is where it was broken. Applying
+# the exclusion as a filter BEFORE the deliverable explode silently took the session
+# count with it: by_deliverable["9.1"].sessions read 1 while by_initiative.sessions and
+# by_phase.sessions both counted the entry — two session counts in one payload,
+# disagreeing, with nothing in the shape doc saying which to believe. The fix zeroes the
+# tokens instead of dropping the entry. 9.1 = one base-fixture session + this one.
+jq -e '.cost.by_deliverable["9.1"].sessions == 2' "$WORK/unb.json" >/dev/null 2>&1 \
+  && ok "by_deliverable session count includes the excluded entry too (agrees with by_initiative)" \
+  || no "by_deliverable[9.1].sessions must count the unbounded entry: expected 2, got $(jq -c '.cost.by_deliverable["9.1"].sessions' "$WORK/unb.json")"
+# The same fact as a delta against the un-perturbed fixture, which is what makes it a
+# property rather than a memorized number: appending an entry may not DECREASE a session
+# count anywhere. (A `<=` against by_phase would not do this job — the dropped-session
+# regression satisfies it, so it would read as a check while being unable to fail.)
+BASE91=$(jq -r '.cost.by_deliverable["9.1"].sessions' "$OUT" 2>/dev/null)
+UNB91=$(jq -r '.cost.by_deliverable["9.1"].sessions' "$WORK/unb.json" 2>/dev/null)
+[ -n "$BASE91" ] && [ -n "$UNB91" ] && [ "$UNB91" -gt "$BASE91" ] \
+  && ok "appending an entry raises by_deliverable[9.1].sessions ($BASE91 -> $UNB91) — no level silently drops it" \
+  || no "appending an entry must not leave by_deliverable[9.1].sessions unchanged or lower (base=$BASE91, after=$UNB91)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
