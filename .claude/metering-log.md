@@ -304,10 +304,20 @@ that happens, read both figures in the old unit.
 
 What is **not** available as a remedy, though it reads like one: re-banking the
 forecast. `projection.sh bank --at plan` is idempotent per initiative, so on a live
-initiative it is a no-op; a `--at phase-N` bank is neither the lineage window's anchor
-nor the [13.4] grade's baseline. And `observed_rate()` applies no ts window and no
-vintage filter at all — it blends the whole record deliberately — so 004's 54 pre-fix
-samples stay in that blend permanently, diluted by new ones but never removed. A
+initiative it is a no-op; and a `--at phase-N` bank never moves the lineage window's
+anchor, which reads the opening `plan` bank (or the prior `grade`) and ignores phase
+boundaries. It is **not** universally true that a phase bank cannot become the grade's
+baseline — `projection.sh` falls back to the last forecast of any boundary when no
+plan bank exists, so on a record that never banked at `plan` a phase bank *is* the
+baseline. On **this** record it is not, because 004 opened with a `plan` bank; do not
+carry the shortcut to another record.
+
+And `observed_rate()` applies no ts window and no vintage filter at all — it blends the
+whole record deliberately — so all 54 pre-fix samples stay in that blend permanently,
+diluted by new ones but never removed. Note these are the *record's* 54, not 004's:
+53 of them predate 004's lineage boundary (`2026-07-20T22:45:57Z`) and are outside the
+initiative's burn window entirely, yet they still set the rate every 004 forecast is
+built on — which is precisely why windowing the burn does not window the forecast. A
 clean-unit forecast for this initiative is not reachable by any command that exists
 today; it needs a vintage-aware `observed_rate()`, which is unbuilt. Do not send an
 operator to `bank` expecting it to clear anything.

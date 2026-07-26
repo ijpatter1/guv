@@ -875,7 +875,7 @@ done
 V5OUT=$(gate "$P" exit)
 printf '%s' "$V5OUT" | grep -q 'MIXED HARVEST VINTAGE' \
   && no "[9.1] the vintage disclosure fired on an all-per_response window" \
-  || ok "[9.1] no vintage disclosure once every windowed entry is post-dedupe (the state re-banking reaches)"
+  || ok "[9.1] no vintage disclosure once every windowed entry is post-dedupe (the state a NEW initiative opens in)"
 
 # V6 — the vintage scan is windowed to the live lineage, exactly like the burn sum it
 # describes. A pre-dedupe entry from a CLOSED initiative is not part of the figure being
@@ -935,21 +935,181 @@ printf '%s' "$V8OUT" | grep -q 'MIXED HARVEST VINTAGE' \
        && ok "[9.1] an entry the burn sum skips raises no vintage about it (no banner, and no breach off its 900k)" \
        || no "[9.1] the unbounded_cumulative entry was summed into the burn — the vintage fix must not disturb burn_sum's exclusions (rc=$V8RC)"; }
 
-# V9 — the disclosure reports how many entries each vintage covers. Without it the
-# operator reads "pre-dedupe, per_response" and cannot tell a record that is one stale
-# line away from clean from one that is almost entirely inflated — the same decision
-# (re-denominate now, or wait) with opposite answers. The fixture is deliberately
-# lopsided (2 pre-dedupe, 1 post) so a swapped or hard-coded count cannot pass.
+# V9 — each vintage is reported with its TOKEN SUBTOTAL, not only its entry count.
+# Count alone answers the wrong question and inverts the signal on a real record: the
+# live 004 window holds one pre-dedupe entry of ~187M tokens, so the first post-fix
+# session makes it read 1:1 by count while being ~99% pre-dedupe by burn — the
+# operator would read "half converted" off a window that is barely touched. The
+# fixture is lopsided on BOTH axes (2 entries / 2000 tokens vs 1 entry / 500) so
+# neither number can be mistaken for the other or hard-coded from the shape.
 P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
 jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
          tokens:{input:500,output:0,cache_read:0,cache_creation:0},
          slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
   >> "$P/.claude/metering/metering.ndjson"
 V9OUT=$(gate "$P" exit)
-printf '%s' "$V9OUT" | grep -q 'per_response (1 entry)' \
-  && printf '%s' "$V9OUT" | grep -q 'pre-dedupe (2 entries)' \
-  && ok "[9.1] the disclosure counts the entries behind each vintage, so the operator sees how contaminated the window is" \
-  || no "[9.1] naming the vintages without their weights leaves the operator unable to judge how much of the burn is inflated (out='$V9OUT')"
+printf '%s' "$V9OUT" | grep -q 'per_response (1 entry, 500 tokens)' \
+  && printf '%s' "$V9OUT" | grep -q 'pre-dedupe (2 entries, 2000 tokens)' \
+  && ok "[9.1] each vintage carries its token subtotal, so a window that is 1:1 by count and 99:1 by burn reads as the latter" \
+  || no "[9.1] naming the vintages without their token weights leaves the operator unable to judge how much of the burn is inflated (out='$V9OUT')"
+
+# V9b — and those subtotals RECONCILE to the burn printed beside them. This is the
+# property that makes them trustworthy rather than merely present: the vintage scan and
+# the burn sum read one shared projection of the log, so a subtotal that drifted from
+# the total would mean the two had forked again — which is exactly the defect this
+# section was rewritten to make structurally impossible. Summed from the banner text,
+# not from the internals, so it checks what the operator actually reads.
+V9SUB=$(printf '%s' "$V9OUT" | sed -n 's/.*vintages in window: *//p' \
+        | grep -oE '[0-9]+ tokens' | grep -oE '[0-9]+' | awk '{s+=$1} END{print s+0}')
+V9TOT=$(printf '%s' "$V9OUT" | sed -n 's/^ *initiative burn: *\([0-9]*\).*/\1/p')
+[ -n "$V9TOT" ] && [ "$V9SUB" = "$V9TOT" ] \
+  && ok "[9.1] the per-vintage subtotals sum to the initiative burn printed beside them ($V9SUB = $V9TOT)" \
+  || no "[9.1] the vintage subtotals must reconcile to the burn they describe, or they are a second unrelated number on the same screen (subtotals=$V9SUB burn=$V9TOT)"
+
+# V10 — the LEGACY inclusion branch. burn_sum reads three entry shapes (per_deliverable,
+# since_process_start, and legacy entries carrying no slice_basis key at all), and the
+# scan must cover every one of them or it under-discloses on exactly the records that
+# are oldest and therefore most likely to be pre-fix. V1–V9 all use per_deliverable
+# fixtures, so deleting either of the other two disjuncts left the whole suite green
+# while silencing the banner on those shapes — 24 of the live log's 54 entries.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",runtime_session:"rt-1",
+           tokens:{input:4000,output:0,cache_read:0,cache_creation:0},perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:100,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V10OUT=$(gate "$P" exit)
+printf '%s' "$V10OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && printf '%s' "$V10OUT" | grep -q 'pre-dedupe (1 entry, 4000 tokens)' \
+  && ok "[9.1] a LEGACY (no slice_basis) pre-dedupe entry raises its vintage and carries its differenced burn" \
+  || no "[9.1] the vintage scan skipped the legacy branch — legacy entries are the oldest in any record and the likeliest to be pre-fix, so silence there is the worst place for it (out='$V10OUT')"
+
+# V11 — the since_process_start inclusion branch, same argument. Distinct fixture value
+# (7000) so a subtotal copied from V10 cannot satisfy it.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.1"],
+           tokens:{input:7000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"since_process_start",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:100,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V11OUT=$(gate "$P" exit)
+printf '%s' "$V11OUT" | grep -q 'MIXED HARVEST VINTAGE' \
+  && printf '%s' "$V11OUT" | grep -q 'pre-dedupe (1 entry, 7000 tokens)' \
+  && ok "[9.1] a since_process_start pre-dedupe entry raises its vintage and carries its burn" \
+  || no "[9.1] the vintage scan skipped the since_process_start branch — it sums into burn, so it must be able to disclose its unit (out='$V11OUT')"
+
+# V12 — an explicit `harvest_basis: null` is UNKNOWN, not pre-dedupe. meter.sh writes
+# that on a degraded harvest: the run happened and could not record its basis, so the
+# unit is unrecorded rather than old. Folding it into "pre-dedupe" would be a guess
+# stated as evidence, and dropping it silently would let an entry contribute burn while
+# contributing no vintage — breaking V9b's reconciliation. It must appear, named for
+# what it is.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.1"],
+           tokens:{input:300,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:null,perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+           tokens:{input:100,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V12OUT=$(gate "$P" exit)
+printf '%s' "$V12OUT" | grep -q 'unknown (1 entry, 300 tokens)' \
+  && ok "[9.1] an explicit harvest_basis:null reads as UNKNOWN, never silently as pre-dedupe or as nothing" \
+  || no "[9.1] a degraded harvest's basis must be reported as unknown — guessing it is pre-dedupe states an inference as evidence, and dropping it breaks the subtotal reconciliation (out='$V12OUT')"
+
+# V13 — the FORESEEN OVERRUN menu must be qualified when the record is mixed, and
+# specifically must warn OFF its own first option. This is the remedy loop, verified
+# against the live record before it was pinned here: re-denominate 004's ceiling into
+# the post-fix unit and the gate answers with a foreseen overrun whose leading offer is
+# EXTEND — i.e. put the ceiling back. An operator following the menu undoes the fix.
+# The standing banner above is not sufficient on its own: it explains the unit, but the
+# wrong move is made at the menu, so the correction has to be at the menu.
+PF9=$(mk_proj 10000000)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["13.5"],
+         tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  >> "$PF9/.claude/metering/metering.ndjson"
+CTC9=$(proj_ctc "$PF9")
+set_init_budget "$PF9" $(( 10001000 + CTC9 / 2 ))   # burn < budget < burn + CTC
+V13OUT=$(gate "$PF9" exit); V13RC=$?
+printf '%s' "$V13OUT" | grep -qi 'FORESEEN OVERRUN' && [ "$V13RC" -eq 0 ] \
+  && printf '%s' "$V13OUT" | grep -q 'EXTEND is the wrong first move' \
+  && ok "[9.1] a FORESEEN OVERRUN drawn from a mixed record warns off EXTEND — the option that would undo the remedy" \
+  || no "[9.1] the foreseen menu leads with EXTEND, so on a mixed record it must say so inline or it walks the operator back out of the fix (rc=$V13RC out='$V13OUT')"
+
+# V13b — and it names the consequence the operator will otherwise misread: after a
+# CORRECT re-denomination the declaration keeps firing, because the burn side is still
+# counted in the old unit and the log is append-only. Without this, the expected
+# outcome of the remedy is indistinguishable from the remedy having failed — and the
+# obvious response to "it didn't work" is to raise the ceiling again.
+printf '%s' "$V13OUT" | grep -q 'rest of this initiative' \
+  && ok "[9.1] the qualifier warns that a correctly re-denominated ceiling still reads as an overrun, so persistence is not read as failure" \
+  || no "[9.1] a remedy whose success looks identical to its failure will be reverted — the declaration must say it persists by arithmetic (out='$V13OUT')"
+
+# V13c — the false-positive half. A single-vintage record must NOT carry the
+# qualifier: an unconditional warning would train the operator to skim past it on
+# exactly the records where the forecast is trustworthy, which is how a real
+# disclosure decays into boilerplate.
+PF10=$(mk_proj 0)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["13.4"],
+         tokens:{input:10000000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  > "$PF10/.claude/metering/metering.ndjson"
+CTC10=$(proj_ctc "$PF10")
+set_init_budget "$PF10" $(( 10000000 + CTC10 / 2 ))
+V13COUT=$(gate "$PF10" exit)
+printf '%s' "$V13COUT" | grep -qi 'FORESEEN OVERRUN' \
+  && ! printf '%s' "$V13COUT" | grep -q 'EXTEND is the wrong first move' \
+  && ok "[9.1] a single-vintage FORESEEN OVERRUN carries no mixed-record qualifier (the warning stays meaningful)" \
+  || no "[9.1] the qualifier must be conditional — printed on a clean record it becomes boilerplate the operator learns to skip (out='$V13COUT')"
+
+# V14 — the banner is DEEPER at exit than at entry, and that asymmetry is the design.
+# Nothing clears this banner, so it fires at both boundaries of every session for the
+# rest of the initiative, and hooks/session-start.sh pipes the gate's whole stdout into
+# each session's additionalContext. Re-paying the full remedy prose twice a session
+# for dozens of sessions spends the work's own context to repeat a fixed instruction.
+# Entry gets the actionable half (do not trust this number); exit — where a person is
+# at the extend/harvest/kill decision and writing the handoff — gets all of it.
+P=$(mk_project '{"initiative":{"tokens":100000000}}' 1000 1000)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.2"],
+         tokens:{input:500,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  >> "$P/.claude/metering/metering.ndjson"
+V14ENT=$(gate "$P" entry)
+V14EXT=$(gate "$P" exit)
+V14ELINES=$(printf '%s\n' "$V14ENT" | wc -l | tr -d ' ')
+V14XLINES=$(printf '%s\n' "$V14EXT" | wc -l | tr -d ' ')
+[ "$V14ELINES" -lt "$V14XLINES" ] \
+  && ! printf '%s' "$V14ENT" | grep -q 'The remedy is one commit by a person' \
+  && printf '%s' "$V14EXT" | grep -q 'The remedy is one commit by a person' \
+  && ok "[9.1] the standing banner is terse at entry and full at exit (${V14ELINES} vs ${V14XLINES} lines) — the remedy prose is paid for where it is acted on" \
+  || no "[9.1] a banner that never clears must not re-inject its full prose into every session's context; entry carries the warning, exit carries the remedy (entry=${V14ELINES}L exit=${V14XLINES}L)"
+
+# V14b — but the trim is never silence. Whatever the boundary, the operator gets the
+# header, the vintages WITH their subtotals, and the burn those subtotals describe.
+# Without this, "make entry terse" has no floor and degrades to dropping the entry
+# disclosure altogether — which is the original [9.1] defect restored at one boundary.
+V14MISS=""
+for probe in 'MIXED HARVEST VINTAGE' 'vintages in window:' 'per_response (1 entry, 500 tokens)' 'initiative burn:' 'initiative setpoint:'; do
+  printf '%s' "$V14ENT" | grep -q "$probe" || V14MISS="$V14MISS '$probe'"
+done
+[ -z "$V14MISS" ] \
+  && ok "[9.1] the entry banner still carries the full profile — header, both vintages with subtotals, burn and setpoint" \
+  || no "[9.1] the terse entry form dropped part of the profile:$V14MISS — trimming the explanation must never trim the evidence (out='$V14ENT')"
+
+# V14c — and the entry form still tells the reader what to DO, which is the only thing
+# an agent mid-session can act on. A profile with no instruction invites exactly the
+# use the banner exists to prevent: treating a mixed total as a measurement.
+printf '%s' "$V14ENT" | grep -q 'not a measurement' \
+  && printf '%s' "$V14ENT" | grep -qi 'metering-log.md' \
+  && ok "[9.1] the entry banner names the hazard and points at where the full statement lives" \
+  || no "[9.1] the entry form must still say the figure is not a measurement and where to read the rest, or it is a number with no warning attached (out='$V14ENT')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

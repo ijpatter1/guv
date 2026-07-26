@@ -89,6 +89,22 @@ nothing". Any tokens-per-session rate computed off this shape is diluted by
 excluded entries, so filter on the raw log's `slice_basis` if the rate must be
 exact. The distinction is not recoverable from the payload alone.
 
+**These tokens carry no unit guarantee, and this shape does not disclose it.** The
+raw log's second axis, `harvest_basis`, records *how* a reading was harvested —
+`per_response` for entries written after the dedupe fix, absent for the pre-fix ones
+that counted usage once per transcript LINE and so overstate by roughly 2.5x, by a
+factor that varies with the shape of the work. This document's aggregates sum across
+that axis without projecting it: a `cost.by_phase` figure spanning the fix is a total
+in no single unit, and nothing in the payload says which entries contributed to it.
+The axis is orthogonal to `slice_basis` above — a `per_deliverable` entry is a bounded
+slice whether or not it is denominated correctly — so the `slice_basis` filter does
+not help here. A consumer comparing two periods, or grading a forecast against
+actuals, **must go to the raw log and partition on `harvest_basis` itself**; treating
+these aggregates as commensurable across the fix is the same phantom-headroom error
+`budget-gate.sh` discloses one layer down, with no banner at this layer to catch it.
+Publishing the axis in this shape is unbuilt work, not a decision that it does not
+matter.
+
 | field | type | source / meaning |
 |-------|------|------------------|
 | `cost.by_deliverable` | object | keyed by deliverable ID. A session attributed to N deliverables credits its tokens to **each** leg (additive — the per-deliverable view), so an ID appearing in two sessions sums both. `session-scalar` (the meter's no-single-ID attribution) is **not** a deliverable and never appears here as a phantom phase. |

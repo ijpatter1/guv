@@ -34,13 +34,23 @@
 # the inflated unit lets more real work through than it was meant to) and exits
 # 0. It is a disclosure, not a conversion and not a stop: re-denominating a
 # setpoint is a human commit to project.json, exactly like raising one. The scan
-# reads the SAME entries the burn sums — same lineage window, and same
-# contributing set (bounded slices plus the differenced legacy cumulatives) — so
-# neither a closed initiative's vintage nor an entry that contributes no burn at
-# all can raise a warning about the live figure. Note what the banner does NOT
-# do: nothing clears it. A window that has once spanned both vintages spans them
-# for its whole life, because the log is append-only — so the disclosure is a
-# standing property of this initiative, not a task to work off.
+# and the burn sum read ONE shared projection of the log (`contrib_jq` below)
+# rather than two filters that have to be kept in agreement — so a vintage can
+# only be raised by an entry that actually contributes burn, and the per-vintage
+# subtotals reconcile to the printed total by construction rather than by care.
+#
+# Two things the banner does NOT do. It never clears: a window that has once
+# spanned both vintages spans them for its whole life, because the log is
+# append-only — the disclosure is a standing property of this initiative, not a
+# task to work off. And it keys off the BURN's vintages, never the setpoint's, so
+# the mirror case is silent by construction: a fresh initiative whose window is
+# entirely post-fix, gated by a ceiling carried over from a pre-fix one, is
+# apples-to-oranges in the same direction and raises nothing here. That is a
+# limit, not an oversight — only the person who set a ceiling knows which unit
+# they chose it in, and until a setpoint records its own denomination there is no
+# evidence in the log to detect it from; inferring it would be a guess (Rule 15).
+# The banner text names the case so the operator carries it across a boundary
+# this gate cannot see.
 #
 # THE ESCALATION PATH (Rule 15 — designed degradation, loud stop) ──────────────
 # A BREACH (burn ≥ budget) PAUSES and escalates with work PRESERVED: the gate
@@ -281,22 +291,37 @@ if [ -f "$LOG" ]; then
   # ~4.6× (the forensic bug found during guv's own development; the analysis is a
   # maintainer artifact, not a doc shipped in this code repo — [15.6]). A raw sum of
   # cumulative snapshots is exactly the over-count that bug produced.
-  burn_sum() {  # $1 = a jq boolean selecting the entries to sum (post-schema)
-    jq -rs "
+  #
+  # THE CONTRIBUTING SET IS DEFINED ONCE, HERE. Two readers need it — the burn sum
+  # and the vintage scan that describes the burn's unit — and when they were written
+  # as two filters sixty lines apart they drifted within a single commit ([9.1] round
+  # 2: an unbounded_cumulative entry, excluded from burn by design, announced a mixed
+  # window against a burn that was entirely per_response). So the projection is
+  # written once and both readers consume it. It emits one {v, b} per CONTRIBUTING
+  # entry — v the harvest vintage, b the tokens that entry actually contributes — so
+  # a vintage can only be raised by an entry the burn sum reads, and the per-vintage
+  # subtotals sum to the burn exactly rather than approximately.
+  contrib_jq() {  # $1 = a jq boolean selecting the entries (post-schema)
+    cat <<JQ
       def burn: (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0);
-      [ .[] | select((.schema // \"\") | startswith(\"guv.meter\")) ] as \$all
+      # The vintage axis. An ABSENT harvest_basis is pre-fix by construction — the
+      # field did not exist when those entries were written. An explicit null is
+      # different: the harvest ran and could not record its basis, so the unit is
+      # unknown rather than old, and calling it "pre-dedupe" would be a guess.
+      def vintage: if has("harvest_basis") then (.harvest_basis // "unknown") else "pre-dedupe" end;
+      [ .[] | select((.schema // "") | startswith("guv.meter")) ] as \$all
       # Bounded slices are STANDALONE (each tagged with its own session), so the
       # selection filters them directly.
       | [ \$all[] | select($1) | select(.tokens != null)
-                  | select((.slice_basis // \"\") as \$sb | \$sb == \"per_deliverable\" or \$sb == \"since_process_start\")
-                  | (.tokens | burn) ] as \$direct
+                  | select((.slice_basis // "") as \$sb | \$sb == "per_deliverable" or \$sb == "since_process_start")
+                  | {v: vintage, b: (.tokens | burn)} ] as \$direct
       # Legacy cumulatives MUST be differenced over the FULL per-runtime_session
       # series BEFORE the selection — a runtime_session can span sessions, so a
       # delta's baseline is the prior cumulative, which may sit in ANOTHER session.
       # Filtering first would drop that baseline and count a survivor's full
       # cumulative (the ~4.6× reinflation the [13.6] migration killed). So difference
       # the whole series, carry each delta on its entry, THEN apply the selection.
-      | [ \$all[] | select(.tokens != null) | select(has(\"slice_basis\") | not) ] as \$legacy
+      | [ \$all[] | select(.tokens != null) | select(has("slice_basis") | not) ] as \$legacy
       | ( \$legacy | group_by(.runtime_session)
           | map( . as \$g
                  | [ range(0; (\$g | length)) as \$i
@@ -306,9 +331,13 @@ if [ -f "$LOG" ]; then
           | add // [] ) as \$legacy_d
       # select the differenced deltas the SAME way, dropping negatives (out-of-order
       # / pruned series — never a fabricated burn, Rule 15).
-      | [ \$legacy_d[] | select($1) | ._burn_delta | select(. >= 0) ] as \$legacy_deltas
-      | ( \$direct + \$legacy_deltas ) | add // 0
-    " "$LOG" 2>/dev/null
+      | [ \$legacy_d[] | select($1) | select(._burn_delta >= 0)
+                       | {v: vintage, b: ._burn_delta} ] as \$legacy_c
+      | ( \$direct + \$legacy_c )
+JQ
+  }
+  burn_sum() {  # $1 = a jq boolean selecting the entries to sum (post-schema)
+    jq -rs "$(contrib_jq "$1") | map(.b) | add // 0" "$LOG" 2>/dev/null
   }
   # The INITIATIVE sum is windowed to the live lineage (INITIATIVE_SINCE above);
   # with no boundary to read, the selection degrades to every entry — the
@@ -339,32 +368,27 @@ if [ -f "$LOG" ]; then
   #
   # So this is the one case where the gate's own silence is the defect, and it
   # discloses instead. DISCLOSURE ONLY — it never adjusts a setpoint, never changes an
-  # exit code, and never re-denominates a number. Re-banking a budget is a human commit
-  # to budgets.{initiative,session}.tokens; the machinery never moves a setpoint.
+  # exit code, and never re-denominates a number. Re-denominating a budget is a human
+  # commit to budgets.{initiative,session}.tokens; the machinery never moves a setpoint.
+  # (Re-BANKING is a different operation entirely — projection.sh bank writes a forecast
+  # entry and does not touch a setpoint — and naming it here once sent a reader to a
+  # command that cannot perform this remedy. Keep the two verbs distinct.)
   if [ -n "$INITIATIVE_SINCE" ]; then
     VSEL="((.ts // \"\") >= \"$INITIATIVE_SINCE\")"
   else
     VSEL='true'
   fi
-  # The scan must read the entries burn_sum CONTRIBUTES FROM, not merely the ones
-  # sharing its ts window — a vintage raised by an entry that adds nothing to the
-  # figure is a false alarm about a number it never touched. So the same structural
-  # filter applies here: bounded slices, plus the legacy cumulatives burn_sum
-  # differences. unbounded_cumulative is excluded there (the disclosed degradation,
-  # never a burn sample), so it must not raise a vintage here. Not modelled: a legacy
-  # entry whose differenced delta lands negative and is dropped contributes zero on
-  # that pass while remaining a burn sample by shape — it still counts as a vintage,
-  # which is the conservative direction (disclose) rather than the silent one.
-  BURN_VINTAGES=$(jq -rs "
-    [ .[] | select((.schema // \"\") | startswith(\"guv.meter\"))
-          | select(.tokens != null)
-          | select($VSEL)
-          | select( ((.slice_basis // \"\") as \$sb | \$sb == \"per_deliverable\" or \$sb == \"since_process_start\")
-                    or (has(\"slice_basis\") | not) )
-          | (if has(\"harvest_basis\") then (.harvest_basis // empty) else \"pre-dedupe\" end) ]
-    | group_by(.)
+  # Same projection as the burn, so the vintages describe the number they ride with
+  # and the subtotals below reconcile to it. Each vintage is reported with BOTH its
+  # entry count and its TOKEN SUBTOTAL, because count alone answers the wrong
+  # question: one pre-dedupe entry beside one per_response entry reads 1:1 by count
+  # while being ~99% pre-dedupe by tokens, which is the opposite of the signal the
+  # operator needs to decide whether re-denominating is urgent.
+  BURN_VINTAGES=$(jq -rs "$(contrib_jq "$VSEL")
+    | group_by(.v)
     | (length | tostring) + \"|\"
-      + (map(\"\(.[0]) (\(length) \(if length == 1 then \"entry\" else \"entries\" end))\") | join(\", \"))
+      + (map(\"\(.[0].v) (\(length) \(if length == 1 then \"entry\" else \"entries\" end), \(map(.b) | add) tokens)\")
+         | join(\", \"))
   " "$LOG" 2>/dev/null)
   # Split the count off the display string. The count drives the decision below —
   # counting commas in the display would break the moment a vintage name carried one.
@@ -386,8 +410,35 @@ if [ "$BURN_VINTAGE_N" -gt 1 ]; then
 [budget-gate] MIXED HARVEST VINTAGE ${WHERE} — the burn window spans more than one harvest unit.
 
   vintages in window:  ${BURN_VINTAGES}
-  burn window:         ${INITIATIVE_WINDOW:-<unwindowed — every entry>}
+  burn window:         ${INITIATIVE_WINDOW}
   initiative burn:     ${INITIATIVE_BURN} tokens
+  initiative setpoint: ${INITIATIVE_BUDGET:-<none set — session setpoint only>} tokens
+EOF
+  # The profile above prints at BOTH boundaries; the prose below does not, and the
+  # asymmetry is deliberate. Nothing clears this banner, so once a window has spanned
+  # the seam it fires at every entry and every exit for the initiative's whole life —
+  # and the SessionStart hook pipes the gate's full stdout into every session's
+  # additionalContext. Paying ~25 lines of standing context twice a session, for
+  # dozens of sessions, to re-read a remedy that is the same every time is a real cost
+  # charged against the work the disclosure exists to protect.
+  #
+  # So the boundary decides the depth. At ENTRY the reader is an agent about to act on
+  # a burn figure and needs one thing — do not trust this number as a measurement.
+  # At EXIT the reader is a person at the extend/harvest/kill decision, writing the
+  # handoff that carries it forward, and needs the whole statement. Neither boundary
+  # is silent: the header, the vintages, and the burn print at both. It is the
+  # explanation that is paid for once, where it is acted on.
+  if [ "$PHASE" != "exit" ]; then
+    cat <<'EOF'
+
+Pre-dedupe entries over-count by roughly 2.5x, so the burn above is a total in no
+single unit — an upper bound of unknown tightness, not a measurement. Against a
+ceiling chosen in the inflated unit it OVERSTATES remaining headroom. Do not size,
+compare, or forecast off it. The full statement — the remedy, and the two cases it
+cannot cover — prints at the session-exit gate and in .claude/metering-log.md.
+EOF
+  else
+    cat <<'EOF'
 
 Entries harvested "pre-dedupe" counted token usage once per transcript LINE rather
 than once per API response, which over-counts by roughly 2.5x and varies with the
@@ -400,10 +451,18 @@ This is a DECLARATION, not a stop, and nothing here has been changed or converte
 The remedy is one commit by a person: re-denominate budgets.{initiative,session}.tokens
 in .claude/project.json into the post-fix unit. The machinery never moves a setpoint.
 
-Nothing clears this banner. The log is append-only, so a window that has once spanned
-both vintages spans them for the rest of its life — expect this at every boundary
-until the initiative closes, and read the burn above as a mixed total throughout.
+Nothing clears this banner — not even the remedy. The log is append-only, so a window
+that has once spanned both vintages spans them for the rest of its life. Expect it at
+every boundary until the initiative closes, read the burn above as a mixed total
+throughout, and do NOT read its reappearance as the re-denomination having failed.
+
+One case this banner CANNOT see: it reads the burn's vintages, never the setpoint's.
+Carry this ceiling into a fresh initiative whose entries are all post-fix and the
+comparison is skewed the same way with nothing printed here, because a setpoint does
+not record the unit it was chosen in. If you open an initiative, denominate its
+ceiling in the post-fix unit deliberately — no banner will remind you.
 EOF
+  fi
 fi
 
 # --- the tension decision: a breach is burn ≥ a chosen setpoint ----------------
@@ -448,6 +507,31 @@ if [ -z "$BREACH_KIND" ]; then
       if [ -n "$CTC" ] && [ "$CTC" -gt 0 ]; then
         PROJECTED_TOTAL=$((INITIATIVE_BURN + CTC))
         if [ "$PROJECTED_TOTAL" -ge "$INITIATIVE_BUDGET" ]; then
+          # A mixed-vintage record poisons BOTH sides of this forecast, and the
+          # standing banner above is not enough on its own: this block's remedy menu
+          # leads with EXTEND, so an operator who has just done the right thing —
+          # re-denominated the ceiling down into the post-fix unit — is met by a gate
+          # demanding they raise it back. That loop is the reason this qualifier is
+          # inline rather than left to the banner: the menu is where the wrong move
+          # gets made, so the correction has to be at the menu. Composed before the
+          # heredoc because a heredoc cannot hold a conditional.
+          MIXNOTE=""
+          if [ "$BURN_VINTAGE_N" -gt 1 ]; then
+            MIXNOTE="
+READ THE MIXED HARVEST VINTAGE BANNER ABOVE FIRST. Both sides of this forecast come
+from a record spanning more than one harvest unit: burn-to-date sums those entries,
+and the cost-to-complete is a rate BLENDED from them. The overrun may be wholly an
+artifact of the inflated unit rather than real work, so treat the figures as an upper
+bound of unknown tightness, not a measurement.
+
+EXTEND is the wrong first move while that banner stands — it would raise a real ceiling
+to accommodate tokens that were never spent. Re-denominate the setpoint into the post-fix
+unit first, then read this line again. And if you have JUST re-denominated: expect this
+declaration to keep firing. The burn side is still counted in the old unit and the log is
+append-only, so a correctly re-denominated ceiling will read as a foreseen overrun for the
+rest of this initiative. That is the arithmetic working, not the remedy failing.
+"
+          fi
           cat <<EOF
 [budget-gate] FORESEEN OVERRUN ${WHERE} — the initiative is PROJECTED to exceed its budget.
 
@@ -458,7 +542,7 @@ if [ -z "$BREACH_KIND" ]; then
     initiative budget:     ${INITIATIVE_BUDGET} tokens
     projected over by:     $((PROJECTED_TOTAL - INITIATIVE_BUDGET)) tokens
     burn window:           ${INITIATIVE_WINDOW}
-
+${MIXNOTE}
 This is a DECLARATION, not a stop. A deliverable-budget breach is fuzzy — the
 projection is a RANGE, not a fact — so the session is NOT paused and NOTHING is
 changed (the machinery never raises a setpoint). It is a signal for a person at
