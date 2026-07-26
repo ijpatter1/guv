@@ -55,6 +55,12 @@ sandbox/tmp/
 # tracked). The committed append-only metering logs (metering.ndjson /
 # calibration.ndjson) are deliberately NOT ignored — they are shared evidence.
 .claude/metering/.last-suite-runtime
+# guv recorded battery verdict (battery-result.sh — run-core-tests.sh records its
+# verdict here so the QA stages downstream read it instead of each paying for its
+# own battery run). Machine-local and tree-specific: it carries a fingerprint of
+# the exact working tree it ran against, so a committed copy would be stale for
+# everyone who pulled it.
+.claude/metering/.last-battery-result
 # guv-core-end
 
 # ─────────────────────────────────────────────

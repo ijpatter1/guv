@@ -41,7 +41,37 @@ Read the latest session handoff artifact in `docs/sessions/` and check `docs/PHA
 
 ### 2. Run the Tests
 
-Run the project's test command via the manifest-command helper:
+**Read the recorded verdict before running anything.** On a project with a long
+suite the battery is the most expensive thing in a QA pass, and the same unchanged
+tree is routinely run through it more than once per pass — by the session, by you,
+and by whatever runs next. Exactly one stage needs to pay for it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}"/scripts/battery-result.sh read   # script absent → go straight to the battery below
+```
+
+Its exit code is the contract:
+
+- **0** — a full run went green against *this exact tree* (HEAD, the tracked diff,
+  and untracked file content all match what was recorded). Record its counts as
+  your test result and do **not** re-run. The provenance check is the only reason
+  this is safe: a stale green consumed as fresh is worse than no result, because it
+  looks like verification.
+- **1** — a full run went RED against this tree. Record the failure. If you need
+  detail on a particular suite, run just that one:
+  `bash .claude/run-core-tests.sh --only '<glob>'`.
+- **3** — refused, and it says why: nothing recorded yet, the tree has MOVED since
+  the recorded run, or the recorded run was `--only`-filtered and so is not a
+  whole-tree proof. Run the full battery below.
+- **4**, or the script isn't there — no provenance available. Run the full battery
+  below.
+
+A `--only` run is never your test result. It covers the suites it names and nothing
+else; reporting it as "tests pass" is the same vacuous green the refusal above
+exists to prevent.
+
+When you do need the battery, run the project's test command via the
+manifest-command helper:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}"/scripts/guv-cmd.sh test   # runs commands.test, e.g. "npm test", "pytest"

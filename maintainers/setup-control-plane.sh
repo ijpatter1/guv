@@ -800,9 +800,16 @@ wait
 # Replay suites in sorted order; apply the gate (nonzero rc OR any stderr byte OR
 # a failure-shaped stdout verdict). One verdict variable; the runner's exit IS it.
 fail=0
+# nfail counts FAILING SUITES for the [A2] recorded verdict. It is bookkeeping
+# only: `fail` remains the single verdict variable and every assignment to it
+# below is untouched, so the [15.1] gate behaves identically with or without it.
+# sfail is the per-suite marker — a suite can trip several gate legs at once and
+# must still count once.
+nfail=0
 for i in "${!SUITES[@]}"; do
   t="${SUITES[$i]}"
   name="$(basename "$t")"
+  sfail=0
   echo "== $name =="
   cat "$WORKDIR/$i.out" 2>/dev/null
   rc=$(cat "$WORKDIR/$i.rc" 2>/dev/null || echo 1)
@@ -810,17 +817,17 @@ for i in "${!SUITES[@]}"; do
   # (a) timeout: 124 (timed out) / 137 (SIGKILL after -k grace) — name it loud.
   if [ "$rc" = "124" ] || [ "$rc" = "137" ]; then
     echo "[timeout] $name TIMED OUT after ${SUITE_TIMEOUT}s (rc=$rc) — failing the run (a hang, not sandbox slowness)"
-    fail=1
+    fail=1; sfail=1
   elif [ "$rc" != "0" ]; then
     echo "[rc] $name exited nonzero (rc=$rc) — failing the run"
-    fail=1
+    fail=1; sfail=1
   fi
 
   # (c-stderr) any stderr byte fails the run.
   if [ -s "$WORKDIR/$i.err" ]; then
     echo "[stderr] $name wrote to stderr — failing the run:"
     cat "$WORKDIR/$i.err"
-    fail=1
+    fail=1; sfail=1
   fi
 
   # (c-stdout) a failure-shaped STDOUT verdict fails the run even if rc=0: a ✗
@@ -831,8 +838,10 @@ for i in "${!SUITES[@]}"; do
   if grep -q '✗' "$WORKDIR/$i.out" 2>/dev/null \
      || grep -qE 'Results:[[:space:]]*[0-9]+[[:space:]]*passed,[[:space:]]*[1-9][0-9]*[[:space:]]*failed' "$WORKDIR/$i.out" 2>/dev/null; then
     echo "[stdout] $name reported a FAILURE on stdout while exit was $rc — failing the run (stdout-only failures are not green)"
-    fail=1
+    fail=1; sfail=1
   fi
+
+  [ "$sfail" = "1" ] && nfail=$((nfail + 1))
 done
 
 # Per-suite wall-clock, slowest first, on stderr. This is RETAINED measurement, not
@@ -855,6 +864,21 @@ done
     printf '%s %s\n' "$(cat "$WORKDIR/$i.dur" 2>/dev/null || echo 0)" "$(basename "${SUITES[$i]}")"
   done | sort -rn | while read -r d n; do printf '  %5ss  %s\n' "$d" "$n"; done
 } >&2
+
+# Record this run's verdict together with a fingerprint of the tree it covered
+# (Prong A2), so a QA stage can consume THIS battery instead of paying ~800s for
+# its own. Guarded so it can never affect the verdict: it runs in a subshell, all
+# of its output goes to the runner's stderr, and its exit status is discarded —
+# `fail` is computed above and nothing here may touch it ([15.1] exit-masking).
+#
+# Failure to record is a DESIGNED degradation, not an error: a consumer with no
+# usable record refuses and runs the battery itself, which is precisely today's
+# behavior. The degradation direction is toward doing the work, never toward a
+# green nobody verified.
+if [ -f "$HERE/battery-result.sh" ]; then
+  ( bash "$HERE/battery-result.sh" record \
+      "$fail" "${#SUITES[@]}" "$(( ${#SUITES[@]} - nfail ))" "$nfail" "$ONLY" ) >&2 || true
+fi
 
 # The runner's verdict IS its exit status, and NOTHING follows it: a trailing
 # post-runner command cannot mask a suite failure (the [15.1] exit-masking hole).

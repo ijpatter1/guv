@@ -7,6 +7,7 @@ set -u
 
 REAL_SCRIPT="$(cd "$(dirname "$0")/../.." && pwd)/maintainers/setup-control-plane.sh"
 REAL_ROOTS_SH="$(cd "$(dirname "$0")/.." && pwd)/roots.sh"  # shipped beside the generated runner ([11.2])
+REAL_BATTERY_RESULT="$(cd "$(dirname "$0")/.." && pwd)/battery-result.sh"  # the [prong-A2] recorder, same glob
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 
 # Maintainer tooling — a consumer repo that deleted maintainers/ still ships
@@ -56,6 +57,11 @@ make_guv() {
   # provide it too or the runner can't source it. A faithful minimal resolver:
   # roots.code string is the primary, '.' / no manifest is single-repo.
   cp "$REAL_ROOTS_SH" "$h/.claude/roots.sh"
+  # battery-result.sh — the [prong-A2] recorded verdict the generated runner calls
+  # at the end of a run. Shipped the same way (copy_core's *.sh glob), so carrying
+  # the REAL one here keeps T11r a test of the SHIPPED path: a hand-planted copy in
+  # the plane would pass while the recorder never reached a real install.
+  cp "$REAL_BATTERY_RESULT" "$h/.claude/battery-result.sh"
   # A realistic settings.json carrying BOTH a hooks block (the [19.5] double-fire
   # surface — what the plugin-dedup strips) and a non-hook key (permissions — the
   # survives-the-strip control). The suite-wide neutral GUV_PLUGINS_DB keeps these
@@ -865,6 +871,46 @@ only_run "$BP"
   && printf '%s' "$ONLY_OUT$ONLY_ERR" | grep -q 'unwanted.test.sh' \
   && ok "[prong-A1] no arguments still runs the full battery unchanged (the filter is additive; the session-close gate is untouched)" \
   || no "[prong-A1] argument handling must not change the unfiltered run — the full battery is still the gate at session close (rc=$ONLY_RC)"
+
+# T11r — RECORDED VERDICT (Prong A2). The runner is the single owner of suite
+# execution; everything downstream is supposed to read its result rather than pay
+# ~800s for its own. That only works if the runner actually records, and if a
+# FILTERED run is marked as filtered — a --only verdict consumed as a whole-tree
+# proof is the vacuous green A1's zero-match rule prevents, one level up.
+#
+# The provenance semantics themselves live in battery-result.test.sh; what is
+# asserted HERE is only the wiring: the runner calls the recorder, with the right
+# counts, and marks the filter.
+IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
+plant_suite "$BC" "reca.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC" "recb.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+( cd "$BC" && git init -q . && git config user.email t@t && git config user.name t \
+  && git add -A && git commit -qm init ) >/dev/null 2>&1
+run_battery "$BP"
+REC="$BP/.claude/metering/.last-battery-result"
+[ "$BATT_RC" -eq 0 ] && [ -f "$REC" ] \
+  && [ "$(jq -r '.suites' "$REC" 2>/dev/null)" = "2" ] \
+  && [ "$(jq -r '.failed' "$REC" 2>/dev/null)" = "0" ] \
+  && [ "$(jq -r '.filtered' "$REC" 2>/dev/null)" = "null" ] \
+  && ok "[prong-A2] a full run records its verdict with suite counts and no filter (the single owner leaves something for the others to read)" \
+  || no "[prong-A2] the runner must record the verdict it just produced, or every QA stage pays for its own battery (rc=$BATT_RC rec=$(cat "$REC" 2>/dev/null))"
+
+# A filtered run must be RECORDED AS FILTERED. If --only wrote an unmarked
+# verdict, the next QA stage would read "the battery passed" when one suite ran.
+( cd "$BP" && bash .claude/run-core-tests.sh --only 'reca.test.sh' ) >/dev/null 2>&1
+[ "$(jq -r '.filtered' "$REC" 2>/dev/null)" = "reca.test.sh" ] \
+  && [ "$(jq -r '.suites' "$REC" 2>/dev/null)" = "1" ] \
+  && ok "[prong-A2] a --only run records itself as FILTERED (A1 cannot hand A2 a one-suite verdict that reads as a full battery)" \
+  || no "[prong-A2] a filtered run recorded without its filter is a vacuous green waiting to be consumed (rec=$(cat "$REC" 2>/dev/null))"
+
+# The recorder must never be able to change the verdict. This is the [15.1]
+# exit-masking invariant: a red battery stays red even if recording is impossible,
+# and a green one is not turned red by a recorder that fails.
+rm -f "$BP/.claude/battery-result.sh"
+run_battery "$BP"
+[ "$BATT_RC" -eq 0 ] \
+  && ok "[prong-A2] a missing recorder degrades to today's behavior and cannot alter the verdict (record failure never masks or invents a result)" \
+  || no "[prong-A2] recording is bookkeeping — its absence must not fail a green battery (rc=$BATT_RC)"
 
 # T11a — fix (c) stdout-only-failure blindness: a suite that announces its FAILURE
 # only on stdout AND lies with exit 0 must NOT yield a green battery. This is the
