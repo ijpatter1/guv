@@ -595,15 +595,18 @@ trap - EXIT
 # they ARE scanned here. Reuses $CMDS and $GENERIC_DECODER from
 # T12b/T12d. Runs unconditionally (no plugin/ dependency; tolerates an absent
 # maintainers/), so it is the one plugin-transform check a lane can run.
-t12e_sources() {
-  local x
-  for x in "$SRC"/*.sh "$SRC"/hooks/*.sh "$SRC"/skills/*/scripts/*.sh \
-           "$ROOT"/maintainers/plugin-src/scripts/*.sh \
-           "$SRC"/rules/guv-*.md "$SRC"/workflows/*.js; do
+# Both take an optional ROOT so the positive control below can scan a scratch
+# copy instead of planting its fixture in the live tree (spike Prong B). The real
+# lint still runs against $ROOT — it exists to catch violations in the real source.
+t12e_sources() {  # [<root>]
+  local r="${1:-$ROOT}" x
+  for x in "$r"/.claude/*.sh "$r"/.claude/hooks/*.sh "$r"/.claude/skills/*/scripts/*.sh \
+           "$r"/maintainers/plugin-src/scripts/*.sh \
+           "$r"/.claude/rules/guv-*.md "$r"/.claude/workflows/*.js; do
     [ -e "$x" ] && echo "$x"
   done
 }
-t12e_violations() {
+t12e_violations() {  # [<root>]
   local f n scanned=0
   while IFS= read -r f; do
     [ -e "$f" ] || continue
@@ -616,7 +619,7 @@ t12e_violations() {
         printf '%s:%s\n' "$(basename "$f")" "$n"
       fi
     done
-  done < <(t12e_sources)
+  done < <(t12e_sources "${1:-$ROOT}")
   printf 'SCANNED:%s\n' "$scanned"
 }
 T12E_OUT=$(t12e_violations)
@@ -627,21 +630,26 @@ if [ "${T12E_SCANNED:-0}" -gt 0 ] && [ "$T12E_VIOL" -eq 0 ]; then
 else
   no "T12e: scanned=$T12E_SCANNED, source violations: $(printf '%s\n' "$T12E_OUT" | grep -v '^SCANNED:' | tr '\n' ' ')"
 fi
-# positive control — plant a source script with a bare mention and no decoder
-T12E_FIX="$SRC/zz-t12e-fixture.sh"
-# Leftover from a crashed run → clean and proceed (throwaway path), never
-# hard-fail the battery (feedback 2026-06-12T04:35:14Z-143815213).
-[ -e "$T12E_FIX" ] && { echo "  - cleaning a stale T12e fixture (prior crashed run): $T12E_FIX"; rm -f "$T12E_FIX"; }
-trap 'rm -f "$T12E_FIX"' EXIT
+# positive control — plant a source script with a bare mention and no decoder,
+# in a scratch COPY of the tree (spike Prong B). This fixture is the one named in
+# friction 2026-06-29T18:50:15Z-1575732184: left behind by a crashed run, it reds
+# the NEXT battery through T9's byte-identical-shipping check, because a stray
+# .claude/*.sh is indistinguishable from a real helper that failed to ship. The
+# cleanup line and EXIT trap that guarded that hazard are gone with the live-tree
+# plant — a crashed run now leaks a mktemp directory instead.
+T12E_COPY=$(mk_source_copy)
+T12E_FIX="$T12E_COPY/.claude/zz-t12e-fixture.sh"
 printf '#!/bin/bash\n# Planted violation: mentions /handoff with no guv: decoder.\n' > "$T12E_FIX"
-T12E_OUT2=$(t12e_violations)
+[ ! -e "$SRC/zz-t12e-fixture.sh" ] \
+  && ok "the decoder-lint fixture is planted outside the live source tree (no concurrent reader can see it)" \
+  || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($SRC/zz-t12e-fixture.sh exists mid-run)"
+T12E_OUT2=$(t12e_violations "$T12E_COPY")
 if printf '%s\n' "$T12E_OUT2" | grep -q 'zz-t12e-fixture.sh:handoff'; then
   ok "positive control: the source lint flags a planted bare mention without a decoder"
 else
   no "T12e positive control failed — the source scan did not flag the planted violation"
 fi
-rm -f "$T12E_FIX"
-trap - EXIT
+rm -rf "$T12E_COPY"
 
 # T13 — no install-time tooling (spec constraint, Phase 5 scoped): the plugin
 # may use the native manifest format but ships no postinstall machinery.
