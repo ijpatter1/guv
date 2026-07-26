@@ -1035,6 +1035,228 @@ if jq -e 'has("hooks") | not' "$D/.claude/settings.json" >/dev/null 2>&1; then
 else
   no "[19.5] --sync must also dedup (an existing plane that later installed the plugin keeps double-firing)"
 fi
+
+# ── T13 — the installed plugin CACHE is refreshed when it drifts from source ──
+# [19.5] hands hook registration to the plugin; that makes the plugin's OWN copy of
+# core the one every hook actually runs (session-start.sh resolves BASE from its own
+# dirname, so a plugin-registered hook executes ${CLAUDE_PLUGIN_ROOT}/scripts/*, never
+# the plane's synced .claude/*). So --sync could deliver a fixed script to .claude/
+# while every hook kept running the release-frozen cache copy — silently, because the
+# cache and source report the SAME plugin version while their content differs. Observed
+# live: a budget-gate.sh windowing fix landed in source on 2026-07-21 and the cached
+# pre-fix gate still fired a spurious initiative BREACH at every session entry, whose
+# own banner invites the operator to raise the budget setpoint — a phantom ~914M-token
+# overage presented as a decision. The refresh is the other half of the [19.5] handoff:
+# having made the plugin authoritative, --sync must not leave it stale.
+# Rule 15 throughout: the DB alone never authorizes the write — a guv entry names a
+# path, and the cache's OWN plugin.json must agree it is the artifact this repo builds.
+# Every rung that cannot establish that discloses and writes nothing; only "guv is not
+# installed here" is silent. GUV_PLUGINS_DB carries installPath, so the whole seam is
+# testable without touching the real ~/.claude cache.
+# The refresh covers three trees — scripts/, hooks/, workflows/ — because those are what
+# the plugin path EXECUTES or reads as registration. skills/, agents/ and rules/ are read
+# by name and stay at the release, which is both the documented dual-load (DOGFOODING.md)
+# and what keeps the prune from ever reaching a directory Claude Code owns.
+PLUGIN_JSON='{"name":"guv","version":"0.10.0","description":"fixture"}'
+seed_cache() {   # $1 = cache dir; a STALE script, the identity manifest, and Claude Code's own
+  mkdir -p "$1/scripts" "$1/.claude-plugin" "$1/.in_use"
+  printf 'STALE GATE — pre-windowing\n' > "$1/scripts/budget-gate.sh"
+  printf '%s\n' "$PLUGIN_JSON" > "$1/.claude-plugin/plugin.json"
+  # .in_use is Claude Code's per-session PID-lock directory, planted EMPTY on purpose:
+  # empty is its ordinary state between sessions, and an empty directory is exactly what
+  # an unscoped `find "$cache" -type d -empty -delete` reaches. It and the root-level
+  # file beside it must survive every refresh — see T13g.
+  printf 'claude-code owns this\n' > "$1/.last_inuse_sweep"
+}
+seed_built() {   # $1 = guv home; the built plugin tree --sync refreshes FROM
+  mkdir -p "$1/plugin/scripts" "$1/plugin/.claude-plugin"
+  printf 'CURRENT GATE — windowed\n' > "$1/plugin/scripts/budget-gate.sh"
+  printf '%s\n' "$PLUGIN_JSON" > "$1/plugin/.claude-plugin/plugin.json"
+}
+db_with_path() { # $1 = installPath → a guv-family DB naming it
+  printf '{"version":2,"plugins":{"guv@guv":[{"scope":"user","version":"0.10.0","installPath":"%s"}]}}\n' "$1"
+}
+
+# Each case CREATES the plane with a neutral DB first (so the create-path refresh does
+# not pre-empt what we are pinning) and only then --syncs with the DB under test. An
+# earlier draft --synced a directory that had never been created; setup exits early with
+# "not an existing control plane", so it never reached the refresh — and three of these
+# five assertions passed on that early exit rather than on merit.
+NEUTRAL_DB="$WORK/db-neutral.json"
+printf '%s\n' '{"version":2,"plugins":{}}' > "$NEUTRAL_DB"
+
+# T13a — drift detected on --sync → the cached script is refreshed to match source.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-refresh"; C="$WORK/cx-refresh-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"                                  # stale only AFTER the create
+db_with_path "$C" > "$WORK/db-refresh.json"
+OUT13=$( GUV_PLUGINS_DB="$WORK/db-refresh.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+if diff -q "$C/scripts/budget-gate.sh" "$H/plugin/scripts/budget-gate.sh" >/dev/null 2>&1; then
+  ok "[19.5] --sync refreshes a DRIFTED plugin cache — hook-invoked core stops running release-old code"
+else
+  no "[19.5] --sync must refresh the drifted plugin cache (hooks run the CACHE copy; a stale gate/meter keeps firing)"
+fi
+
+# T13b — the refresh is announced and NAMES what drifted (never silent, Rule 15).
+printf '%s' "$OUT13" | grep -q 'drifted:' && printf '%s' "$OUT13" | grep -q 'budget-gate.sh' \
+  && ok "[19.5] the refresh names the drifted script(s) — a stale meter and a stale gate are different problems" \
+  || no "[19.5] the refresh must name what drifted (an unnamed refresh is indistinguishable from no drift)"
+
+# T13b2 — the result is VERIFIED, not asserted from cp's exit status. cp -R is documented
+# to keep copying after an error, so a 0 exit does not mean the tree matches; the report
+# has to come from re-reading the cache.
+printf '%s' "$OUT13" | grep -q 'verified: hook-invoked core' \
+  && ok "[19.5] the refresh re-reads the cache and reports what it FOUND (cp's exit status cannot carry this)" \
+  || no "[19.5] parity must be verified after the copy, not claimed from cp's exit status (cp -R continues past errors)"
+
+# T13c — a non-guv plugin entry never authorizes a write into its cache (positive signal
+# only — the same asymmetry as T12b: a detection failure must never license a write).
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-noplugin"; C="$WORK/cx-noplugin-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"; BEFORE=$(cat "$C/scripts/budget-gate.sh")
+printf '%s\n' '{"version":2,"plugins":{"other@mkt":[{"scope":"user","installPath":"'"$C"'"}]}}' > "$WORK/db-other.json"
+( GUV_PLUGINS_DB="$WORK/db-other.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
+[ "$(cat "$C/scripts/budget-gate.sh")" = "$BEFORE" ] \
+  && ok "[19.5] a non-guv plugin entry never authorizes a write into its cache (positive signal only)" \
+  || no "[19.5] --sync must not write into a cache it cannot attribute to the guv plugin"
+
+# T13d — installPath recorded but ABSENT on disk → disclose, create nothing. A cache dir
+# this run did not find is not one it may invent.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-missing"; C="$WORK/cx-never-existed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+db_with_path "$C" > "$WORK/db-missing.json"
+OUT13D=$( GUV_PLUGINS_DB="$WORK/db-missing.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+[ ! -e "$C" ] \
+  && ok "[19.5] a recorded-but-absent installPath is never created — --sync verifies, it does not provision a cache" \
+  || no "[19.5] --sync must not conjure a plugin cache directory that was not already there"
+# Assert a phrase only the disclosure emits: an earlier draft grepped for 'cache', which
+# the fixture's own DEST path already supplies via the [setup] synced-core line.
+printf '%s' "$OUT13D" | grep -q 'NOT verified' \
+  && ok "[19.5] an unresolvable cache is disclosed, not passed over in silence (Rule 15)" \
+  || no "[19.5] failing to verify the cache must be announced — silence reads as verified"
+
+# T13e — no drift → idempotent: nothing is claimed refreshed on a cache already current.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-current"; C="$WORK/cx-current-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+mkdir -p "$C/scripts" "$C/.claude-plugin"
+cp "$H/plugin/scripts/budget-gate.sh" "$C/scripts/budget-gate.sh"
+printf '%s\n' "$PLUGIN_JSON" > "$C/.claude-plugin/plugin.json"
+db_with_path "$C" > "$WORK/db-current.json"
+OUT13E=$( GUV_PLUGINS_DB="$WORK/db-current.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+# Anchor on the banner itself: an earlier draft grepped for 'refresh', which two unrelated
+# --sync lines ("refreshed .claude/run-core-tests.sh", "refreshed status-render post-commit
+# hook") also emit — it passed on fixture luck, not on the property.
+printf '%s' "$OUT13E" | grep -q 'PLUGIN CACHE DRIFT' \
+  && no "[19.5] a current cache must not report a refresh (crying drift every sync trains the operator to ignore it)" \
+  || ok "[19.5] a cache already matching source reports no refresh — the signal stays meaningful"
+
+# T13f — an asset REMOVED upstream is pruned from the cache, not left beside its
+# replacement. Overlay alone guarantees only cache ⊇ source, so a landed rename would be
+# half-delivered: both the old and the new entry point live at once, and which one runs
+# is whichever the caller names. Mirrors copy_core's obsolete-prune for the plane.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-prune"; C="$WORK/cx-prune-installed"
+mkdir -p "$H/plugin/scripts/nested"; printf 'new name\n' > "$H/plugin/scripts/resolve-stack.sh"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"
+mkdir -p "$C/scripts/nested"; printf 'old name\n' > "$C/scripts/nested/resolve-stacks.sh"
+db_with_path "$C" > "$WORK/db-prune.json"
+OUT13F=$( GUV_PLUGINS_DB="$WORK/db-prune.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+[ ! -e "$C/scripts/nested/resolve-stacks.sh" ] \
+  && ok "[19.5] an asset removed upstream is pruned from the cache — a landed rename is not half-delivered" \
+  || no "[19.5] the refresh must prune what source dropped (overlay alone leaves the OLD entry point live beside the new one)"
+printf '%s' "$OUT13F" | grep -q 'removed upstream: scripts/nested/resolve-stacks.sh' \
+  && ok "[19.5] each pruned asset is NAMED (a silent delete from a user-scope cache is the wrong kind of quiet)" \
+  || no "[19.5] pruned cache assets must be named in the report, as copy_core names the plane's"
+[ -f "$C/scripts/resolve-stack.sh" ] \
+  && ok "[19.5] the replacement asset is delivered alongside the prune (rename lands whole)" \
+  || no "[19.5] the prune must not race the overlay — the new entry point has to be present"
+
+# T13g — the prune STOPS. It is a delete in a user-scope directory Claude Code also
+# writes to, so its scope limit is the safety property, not an implementation detail:
+# .in_use/ (Claude Code's per-session PID locks) sits at the cache root and must be
+# untouched, and skills/ is left at the RELEASE on purpose — that is the dual-load
+# DOGFOODING.md documents, and it is why the walk never leaves the three guv trees.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-scope"; C="$WORK/cx-scope-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"
+# A skill RENAME staged in the one tree the refresh must NOT touch (the shape [24.1]
+# had): source ships the new name, the cache still carries the old. Both halves must be
+# inert — the release door survives AND the source door is never delivered. Planting the
+# built side matters: the stale walk skips a tree the built plugin does not ship at all,
+# so without plugin/skills here a widened scope would sail past this assertion. The names
+# are fabricated on purpose — a live surface may not carry a retired door name, which
+# docs-sweep enforces repo-wide.
+mkdir -p "$H/plugin/skills/newdoor"; printf 'source door\n' > "$H/plugin/skills/newdoor/SKILL.md"
+mkdir -p "$C/skills/olddoor"; printf 'release door\n' > "$C/skills/olddoor/SKILL.md"
+# A removed-upstream file so the PRUNE path actually runs: the empty-directory sweep is
+# gated on there being something to prune, so without this the unscoped-sweep bug would
+# sail past every assertion below.
+printf 'retired\n' > "$C/scripts/retired.sh"
+db_with_path "$C" > "$WORK/db-scope.json"
+( GUV_PLUGINS_DB="$WORK/db-scope.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
+[ ! -e "$C/scripts/retired.sh" ] \
+  && ok "[19.5] the prune ran in this fixture — the scope assertions below are live, not vacuous" \
+  || no "[19.5] the prune must fire here, or the scope-limit assertions that follow prove nothing"
+[ -d "$C/.in_use" ] && [ -f "$C/.last_inuse_sweep" ] \
+  && ok "[19.5] the prune never reaches Claude Code's own .in_use/ or the cache root — the delete stays inside the three guv trees" \
+  || no "[19.5] the refresh must not delete a cache-root entry Claude Code owns (.in_use is its PID-lock dir, and EMPTY is its ordinary state)"
+[ -f "$C/skills/olddoor/SKILL.md" ] && [ ! -e "$C/skills/newdoor/SKILL.md" ] \
+  && ok "[19.5] skills/ is left at the release, both halves — the refresh reaches what EXECUTES, preserving the documented dual load" \
+  || no "[19.5] the refresh must not rewrite read-by-name trees; the defect is executed code, and DOGFOODING.md's dual load depends on this"
+
+# T13h — a guv entry whose installPath cannot be resolved is the rung where silence is
+# most dangerous: the dedup has just announced "the plugin is authoritative", so hearing
+# nothing about its cache reads as verified. This is the original defect's exact shape.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-nopath"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+printf '%s\n' '{"version":2,"plugins":{"guv@guv":[{"scope":"user","version":"0.10.0"}]}}' > "$WORK/db-nopath.json"
+OUT13H=$( GUV_PLUGINS_DB="$WORK/db-nopath.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+printf '%s' "$OUT13H" | grep -q 'records no installPath' \
+  && ok "[19.5] a guv entry with no installPath is disclosed — 'present but unlocatable' is not the same as 'not installed'" \
+  || no "[19.5] an unresolvable guv cache must be announced; the dedup just handed it authority"
+
+# T13i — no built plugin here → disclose and leave the installed cache alone. The
+# maintainer who edited .claude/ but never rebuilt gets told, not silently served.
+H=$(make_guv); D="$WORK/cx-nobuilt"; C="$WORK/cx-nobuilt-installed"   # note: NO seed_built
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"; BEFORE=$(cat "$C/scripts/budget-gate.sh")
+db_with_path "$C" > "$WORK/db-nobuilt.json"
+OUT13I=$( GUV_PLUGINS_DB="$WORK/db-nobuilt.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+printf '%s' "$OUT13I" | grep -q 'no built plugin at' && [ "$(cat "$C/scripts/budget-gate.sh")" = "$BEFORE" ] \
+  && ok "[19.5] with no built plugin, the cache is disclosed as unverified and left untouched" \
+  || no "[19.5] a missing plugin/ build must disclose and write nothing — it is not evidence the cache is current"
+
+# T13j — the DB says guv, the artifact must agree. 'guv@* and the directory exists' is a
+# claim by the plugin DB; the cache's own plugin.json is a claim by the artifact. Without
+# the second, a maintainer running a FORK at $GUV_DIR silently overwrites — and now
+# partly DELETES — the released plugin every guv project on the machine runs.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-foreign"; C="$WORK/cx-foreign-installed"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C"; BEFORE=$(cat "$C/scripts/budget-gate.sh")
+printf '%s\n' '{"name":"not-guv","version":"9.9.9"}' > "$C/.claude-plugin/plugin.json"
+db_with_path "$C" > "$WORK/db-foreign.json"
+OUT13J=$( GUV_PLUGINS_DB="$WORK/db-foreign.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
+printf '%s' "$OUT13J" | grep -q "refusing to overwrite a plugin this repo does not build" \
+  && [ "$(cat "$C/scripts/budget-gate.sh")" = "$BEFORE" ] \
+  && ok "[19.5] a cache whose manifest names another plugin is refused — the DB names a path, the artifact confirms identity" \
+  || no "[19.5] the write must be authorized by the artifact's own manifest, not by the plugin DB alone"
+
+# T13k — every recorded install is refreshed, not just the first. user- and local-scope
+# entries coexist under one key, and several guv@<marketplace> keys can coexist too;
+# refreshing whichever jq emitted first would declare parity for a cache that is not the
+# one running.
+H=$(make_guv); seed_built "$H"; D="$WORK/cx-multi"
+C1="$WORK/cx-multi-user"; C2="$WORK/cx-multi-local"
+( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
+seed_cache "$C1"; seed_cache "$C2"
+printf '{"version":2,"plugins":{"guv@guv":[{"scope":"user","installPath":"%s"},{"scope":"local","installPath":"%s"}]}}\n' \
+  "$C1" "$C2" > "$WORK/db-multi.json"
+( GUV_PLUGINS_DB="$WORK/db-multi.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
+diff -q "$C1/scripts/budget-gate.sh" "$H/plugin/scripts/budget-gate.sh" >/dev/null 2>&1 \
+  && diff -q "$C2/scripts/budget-gate.sh" "$H/plugin/scripts/budget-gate.sh" >/dev/null 2>&1 \
+  && ok "[19.5] every recorded guv install is refreshed — a second cache left stale is a cache still running the defect" \
+  || no "[19.5] the refresh must cover all recorded installPaths; picking the first silently leaves the others stale"
+
 fi  # SCP_TEST_INNER guard (T12 [19.5] block)
 
 echo ""

@@ -161,12 +161,27 @@ slip reds the test battery loudly instead of shipping unnoticed.
 
 A maintainer machine may also have `guv@guv` installed at user scope — dogfooding the
 released plugin while developing the next one. A control-plane session then loads BOTH
-surfaces: the project `.claude/` copy (possibly carrying unreleased changes) and the
-plugin's `/guv:`-namespaced copies (the last release). Expect doubled command listings.
-The plugin's `hooks.json` rides along too; its reviewer read-only guard is
-agent-type-gated, so it stays inert outside `guv:`-spawned reviewers. When testing
-unreleased changes, mind which copy you invoke: bare names are the synced project copy,
-`/guv:` names are the release.
+surfaces: the project `.claude/` copy and the plugin's `/guv:`-namespaced copies.
+Expect doubled command listings.
+
+The plugin's `hooks.json` is not a passenger — since [19.5] it is the **single
+authoritative** hook registration whenever the plugin is present (the synced
+`settings.json` ships hooks-free to stop the double-fire). Every hook therefore runs
+the **cache's** copy of core, resolved from the hook script's own directory — not the
+plane's `.claude/`. That is why `setup-control-plane.sh` refreshes the plugin cache
+from the built `plugin/` on create and `--sync`: without it, a fix could sit in
+`.claude/` while every hook kept executing the release-frozen copy (see the
+`refresh_plugin_cache` comment for the incident that found this).
+
+The refresh covers exactly what the plugin path *executes*: `scripts/`, `hooks/` and
+`workflows/`. Everything read **by name** — `skills/`, `agents/`, `rules/` — is left at
+the release deliberately, so the dual load stays a real comparison: bare names are the
+plane's synced copy, `/guv:` names are the last release. Mind the seam that leaves. After
+a sync the cache is a hybrid *by design* — release skill text calling source scripts. It
+stays coherent as long as a script's interface is stable across the gap, and it is the
+first thing to check when a `/guv:` command behaves oddly right after a script change
+landed: rebuild and release, or invoke the bare name. The reviewer read-only guard is
+agent-type-gated either way, so it stays inert outside `guv:`-spawned reviewers.
 
 ## Ceremony: seeded `task`, flipped per initiative
 
