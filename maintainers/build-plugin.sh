@@ -248,15 +248,31 @@ cp "$SRC/rules"/guv-*.md "$OUT/rules/"
 # patterns require a trailing /<file>.md or /SKILL.md. ship-suite.test.sh derives
 # the SAME partition and asserts it both directions, so this rule lives once.
 MAINTAINER_ONLY='maintainers/|plugin-src/|\.claude/settings\.json|skills/[a-z][a-z-]*/SKILL\.md|project\.schema\.json|[a-z][a-z-]*\.shape\.md|/metering[a-z-]*\.md'
+#
+# The match is over the WHOLE file, comments included, and that is a known trap:
+# a consumer-relevant suite that merely mentions one of these paths in prose stops
+# shipping, and consumer installs lose the coverage. It happened on 2026-07-27
+# (battery-result.test.sh, 24 shipped suites silently became 23). Reading only the
+# code is NOT the fix — measured the same day, it would newly ship three suites
+# (build-fanout, door-vocabulary, lane-builder) that assert source-only surfaces
+# and fail in plugin layout, so their exclusion is correct even though the reason
+# recorded for it is not. What made the trap expensive was SILENCE, so the loop
+# below announces what it dropped; the classifier is unchanged. Friction
+# 2026-07-27T05:03:02Z-691324996 holds the real fix (an explicit marker per suite).
 mkdir -p "$OUT/tests"
+SHIPPED_N=0
+EXCLUDED_SUITES=""
 for t in "$SRC/tests"/*.test.sh; do
   b="$(basename "$t")"
   # the ship-suite self-test IS the shipping machinery's own guard — it builds
   # the plugin and asserts the partition, so it never ships into the plugin
   case "$b" in ship-suite.test.sh) continue ;; esac
-  grep -qE "$MAINTAINER_ONLY" "$t" && continue
+  grep -qE "$MAINTAINER_ONLY" "$t" && { EXCLUDED_SUITES="$EXCLUDED_SUITES $b"; continue; }
   cp "$t" "$OUT/tests/$b"
+  SHIPPED_N=$((SHIPPED_N + 1))
 done
+EXCLUDED_N=$(printf '%s' "$EXCLUDED_SUITES" | wc -w | tr -d ' ')
+echo "[build] test suites: $SHIPPED_N shipped, $EXCLUDED_N maintainer-only (not shipped):$EXCLUDED_SUITES"
 
 # The runner rebuilds a temp .claude/-shaped tree from the FLATTENED plugin
 # scripts/ so the location-relative suites ($(dirname "$0")/.. -> .claude/) run
@@ -301,6 +317,7 @@ SCRIPTS="$PLUGIN/scripts"
 HOOKS_JSON="$PLUGIN/hooks/hooks.json"
 TESTS="$PLUGIN/tests"
 RULES="$PLUGIN/rules"
+AGENTS="$PLUGIN/agents"
 
 if [ ! -d "$SCRIPTS" ] || [ ! -f "$HOOKS_JSON" ]; then
   echo "run-plugin-tests: not a plugin tree (missing scripts/ or hooks/hooks.json): $PLUGIN" >&2
@@ -310,7 +327,7 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 REC="$WORK/.claude"
-mkdir -p "$REC/hooks" "$REC/tests" "$REC/rules"
+mkdir -p "$REC/hooks" "$REC/tests" "$REC/rules" "$REC/agents"
 
 # the hook basenames hooks.json references — these scripts were .claude/hooks/X.sh
 HOOK_NAMES="$(jq -r '.hooks[][]?.hooks[]?.command' "$HOOKS_JSON" 2>/dev/null \
@@ -337,6 +354,17 @@ done
 
 # rules ship as plugin assets; some location-relative suites read .claude/rules/
 [ -d "$RULES" ] && cp "$RULES"/*.md "$REC/rules/" 2>/dev/null || true
+
+# agent definitions ship as plugin assets too, same shape as rules above. This is
+# not symmetry for its own sake: battery-result.test.sh T15 pins the CONSUMER-INSTALL
+# contract in agent prose (this recorder's `read` exits 3 in every plugin install,
+# and a reviewer without that guidance files a phantom "unverified" finding forever).
+# The copy that matters for that contract is the SHIPPED one, so reconstructing
+# agents/ here is what points the probe at the artifact a consumer actually loads
+# rather than at the maintainer's source tree. Added 2026-07-27 after T15 landed
+# green in source layout and red here — its four probes were all reading a path
+# this reconstruction never created.
+[ -d "$AGENTS" ] && cp "$AGENTS"/*.md "$REC/agents/" 2>/dev/null || true
 
 # the suites themselves, into the reconstructed tests/ so $(dirname "$0")/.. lands
 # on the reconstructed .claude/

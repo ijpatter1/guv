@@ -75,8 +75,14 @@ mk_source_copy() {   # echoes a scratch root holding a buildable copy of $ROOT
   # was never complete. Structural check only, so tar's benign
   # "file changed as we read it" warnings stay quiet; when the copy really is
   # short, tar's own message is what gets printed.
-  if [ ! -d "$d/.claude" ]; then
-    printf '  ! mk_source_copy: the scratch copy of %s is INCOMPLETE (no .claude/ at %s).\n' "$ROOT" "$d" >&2
+  #
+  # Sentinel on the BUILDER, not on `.claude/`. Every caller below dereferences
+  # $d/maintainers/build-plugin.sh, and tar writes `.claude/` among the first
+  # entries and `maintainers/` much later — so a `.claude/` check passes on exactly
+  # the truncation shape that matters (a copy that died part-way) and the misleading
+  # drift verdict comes back anyway. Check the artifact the callers actually need.
+  if [ ! -f "$d/maintainers/build-plugin.sh" ]; then
+    printf '  ! mk_source_copy: the scratch copy of %s is INCOMPLETE (no maintainers/build-plugin.sh at %s).\n' "$ROOT" "$d" >&2
     printf '    Every check built on this copy below is unreliable — this is NOT plugin drift.\n' >&2
     [ -s "$err" ] && sed 's/^/    tar: /' "$err" >&2
   fi

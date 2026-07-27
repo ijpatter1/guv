@@ -34,6 +34,7 @@ SCRIPTS="$PLUGIN/scripts"
 HOOKS_JSON="$PLUGIN/hooks/hooks.json"
 TESTS="$PLUGIN/tests"
 RULES="$PLUGIN/rules"
+AGENTS="$PLUGIN/agents"
 
 if [ ! -d "$SCRIPTS" ] || [ ! -f "$HOOKS_JSON" ]; then
   echo "run-plugin-tests: not a plugin tree (missing scripts/ or hooks/hooks.json): $PLUGIN" >&2
@@ -43,7 +44,7 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 REC="$WORK/.claude"
-mkdir -p "$REC/hooks" "$REC/tests" "$REC/rules"
+mkdir -p "$REC/hooks" "$REC/tests" "$REC/rules" "$REC/agents"
 
 # the hook basenames hooks.json references — these scripts were .claude/hooks/X.sh
 HOOK_NAMES="$(jq -r '.hooks[][]?.hooks[]?.command' "$HOOKS_JSON" 2>/dev/null \
@@ -70,6 +71,17 @@ done
 
 # rules ship as plugin assets; some location-relative suites read .claude/rules/
 [ -d "$RULES" ] && cp "$RULES"/*.md "$REC/rules/" 2>/dev/null || true
+
+# agent definitions ship as plugin assets too, same shape as rules above. This is
+# not symmetry for its own sake: battery-result.test.sh T15 pins the CONSUMER-INSTALL
+# contract in agent prose (this recorder's `read` exits 3 in every plugin install,
+# and a reviewer without that guidance files a phantom "unverified" finding forever).
+# The copy that matters for that contract is the SHIPPED one, so reconstructing
+# agents/ here is what points the probe at the artifact a consumer actually loads
+# rather than at the maintainer's source tree. Added 2026-07-27 after T15 landed
+# green in source layout and red here — its four probes were all reading a path
+# this reconstruction never created.
+[ -d "$AGENTS" ] && cp "$AGENTS"/*.md "$REC/agents/" 2>/dev/null || true
 
 # the suites themselves, into the reconstructed tests/ so $(dirname "$0")/.. lands
 # on the reconstructed .claude/

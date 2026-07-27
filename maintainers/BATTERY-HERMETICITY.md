@@ -92,11 +92,21 @@ write a suite, so read it before Axis 1 below:
   the guard is a backstop for forgotten residue, not a substitute for writing the
   suite correctly.**
 
-  A narrower scope note in the same family: the fingerprint is built from `git
-  status --porcelain`, `git diff HEAD`, and untracked-file *content*, so writes
+  A narrower scope note in the same family: the fingerprint hashes the *content*
+  and executable bit of every tracked and untracked non-ignored file, so writes
   under gitignored paths inside the repo (`sandbox/tmp/`, `.claude/metering/`,
   `node_modules/`) are invisible to it as well. Its subject is git-visible change,
   not every write.
+
+  The guard is three checks, not one, and the other two exist because that
+  fingerprint is deliberately content-only (so a recorded verdict survives being
+  committed — `battery-result.sh` gives the full account). A mid-run `git commit`
+  moves no byte, so the guard compares `HEAD` itself; a mid-run `git add` moves no
+  byte either, so it also compares `git status --porcelain`. That porcelain leg was
+  briefly missing when the fingerprint went content-only and nothing picked the
+  index back up — a suite could re-stage a developer's index and breach nothing. A
+  QA eval caught it on 2026-07-27 before it shipped; `T11j3` and `T11j4` now pin
+  the commit and staging legs respectively.
 
 ## Method
 

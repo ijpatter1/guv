@@ -19,10 +19,18 @@
 # WHY A FINGERPRINT AND NOT `rev-parse HEAD`. The evaluator is invoked mid-loop
 # (/guv:task step 6 runs it BEFORE the commit), so the tree it grades is
 # routinely dirty. A HEAD-only check would call every one of those runs fresh
-# and be wrong every time. The fingerprint therefore spans HEAD, the tracked
-# diff, and untracked file CONTENT — the last because a brand-new test file is
-# the single most likely thing to exist when QA runs, and it is invisible to
-# `git diff HEAD`.
+# and be wrong every time. The fingerprint therefore hashes WORKING-TREE CONTENT
+# — every tracked and untracked non-ignored file — including untracked files,
+# because a brand-new test file is the single most likely thing to exist when QA
+# runs and it is invisible to `git diff HEAD`.
+#
+# And NOT HEAD *at all*: the first cut hashed HEAD + `status --porcelain` +
+# `diff HEAD`, which made a no-op commit look like a moved tree and killed a
+# verdict that was still exactly true. The full account is on `fingerprint()`
+# below. Two questions live here and only one of them is this file's: the RECORD
+# asks "does this verdict still describe these bytes" (content), the runner's
+# GUARD asks "did the suites disturb the tree" (content *and* HEAD, checked
+# separately over there).
 #
 # Usage:
 #   battery-result.sh record <rc> <suites> <passed> <failed> \
@@ -51,7 +59,7 @@
 #
 # WHY ASSERTION COUNTS ARE SEPARATE FROM `passed`/`failed`. Those two are SUITE
 # counts — that is what the runner has at the top level. Recording only those made
-# every downstream QA report describe a 2,468-assertion battery as "71 passing", a
+# every downstream QA report describe a ~2,500-assertion battery as "71 passing", a
 # 35x understatement (guv eval, 2026-07-27). The runner now also sums the per-suite
 # `Results: N passed, M failed` lines and passes the totals; they record as null
 # when any suite did not report one, because a partial sum presented as a total is
@@ -94,20 +102,77 @@ hash_stdin() {
   fi | cut -d' ' -f1
 }
 
-# A stable hash of the code repo's exact content state. Untracked files are
-# hashed by CONTENT, not merely listed: listing names alone would let an edit to
-# the very test under review slip past unnoticed.
+# A stable hash of the code repo's exact WORKING-TREE CONTENT — the bytes the
+# suites ran against, and nothing else.
+#
+# CONTENT ONLY, deliberately: no HEAD, no `status --porcelain`, no `diff HEAD`.
+# The first cut hashed all three and the result died at the commit boundary —
+# committing byte-identical content moved `rev-parse HEAD` and emptied the
+# porcelain, so `read` refused a verdict that was still exactly true. That is the
+# normal QA order (run the battery, commit, review the commit), and both QA
+# reviewers hit it minutes apart on 2026-07-27 reviewing the commit that shipped
+# this. HEAD could not simply be dropped, which is the trap worth naming: `git
+# diff HEAD` is RELATIVE to HEAD, so the pair reconstructed content from a moving
+# pointer and each was load-bearing for the other. Hashing the files themselves is
+# absolute. T11d/T11e in the suite pin both directions.
+#
+# Paths come from --cached AND --others, so the set is "what is here and not
+# ignored" rather than "what the index knows". A tracked file deleted in the
+# working tree is skipped by the -f test, which is the same contribution it makes
+# after the deletion is committed — deletions move the hash exactly once, at the
+# delete, not again at the commit. Untracked files are hashed by CONTENT, not
+# merely listed: listing names alone would let an edit to the very test under
+# review slip past unnoticed.
+#
+# THE EXECUTABLE BIT IS PART OF THE STATE, not just the bytes. `feedback-log.test.sh`
+# asserts `[ -x ... ]` on a live source file, so a `chmod -x` between battery and
+# read turns a green record into a description of a tree whose battery is now red.
+# The first cut waved this off with "the next battery reds on its own" — which
+# inverts the artifact's whole purpose, since the next battery is precisely what
+# does NOT get run once a verdict is readable (guv eval, 2026-07-27). Taken from
+# the filesystem, not `git ls-files -s`: the index carries a mode too, but reading
+# it there would make `git add` move the hash and break the commit-boundary
+# property above. `-x` is working-tree state and survives staging.
+#
+# THE ONE THING THIS DELIBERATELY DOES NOT SEE — and it is NOT as narrow as the
+# first cut claimed. That version said "the index. Staging changes no byte the
+# battery reads." That is FALSE, and the same eval caught it: `docs-sweep.test.sh`
+# greps with `git grep`, which takes its FILE SET from the index, so `git add` of an
+# untracked file changes what that suite examines without changing any byte. The
+# honest statement of the limit: this hash answers "are these the same bytes", and
+# a suite whose result depends on TRACKEDNESS rather than content is outside what
+# the record can promise. It cannot be closed here — including the index would make
+# the ordinary `git add -A && git commit` invalidate every verdict, which is the
+# exact defect this function was rewritten to fix. It is closed at the other end or
+# not at all (align such a suite's file set with this one's, e.g. `git grep
+# --untracked`); until then it is a WRITTEN limit, pinned by T11f, not a surprise.
+# The mid-run case is separate and covered: a suite that stages or commits is
+# caught by the runner's own porcelain and HEAD checks, because the GUARD asks "did
+# the suites disturb the tree" while the RECORD asks "does this verdict still
+# describe these bytes" — and only the second question is this function's.
+#
+# ONE STREAM, NOT ONE HASH PER FILE. The first cut forked `shasum` per file and cost
+# 17.06s over ~300 files against 0.23s for the algorithm it replaced — a 75x
+# regression, paid twice per battery by the guard and once per QA read, inside the
+# excursion whose premise is that the battery costs too much (guv eval, 2026-07-27).
+# Streaming path, mode and content into a single hash measures **3.1s** on the same
+# tree: still above the composite it replaced (that one read git's own plumbing and
+# never touched an untracked byte), but ~1% of a battery instead of ~2%, and the
+# remaining cost is one `cat` fork per file. Stopping here is deliberate — the
+# fork-free options (`tar` streaming, `git ls-files -s`) either fold in mtime or
+# read the INDEX, and reading the index would break the commit-boundary property
+# above. Fields are NUL-delimited so no path or content can forge a boundary.
 fingerprint() {
-  {
-    git -C "$CODE" rev-parse HEAD
-    git -C "$CODE" status --porcelain
-    git -C "$CODE" diff HEAD
-    ( cd "$CODE" && git ls-files --others --exclude-standard -z \
-        | LC_ALL=C sort -z \
-        | while IFS= read -r -d '' f; do
-            printf '%s ' "$f"; { cat -- "$f" 2>/dev/null || true; } | hash_stdin
-          done )
-  } 2>/dev/null | hash_stdin
+  ( cd "$CODE" 2>/dev/null || exit
+    git ls-files -z --cached --others --exclude-standard \
+      | LC_ALL=C sort -zu \
+      | while IFS= read -r -d '' f; do
+          [ -f "$f" ] || continue
+          if [ -x "$f" ]; then printf '%s\0x\0' "$f"; else printf '%s\0-\0' "$f"; fi
+          cat -- "$f" 2>/dev/null || true
+          printf '\0'
+        done
+  ) 2>/dev/null | hash_stdin
 }
 
 CMD="${1:-}"; shift 2>/dev/null || true
@@ -147,7 +212,13 @@ case "$CMD" in
     ;;
 
   read)
-    [ -f "$ART" ] || die "no recorded battery run — nothing has been recorded for this project yet. Run the battery." 3
+    # The advice is aimed at the EVALUATOR, which is the one caller with standing to
+    # run the battery. It has to name its own audience, because the reviewer's
+    # contract forbids exactly what it says (guv review, 2026-07-27) — and because
+    # `record` is only ever called by the maintainer-only generated runner, so a
+    # consumer install has no recorder and this message is that project's PERMANENT
+    # state, not a step it has yet to take.
+    [ -f "$ART" ] || die "no recorded battery run — nothing has been recorded for this project yet. If you are the evaluator, run the battery. If you are the product reviewer, this is expected and is NOT a finding: most projects have no recorder at all, and you do not run the battery yourself — take test state from the evaluator's report." 3
     rc=$(jq -r '.rc // empty' "$ART" 2>/dev/null)
     suites=$(jq -r '.suites // empty' "$ART" 2>/dev/null)
     passed=$(jq -r '.passed // empty' "$ART" 2>/dev/null)
@@ -177,7 +248,10 @@ case "$CMD" in
     echo "  tree:       $sha"
     # Two units, labelled. `passed`/`failed` have always been SUITE counts; naming
     # them without the noun is how "71 passing" got reported for a battery of
-    # ~2,468 assertions.
+    # ~2,500 assertions. Kept deliberately round: the exact count moves every time a
+    # test lands, and a content-only fingerprint makes correcting a comment exactly as
+    # verdict-invalidating as correcting code — so a precise figure here buys a
+    # re-run's worth of battery to stay true, and buys it again next week.
     echo "  suites:     $suites total — $passed passed, $failed failed"
     if [ -n "$apass" ]; then
       echo "  assertions: $apass passed, $afail failed"
@@ -200,7 +274,8 @@ case "$CMD" in
     ;;
 
   *)
-    echo "usage: battery-result.sh record <rc> <suites> <passed> <failed> [<only-pattern>]" >&2
+    echo "usage: battery-result.sh record <rc> <suites> <passed> <failed> \\" >&2
+    echo "                                 [<only-pattern>] [<fingerprint>] [<apass>] [<afail>]" >&2
     echo "       battery-result.sh read" >&2
     echo "       battery-result.sh fingerprint" >&2
     exit 2

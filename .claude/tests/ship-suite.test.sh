@@ -62,7 +62,8 @@ done
 # Build the plugin into a temp tree.
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-if ! bash "$BUILD" --out "$TMP/plugin" >/dev/null 2>&1; then
+BUILD_OUT="$TMP/build.log"
+if ! bash "$BUILD" --out "$TMP/plugin" >"$BUILD_OUT" 2>&1; then
   no "build-plugin.sh failed to produce a plugin tree"
   finish; exit 1
 fi
@@ -265,6 +266,21 @@ if [ -f "$RUNNER" ]; then
   else
     no "--only '' must be refused (rc=0 means it silently ran the full set)"
   fi
+fi
+
+# T8 — the build must ANNOUNCE the partition it applied, not apply it silently.
+# The classifier matches whole files, comments included, so a consumer suite that
+# only mentions a maintainer path in prose stops shipping and consumer installs
+# lose that coverage. That happened on 2026-07-27 and cost half a session to find,
+# purely because the build said nothing: 24 shipped suites became 23 with no
+# output changing. The classifier is deliberately unchanged (reading only code
+# would newly ship three suites that genuinely cannot pass in plugin layout), so
+# the announcement IS the guard — and a silent build is the exact regression.
+# Both counts are asserted: a line naming names but no total is skimmed past.
+if grep -qE '^\[build\] test suites: [0-9]+ shipped, [0-9]+ maintainer-only' "$BUILD_OUT"; then
+  ok "the build announces its suite partition with both counts (a silent drop is what made this trap expensive)"
+else
+  no "build-plugin.sh must print '[build] test suites: N shipped, M maintainer-only (not shipped): <names>'. Without it a suite can leave the plugin with no output changing, which is how battery-result.test.sh silently unshipped on 2026-07-27. Got: $(grep -c . "$BUILD_OUT") line(s), none matching"
 fi
 
 finish

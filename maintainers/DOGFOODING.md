@@ -81,11 +81,22 @@ Two rules make this safe rather than merely fast:
 - **A `--only` run is not a verdict.** It covers the suites it names and nothing else, and
   it deliberately **records nothing** — a filtered result must never overwrite a whole-tree
   one. Report it as what it is.
-- **`read` is provenance-checked, not a cache.** It compares HEAD, the tracked diff, and
-  untracked file *content* against what was recorded, and refuses (exit 3) the moment the
-  tree moves. A green it returns describes the tree in front of you; a stale green consumed
-  as fresh is worse than no result, because it looks like verification. This is the reader
-  QA uses, so the battery is paid for once per tree rather than once per reviewer.
+- **`read` is provenance-checked, not a cache.** It hashes the *content* of every tracked
+  and untracked non-ignored file — plus each one's executable bit — and refuses (exit 3)
+  the moment a byte or a mode moves. A green it returns describes the tree in front of you;
+  a stale green consumed as fresh is worse than no result, because it looks like
+  verification. This is the reader QA uses, so the battery is paid for once per tree rather
+  than once per reviewer.
+- **A commit does not invalidate it, and that is deliberate.** `git add` and `git commit`
+  move no working-tree byte, so a verdict earned before the commit still verifies after it
+  — which is the normal QA order (run the battery, commit, review the commit). An earlier
+  revision hashed `HEAD` and `git diff HEAD` alongside the content and refused every
+  post-commit read; both QA reviewers hit it minutes apart on 2026-07-27, reviewing the
+  commit that shipped the mechanism. The tradeoff: the record no longer sees the index, so
+  a suite whose result depends on *trackedness* rather than content (`git grep` takes its
+  file set from the index) is outside what it can promise — a written limit, pinned by
+  T11g, not a surprise. The runner's hermeticity guard keeps its own HEAD and porcelain
+  checks, so staging or committing *during* a battery is still caught.
 
 The battery also fingerprints the source tree before and after itself and fails on a
 mismatch. **Do not edit the tree while a battery runs** — you will red it, correctly, and

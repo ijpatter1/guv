@@ -859,11 +859,28 @@ fi
 # it is not checking and the battery proceeds. It degrades toward running the
 # suites, never toward claiming a hermeticity proof nobody produced. The exit-4
 # contract (empty stdout) is what makes the two cases distinguishable here.
+#
+# THE GUARD IS THREE CHECKS, NOT ONE, and the two beside the fingerprint are not
+# redundant. The fingerprint is content-only by design so a recorded verdict
+# survives being committed (battery-result.sh explains why at length) — but that
+# design gives up two things the old composite fingerprint saw, and BOTH are real
+# residue in a developer's repo:
+#   - `git commit` moves no working-tree byte  -> the HEAD check catches it.
+#   - `git add`    moves no working-tree byte  -> the porcelain comparison catches
+#     it. This leg was MISSING for one unreleased revision, because the content-only
+#     rewrite dropped `git status --porcelain` from the fingerprint and nothing
+#     picked it back up; a QA eval caught it on 2026-07-27 before it shipped.
+# The split is the point: the RECORD asks "does this verdict still describe these
+# bytes", the GUARD asks "did the suites disturb the tree". Staging and committing
+# are both disturbances and neither is a byte, which is exactly why they live here
+# and not there. T11j3 pins the commit leg; T11j4 pins the staging leg.
 HERM_BEFORE=""
+HERM_HEAD_BEFORE=""
 if [ -f "$HERE/battery-result.sh" ]; then
   HERM_BEFORE=$(bash "$HERE/battery-result.sh" fingerprint 2>/dev/null) || HERM_BEFORE=""
 fi
 if [ -n "$HERM_BEFORE" ]; then
+  HERM_HEAD_BEFORE=$(git -C "$CODE" rev-parse HEAD 2>/dev/null || echo "")
   git -C "$CODE" status --porcelain > "$WORKDIR/herm.before" 2>/dev/null || true
 else
   printf '[run-core-tests] hermeticity NOT CHECKED — could not fingerprint %s (not a git repo, or battery-result.sh is absent). The suites still run; nothing is verifying that they leave the source tree alone.\n' \
@@ -905,8 +922,10 @@ wait
 # reads $WORKDIR and never touches $CODE). Compared below, once `fail` exists, so
 # the single-verdict-variable discipline is preserved.
 HERM_AFTER=""
+HERM_HEAD_AFTER=""
 if [ -n "$HERM_BEFORE" ]; then
   HERM_AFTER=$(bash "$HERE/battery-result.sh" fingerprint 2>/dev/null) || HERM_AFTER=""
+  HERM_HEAD_AFTER=$(git -C "$CODE" rev-parse HEAD 2>/dev/null || echo "")
   git -C "$CODE" status --porcelain > "$WORKDIR/herm.after" 2>/dev/null || true
 fi
 
@@ -922,7 +941,7 @@ fail=0
 nfail=0
 # ASSERTION totals, in the unit a QA report actually quotes. nfail/${#SUITES[@]}
 # are SUITE counts, and recording only those made every downstream report describe
-# this battery as "71 passing" when it runs ~2,468 assertions (guv eval,
+# this battery as "71 passing" when it runs ~2,500 assertions (guv eval,
 # 2026-07-27). The per-suite "Results: N passed, M failed" line is already parsed
 # by gate leg (c-stdout) below; areport counts how many suites produced one, so a
 # partial sum is never passed off as a total.
@@ -1006,12 +1025,34 @@ fi
 # an already-modified file moves the fingerprint but shows no line here — said out
 # loud because an empty diff under a real breach would otherwise read as a bug in
 # the guard rather than as the narrower thing it is.
-if [ -n "$HERM_BEFORE" ] && [ "$HERM_AFTER" != "$HERM_BEFORE" ]; then
+if [ -n "$HERM_BEFORE" ] \
+   && { [ "$HERM_AFTER" != "$HERM_BEFORE" ] \
+        || [ "$HERM_HEAD_AFTER" != "$HERM_HEAD_BEFORE" ] \
+        || ! cmp -s "$WORKDIR/herm.before" "$WORKDIR/herm.after"; }; then
   echo "[hermeticity] THE CODE REPO MOVED WHILE THE BATTERY RAN — failing the run."
   echo "  tree:  $CODE"
+  if [ "$HERM_HEAD_AFTER" != "$HERM_HEAD_BEFORE" ]; then
+    echo "  HEAD moved: $HERM_HEAD_BEFORE -> $HERM_HEAD_AFTER"
+    echo "  Something COMMITTED into this repo while the battery ran. The content hash"
+    echo "  does not see a commit (it is content-only so a verdict survives being"
+    echo "  committed), so this check is the one that caught it."
+  fi
+  # The porcelain leg. It exists because the content hash gave up the index when it
+  # went content-only, which silently retired coverage the old composite fingerprint
+  # carried: a suite running `git add` in the developer's live repo changes what
+  # their next `git commit` sweeps up, and for one unreleased revision that breached
+  # nothing at all (guv eval, 2026-07-27). Staging IS disturbing the tree, so it
+  # belongs to the guard's question even though it is deliberately outside the
+  # record's — the record cannot take it back without making the ordinary
+  # `git add -A && git commit` invalidate every verdict.
+  if [ "$HERM_AFTER" = "$HERM_BEFORE" ] && [ "$HERM_HEAD_AFTER" = "$HERM_HEAD_BEFORE" ]; then
+    echo "  the INDEX moved while content and HEAD stayed put — something ran \`git add\`"
+    echo "  (or \`git rm --cached\`) in this repo. No byte changed, so neither the content"
+    echo "  hash nor the HEAD check can see it; this porcelain comparison is the one that did."
+  fi
   if [ -z "$HERM_AFTER" ]; then
     echo "  the AFTER fingerprint could not be taken at all (the repo became unreadable mid-run)."
-  else
+  elif [ "$HERM_AFTER" != "$HERM_BEFORE" ]; then
     echo "  paths that appeared/vanished (a content-only edit to an already-dirty file moves the"
     echo "  fingerprint without showing up below):"
     diff "$WORKDIR/herm.before" "$WORKDIR/herm.after" 2>/dev/null | sed 's/^/    /'

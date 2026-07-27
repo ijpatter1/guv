@@ -228,6 +228,81 @@ FP3C=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
   || no "editing an untracked file must move the fingerprint: without content hashing, changing the very test under review leaves the prior verdict reading as valid (fp=$FP3B -> $FP3C)"
 rm -f "$C/.claude-zz-leak-fixture"
 
+# T11d — COMMIT-BOUNDARY INVARIANCE. The fingerprint answers "does this verdict
+# still describe these bytes", and `git commit` changes no bytes in the working
+# tree. The first cut hashed `rev-parse HEAD` + `status --porcelain` + `diff HEAD`,
+# so committing byte-identical content moved all three at once and `read` refused a
+# verdict that was still exactly true. That is not a corner case — it is the normal
+# QA order (run the battery, commit, review the commit), and BOTH reviewers hit it
+# minutes apart on 2026-07-27 reviewing the commit that shipped the mechanism.
+# HEAD could not simply be dropped: `git diff HEAD` is RELATIVE to HEAD, so the two
+# reconstructed content from a moving pointer. Hashing the files themselves is
+# absolute, and this test is what pins that.
+IFS='|' read -r P3 C3 <<<"$(mk_plane)"
+printf 'work in progress\n' > "$C3/b.txt"
+printf 'edited\n' > "$C3/a.txt"
+FP_DIRTY=$( ( cd "$P3" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+( cd "$C3" && git add -A && git commit -qm "commit exactly what was tested" )
+FP_CLEAN=$( ( cd "$P3" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+[ -n "$FP_DIRTY" ] && [ "$FP_DIRTY" = "$FP_CLEAN" ] \
+  && ok "\`fingerprint\` is unchanged by a commit that changes no working-tree bytes (the verdict survives the commit boundary)" \
+  || no "committing already-tested content must not move the fingerprint — otherwise every post-commit reviewer is told the verdict 'does not describe the current code' about the exact code it describes (dirty=$FP_DIRTY clean=$FP_CLEAN)"
+
+# T11e — the same property where it is actually consumed, and its NEGATIVE CONTROL
+# in one place. T11d could be satisfied by a fingerprint that stopped varying at
+# all; this asserts the round trip BOTH ways: a verdict recorded before the commit
+# still VERIFIES after it (exit 0), and the very next content edit still REFUSES
+# (exit 3). A fix that only bought the first half would be worse than the bug.
+rec "$P3" 0 71 71 0 >/dev/null 2>&1
+( cd "$C3" && printf 'work in progress\nand one more line\n' > b.txt && git add -A \
+  && git commit -qm "a second commit, this one with new content" )
+OUT_MOVED=$(rd "$P3" 2>&1); RC_MOVED=$?
+IFS='|' read -r P4 C4 <<<"$(mk_plane)"
+printf 'tested dirty, committed after\n' > "$C4/b.txt"
+rec "$P4" 0 71 71 0 >/dev/null 2>&1
+( cd "$C4" && git add -A && git commit -qm "no content change, just committed" )
+OUT_SAME=$(rd "$P4" 2>&1); RC_SAME=$?
+[ $RC_SAME -eq 0 ] && [ $RC_MOVED -eq 3 ] \
+  && ok "\`read\` VERIFIES across a no-op commit (rc=0) and still REFUSES once a byte changes (rc=3) — provenance tracks content, not the commit pointer" \
+  || no "the commit boundary must be invisible to provenance and a content edit must not be: after-commit rc=$RC_SAME (want 0), after-edit rc=$RC_MOVED (want 3) [same=$OUT_SAME | moved=$OUT_MOVED]"
+
+# T11f — THE EXECUTABLE BIT IS STATE. `feedback-log.test.sh` asserts `[ -x ... ]`
+# on a live source file, so a `chmod -x` between the battery and the read leaves a
+# VERIFIED record describing a tree whose battery is now RED. The first cut of the
+# content-only fingerprint waved this off — "the next battery reds on its own" —
+# which inverts the artifact's purpose: the next battery is exactly the thing that
+# does not get run once a verdict is readable (guv eval, 2026-07-27). Read from the
+# filesystem rather than `git ls-files -s` deliberately: the index carries a mode
+# too, but reading it there would make `git add` move the hash and break T11d.
+IFS='|' read -r P5 C5 <<<"$(mk_plane)"
+printf '#!/bin/bash\necho hi\n' > "$C5/runme.sh"
+chmod +x "$C5/runme.sh"
+FP_X=$( ( cd "$P5" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+chmod -x "$C5/runme.sh"
+FP_NOX=$( ( cd "$P5" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+[ -n "$FP_X" ] && [ "$FP_X" != "$FP_NOX" ] \
+  && ok "\`chmod -x\` on a source file MOVES the fingerprint — a mode flip that reds the battery can no longer hide behind a verdict recorded while the bit was still set" \
+  || no "the executable bit must be part of the fingerprint: a suite asserting [ -x ] on a live file goes red on a chmod that moves no byte, and a content-only hash would keep reporting VERIFIED over it (x=$FP_X nox=$FP_NOX)"
+
+# T11g — A KNOWN LIMIT, pinned so it cannot drift back to a claim. Staging moves no
+# byte, so it does not move this hash, and that is DELIBERATE: including the index
+# would make the ordinary `git add -A && git commit` invalidate every verdict, which
+# is the defect T11d exists to prevent. The limit is real and it is not zero-cost —
+# `docs-sweep.test.sh` greps with `git grep`, which takes its FILE SET from the
+# index, so staging an untracked file changes what that suite examines without
+# changing a byte. It cannot be closed here; it closes at the other end (align such
+# a suite's file set with this one's, e.g. `git grep --untracked`) or not at all.
+# The mid-run case is covered elsewhere: setup-control-plane.test.sh's T11j4 pins
+# the guard's porcelain leg, which is where staging IS caught.
+IFS='|' read -r P6 C6 <<<"$(mk_plane)"
+printf 'untracked, and about to be staged\n' > "$C6/newfile.txt"
+FP_UNSTAGED=$( ( cd "$P6" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+( cd "$C6" && git add newfile.txt )
+FP_STAGED=$( ( cd "$P6" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+[ -n "$FP_UNSTAGED" ] && [ "$FP_UNSTAGED" = "$FP_STAGED" ] \
+  && ok "staging alone does NOT move the fingerprint — the documented index limit, pinned so it stays a stated limit rather than drifting back into a coverage claim" \
+  || no "T11g pins a KNOWN LIMIT and it just changed. If you deliberately taught the fingerprint about the index, check T11d first — staging is the first half of the ordinary commit whose verdict-survival is the whole point — then update battery-result.sh's limit comment and invert this assertion (unstaged=$FP_UNSTAGED staged=$FP_STAGED)"
+
 # T12 — the DESIGNED DEGRADATION signal (rule 15). Where the code repo is not a
 # git repo the guard cannot run at all. It must exit 4 and print NOTHING to
 # stdout, because the runner branches on exactly that to announce "hermeticity
@@ -273,7 +348,7 @@ OUT=$(rd "$P" 2>&1); RC=$?
 # ── assertion counts vs suite counts (guv eval, 2026-07-27) ───────────────────
 # `passed`/`failed` are SUITE counts — that is what the runner has at the top
 # level. Recording only those made every downstream QA report describe a
-# ~2,468-assertion battery as "71 passing", a 35x understatement. The totals are
+# ~2,500-assertion battery as "71 passing", a 35x understatement. The totals are
 # additive and optional, which makes the honest-absence case the one that matters.
 
 # T14 — assertion totals round-trip and are labelled as their own unit.
@@ -306,6 +381,56 @@ OUT=$(rd "$P" 2>&1); RC=$?
 [ $RC -eq 0 ] && printf '%s' "$OUT" | grep -q 'NOT RECORDED' \
   && ok "a lone assertion count is discarded, not recorded half-complete (passed-without-failed would read as 'and nothing failed')" \
   || no "an unpaired assertion total must be refused; recording it alone implies a failure count that was never measured (rc=$RC out=$OUT)"
+
+# T15 — THE CONSUMER-INSTALL CONTRACT, pinned where it can rot. `record` is only
+# ever called by the maintainer-only generated runner, so in a plugin install this
+# script's `read` exits 3 forever. A reviewer pointed at it with no guidance
+# reports "no proof" in every review of every consumer project, permanently. The
+# guidance that closes that lives in agent PROSE, and prose drifting from the
+# artifact it describes is exactly what produced the ~35x unit error this same
+# round fixed (guv eval, 2026-07-27) — so it gets an assertion, not just a
+# careful sentence. Checked as three separate properties because a reviewer that
+# learns only one of them still fails: it must know the read is cwd-relative, that
+# an absent recorder is NORMAL rather than a finding, and that it does not answer
+# by running the battery itself.
+#
+# An ABSENT doc and a DRIFTED doc are different faults with different fixes, so
+# they are reported separately. Folding them together sends the reader to the
+# wrong file: this test first landed green in source layout and red in plugin
+# layout, reporting "a doc lost its guidance" when in fact the layout
+# reconstruction (run-plugin-tests.sh) never created agents/ at all, and the
+# prose it was accusing was intact in both copies. That cost a whole battery to
+# tell apart, which is the entire argument for spending four lines here.
+#
+# Nothing below spells out the plugin builder's source path, and that is not
+# style. The builder partitions consumer suites from maintainer-only ones by
+# grepping each suite WHOLE — comments included — so a suite that merely names
+# that path in prose silently stops shipping. Writing it here removed this file
+# from the plugin on 2026-07-27 and the only symptom was T15 going red for an
+# unrelated-looking reason. Logged as friction 2026-07-27T05:03:02Z-691324996
+# (major); until that is fixed, describe the builder, do not cite it.
+REV_MD="$CLAUDE_DIR/agents/reviewer.md"
+EV_MD="$CLAUDE_DIR/agents/evaluator.md"
+T15_GONE=""
+for f in "$REV_MD" "$EV_MD"; do
+  [ -f "$f" ] || T15_GONE="$T15_GONE ${f#"$CLAUDE_DIR"/}"
+done
+T15_MISS=""
+grep -qi 'most projects have no recorder' "$REV_MD" 2>/dev/null \
+  || T15_MISS="$T15_MISS reviewer:absent-recorder-is-normal"
+grep -qi 'not a finding' "$REV_MD" 2>/dev/null \
+  || T15_MISS="$T15_MISS reviewer:not-a-finding"
+grep -qiE 'never .*run the battery yourself|do not run the battery' "$REV_MD" 2>/dev/null \
+  || T15_MISS="$T15_MISS reviewer:never-run-it-yourself"
+grep -qiE 'cwd|project root' "$EV_MD" 2>/dev/null \
+  || T15_MISS="$T15_MISS evaluator:cwd-precondition"
+if [ -n "$T15_GONE" ]; then
+  no "T15 could not read a QA agent doc at all — absent:$T15_GONE (looked under \$CLAUDE_DIR/agents/). This is NOT prose drift and the fix is not in the prose: in plugin layout it means run-plugin-tests.sh did not reconstruct agents/, so fix that reconstruction where the plugin builder emits it; in source layout it means the file moved or was deleted"
+elif [ -z "$T15_MISS" ]; then
+  ok "the agent docs still carry the consumer-install contract for this recorder — absent is normal, not a finding, and not a reason for the reviewer to run the battery itself"
+else
+  no "a QA agent doc lost its consumer-install guidance:$T15_MISS. \`record\` is maintainer-only, so \`read\` exits 3 in every plugin install; without these the reviewer files a phantom 'unverified' finding forever, or spends a full battery to avoid it. Restore the wording in the named file (or, if you deliberately reworded it, update the probes here to match the new phrasing)"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

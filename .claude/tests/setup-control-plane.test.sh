@@ -905,6 +905,58 @@ REC="$BP/.claude/metering/.last-battery-result"
   && ok "[prong-A2] a full run records its verdict with suite counts and no filter (the single owner leaves something for the others to read)" \
   || no "[prong-A2] the runner must record the verdict it just produced, or every QA stage pays for its own battery (rc=$BATT_RC rec=$(cat "$REC" 2>/dev/null))"
 
+# T11r2 — the ASSERTION TALLY, producer side. `suites` and `assertions` differ by
+# more than an order of magnitude on the real battery (71 vs ~2,500), and reading one
+# as the other understated a run ~35x. The consumer half is covered in
+# battery-result.test.sh; the harvest that produces the number was shipped with no
+# test at all (guv eval, 2026-07-27) — deleting the withhold or flipping `tail -1`
+# to `head -1` left the whole battery green.
+#
+# Both fixtures print `Results: 1 passed, 0 failed`, so the tally is 2 — a number
+# that cannot be confused with the suite count of 2 by accident, hence the second
+# fixture below.
+[ "$(jq -r '.assertions_passed' "$REC" 2>/dev/null)" = "2" ] \
+  && [ "$(jq -r '.assertions_failed' "$REC" 2>/dev/null)" = "0" ] \
+  && ok "[prong-A2] the runner harvests the ASSERTION totals, not just the suite counts (the two are different units and were reported as one)" \
+  || no "[prong-A2] a recorded verdict without assertion totals sends the next reader back to the suite count as if it were the test count (rec=$(cat "$REC" 2>/dev/null))"
+
+# T11r3 — the tally takes each suite's LAST `Results:` line, and withholds ENTIRELY
+# when any suite does not report one. Two properties, one plane, because they are
+# the two ways the tally can silently lie:
+#   - `nested` prints a child runner's line first and its own grand total last.
+#     `head -1` would record 5 instead of 9 and nothing would look wrong.
+#   - `silent` prints no `Results:` line at all (two real suites did exactly this
+#     until 2026-07-27). A partial tally is worse than none, so the harvest is
+#     all-or-nothing: suites still records, assertions must come back null.
+IFS='|' read -r BP5 BC5 <<<"$(mk_battery_plane)"
+plant_suite "$BC5" "nested.test.sh" $'#!/bin/bash\necho "  Results: 5 passed, 0 failed"\necho "Results: 9 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC5" "silent.test.sh" $'#!/bin/bash\necho "  ran, but reports no verdict line"\nexit 0\n'
+( cd "$BC5" && git init -q . && git config user.email t@t && git config user.name t \
+  && git add -A && git commit -qm init ) >/dev/null 2>&1
+run_battery "$BP5"
+REC5="$BP5/.claude/metering/.last-battery-result"
+[ "$BATT_RC" -eq 0 ] \
+  && [ "$(jq -r '.suites' "$REC5" 2>/dev/null)" = "2" ] \
+  && [ "$(jq -r '.assertions_passed' "$REC5" 2>/dev/null)" = "null" ] \
+  && [ "$(jq -r '.assertions_failed' "$REC5" 2>/dev/null)" = "null" ] \
+  && ok "[prong-A2] one non-reporting suite withholds the WHOLE assertion tally while the suite counts still record (a partial tally reads as a total and is worse than none)" \
+  || no "[prong-A2] the assertion harvest must be all-or-nothing: a tally missing a suite's contribution would be quoted as the test count (rc=$BATT_RC rec=$(cat "$REC5" 2>/dev/null))"
+
+# T11r4 — and with every suite reporting, the tally lands on the LAST line. Same
+# `nested` fixture (5 then 9) plus a plain 1-assertion suite: the total must be 10.
+# `head -1` would give 6, `tail -1` gives 10, and neither collides with the suite
+# count of 2 — the arithmetic is what discriminates, so this cannot pass by accident.
+IFS='|' read -r BP6 BC6 <<<"$(mk_battery_plane)"
+plant_suite "$BC6" "nested.test.sh" $'#!/bin/bash\necho "  Results: 5 passed, 0 failed"\necho "Results: 9 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC6" "plain.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+( cd "$BC6" && git init -q . && git config user.email t@t && git config user.name t \
+  && git add -A && git commit -qm init ) >/dev/null 2>&1
+run_battery "$BP6"
+REC6="$BP6/.claude/metering/.last-battery-result"
+[ "$BATT_RC" -eq 0 ] && [ "$(jq -r '.assertions_passed' "$REC6" 2>/dev/null)" = "10" ] \
+  && ok "[prong-A2] a suite's LAST Results: line is its total — a nested runner's inner line is not harvested as the suite's count (10, not 6)" \
+  || no "[prong-A2] harvesting the first Results: line instead of the last silently under-counts every suite that wraps another runner (rec=$(cat "$REC6" 2>/dev/null))"
+
 # A filtered run must NOT RECORD AT ALL, and the whole-tree record must survive it.
 # `read` refusing a filtered verdict is the safe direction and is covered directly
 # in battery-result.test.sh — but recording one FIRST is not safe: it destroys a
@@ -1180,14 +1232,67 @@ printf '%s' "$BATT_OUT" | grep -q 'zz-leaked-fixture' \
 # RED-lights, the guard grew teeth: that is an improvement, not a regression —
 # update the third limit in BATTERY-HERMETICITY.md and the guard comment in
 # setup-control-plane.sh to match, then invert this assertion.
+# Two legs beyond "rc=0 and no breach banner", because that pair is ALSO what a
+# guard that never ran produces — the identical can't-fail shape this suite fixed
+# 250 lines above at the missing-recorder case (guv eval, 2026-07-27). So: the
+# fixture VERIFIES ITS OWN PLANT and reds the suite if the write never landed
+# (a blind spot is only pinned if the thing it is blind to actually happened), and
+# the assertion requires the degradation banner to be ABSENT, which is what says
+# the guard was armed and looked.
 IFS='|' read -r BP1B BC1B <<<"$(mk_battery_plane)"
-plant_suite "$BC1B" "transient.test.sh" $'#!/bin/bash\n# Plants into the SHARED LIVE TREE, then cleans up — invisible to a before/after check.\nSHARED="$(cd "$(dirname "$0")/.." && pwd)"\n: > "$SHARED/zz-transient-fixture"\nsleep 1\nrm -f "$SHARED/zz-transient-fixture"\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+plant_suite "$BC1B" "transient.test.sh" $'#!/bin/bash\n# Plants into the SHARED LIVE TREE, then cleans up — invisible to a before/after check.\nSHARED="$(cd "$(dirname "$0")/.." && pwd)"\n: > "$SHARED/zz-transient-fixture" 2>/dev/null\n[ -f "$SHARED/zz-transient-fixture" ] || { echo "  \xe2\x9c\x97 the plant never landed — this suite proves nothing about the guard"; echo "Results: 0 passed, 1 failed"; exit 1; }\nsleep 1\nrm -f "$SHARED/zz-transient-fixture"\necho "Results: 1 passed, 0 failed"\nexit 0\n'
 ( cd "$BC1B" && git init -q . && git config user.email t@t && git config user.name t \
     && git add -A && git commit -qm baseline ) >/dev/null 2>&1
 run_battery "$BP1B"
 [ "$BATT_RC" -eq 0 ] && ! printf '%s' "$BATT_OUT" | grep -q 'THE CODE REPO MOVED' \
-  && ok "[15.1] fix(b): a plant-and-clean live-tree write passes the guard — the documented blind spot, pinned so the claim cannot drift back to 'any live-tree write'" \
-  || no "[15.1] fix(b): T11j2 pins a KNOWN LIMIT and it just changed. If you strengthened the guard to catch transient writes, that is good news — update BATTERY-HERMETICITY.md's third limit and the guard comment in setup-control-plane.sh, then invert this assertion (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|Results' | tail -4))"
+  && ! printf '%s' "$BATT_OUT" | grep -qE 'hermeticity NOT CHECKED' \
+  && ok "[15.1] fix(b): a plant-and-clean live-tree write passes an ARMED guard — the documented blind spot, pinned so the claim cannot drift back to 'any live-tree write'" \
+  || no "[15.1] fix(b): T11j2 pins a KNOWN LIMIT and it just changed. If you strengthened the guard to catch transient writes, that is good news — update BATTERY-HERMETICITY.md's third limit and the guard comment in setup-control-plane.sh, then invert this assertion. (If the run shows 'hermeticity NOT CHECKED' the guard was OFF and this test proved nothing.) (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|Results' | tail -4))"
+
+# T11j3 — the guard still catches a mid-run COMMIT, which the provenance
+# fingerprint deliberately stopped seeing. The fingerprint went content-only so a
+# verdict would survive the commit boundary (battery-result.sh, T11d/T11e); the
+# cost is that `git commit` moves no working-tree byte, so a suite committing into
+# the developer's repo would slip through a content-only comparison. The guard
+# carries its own HEAD check for exactly that, and this pins the pair: the record
+# stops caring about HEAD, the guard does not. --allow-empty is the sharp case —
+# it changes HEAD and NOTHING else, so only the HEAD check can see it.
+IFS='|' read -r BP1C BC1C <<<"$(mk_battery_plane)"
+plant_suite "$BC1C" "committer.test.sh" $'#!/bin/bash\nREPO="$(cd "$(dirname "$0")/../.." && pwd)"\ngit -C "$REPO" commit -q --allow-empty -m "a suite committed into the live repo" 2>/dev/null\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+( cd "$BC1C" && git init -q . && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -qm baseline ) >/dev/null 2>&1
+run_battery "$BP1C"
+[ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -q 'THE CODE REPO MOVED' \
+  && printf '%s' "$BATT_OUT" | grep -qi 'HEAD moved' \
+  && ok "[15.1] fix(b): a suite that COMMITS into the live repo fails the battery and the breach names HEAD (content-only provenance cannot see this; the guard's own HEAD check is what does)" \
+  || no "[15.1] fix(b): a mid-run commit must still breach the guard — the fingerprint went content-only so the verdict survives committing, and the HEAD check is the half that keeps a suite from committing into someone's repo unnoticed (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|HEAD\|Results' | tail -5))"
+
+# T11j4 — the guard's THIRD leg: a mid-run `git add`. When the fingerprint went
+# content-only it dropped `git status --porcelain`, and for one unreleased revision
+# nothing picked the index back up — a suite could stage into the developer's live
+# repo and breach nothing, silently changing what their next `git commit` sweeps
+# up (guv eval, 2026-07-27). The record cannot take the index back (staging is the
+# first half of the ordinary commit whose verdict-survival is the whole point of
+# the rewrite), so it belongs to the guard alone.
+#
+# The fixture isolates the index the way T11j3 isolates HEAD. The planted file is
+# created BEFORE the battery starts, so its bytes are already in the before-hash;
+# the suite only runs `git add` on it. Content identical, HEAD identical, index
+# moved — the porcelain comparison is the only check that can see it, so a pass
+# here cannot be bought by either of the other two legs.
+IFS='|' read -r BP1D BC1D <<<"$(mk_battery_plane)"
+plant_suite "$BC1D" "stager.test.sh" $'#!/bin/bash\nREPO="$(cd "$(dirname "$0")/../.." && pwd)"\n[ -f "$REPO/zz-preexisting-untracked" ] || { echo "  \xe2\x9c\x97 the pre-planted file is missing — this suite proves nothing about the index"; echo "Results: 0 passed, 1 failed"; exit 1; }\ngit -C "$REPO" add zz-preexisting-untracked 2>/dev/null\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+( cd "$BC1D" && git init -q . && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -qm baseline ) >/dev/null 2>&1
+# After the baseline commit, so it is untracked-but-present when the guard takes
+# its BEFORE reading. The suite stages it; no byte moves either way.
+echo "planted before the battery" > "$BC1D/zz-preexisting-untracked"
+run_battery "$BP1D"
+[ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -q 'THE CODE REPO MOVED' \
+  && printf '%s' "$BATT_OUT" | grep -qi 'the INDEX moved' \
+  && ! printf '%s' "$BATT_OUT" | grep -qi 'HEAD moved' \
+  && ok "[15.1] fix(b): a suite that STAGES into the live repo fails the battery and the breach names the INDEX — the leg the content-only rewrite dropped, restored and pinned (no byte moved, so neither the content hash nor the HEAD check could have caught this)" \
+  || no "[15.1] fix(b): a mid-run \`git add\` must breach the guard. Content-only provenance cannot see staging and neither can the HEAD check, so the porcelain comparison is the only leg that can — if this went green, that leg is gone again and a suite can quietly re-stage a developer's index (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|INDEX\|HEAD\|Results' | tail -5))"
 
 # T11k — NO FALSE RED. The same plane with only hermetic suites must come back
 # green with the guard silent. This is the assertion that keeps the guard alive:
