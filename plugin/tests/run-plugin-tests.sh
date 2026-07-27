@@ -93,17 +93,25 @@ fi
 #  (a) per-suite timeout — a hung shipped suite fails LOUD with a named timeout
 #      (rc 124), never a silent stall; a missing timeout binary degrades to an
 #      announced unbounded run (Rule 15).
-#  (b) bounded parallel pool + serial carve + deterministic aggregation — most
-#      suites run concurrently (≤ POOL_JOBS), each into its own out/err/rc; a
-#      final pass replays them in sorted name order so wall-clock drops toward the
-#      slowest while output + verdict stay deterministic. The shared-live-source
-#      suites (SERIAL_SET — plugin.test.sh, ship-suite.test.sh; audit in
-#      maintainers/BATTERY-HERMETICITY.md) are carved OUT of the pool and run one
-#      at a time, since they write to / build from the live source tree at fixed
-#      paths and would corrupt each other's build under concurrency. (Both happen
-#      to be maintainer-only, so they rarely reach the SHIPPED partition — the
-#      carve is applied identically here to keep the three runner copies in
-#      lockstep, never assuming the partition excludes them.)
+#  (b) bounded parallel pool + deterministic aggregation — EVERY suite runs
+#      concurrently (≤ POOL_JOBS), each into its own out/err/rc; a final pass
+#      replays them in sorted name order so wall-clock drops toward the slowest
+#      while output + verdict stay deterministic.
+#
+#      There is no serial carve here, and — unlike the core runner — no
+#      hermeticity fingerprint either, both for the same reason: this battery has
+#      NO live source tree to protect. The suites are copied into the
+#      reconstructed $REC tree above, so a suite's own $(dirname "$0")/.. resolves
+#      to that scratch copy and a fixture planted at a "fixed path" lands inside a
+#      throwaway directory. The core runner's guard exists because its suites run
+#      against the real repo; that hazard has no analogue on this side.
+#
+#      (The carve this replaced named plugin.test.sh + ship-suite.test.sh, per
+#      maintainers/BATTERY-HERMETICITY.md. It was retired when spike Prong B made
+#      both suites hermetic and the core runner began verifying the property
+#      directly instead of quarantining a hand-maintained list. Here it was doubly
+#      redundant: both suites are maintainer-only and rarely reach the SHIPPED
+#      partition at all.)
 #  (c) no exit-masking / no stdout-only blindness — the gate fails a suite on ANY
 #      of: nonzero rc, ANY stderr byte, or a failure-shaped stdout verdict (a ✗
 #      line or "Results: N passed, M failed" with M>0) even at exit 0. The runner's
@@ -122,10 +130,6 @@ if [ -z "$POOL_JOBS" ]; then
 fi
 case "$POOL_JOBS" in ''|*[!0-9]*) POOL_JOBS=4 ;; esac
 [ "$POOL_JOBS" -lt 1 ] && POOL_JOBS=1
-
-# the AUDITED serial set (shared-live-source-tree writers) — kept in lockstep with
-# the core runner. maintainers/BATTERY-HERMETICITY.md is the audit of record.
-SERIAL_SET=" plugin.test.sh ship-suite.test.sh "
 
 # collect the reconstructed suites in stable sorted order — the spine of the
 # launch list and the aggregation pass
@@ -161,16 +165,11 @@ run_one() {  # $1 = suite path  $2 = scratch key
   printf '%s\n' "$?" > "$WORK/$key.rc"
 }
 
-# serial carve FIRST: shared-live-tree suites run strictly one at a time, before
-# the pool, so the live source tree is never touched concurrently.
-for i in "${!SUITES[@]}"; do
-  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) run_one "${SUITES[$i]}" "rps-$i" ;; esac
-done
-
-# bounded pool — the HERMETIC remainder, at most $POOL_JOBS suites in flight
+# bounded pool — every suite, at most $POOL_JOBS in flight. No carve: the suites
+# run out of the reconstructed $REC tree, so there is no shared live source tree
+# for them to collide over.
 running=0
 for i in "${!SUITES[@]}"; do
-  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) continue ;; esac
   run_one "${SUITES[$i]}" "rps-$i" &
   running=$((running + 1))
   if [ "$running" -ge "$POOL_JOBS" ]; then

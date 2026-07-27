@@ -43,13 +43,22 @@ jobs:
           # maintainers/RELEASING.md, checklist step 1). Each suite runs under a
           # per-suite timeout so a hang fails LOUD with a named timeout, never a
           # silent stall (Rule 15). Serial here by design — the CI reference is
-          # the simple form; the local battery adds a bounded parallel pool with a
-          # SERIAL CARVE: two suites (plugin.test.sh, ship-suite.test.sh) write to
-          # / build from the SHARED LIVE SOURCE TREE at fixed paths and must not
-          # overlap (audit: maintainers/BATTERY-HERMETICITY.md). This serial loop
-          # SUBSUMES that carve — every suite runs alone — so the lockstep with the
-          # local runners holds; a future parallel CI form would have to replicate
-          # the carve rather than glob all suites concurrently.
+          # the simple form; the local battery adds a bounded parallel pool plus a
+          # HERMETICITY GUARD (audit: maintainers/BATTERY-HERMETICITY.md): it
+          # fingerprints the code repo before the first suite and again after the
+          # last, and fails the run if the SHARED LIVE SOURCE TREE moved. That
+          # guard is what makes the pool sound; it replaced an earlier serial carve
+          # of the two suites then known to write the live tree.
+          #
+          # Be precise about what serial buys here — the two properties are NOT the
+          # same. Serial execution SUBSUMED the old CARVE, which was only about
+          # non-overlap: run alone, nothing can collide. It does NOT subsume
+          # HERMETICITY — a suite that writes the live tree still writes it when run
+          # alone; this loop simply never notices. So CI is safe from the collision
+          # flake class but verifies nothing about hermeticity, and the local
+          # battery is where that property is actually enforced. A future parallel
+          # CI form would have to carry the fingerprint guard itself; globbing all
+          # suites concurrently without it reopens the flake class.
           fail=0
           for t in .claude/tests/*.test.sh; do
             b="$(basename "$t")"

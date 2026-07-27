@@ -588,19 +588,37 @@ write_runner() {
 #      LOUD with a NAMED timeout (rc 124), distinguishable from sandbox slowness,
 #      never a silent stall (Rule 15). No timeout binary on PATH is a designed,
 #      ANNOUNCED degradation: the suite runs unbounded rather than breaking.
-#  (b) BOUNDED PARALLEL POOL + SERIAL CARVE + DETERMINISTIC AGGREGATION — most
-#      suites run concurrently (≤ CORE_TEST_JOBS at once), each writing its own
-#      out/err/rc; a final pass then replays them IN SORTED NAME ORDER under the
-#      identical gate, so wall-clock drops toward the slowest while the output and
-#      verdict stay deterministic. NOT every suite is hermetic: the audit
-#      ([15.1] — maintainers/BATTERY-HERMETICITY.md) found two suites that write
-#      to / build from the SHARED LIVE SOURCE TREE at fixed (non-mktemp) paths —
-#      plugin.test.sh plants throwaway fixtures into the repo's .claude/ and
-#      builds reading it; ship-suite.test.sh builds the plugin reading that same
-#      source. Run concurrently they corrupt each other's build (planted fixtures
-#      / a skill-name-collision exit 2) → an intermittently flaky battery. Those
-#      suites (SERIAL_SET) are carved OUT of the pool and run ONE AT A TIME; the
-#      genuinely-hermetic remainder stays parallel.
+#  (b) BOUNDED PARALLEL POOL + HERMETICITY GUARD + DETERMINISTIC AGGREGATION —
+#      EVERY suite runs concurrently (≤ CORE_TEST_JOBS at once), each writing its
+#      own out/err/rc; a final pass then replays them IN SORTED NAME ORDER under
+#      the identical gate, so wall-clock drops toward the slowest while the output
+#      and verdict stay deterministic. Parallelism is only sound if the suites are
+#      hermetic — so the runner CHECKS that property directly instead of trusting
+#      it: it fingerprints the code repo before the first suite and again after the
+#      last, and FAILS THE RUN if the tree moved.
+#
+#      This REPLACED a serial carve. The [15.1] audit
+#      (maintainers/BATTERY-HERMETICITY.md) found two suites writing to / building
+#      from the shared live source tree at fixed (non-mktemp) paths and quarantined
+#      them: plugin.test.sh + ship-suite.test.sh ran one-at-a-time ahead of the
+#      pool. That cost 319s of strictly serial time inside an 826s battery, and it
+#      protected only the suites someone had already thought to name. Spike Prong B
+#      made both hermetic (they build from scratch copies now), retiring the
+#      carve's reason — and this guard is the stronger replacement, because it
+#      holds for ALL suites, including ones not yet written, rather than for a
+#      hand-maintained list that goes stale silently.
+#
+#      The guard is WHOLE-BATTERY, not per-suite, and that limit is deliberate:
+#      under a parallel pool the suites overlap, so a tree change cannot be
+#      attributed to one of them. Per-suite attribution would require running them
+#      serially — reintroducing the exact cost this removed. The guard proves "no
+#      suite wrote"; the porcelain diff it prints on a breach names the paths,
+#      which in practice identifies the culprit.
+#
+#      It also closes a hole in the (A2) recorded verdict: `record` fingerprints
+#      AFTER the run, so without this check a tree that moved mid-battery would be
+#      recorded under a fingerprint describing a tree the suites never ran against.
+#      before == after is what makes that record honest.
 #  (c) NO EXIT-MASKING / NO STDOUT-ONLY BLINDNESS — the gate fails a suite on ANY
 #      of: nonzero rc, ANY stderr byte, OR a failure-shaped STDOUT verdict (a ✗
 #      line, or "Results: N passed, M failed" with M>0) even when the suite lied
@@ -658,13 +676,12 @@ CODE=$(roots_code_path) || { echo "run-core-tests: could not resolve a code repo
 # not silently dropped.
 #
 # DO NOT re-derive this bound from a list of suite names in a comment. The last
-# one said the SERIAL_SET plugin-builders were the slowest (plugin.test.sh ~190s,
+# one said the two plugin-builders were the slowest (plugin.test.sh ~190s,
 # ship-suite.test.sh 99s after its [22.1] --only cut) and had gone stale by more
 # than 2x in headroom terms: three consecutive censuses in 2026-07 put
 # setup-control-plane.test.sh at 353/363/395s and budget-gate.test.sh at
-# 275/278/297s — both in the POOL, neither in the carve, and plugin.test.sh had
-# fallen to seventh. The runner now PRINTS the census on every run (Prong C), so
-# read that instead of trusting this paragraph.
+# 275/278/297s, with plugin.test.sh fallen to seventh. The runner now PRINTS the
+# census on every run (Prong C), so read that instead of trusting this paragraph.
 #
 # What the bound has to satisfy: it must exceed the slowest suite's POOL time
 # (the timeout wraps each suite as it runs under contention, so pool timings are
@@ -727,17 +744,8 @@ run_one() {  # $1 = suite path  $2 = scratch key
   printf '[run-core-tests] done %s (%ss)\n' "$(basename "$t")" "$((ended - started))" >&2
 }
 
-# ── fix (b): the AUDITED serial set (the shared-live-source-tree writers) ──
-# These suites mutate / build from the repo's live .claude/ at fixed paths, so
-# they MUST NOT overlap each other or any other suite. Audit + rationale:
-# maintainers/BATTERY-HERMETICITY.md. A new suite that writes to the shared live
-# tree is enrolled by adding its basename here (one edit, mirrored in the plugin
-# runner and the CI loop's comment — the three copies stay in lockstep).
-SERIAL_SET=" plugin.test.sh ship-suite.test.sh "
-
 # Collect the suites in a stable, sorted order — the deterministic spine of both
-# the launch list and the aggregation pass. The serial carve is applied at launch
-# time below (the SERIAL_SET membership test), so collection stays one list.
+# the launch list and the aggregation pass.
 SUITES=()
 while IFS= read -r t; do SUITES+=("$t"); done < <(
   for t in "$CODE"/.claude/tests/*.test.sh; do [ -e "$t" ] && printf '%s\n' "$t"; done | LC_ALL=C sort
@@ -767,12 +775,11 @@ if [ -n "$ONLY" ]; then
 fi
 
 # Announce the run's SHAPE before any suite starts. Completion lines alone leave the
-# silence exactly where it does the most damage: the serial carve runs first and its
-# first member is one of the slowest suites in the battery (measured 193s), so a
-# person watching a fresh run would still see nothing for over three minutes — which
-# is precisely the window in which friction entry 2026-07-18T17:37:57Z-2084922661 was
-# filed, a contended battery killed as a suspected single-suite hang. Knowing what is
-# running and in what order is what distinguishes "slow" from "stuck".
+# silence exactly where it does the most damage — at startup, before anything has
+# landed. That is precisely the window in which friction entry
+# 2026-07-18T17:37:57Z-2084922661 was filed: a contended battery killed as a
+# suspected single-suite hang. Knowing what is running is what distinguishes "slow"
+# from "stuck".
 #
 # Under --only the line names the filter, because the count alone is ambiguous: "3
 # suites" from a filtered run and "3 suites" from a repo that only has three look
@@ -782,28 +789,36 @@ if [ -n "$ONLY" ]; then
   printf '[run-core-tests] running %s suites matching --only %s (filtered; the FULL battery is still the gate at session close)\n' \
     "${#SUITES[@]}" "$ONLY" >&2
 else
-  printf '[run-core-tests] running %s suites: serial carve first (%s), then the rest at %s-way parallelism\n' \
-    "${#SUITES[@]}" "$(echo $SERIAL_SET)" "$JOBS" >&2
+  printf '[run-core-tests] running %s suites at %s-way parallelism\n' "${#SUITES[@]}" "$JOBS" >&2
 fi
 
-# Serial carve FIRST: the shared-live-tree suites run strictly one at a time,
-# before the pool, so neither they nor the pool ever touch the live source tree
-# concurrently. (Sequential foreground runs — no & — guarantee non-overlap.)
-for i in "${!SUITES[@]}"; do
-  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*)
-    # Announced on START, not only on completion: these two are the long poles and
-    # they run alone, so this is the one place a start line buys real information.
-    # The pool suites are not announced on start — a burst of $JOBS lines at once
-    # is noise, and their completions arrive steadily enough to show liveness.
-    printf '[run-core-tests] start %s (serial carve)\n' "$(basename "${SUITES[$i]}")" >&2
-    run_one "${SUITES[$i]}" "$i" ;;
-  esac
-done
+# ── fix (b): the HERMETICITY GUARD, first half — the BEFORE fingerprint ──
+# Taken after the suite list is settled and before any suite starts, so the window
+# it covers is exactly "the battery ran". battery-result.sh owns the hash so this
+# runner, `record` and `read` all compare the SAME function's output; a second
+# hand-rolled copy here would drift and silently stop agreeing.
+#
+# DESIGNED DEGRADATION (rule 15): where the fingerprint cannot be taken — the code
+# repo is not a git repo, or battery-result.sh is absent — the guard ANNOUNCES that
+# it is not checking and the battery proceeds. It degrades toward running the
+# suites, never toward claiming a hermeticity proof nobody produced. The exit-4
+# contract (empty stdout) is what makes the two cases distinguishable here.
+HERM_BEFORE=""
+if [ -f "$HERE/battery-result.sh" ]; then
+  HERM_BEFORE=$(bash "$HERE/battery-result.sh" fingerprint 2>/dev/null) || HERM_BEFORE=""
+fi
+if [ -n "$HERM_BEFORE" ]; then
+  git -C "$CODE" status --porcelain > "$WORKDIR/herm.before" 2>/dev/null || true
+else
+  printf '[run-core-tests] hermeticity NOT CHECKED — could not fingerprint %s (not a git repo, or battery-result.sh is absent). The suites still run; nothing is verifying that they leave the source tree alone.\n' \
+    "$CODE" >&2
+fi
 
-# Launch the HERMETIC remainder under a bounded pool: at most $JOBS in flight.
+# Launch every suite under a bounded pool: at most $JOBS in flight. There is no
+# carve — the guard above verifies the hermeticity that makes this sound, rather
+# than a hand-maintained quarantine list asserting it.
 running=0
 for i in "${!SUITES[@]}"; do
-  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) continue ;; esac
   run_one "${SUITES[$i]}" "$i" &
   running=$((running + 1))
   if [ "$running" -ge "$JOBS" ]; then
@@ -812,6 +827,16 @@ for i in "${!SUITES[@]}"; do
   fi
 done
 wait
+
+# ── the HERMETICITY GUARD, second half — the AFTER fingerprint ──
+# Taken immediately after the last suite exits, before the aggregation pass (which
+# reads $WORKDIR and never touches $CODE). Compared below, once `fail` exists, so
+# the single-verdict-variable discipline is preserved.
+HERM_AFTER=""
+if [ -n "$HERM_BEFORE" ]; then
+  HERM_AFTER=$(bash "$HERE/battery-result.sh" fingerprint 2>/dev/null) || HERM_AFTER=""
+  git -C "$CODE" status --porcelain > "$WORKDIR/herm.after" 2>/dev/null || true
+fi
 
 # ── fix (b)+(c): deterministic SERIAL aggregation under the IDENTICAL gate ──
 # Replay suites in sorted order; apply the gate (nonzero rc OR any stderr byte OR
@@ -860,6 +885,42 @@ for i in "${!SUITES[@]}"; do
 
   [ "$sfail" = "1" ] && nfail=$((nfail + 1))
 done
+
+# ── fix (b): the HERMETICITY VERDICT ──
+# A moved tree fails the run. Two things can move it, and the operator has to be
+# able to tell them apart, so the porcelain diff is printed rather than just the
+# fact of a mismatch:
+#   1. A SUITE WROTE to the live source tree. That is the defect this guard exists
+#      for — it is the fixture-collision flake class that the serial carve used to
+#      contain by quarantine.
+#   2. A PERSON (or another agent) edited the tree mid-battery. Also a genuine
+#      failure, not a false red: the suites read a tree that changed underneath
+#      them, so the verdict describes no single state and is not interpretable.
+#      Silently passing that is how an untested tree acquires a green stamp.
+#
+# On stdout, with the other gate legs — a breach belongs in the aggregated record,
+# not only in the progress stream. This assignment to `fail` sits BEFORE the exit
+# like every other one; nothing follows the exit ([15.1] exit-masking).
+#
+# The porcelain diff names paths that APPEARED or VANISHED. A content-only edit to
+# an already-modified file moves the fingerprint but shows no line here — said out
+# loud because an empty diff under a real breach would otherwise read as a bug in
+# the guard rather than as the narrower thing it is.
+if [ -n "$HERM_BEFORE" ] && [ "$HERM_AFTER" != "$HERM_BEFORE" ]; then
+  echo "[hermeticity] THE CODE REPO MOVED WHILE THE BATTERY RAN — failing the run."
+  echo "  tree:  $CODE"
+  if [ -z "$HERM_AFTER" ]; then
+    echo "  the AFTER fingerprint could not be taken at all (the repo became unreadable mid-run)."
+  else
+    echo "  paths that appeared/vanished (a content-only edit to an already-dirty file moves the"
+    echo "  fingerprint without showing up below):"
+    diff "$WORKDIR/herm.before" "$WORKDIR/herm.after" 2>/dev/null | sed 's/^/    /'
+  fi
+  echo "  Either a suite wrote to the live source tree (a hermeticity defect — suites must"
+  echo "  build and plant in their own mktemp scratch), or the tree was edited while the"
+  echo "  battery ran (in which case no single tree state was tested — re-run on a settled tree)."
+  fail=1
+fi
 
 # Per-suite wall-clock, slowest first, on stderr. This is RETAINED measurement, not
 # just progress: sizing the focused-suite path and the hermeticity change needs the

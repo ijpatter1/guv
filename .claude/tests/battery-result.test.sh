@@ -165,6 +165,56 @@ OUT=$( cd "$P" && bash "$CACHE/battery-result.sh" read 2>&1 ); RC=$?   # read fr
   && ok "a copy running from outside the project reads the project's artifact (the plugin-install path: recorded by the plane, read from the cache)" \
   || no "the artifact must be resolved against the PROJECT, not the script's own directory — beside-the-script means the plugin-installed reader never sees what the runner wrote (rc=$RC out=$OUT)"
 
+# ── the `fingerprint` subcommand (spike Prong B steps 4–5) ────────────────────
+# The battery's hermeticity guard is a before/after fingerprint pair taken by the
+# generated runner. That guard replaced the SERIAL carve, so its three failure
+# modes are now the only thing standing between "a suite wrote to the live source
+# tree" and nobody noticing: it must be STABLE (or every battery false-reds), it
+# must be SENSITIVE (or it detects nothing), and it must FAIL LOUD AND TYPED when
+# it cannot run (or the runner cannot tell "hermetic" from "unchecked").
+#
+# The subcommand exists so that check lives in ONE place. The runner, `record`
+# and `read` all compare the same function's output; a second hand-rolled copy in
+# the generated runner would drift from this one and silently stop agreeing.
+
+# T10 — STABILITY. Two calls on an untouched tree must agree. The runner takes
+# one fingerprint before the suites and one after and calls a difference a
+# hermeticity breach; anything nondeterministic in here (a timestamp, an unsorted
+# listing) would red every battery run and the guard would be ripped out within a
+# day for crying wolf.
+IFS='|' read -r P C <<<"$(mk_plane)"
+FP1=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null ); RC1=$?
+FP2=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+[ $RC1 -eq 0 ] && [ -n "$FP1" ] && [ "$FP1" = "$FP2" ] \
+  && ok "\`fingerprint\` emits a stable non-empty value on an unchanged tree (the guard's no-false-red property)" \
+  || no "\`fingerprint\` must print one stable value per tree state — an unstable one reds every battery (rc=$RC1 fp1=$FP1 fp2=$FP2)"
+
+# T11 — SENSITIVITY, via the exact shape a leaking suite produces: a NEW UNTRACKED
+# FILE dropped into the live tree (the fixture-plant that T12e, T14 and the
+# ship-suite build all used to do). `git diff HEAD` cannot see it, which is why the
+# fingerprint hashes untracked CONTENT — assert the property here rather than
+# trusting that the internals stay that way.
+printf 'planted by a leaking suite\n' > "$C/.claude-zz-leak-fixture"
+FP3=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+[ -n "$FP3" ] && [ "$FP3" != "$FP1" ] \
+  && ok "\`fingerprint\` moves when a suite plants an untracked file in the live tree (the guard's detection property)" \
+  || no "a fixture planted in the live tree must move the fingerprint — otherwise the hermeticity guard passes a leaking battery (fp1=$FP1 fp3=$FP3)"
+rm -f "$C/.claude-zz-leak-fixture"
+
+# T12 — the DESIGNED DEGRADATION signal (rule 15). Where the code repo is not a
+# git repo the guard cannot run at all. It must exit 4 and print NOTHING to
+# stdout, because the runner branches on exactly that to announce "hermeticity
+# NOT CHECKED" instead of claiming a clean run — and a stray stdout line would be
+# captured as a fingerprint and compared against the next one.
+IFS='|' read -r P2 _ <<<"$(mk_plane)"
+NOGIT="$WORK/not-a-repo"; mkdir -p "$NOGIT"
+jq --arg c "$NOGIT" '.roots.code = $c' "$P2/.claude/project.json" > "$P2/.claude/pj.tmp" \
+  && mv "$P2/.claude/pj.tmp" "$P2/.claude/project.json"
+OUT=$( ( cd "$P2" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null ); RC=$?
+[ $RC -eq 4 ] && [ -z "$OUT" ] \
+  && ok "\`fingerprint\` exits 4 with empty stdout when the code repo is not a git repo (the announced-degradation signal)" \
+  || no "an unresolvable code repo must be a typed exit-4 refusal with no stdout — the runner cannot otherwise tell 'hermetic' from 'unchecked' (rc=$RC out=$OUT)"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

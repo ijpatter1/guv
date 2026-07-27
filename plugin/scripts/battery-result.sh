@@ -27,6 +27,16 @@
 # Usage:
 #   battery-result.sh record <rc> <suites> <passed> <failed> [<only-pattern>]
 #   battery-result.sh read
+#   battery-result.sh fingerprint
+#
+# `fingerprint` exposes the same tree hash `record` and `read` compare, so the
+# generated runner's HERMETICITY GUARD can call it instead of hand-rolling a
+# second copy. The runner takes one before the suites and one after: a difference
+# means a suite wrote to the live source tree. That guard is what replaced the
+# SERIAL carve (spike Prong B) — the carve serialized the two suites that used to
+# write the live tree, at 319s of strictly serial cost per battery; the suites
+# were made hermetic instead, and this checks the property directly rather than
+# quarantining the suites that once broke it.
 #
 # Exit codes for `read` — chosen so the natural `if ... read; then` idiom means
 # "there is a VERIFIED GREEN", which is the conservative reading:
@@ -136,9 +146,20 @@ case "$CMD" in
     exit 1
     ;;
 
+  fingerprint)
+    # Stdout is the fingerprint and nothing else — the caller captures it whole.
+    # An empty hash is refused for the same reason `record` refuses one: it would
+    # compare equal to the next empty hash and read as "nothing changed" over a
+    # tree nobody managed to inspect.
+    fp=$(fingerprint)
+    [ -n "$fp" ] || die "could not fingerprint the code repo's state" 4
+    printf '%s\n' "$fp"
+    ;;
+
   *)
     echo "usage: battery-result.sh record <rc> <suites> <passed> <failed> [<only-pattern>]" >&2
     echo "       battery-result.sh read" >&2
+    echo "       battery-result.sh fingerprint" >&2
     exit 2
     ;;
 esac
