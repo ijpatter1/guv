@@ -1294,6 +1294,31 @@ run_battery "$BP1D"
   && ok "[15.1] fix(b): a suite that STAGES into the live repo fails the battery and the breach names the INDEX — the leg the content-only rewrite dropped, restored and pinned (no byte moved, so neither the content hash nor the HEAD check could have caught this)" \
   || no "[15.1] fix(b): a mid-run \`git add\` must breach the guard. Content-only provenance cannot see staging and neither can the HEAD check, so the porcelain comparison is the only leg that can — if this went green, that leg is gone again and a suite can quietly re-stage a developer's index (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|INDEX\|HEAD\|Results' | tail -5))"
 
+# T11j5 — the guard's FOURTH leg: a mid-run REF move. `git commit` and `git add`
+# are not the only members of the "disturbs the repo, moves no byte" family, and
+# the guard's own comment used to claim they were (guv eval, 2026-07-27, filed as
+# an UNWRITTEN gap — rule 15 tolerates a documented limit and not a silent one).
+# `git switch -c` leaves working-tree content identical, leaves `rev-parse HEAD`
+# identical (the new branch points at the same commit), and shows nothing in
+# `git status --porcelain` — so all three original legs pass it.
+#
+# The fixture is the sharpest of the four: NOTHING moves except which ref HEAD
+# names. A pass here cannot be bought by the content hash, the HEAD check, or the
+# porcelain comparison, because none of the three can see a symbolic-ref change.
+# What it protects is a developer's checkout: a suite that mis-resolves the repo
+# and branches in the live tree leaves them on a branch they never chose.
+IFS='|' read -r BP1E BC1E <<<"$(mk_battery_plane)"
+plant_suite "$BC1E" "brancher.test.sh" $'#!/bin/bash\nREPO="$(cd "$(dirname "$0")/../.." && pwd)"\ngit -C "$REPO" switch -c lane/hijack 2>/dev/null || git -C "$REPO" checkout -b lane/hijack 2>/dev/null\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+( cd "$BC1E" && git init -q . && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -qm baseline ) >/dev/null 2>&1
+run_battery "$BP1E"
+[ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -q 'THE CODE REPO MOVED' \
+  && printf '%s' "$BATT_OUT" | grep -qi 'checked-out REF moved' \
+  && ! printf '%s' "$BATT_OUT" | grep -qi 'HEAD moved' \
+  && ! printf '%s' "$BATT_OUT" | grep -qi 'the INDEX moved' \
+  && ok "[15.1] fix(b): a suite that SWITCHES BRANCHES in the live repo fails the battery and the breach names the REF — the fourth member of the moves-no-byte family, which the other three legs are all blind to by construction" \
+  || no "[15.1] fix(b): a mid-run \`git switch -c\` must breach the guard. Content is identical, HEAD is identical (the new branch is at the same commit) and porcelain is identical, so the symbolic-ref capture is the ONLY leg that can see it — if this went green, a suite can leave a developer on a branch they never chose and the run still passes (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|REF\|HEAD\|Results' | tail -5))"
+
 # T11k — NO FALSE RED. The same plane with only hermetic suites must come back
 # green with the guard silent. This is the assertion that keeps the guard alive:
 # a check that reds a clean battery gets deleted within a day for crying wolf,

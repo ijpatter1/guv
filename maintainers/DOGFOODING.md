@@ -82,8 +82,12 @@ Two rules make this safe rather than merely fast:
   it deliberately **records nothing** — a filtered result must never overwrite a whole-tree
   one. Report it as what it is.
 - **`read` is provenance-checked, not a cache.** It hashes the *content* of every tracked
-  and untracked non-ignored file — plus each one's executable bit — and refuses (exit 3)
-  the moment a byte or a mode moves. A green it returns describes the tree in front of you;
+  and untracked non-ignored file **in the code repo** (`roots.code`) — plus each one's
+  executable bit — and refuses (exit 3) the moment a byte or a mode moves. In a split
+  control plane the covered tree is the code repo *only*: an edit to the plane's own
+  files — this document, the generated runner, the phase docs — leaves a recorded verdict
+  reading VERIFIED, because the suites test the code repo and that is what the record
+  describes. A green it returns describes the tree in front of you;
   a stale green consumed as fresh is worse than no result, because it looks like
   verification. This is the reader QA uses, so the battery is paid for once per tree rather
   than once per reviewer.

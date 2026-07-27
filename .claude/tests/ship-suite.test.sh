@@ -105,10 +105,21 @@ done
 
 # T3c — a consumer suite known to be pure script-behavior IS shipped (positive
 # anchor so T2 can't pass vacuously on an empty consumer set).
-for b in resolve-ready.test.sh route.test.sh merge-queue.test.sh; do
+#
+# battery-result.test.sh is in this list for a second reason, and it is the one that
+# cost real time. On 2026-07-27 a COMMENT added to that suite happened to contain a
+# maintainer path; the partition greps each suite WHOLE, prose included, so the
+# suite silently stopped shipping and consumer coverage went with it. T2/T3 cannot
+# catch that — they derive the expected partition from the same classifier the build
+# applies, so they agree with a misclassification by construction. Only a hardcoded
+# name can disagree, which is what an anchor is for. The build's partition
+# announcement was the first answer to this and is not sufficient alone: both
+# automated callers discard the build's output (guv eval, 2026-07-27), leaving
+# nothing that could actually fail. This assertion is the loud half.
+for b in resolve-ready.test.sh route.test.sh merge-queue.test.sh battery-result.test.sh; do
   [ -f "$PTESTS/$b" ] \
     && ok "consumer suite present: $b" \
-    || no "expected consumer suite missing: $b"
+    || no "expected consumer suite missing: $b (if this suite was consumer-relevant yesterday and is maintainer-only today, check whether a COMMENT in it now matches build-plugin.sh's partition pattern — that is how this exact assertion earned its place)"
 done
 
 # T4 — shipped suites are byte-identical to their .claude/tests/ sources (a

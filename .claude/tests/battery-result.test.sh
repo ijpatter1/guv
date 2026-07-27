@@ -266,6 +266,26 @@ OUT_SAME=$(rd "$P4" 2>&1); RC_SAME=$?
   && ok "\`read\` VERIFIES across a no-op commit (rc=0) and still REFUSES once a byte changes (rc=3) — provenance tracks content, not the commit pointer" \
   || no "the commit boundary must be invisible to provenance and a content edit must not be: after-commit rc=$RC_SAME (want 0), after-edit rc=$RC_MOVED (want 3) [same=$OUT_SAME | moved=$OUT_MOVED]"
 
+# T11e2 — WHAT THE VERDICT SAYS IT IS ABOUT, which T11e's exit code cannot see.
+# The record stores `git rev-parse HEAD` at record time. Once the fingerprint went
+# content-only so a verdict could survive being committed, that stored sha became
+# systematically the PARENT of the commit under review — the battery runs before
+# the commit, which is the whole point. It was still displayed as `tree:`, so every
+# QA report quoting provenance named the wrong commit, and named it as a tree it
+# never was (guv eval, 2026-07-27: the artifact read 3b49f33 while the code it
+# verified was 1ea2dcf). Two things are asserted because fixing only the label
+# would leave the reader to notice the mismatch unaided:
+#   - the stale label is GONE (no `tree:` line — it was never a tree object), and
+#   - when HEAD has moved on, the output SAYS SO rather than printing a sha that
+#     silently disagrees with `git rev-parse HEAD` under a banner claiming a match.
+# $OUT_SAME is reused deliberately: it is the exact shape this defect lives in — a
+# verdict recorded before a commit, read after it, correctly VERIFIED.
+[ $RC_SAME -eq 0 ] \
+  && ! printf '%s' "$OUT_SAME" | grep -qE '^[[:space:]]*tree:' \
+  && printf '%s' "$OUT_SAME" | grep -qi 'HEAD is now' \
+  && ok "a verdict read across the commit boundary names the commit it RAN AT and discloses that HEAD has moved past it — the surviving-the-commit path is the normal one, so its output cannot print a sha that disagrees with HEAD and say nothing" \
+  || no "\`read\` must not label the recorded sha \`tree:\` (it is a commit, not a tree) and must disclose when HEAD has moved past it. Content-only provenance makes that mismatch the DESIGNED normal case, so silence there teaches a reader to distrust either the sha or the verdict — one of which is always wrong [rc=$RC_SAME out=$OUT_SAME]"
+
 # T11f — THE EXECUTABLE BIT IS STATE. `feedback-log.test.sh` asserts `[ -x ... ]`
 # on a live source file, so a `chmod -x` between the battery and the read leaves a
 # VERIFIED record describing a tree whose battery is now RED. The first cut of the

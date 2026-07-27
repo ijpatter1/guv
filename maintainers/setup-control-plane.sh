@@ -860,27 +860,48 @@ fi
 # suites, never toward claiming a hermeticity proof nobody produced. The exit-4
 # contract (empty stdout) is what makes the two cases distinguishable here.
 #
-# THE GUARD IS THREE CHECKS, NOT ONE, and the two beside the fingerprint are not
+# THE GUARD IS FOUR CHECKS, NOT ONE, and the three beside the fingerprint are not
 # redundant. The fingerprint is content-only by design so a recorded verdict
 # survives being committed (battery-result.sh explains why at length) — but that
-# design gives up two things the old composite fingerprint saw, and BOTH are real
-# residue in a developer's repo:
-#   - `git commit` moves no working-tree byte  -> the HEAD check catches it.
-#   - `git add`    moves no working-tree byte  -> the porcelain comparison catches
+# design gives up everything in the "disturbs the repo, moves no byte" family, and
+# each member is real residue in a developer's repo:
+#   - `git commit`    moves no working-tree byte -> the HEAD check catches it.
+#   - `git add`       moves no working-tree byte -> the porcelain comparison catches
 #     it. This leg was MISSING for one unreleased revision, because the content-only
 #     rewrite dropped `git status --porcelain` from the fingerprint and nothing
 #     picked it back up; a QA eval caught it on 2026-07-27 before it shipped.
+#   - `git switch -c` moves no working-tree byte, no HEAD *commit* (the new branch
+#     points at the same one) and nothing in porcelain -> the symbolic-ref capture
+#     is the only leg that can see it. A suite that mis-resolves the repo and
+#     branches in the live tree leaves the developer on a branch they never chose.
+#
+# WHAT IS STILL OUTSIDE, said out loud because the previous version of this comment
+# claimed its enumeration was closed and was wrong (guv eval, 2026-07-27 — the
+# finding was not the hole, it was that the hole was UNWRITTEN; rule 15 tolerates a
+# named limit and not a silent one): deleting an UNRELATED branch, creating a tag,
+# and `git config` all still pass every leg. They are left uncovered deliberately —
+# each needs its own capture, none of them changes what a subsequent commit or
+# checkout does to the developer's working tree, and the guard is a tripwire for
+# suites that wander, not a general-purpose repo audit.
+#
 # The split is the point: the RECORD asks "does this verdict still describe these
-# bytes", the GUARD asks "did the suites disturb the tree". Staging and committing
-# are both disturbances and neither is a byte, which is exactly why they live here
-# and not there. T11j3 pins the commit leg; T11j4 pins the staging leg.
+# bytes", the GUARD asks "did the suites disturb the tree". Staging, committing and
+# branching are all disturbances and none is a byte, which is exactly why they live
+# here and not there. T11j3 pins the commit leg; T11j4 the staging leg; T11j5 the
+# ref leg.
 HERM_BEFORE=""
 HERM_HEAD_BEFORE=""
+HERM_REF_BEFORE=""
 if [ -f "$HERE/battery-result.sh" ]; then
   HERM_BEFORE=$(bash "$HERE/battery-result.sh" fingerprint 2>/dev/null) || HERM_BEFORE=""
 fi
 if [ -n "$HERM_BEFORE" ]; then
   HERM_HEAD_BEFORE=$(git -C "$CODE" rev-parse HEAD 2>/dev/null || echo "")
+  # DETACHED is a real state, not a read failure: `symbolic-ref` exits nonzero on a
+  # detached HEAD, and collapsing that to "" would make detaching (or re-attaching)
+  # mid-run compare equal to an unreadable repo. Naming it keeps both transitions
+  # visible to the comparison below.
+  HERM_REF_BEFORE=$(git -C "$CODE" symbolic-ref -q HEAD 2>/dev/null || echo "DETACHED")
   git -C "$CODE" status --porcelain > "$WORKDIR/herm.before" 2>/dev/null || true
 else
   printf '[run-core-tests] hermeticity NOT CHECKED — could not fingerprint %s (not a git repo, or battery-result.sh is absent). The suites still run; nothing is verifying that they leave the source tree alone.\n' \
@@ -923,9 +944,11 @@ wait
 # the single-verdict-variable discipline is preserved.
 HERM_AFTER=""
 HERM_HEAD_AFTER=""
+HERM_REF_AFTER=""
 if [ -n "$HERM_BEFORE" ]; then
   HERM_AFTER=$(bash "$HERE/battery-result.sh" fingerprint 2>/dev/null) || HERM_AFTER=""
   HERM_HEAD_AFTER=$(git -C "$CODE" rev-parse HEAD 2>/dev/null || echo "")
+  HERM_REF_AFTER=$(git -C "$CODE" symbolic-ref -q HEAD 2>/dev/null || echo "DETACHED")
   git -C "$CODE" status --porcelain > "$WORKDIR/herm.after" 2>/dev/null || true
 fi
 
@@ -1028,6 +1051,7 @@ fi
 if [ -n "$HERM_BEFORE" ] \
    && { [ "$HERM_AFTER" != "$HERM_BEFORE" ] \
         || [ "$HERM_HEAD_AFTER" != "$HERM_HEAD_BEFORE" ] \
+        || [ "$HERM_REF_AFTER" != "$HERM_REF_BEFORE" ] \
         || ! cmp -s "$WORKDIR/herm.before" "$WORKDIR/herm.after"; }; then
   echo "[hermeticity] THE CODE REPO MOVED WHILE THE BATTERY RAN — failing the run."
   echo "  tree:  $CODE"
@@ -1045,7 +1069,22 @@ if [ -n "$HERM_BEFORE" ] \
   # belongs to the guard's question even though it is deliberately outside the
   # record's — the record cannot take it back without making the ordinary
   # `git add -A && git commit` invalidate every verdict.
-  if [ "$HERM_AFTER" = "$HERM_BEFORE" ] && [ "$HERM_HEAD_AFTER" = "$HERM_HEAD_BEFORE" ]; then
+  # The ref leg. Reported BEFORE the index leg because a branch switch leaves
+  # porcelain identical, so the index message below would otherwise be the only
+  # thing printed and would name the wrong cause.
+  if [ "$HERM_REF_AFTER" != "$HERM_REF_BEFORE" ]; then
+    echo "  the checked-out REF moved: $HERM_REF_BEFORE -> $HERM_REF_AFTER"
+    echo "  Something ran \`git switch\`/\`git checkout\` in this repo. The new ref can point at"
+    echo "  the SAME commit, so the content hash, the HEAD check and the porcelain comparison"
+    echo "  are all blind to it; this symbolic-ref capture is the one that caught it. Whoever"
+    echo "  owns this checkout is now on a branch they did not choose."
+  fi
+  # The porcelain leg is only entitled to blame the index when porcelain ACTUALLY
+  # moved. It used to infer that from "content and HEAD both held still", which was
+  # sound while those were the only other legs and stopped being sound the moment
+  # the ref leg landed — a branch switch holds content and HEAD still too.
+  if [ "$HERM_AFTER" = "$HERM_BEFORE" ] && [ "$HERM_HEAD_AFTER" = "$HERM_HEAD_BEFORE" ] \
+     && ! cmp -s "$WORKDIR/herm.before" "$WORKDIR/herm.after"; then
     echo "  the INDEX moved while content and HEAD stayed put — something ran \`git add\`"
     echo "  (or \`git rm --cached\`) in this repo. No byte changed, so neither the content"
     echo "  hash nor the HEAD check can see it; this porcelain comparison is the one that did."

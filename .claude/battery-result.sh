@@ -242,10 +242,28 @@ case "$CMD" in
       || die "the recorded run was FILTERED to '$only' — a partial run is not a whole-tree proof. Run the full battery." 3
     now=$(fingerprint)
     [ "$now" = "$fp" ] \
-      || die "the tree has MOVED since the recorded run (recorded at $sha, fingerprint differs) — that verdict does not describe the current code. Run the battery." 3
+      || die "the tree has MOVED since the recorded run (recorded when HEAD was $sha; the fingerprint differs, and the fingerprint is what is checked — the sha is orientation only) — that verdict does not describe the current code. Run the battery." 3
     echo "battery-result: VERIFIED — provenance matches the current tree"
     echo "  recorded:   $ts"
-    echo "  tree:       $sha"
+    # NOT `tree:`. This is `git rev-parse HEAD` as captured by `record`, which is a
+    # COMMIT and was never a tree object — and since the fingerprint went
+    # content-only precisely so a verdict survives being committed, the battery now
+    # runs BEFORE the commit as a matter of course, making this sha the PARENT of
+    # whatever is under review. Displayed as `tree:` it had every QA report naming
+    # the wrong commit on the newly-normal path (guv eval, 2026-07-27). The check
+    # itself is unaffected — it is the fingerprint, and this pointer is carried for
+    # orientation only — so the honest thing is to label it and disclose the drift
+    # rather than to drop it or to quietly reconcile it. Pinned by T11e2.
+    now_head=$(git -C "$CODE" rev-parse HEAD 2>/dev/null || echo "")
+    if [ -n "$now_head" ] && [ "$now_head" != "$sha" ]; then
+      echo "  ran at:     $sha"
+      echo "              (HEAD when the battery ran; HEAD is now $now_head. The commit"
+      echo "              pointer is deliberately NOT part of the check — running the battery"
+      echo "              before committing is the designed path, so this gap is expected."
+      echo "              The bytes are what matched.)"
+    else
+      echo "  ran at:     $sha (HEAD when the battery ran; the commit pointer is not part of the check)"
+    fi
     # Two units, labelled. `passed`/`failed` have always been SUITE counts; naming
     # them without the noun is how "71 passing" got reported for a battery of
     # ~2,500 assertions. Kept deliberately round: the exact count moves every time a

@@ -65,8 +65,9 @@ into the battery this step exists to avoid.
 Its exit code is the contract:
 
 - **0** — a full run went green against *this exact tree* (every tracked and
-  untracked file's content matches what was recorded). Note what that does *not*
-  include: the commit pointer. Committing already-tested content changes no byte the
+  untracked **non-ignored** file's content — and its executable bit — matches what
+  was recorded; an ignored path such as `dist/` or `node_modules/` is outside the
+  check). Note what that does *not* include: the commit pointer. Committing already-tested content changes no byte the
   suites read, so the verdict deliberately survives it — you are reviewing a landed
   commit, which is exactly when an earlier design refused. Report its counts as
   your test result and do **not** re-run. The provenance check is the only reason
@@ -233,7 +234,7 @@ Output a structured evaluation report with this format:
 ```
 
 **The "Tests:" line counts ASSERTIONS.** If your source also reports suites, give both and
-label each — "71 suites (all green), 2,511 assertions passing" — and never let a suite count
+label each — "71 suites (all green), ~2,500 assertions passing" — and never let a suite count
 sit in the "Tests:" slot unlabelled. Reporting guv's own battery as "71 passing" understated
 it ~35x for a whole release (guv eval, 2026-07-27). This belongs here rather than inside the
 template above, where it was one of the lines an evaluator could reproduce literally into a
