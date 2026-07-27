@@ -297,7 +297,12 @@ that separate them do it differently on purpose:
   other), or `malformed` (the declaration is not a harvest unit, so that second check
   is off). `mismatch` needs `budgets.initiative.harvest_basis`, because a setpoint is
   an integer and integers record no unit. It **qualifies** the number without
-  converting it, and never moves a setpoint.
+  converting it, and never moves a setpoint. Since [28.5] the same banner machinery
+  carries a **second, orthogonal axis** — `budgets.initiative.denomination`, headed
+  `SETPOINT DENOMINATION HAZARD` when it fires alone and emitted alongside the harvest
+  headline when both do. The `hazard:` field names both axes' states. That axis has no
+  log field at all and never will: burn is a raw four-class sum in *code*, so what is
+  undeclared there is the *ceiling's* unit, not the reading's.
 - **`projection.sh observed_rate()` excludes.** A RATE is an average, and an average
   across two units is not a number, so pre-fix and degraded-`null` entries are not
   samples at all — they are filtered out and the emitted document discloses the
@@ -328,7 +333,12 @@ Re-denominating is a person's commit — which is exactly why the gate declares 
 stops there. Note what re-denominating does **not** fix: the gate's burn figure is
 still summed from whatever the log holds, so a post-fix ceiling over a pre-fix window
 is the mismatch case above, not a solved one. Declare
-`budgets.initiative.harvest_basis` alongside the ceiling or the gate cannot see it.
+`budgets.initiative.harvest_basis` alongside the ceiling or the gate cannot see it — and
+`budgets.initiative.denomination` with it, which is the **second**, independent axis
+([28.5]): `harvest_basis` says how a reading was harvested, `denomination` says what unit
+the ceiling's integer is in (`raw_tokens` — the four-class sum the gate actually
+computes — or `cost_weighted`, base-input-equivalents). Both default to off when absent,
+and both are declarations rather than conversions.
 
 What is **not** available as a remedy, though it reads like one: re-banking the
 forecast. `projection.sh bank --at plan` is idempotent per initiative, so on a live

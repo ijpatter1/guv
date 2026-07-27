@@ -224,6 +224,17 @@ these verbatim under **Issues & Technical Debt** (or **Blocked**), exactly as ab
   setpoint-unit check is silently OFF), and carry the **direction** it names (phantom
   breach / phantom headroom / undetermined): the remedy differs by direction, and under
   phantom breach the designed rung is to WAIT rather than move anything.
+- `SETPOINT DENOMINATION HAZARD` — the ceiling was declared `cost_weighted` while burn is
+  summed as a raw four-class token count. The ceiling is the **smaller** side, so the burn
+  **overstates** against it and the gate stops **early**: a phantom breach, the
+  conservative direction — do not record the gap as work that was spent. Carry that
+  direction, and carry the note that **WAIT is not a rung here** (unlike a vintage phantom
+  breach, this one never decays — burn is raw by construction). A separate axis from the
+  harvest unit above, and both can fire at once; when they do the banner names both
+  headlines and the two directions **oppose** each other, so record both and claim no net
+  direction. The `hazard:` field carries both axes' states. The remedy is a person's commit
+  (re-denominate `budgets.initiative.tokens`, or correct `budgets.initiative.denomination`);
+  the gate discloses the gap and never converts, because the ratio moves with session shape.
 - `TORN METERING LINES` — one or more log lines did not parse and were skipped, so every
   burn figure in this handoff is a **floor**, not a measurement. Record the count.
 

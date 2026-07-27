@@ -292,6 +292,23 @@ for v in $BASIS_ENUM; do
     && ok "the gate accepts schema unit '$v' without reporting it MALFORMED" \
     || no "the gate would report the schema-legal unit '$v' as MALFORMED"
 done
+# [28.5] The DENOMINATION axis gets the same enum/legal-values coupling as the vintage
+# axis above, and for the same reason: the MALFORMED banner's "legal values:" line is the
+# only place an operator is told what to write, so a drift between it and the schema
+# hands them a value the schema rejects (or the gate rejects a value the schema blesses).
+DENOM_ENUM=$(jq -r '.properties.budgets.properties.initiative.properties.denomination.enum[]?' "$SCHEMA" 2>/dev/null)
+[ -n "$DENOM_ENUM" ] \
+  && ok "[28.5] schema constrains budgets.initiative.denomination to an enum (a typo'd denomination is caught)" \
+  || no "[28.5] budgets.initiative.denomination must declare an enum — an unconstrained string admits any denomination"
+for v in $DENOM_ENUM; do
+  case "$LEGAL_LINE" in
+    *"$v"*) ok "[28.5] the gate's legal-values line names the schema denomination '$v' (operator can act on it)" ;;
+    *)      no "[28.5] schema blesses denomination '$v' but the gate never names it as legal" ;;
+  esac
+  grep -qE "^ *''\|.*${v}.*\)" "$GATE" 2>/dev/null \
+    && ok "[28.5] the gate accepts schema denomination '$v' without reporting it MALFORMED" \
+    || no "[28.5] the gate would report the schema-legal denomination '$v' as MALFORMED"
+done
 
 # ── ACCEPTANCE 9: PROVENANCE IS project.json HISTORY — NO APPROVAL FLOW ──
 # A budget edit is a commit; there is no approval flow and no side channel. The
@@ -464,6 +481,10 @@ set_init_budget() { jq --argjson b "$2" '.budgets = {initiative:{tokens:$b}}' "$
 # tests need a budget derived from the live projection AND a declared unit, and the plain
 # helper replaces the whole budgets object.
 set_init_budget_basis() { jq --argjson b "$2" --arg hb "$3" '.budgets = {initiative:{tokens:$b, harvest_basis:$hb}}' "$1/.claude/project.json" > "$1/.b" && mv "$1/.b" "$1/.claude/project.json"; }
+# Same again for the [28.5] denomination axis. Deliberately sets NO harvest_basis: the
+# projection fixture's lone entry carries no basis either, so the vintage axis stays
+# silent and anything the foreseen menu says about units is the denomination axis alone.
+set_init_budget_denom() { jq --argjson b "$2" --arg dn "$3" '.budgets = {initiative:{tokens:$b, denomination:$dn}}' "$1/.claude/project.json" > "$1/.b" && mv "$1/.b" "$1/.claude/project.json"; }
 # the projection's central cost-to-complete = remaining_sessions × blended rate
 proj_ctc() { ( cd "$1" && bash "$ROOT/.claude/projection.sh" project 2>/dev/null ) | jq -r '(.spine.quantity.remaining_sessions // 0) * (.spine.unit_rate.blended_tokens // 0)'; }
 
@@ -1567,6 +1588,214 @@ printf '%s' "$V37OUT" | grep -q 'hazard: *mixed' \
   && printf '%s' "$V37OUT" | grep -q 'per_response' \
   && ok "[9.1] a torn line does not blank the vintage scan — the unit disclosure survives the same corruption the burn sum does" \
   || no "[9.1] the vintage scan still slurps: one torn line emptied it, switching the unit disclosure off silently while the burn beside it kept printing (out='$V37OUT')"
+
+# ── [28.5] THE DENOMINATION AXIS: WHAT UNIT IS THE CEILING *IN*? ─────────────────
+# The vintage axis above answers "how was this reading HARVESTED". It cannot reach a
+# second, independent way burn and setpoint fail to be comparable: the number's
+# DENOMINATION. The gate sums burn as a RAW four-class count (input + output +
+# cache_read + cache_creation, unweighted) — that is a code constant, not a log field.
+# A ceiling, though, is a bare integer, and a person may well have chosen it in
+# cost-weighted tokens (base-input-equivalents: cache_read at 0.1x, cache_creation 2x,
+# output 5x). Measured on guv's own record the two differ by 3.9x–6.8x — and the ratio
+# moves with each session's output and cache mix, which is why the remedy DISCLOSES and
+# never converts: a divisor would have to be invented, exactly as on the vintage axis.
+# Nothing in the manifest could express this, so the mismatch was undetectable by
+# construction.
+#
+# A uniformly post-fix log with a matching declared basis — so the VINTAGE axis is
+# silent and every assertion below is attributable to the denomination axis alone.
+mk_denom_log() {
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-14-001",deliverable_ids:["9.0"],
+           tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.3"],
+           tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+}
+
+# V38 — a cost_weighted ceiling against raw burn RAISES, and says so in its own words.
+# The case is drawn from guv's own 004 setpoint, whose numerator reproduces only under a
+# cost weighting while the gate sums raw — every boundary compared the two in silence.
+# (guv's manifest does not itself declare `denomination`: the reproduction is strong but
+# is inference about intent, and declaring on inference would put an assertion of fact in
+# a manifest. The fixture below is what such a project looks like once someone DOES.)
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response","denomination":"cost_weighted"}}' 0 0)
+mk_denom_log > "$P/.claude/metering/metering.ndjson"
+V38OUT=$(gate "$P" exit); V38RC=$?
+printf '%s' "$V38OUT" | grep -q 'DENOMINATION' \
+  && printf '%s' "$V38OUT" | grep -q 'cost_weighted' \
+  && printf '%s' "$V38OUT" | grep -qi 'raw' \
+  && [ $V38RC -eq 0 ] \
+  && ok "[28.5] a cost_weighted setpoint against raw burn raises the denomination banner and exits 0 (a declaration, not a stop)" \
+  || no "[28.5] a ceiling denominated in cost-weighted tokens was compared against a raw four-class burn with nothing said — a 3.9-6.8x error the manifest could not express (rc=$V38RC out='$V38OUT')"
+
+# V39 — the kind field states BOTH axes, POSITIVELY. This was an inverted grep for
+# `hazard: *mixed`, which passes on empty output and so could not tell "reported
+# distinctly" from "no banner at all" — it passed against the pre-implementation gate.
+# Worse, the state it silently blessed was `hazard: none` printed under a title ending in
+# HAZARD, because the field carried UNIT_HAZARD alone. That field was total over its old
+# state space and partial over the new one, and for any project whose meter only ever ran
+# post-[9.1] the vintage axis is silent by construction — so `none` was the ONLY reading a
+# denomination hazard could ever produce. Assert the positive text.
+printf '%s' "$V38OUT" | grep -q 'hazard: *none (harvest) / mismatch (denomination)' \
+  && printf '%s' "$V38OUT" | grep -q 'SETPOINT DENOMINATION HAZARD' \
+  && ! printf '%s' "$V38OUT" | grep -q 'HARVEST UNIT HAZARD' \
+  && ok "[28.5] the kind field names BOTH axes' states, so a denomination hazard never reports 'hazard: none' under a title ending in HAZARD" \
+  || no "[28.5] the kind field does not carry the denomination axis; a live hazard reports itself as no hazard, and the handoff transcribes that into the record (out='$V38OUT')"
+
+# V40 — raw_tokens declared: SILENT. The burn IS a raw count, so this is the matching
+# case, and a banner that fires for a correct declaration is not a warning. Same log and
+# same ceiling as V38, so the only difference is the declared denomination.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response","denomination":"raw_tokens"}}' 0 0)
+mk_denom_log > "$P/.claude/metering/metering.ndjson"
+V40OUT=$(gate "$P" exit); V40RC=$?
+[ $V40RC -eq 0 ] && [ -z "$V40OUT" ] \
+  && ok "[28.5] a raw_tokens setpoint matches the burn's own unit and is silent end to end" \
+  || no "[28.5] the denomination check fired on a setpoint declared in the same unit the gate sums — it would then fire for every correctly-declared project (rc=$V40RC out='$V40OUT')"
+
+# V41 — ABSENT means the check is OFF, never an assumed unit. Absent is the state of
+# every project that predates the field, so guessing here would fire a 3.9x warning at
+# ceilings that are perfectly well denominated. Paired with V38 on an identical fixture:
+# the silence is the DECLARATION's doing, not the fixture's.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response"}}' 0 0)
+mk_denom_log > "$P/.claude/metering/metering.ndjson"
+V41OUT=$(gate "$P" exit); V41RC=$?
+[ $V41RC -eq 0 ] && [ -z "$V41OUT" ] \
+  && ok "[28.5] an undeclared denomination leaves the check OFF and silent — absent is not an assumed unit" \
+  || no "[28.5] the gate inferred a denomination nobody declared; every pre-field project then gets a hazard banner for a ceiling that may be perfectly correct (rc=$V41RC out='$V41OUT')"
+
+# V42 — an out-of-enum value reports MALFORMED and names the legal set, rather than
+# guessing which unit was meant. "cost-weighted" (hyphen) is the realistic typo, and the
+# hyphenated form is legal on the OTHER axis, so a guesser has every excuse to accept it.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response","denomination":"cost-weighted"}}' 0 0)
+mk_denom_log > "$P/.claude/metering/metering.ndjson"
+V42OUT=$(gate "$P" exit)
+printf '%s' "$V42OUT" | grep -q 'MALFORMED' \
+  && printf '%s' "$V42OUT" | grep -q 'cost-weighted' \
+  && printf '%s' "$V42OUT" | grep -q 'raw_tokens' \
+  && ok "[28.5] a denomination outside the enum reports MALFORMED and names the legal values — the check is off and says so" \
+  || no "[28.5] an illegal denomination was guessed at rather than reported; a check believed to be running is worse than one known to be off (out='$V42OUT')"
+
+# V43 — BOTH axes fire at once, and neither swallows the other. This is the case that
+# forces two state variables: the live 004 manifest is a mixed vintage window AND a
+# cost-weighted ceiling, and one variable can hold only one state. Folding denomination
+# into the vintage hazard would silently drop whichever lost the precedence — the same
+# failure V32 polices on the malformed/mixed pair.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"pre-dedupe","denomination":"cost_weighted"}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-14-001",deliverable_ids:["9.0"],
+           tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.3"],
+           tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V43OUT=$(gate "$P" exit)
+printf '%s' "$V43OUT" | grep -q 'hazard: *mixed (harvest) / mismatch (denomination)' \
+  && printf '%s' "$V43OUT" | grep -q 'cost_weighted' \
+  && printf '%s' "$V43OUT" | grep -q 'pre-dedupe' \
+  && ok "[28.5] a mixed harvest window AND a cost_weighted ceiling both report — two independent axes, two states, neither swallowed" \
+  || no "[28.5] one axis suppressed the other; the live 004 manifest sits in exactly this state, so the dropped half is the one nobody would learn about (out='$V43OUT')"
+
+# V43b — BOTH headlines are emitted when both axes fire, not one demoted to a comma
+# clause. The [15.6] drift guard keys the handoff's capture list on headline STRINGS, so a
+# title that never appears in output is a banner the session record never learns to carry.
+# On a project sitting in both states the denomination axis is the one that never decays,
+# which makes it precisely the wrong one to leave nameless.
+printf '%s' "$V43OUT" | grep -q 'budget-gate\] HARVEST UNIT HAZARD' \
+  && printf '%s' "$V43OUT" | grep -q 'budget-gate\] SETPOINT DENOMINATION HAZARD' \
+  && ok "[28.5] both headlines are emitted when both axes fire — each is greppable by the handoff capture guard" \
+  || no "[28.5] one axis fired without ever printing its headline; the handoff's capture list is keyed by headline string, so that banner is structurally absent from the record (out='$V43OUT')"
+
+# V43c — and the two directions are RECONCILED rather than left to contradict. Each
+# paragraph is correct on its own axis and they point OPPOSITE ways (the vintage ceiling
+# is in the inflated unit; the denomination ceiling is the smaller side), and both name
+# budgets.initiative.tokens — the SAME integer — as the remedy. An operator reading either
+# alone moves that number the wrong way in a known direction. Reconciling is not
+# converting: no net direction is claimed, only the destination both axes agree on.
+printf '%s' "$V43OUT" | grep -q 'POINT OPPOSITE WAYS' \
+  && printf '%s' "$V43OUT" | grep -qi 'no net direction is claimed' \
+  && printf '%s' "$V43OUT" | grep -qi 'raw per-response tokens' \
+  && ok "[28.5] when both axes fire the banner reconciles them — opposite directions named, no net direction claimed, one destination both satisfy" \
+  || no "[28.5] the two axes' remedies contradict on the same integer with nothing reconciling them; whichever paragraph the operator reads first decides which way they move it (out='$V43OUT')"
+
+# V44 — DISCLOSES, NEVER CONVERTS. The measured ratio is 3.9x-6.8x depending on session
+# shape, so any single divisor the gate applied would be fabricated. The proof is that
+# the figures are byte-identical to the ones printed with no hazard at all: same log,
+# same ceiling, only the declaration differs. A gate that "helpfully" normalized either
+# side would move a number here — and moving the setpoint is the one thing the machinery
+# never does.
+P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"pre-dedupe"}}' 0 0)
+{
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-14-001",deliverable_ids:["9.0"],
+           tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-15-001",deliverable_ids:["9.3"],
+           tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+           slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+} > "$P/.claude/metering/metering.ndjson"
+V44OUT=$(gate "$P" exit)
+V44BASE=$(printf '%s\n' "$V44OUT" | grep -E 'initiative (burn|setpoint):')
+V44DECL=$(printf '%s\n' "$V43OUT" | grep -E 'initiative (burn|setpoint):')
+[ -n "$V44BASE" ] && [ "$V44BASE" = "$V44DECL" ] \
+  && printf '%s' "$V43OUT" | grep -q '100000000 tokens' \
+  && ok "[28.5] declaring cost_weighted moves no number — the ceiling and the burn print exactly as they do undeclared (disclosure, never conversion)" \
+  || no "[28.5] the gate converted a figure across denominations; the measured ratio spans 3.9x-6.8x by session shape, so whatever divisor it used was invented (base='$V44BASE' declared='$V44DECL')"
+
+# V45 — THE DIRECTION, and it is the opposite of the vintage axis's. Which side is the
+# smaller one decides the whole remedy, and the first draft of this banner shipped the two
+# halves contradicting each other: "the CEILING is the smaller side, so the burn OVERSTATES
+# against it and the headroom it appears to leave is not there." Overstated burn stops the
+# gate EARLY (a phantom breach — wasteful); absent headroom is the gate stopping LATE (a
+# phantom headroom — a budget quietly overrun). Re-derived against guv's own record: the
+# gate reads 40.8% consumed where the ceiling's own unit puts it at 6-10%, so the error is
+# unambiguously the conservative one. An operator who reads "the headroom is not there"
+# does the dangerous thing on a safe signal — descopes real work to fit a ceiling nothing
+# has actually approached. Assert the correct direction positively AND the inverted clause's
+# absence, because both halves were present in one paragraph and each reads plausible alone.
+printf '%s' "$V38OUT" | grep -q 'PHANTOM BREACH' \
+  && printf '%s' "$V38OUT" | grep -q 'OVERSTATES' \
+  && printf '%s' "$V38OUT" | grep -qi 'stops early\|will pause on a setpoint the real work has not reached' \
+  && ! printf '%s' "$V38OUT" | grep -qi 'headroom it appears to' \
+  && ! printf '%s' "$V38OUT" | grep -q 'PHANTOM HEADROOM' \
+  && ok "[28.5] the denomination banner names the error as a PHANTOM BREACH — overstated burn, an early stop — and never as vanished headroom" \
+  || no "[28.5] the banner's direction is self-contradictory: overstated burn and missing headroom are opposite errors with opposite remedies, and the reader acts on whichever clause they reach first (out='$V38OUT')"
+
+# V46 — the direction has to reach the MENU, not just the banner. The extend/harvest/accept
+# choice is made off the FORESEEN OVERRUN block, and the vintage axis already learned this
+# the hard way (V24: a qualifier that could never fire in the case it was written for). The
+# denomination axis arrives at the same menu with the OPPOSITE polarity, so inheriting the
+# vintage advice would be worse than silence — that text argues the ceiling is in the
+# inflated unit. Here the ceiling is the SMALLER side, so the trap is HARVEST: descoping
+# real work to fit a ceiling only the units make look close.
+PF45=$(mk_proj 10000000)   # lone entry, no harvest_basis declared -> vintage axis silent
+CTC45=$(proj_ctc "$PF45")
+set_init_budget_denom "$PF45" $(( 10001000 + CTC45 / 2 )) cost_weighted
+V46OUT=$(gate "$PF45" exit); V46RC=$?
+printf '%s' "$V46OUT" | grep -qi 'FORESEEN OVERRUN' && [ "$V46RC" -eq 0 ] \
+  && printf '%s' "$V46OUT" | grep -q 'HARVEST is the wrong first move' \
+  && printf '%s' "$V46OUT" | grep -q 'OVERSTATED' \
+  && ! printf '%s' "$V46OUT" | grep -q 'EXTEND is the wrong first move' \
+  && ok "[28.5] a foreseen overrun read off a cost_weighted ceiling warns off HARVEST — the denomination axis carries its own polarity to the menu, not the vintage axis's" \
+  || no "[28.5] the foreseen menu gave no denomination qualifier, or gave the vintage one: on this axis the overrun is overstated and HARVEST is the trap, so inherited advice sends the operator to descope work against a ceiling nothing has reached (rc=$V46RC out='$V46OUT')"
+
+# V47 — MALFORMED with no ceiling set must not assert a ceiling. `malformed` deliberately
+# does not require a setpoint (an unreadable declaration is a manifest defect worth naming
+# either way — the vintage axis argues the same at its own derivation), which puts the
+# banner in reach of a project whose only setpoint is per-session. Prose that says "the
+# ceiling above is in the wrong unit" would then describe a number the output never printed,
+# and the `initiative setpoint:` row says so plainly two lines up. The mismatch paragraph is
+# the one that asserts a definite ceiling, so its absence here is the check.
+P=$(mk_project '{"initiative":{"denomination":"cost-weighted"},"session":{"tokens":100000000}}' 0 0)
+mk_denom_log > "$P/.claude/metering/metering.ndjson"
+V47OUT=$(gate "$P" exit); V47RC=$?
+printf '%s' "$V47OUT" | grep -q 'SETPOINT DENOMINATION HAZARD' \
+  && printf '%s' "$V47OUT" | grep -q 'MALFORMED' \
+  && printf '%s' "$V47OUT" | grep -q 'initiative setpoint: *<none set' \
+  && ! printf '%s' "$V47OUT" | grep -q 'The CEILING is therefore the SMALLER side' \
+  && [ "$V47RC" -eq 0 ] \
+  && ok "[28.5] a malformed denomination with no initiative ceiling names the defect without asserting a ceiling the output itself reports as unset" \
+  || no "[28.5] the malformed prose described a ceiling that does not exist; the operator is sent to re-denominate a setpoint they never set, and the row two lines above says <none set> (rc=$V47RC out='$V47OUT')"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

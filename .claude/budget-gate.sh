@@ -68,6 +68,35 @@
 # append-only, so a window that has once spanned the seam carries it for its whole
 # life — a standing property of the initiative, not a task to work off.
 #
+# SETPOINT DENOMINATION HAZARD ([28.5]) ────────────────────────────────────────
+# The SECOND way burn and setpoint fail to be comparable, and independent of the
+# first: `harvest_basis` above says HOW a reading was harvested, never WHAT UNIT
+# the number is in. Burn is unambiguous — `burn` below adds input + output +
+# cache_read + cache_creation unweighted, in code — so the burn side is a raw
+# four-class count by construction and this axis needs no scan of the log. The
+# setpoint side carries nothing at all, so a ceiling chosen in COST-WEIGHTED
+# tokens (base-input-equivalents: cache_read 0.1x, cache_creation 2x, output 5x)
+# was compared against raw burn with nothing able to detect it. Cache reads
+# dominate a coding session and are discounted hardest, so the gap is large and
+# one-directional: 3.9x, 6.0x and 6.8x measured on guv's own record, with the
+# CEILING always the SMALLER side. So burn OVERSTATES against it and the gate
+# stops EARLY — a PHANTOM BREACH, the conservative error, wasteful but not leaky.
+# Unlike the vintage phantom breach, WAIT is not a rung: that one decays as
+# post-fix entries accumulate, whereas burn is a raw four-class sum in code
+# permanently, so the two sides never drift back into agreement on their own.
+#
+# Same contract as the vintage axis, for the same reasons: DECLARED by a person
+# (`budgets.initiative.denomination`), ABSENT MEANS THE CHECK IS OFF rather than
+# an assumed unit, an out-of-enum value reports MALFORMED rather than guessing,
+# and the remedy DISCLOSES rather than converts — the ratio moves with each
+# session's output and cache mix, so any single divisor would be fabricated.
+# Carried in its own state variable (DENOM_HAZARD) because the two axes fire
+# together — the live 004 manifest is a mixed vintage window AND a cost-weighted
+# ceiling — and one variable can hold only one state. They share the banner and
+# each pays for its own headline clause and its own remedy paragraph; the title
+# names whichever axis fired, so a denomination-only hazard never sends an
+# operator to inspect a vintage window that is uniform.
+#
 # THE ESCALATION PATH (Rule 15 — designed degradation, loud stop) ──────────────
 # A BREACH (burn ≥ budget) PAUSES and escalates with work PRESERVED: the gate
 # emits a loud decision gate that names the breach, surfaces the BURN PROFILE
@@ -139,7 +168,9 @@
 # — a signal, not a stop, headed "[budget-gate] FORESEEN OVERRUN …" ([15.6]: the
 # signal header leads with words distinct from the stop's so a skim tells them apart;
 # "BREACH" names the exit-3 stop alone). A unit hazard prints its own declaration and
-# exits 0, headed "[budget-gate] HARVEST UNIT HAZARD …" — it rides ALONGSIDE whichever
+# exits 0, headed "[budget-gate] HARVEST UNIT HAZARD …" for the vintage axis and
+# "[budget-gate] SETPOINT DENOMINATION HAZARD …" for the denomination axis — both when
+# both fire. It rides ALONGSIDE whichever
 # burn outcome the window produced, because it says the comparison is in no single
 # unit, not what the comparison came out to. Torn (unparseable) metering lines are
 # skipped rather than failing the whole read, and announced so the burn is read as a
@@ -245,6 +276,27 @@ BASIS_MALFORMED=""
 case "$INITIATIVE_BASIS" in
   ''|per_response|pre-dedupe) ;;
   *) BASIS_MALFORMED="$INITIATIVE_BASIS"; INITIATIVE_BASIS="" ;;
+esac
+
+# The DENOMINATION axis ([28.5]) — the second, independent way burn and setpoint fail to
+# be comparable. `harvest_basis` above declares HOW a reading was harvested; it cannot
+# say WHAT UNIT the number is in. The burn side has no such ambiguity: `burn` sums four
+# token classes unweighted, in code, so it is a raw count by construction — which is why
+# this axis needs no scan of the log, only the declaration. The setpoint side is a bare
+# integer and carries nothing, so a ceiling chosen in cost-weighted tokens (base-input-
+# equivalents) is compared against raw burn with nothing able to detect it. Same opt-in
+# contract as the vintage axis: absent means the check is OFF, never an assumed unit —
+# most projects never think about denomination, and their ceilings are raw.
+INITIATIVE_DENOM=$(jq -r '.budgets.initiative.denomination // empty' "$MANIFEST" 2>/dev/null)
+# Same degradation as BASIS_MALFORMED, and for the same reason: an unrecognized value
+# can never equal the burn's unit, so a guesser would raise a permanent alarm whose
+# obvious remedy is to re-denominate a ceiling that was already right. "cost-weighted"
+# with a hyphen is the realistic typo — the hyphenated spelling is legal on the OTHER
+# axis — so it must read as a malformed manifest, not as evidence about units.
+DENOM_MALFORMED=""
+case "$INITIATIVE_DENOM" in
+  ''|raw_tokens|cost_weighted) ;;
+  *) DENOM_MALFORMED="$INITIATIVE_DENOM"; INITIATIVE_DENOM="" ;;
 esac
 
 # Both granularities absent/invalid → nothing to gate (still unlimited).
@@ -529,6 +581,24 @@ elif [ "$BURN_VINTAGE_N" -eq 1 ] && [ -n "$INITIATIVE_BASIS" ] && [ -n "$INITIAT
   UNIT_HAZARD="mismatch"
 fi
 
+# The denomination hazard ([28.5]) is its OWN state, deliberately not folded into
+# UNIT_HAZARD above: the two axes are orthogonal and fire together — the live 004
+# manifest is a mixed vintage window AND a cost-weighted ceiling — and one variable can
+# hold only one state, so folding them would silently drop whichever lost the precedence.
+# Simpler than the vintage machine because the burn side needs no scan: `burn` sums four
+# classes unweighted in code, so the comparison is decided by the declaration alone.
+# `mismatch` requires a SETPOINT for the same reason the vintage arm does — with no
+# ceiling there is nothing to be mis-denominated. `malformed` does not: an unreadable
+# declaration is a manifest defect worth naming whether or not a ceiling is set, and it
+# takes precedence for the reason argued on the vintage axis — a check believed to be
+# running is worse than one known to be off.
+DENOM_HAZARD="none"
+if [ -n "$DENOM_MALFORMED" ]; then
+  DENOM_HAZARD="malformed"
+elif [ "$INITIATIVE_DENOM" = "cost_weighted" ] && [ -n "$INITIATIVE_BUDGET" ]; then
+  DENOM_HAZARD="mismatch"
+fi
+
 # The direction follows the CEILING's unit (argued in the header) and holds for a MIXED
 # window too: whatever the mix, the pre-dedupe portion inflates against a per_response
 # ceiling and the per_response portion deflates against a pre-dedupe one. A MALFORMED
@@ -691,7 +761,8 @@ fi
 # --- the harvest-unit hazard: ONE banner ------------------------------------------
 # Printed BEFORE any breach or overrun, because it qualifies every number below it. The
 # three-banners-to-one collapse and the malformed precedence are argued in the header.
-if [ "$UNIT_HAZARD" != "none" ]; then
+if [ "$UNIT_HAZARD" != "none" ] || [ "$DENOM_HAZARD" != "none" ]; then
+  HAZ_HEAD=""
   case "$UNIT_HAZARD" in
     malformed) HAZ_HEAD="budgets.initiative.harvest_basis is \"${BASIS_MALFORMED}\", which is not a harvest unit." ;;
     mixed)     HAZ_HEAD="the burn window spans more than one harvest unit." ;;
@@ -704,6 +775,48 @@ if [ "$UNIT_HAZARD" != "none" ]; then
         HAZ_HEAD="the burn and the setpoint are denominated in different harvest units."
       fi ;;
   esac
+  # The second axis contributes its own clause. Appended rather than merged so a reader
+  # can tell which axis is which — two hazards stated as one sentence read as one
+  # problem, and they have different remedies.
+  DENOM_HEAD=""
+  case "$DENOM_HAZARD" in
+    malformed) DENOM_HEAD="budgets.initiative.denomination is \"${DENOM_MALFORMED}\", which is not a denomination." ;;
+    mismatch)  DENOM_HEAD="the setpoint is declared cost_weighted while burn is summed as a raw token count." ;;
+  esac
+  # The title names whichever axis actually fired — a denomination-only hazard under a
+  # HARVEST UNIT heading sends the operator to inspect a vintage that is uniform. Both
+  # headlines are written out WHOLE and LITERAL here, per the convention stated at the top
+  # of this file: the [15.6] drift guard greps this source for the bracketed tag followed
+  # by an all-caps headline to derive what the handoff must capture, and it cannot see
+  # through a `${VAR}` (nor, being a plain grep, tell prose from output — so do not write
+  # a specimen headline into a comment either). Building
+  # the title by interpolation alone silently emptied that guard's subject list.
+  #
+  # When BOTH axes fire, both names are emitted rather than demoting the second to a
+  # comma clause: the guard's capture list is keyed by headline string, so a title that
+  # never appears is a banner the session record never learns to carry — and on a project
+  # sitting in both states (guv itself) the denomination axis is the one that never
+  # decays, so it is precisely the wrong one to leave nameless.
+  DENOM_TITLE_LINE=""
+  if [ "$UNIT_HAZARD" != "none" ]; then
+    HAZ_TITLE="[budget-gate] HARVEST UNIT HAZARD"
+    if [ -n "$DENOM_HEAD" ]; then
+      HAZ_HEAD="${HAZ_HEAD} Also, ${DENOM_HEAD}"
+      DENOM_TITLE_LINE="[budget-gate] SETPOINT DENOMINATION HAZARD ${WHERE} — ${DENOM_HEAD}"
+    fi
+  else
+    HAZ_TITLE="[budget-gate] SETPOINT DENOMINATION HAZARD"
+    HAZ_HEAD="$DENOM_HEAD"
+  fi
+  # Same three-state report as the basis line below: declared, malformed (check off), or
+  # absent (also off, but a supported state rather than a mistake).
+  if [ -n "$INITIATIVE_DENOM" ]; then
+    HAZ_DENOM="${INITIATIVE_DENOM} (declared in budgets.initiative.denomination)"
+  elif [ -n "$DENOM_MALFORMED" ]; then
+    HAZ_DENOM="\"${DENOM_MALFORMED}\" — MALFORMED, the denomination check is OFF; legal values: raw_tokens, cost_weighted"
+  else
+    HAZ_DENOM="<undeclared — the denomination check is off>"
+  fi
   # The basis line reports the DECLARATION's state, which is a third thing beyond the two
   # legal values: declared, malformed (so the check is off), or absent (also off, but a
   # supported state rather than a mistake). Composed here so the heredoc stays readable.
@@ -714,12 +827,20 @@ if [ "$UNIT_HAZARD" != "none" ]; then
   else
     HAZ_BASIS="<undeclared — the setpoint-unit check is off>"
   fi
+  # The kind field carries BOTH axes. It used to be UNIT_HAZARD alone, which was total
+  # over its old state space and became partial the moment a second axis could fire on
+  # its own: a denomination-only banner printed `hazard: none` under a title ending in
+  # HAZARD, and for any project whose meter only ever ran post-[9.1] that is the ONLY
+  # reading it can produce. Each state keeps its axis label, and the value still follows
+  # `hazard:` immediately so the field stays greppable exactly as before.
   cat <<EOF
-[budget-gate] HARVEST UNIT HAZARD ${WHERE} — ${HAZ_HEAD}
+${HAZ_TITLE} ${WHERE} — ${HAZ_HEAD}${DENOM_TITLE_LINE:+
+${DENOM_TITLE_LINE}}
 
-  hazard:              ${UNIT_HAZARD}
-  vintages in window:  ${BURN_VINTAGES}
+  hazard:              ${UNIT_HAZARD} (harvest) / ${DENOM_HAZARD} (denomination)
+  vintages in window:  ${BURN_VINTAGES:-<none — no metering entries in this window>}
   setpoint basis:      ${HAZ_BASIS}
+  denomination:        ${HAZ_DENOM}
   burn window:         ${INITIATIVE_WINDOW}
   initiative burn:     ${INITIATIVE_BURN} tokens
   initiative setpoint: ${INITIATIVE_BUDGET:-<none set — session setpoint only>} tokens
@@ -739,18 +860,22 @@ forecast off it. The direction, the remedy, and what clears it print at the
 session-exit gate.
 EOF
   else
-    # Conditional on a pre-dedupe entry actually being in the window: it used to print
-    # unconditionally, describing a vintage that was not present.
-    case "$BURN_VINTAGE_NAMES" in
-      *pre-dedupe*) cat <<'EOF'
+    # Each axis pays for its own explanation, and only when it fired. The vintage prose
+    # below describes a harvest seam; printing it for a denomination-only hazard would
+    # send the operator to inspect a window that is uniform.
+    if [ "$UNIT_HAZARD" != "none" ]; then
+      # Conditional on a pre-dedupe entry actually being in the window: it used to print
+      # unconditionally, describing a vintage that was not present.
+      case "$BURN_VINTAGE_NAMES" in
+        *pre-dedupe*) cat <<'EOF'
 
 Entries harvested "pre-dedupe" counted token usage once per transcript LINE rather than
 once per API response, which over-counts by roughly 2.5x and varies with the shape of the
 work. A total that mixes them with "per_response" entries is in no single unit.
 EOF
-      ;;
-    esac
-    cat <<EOF
+        ;;
+      esac
+      cat <<EOF
 
 ${UNIT_DIR_TEXT}
 
@@ -759,6 +884,67 @@ machinery never moves a setpoint.
 
 ${UNIT_REMEDY}${UNIT_PERSIST}${UNIT_DECLARE}
 EOF
+    fi
+    case "$DENOM_HAZARD" in
+      mismatch) cat <<'EOF'
+
+The burn above is a RAW token count: input + output + cache_read + cache_creation, added
+unweighted. Your ceiling is declared cost_weighted — base-input-equivalents, where
+cache_read counts 0.1x, cache_creation 2x and output 5x. Cache reads dominate a coding
+session's token count and are the class discounted hardest, so the raw figure runs
+several times the cost-weighted one: 3.9x, 6.0x and 6.8x measured on guv's own record
+(one initiative window and two single sessions).
+
+The CEILING is therefore the SMALLER side, and the direction follows from that: the burn
+above OVERSTATES against it, so this gate reports more consumed than your ceiling's own
+unit implies and will pause on a setpoint the real work has not reached. That is a
+PHANTOM BREACH — the conservative error. It wastes attention; it does not leak budget.
+Do not read the gap as work you have spent.
+
+WAIT is NOT the rung here, and this is where the denomination axis differs from the
+harvest seam: a vintage phantom breach decays on its own as post-fix entries accumulate,
+but burn is a raw four-class sum in code, permanently, so nothing about waiting moves
+these two numbers into the same unit.
+
+Nothing is converted here, and that is deliberate: the ratio moves with each session's
+output and cache mix, so a single divisor would have to be invented — the same reason
+the harvest-vintage axis refuses one. The remedy is a person's commit: re-denominate
+budgets.initiative.tokens into raw tokens, or — if the ceiling is right and the marker is
+wrong — correct budgets.initiative.denomination. This is a DECLARATION, not a stop; the
+machinery never moves a setpoint.
+EOF
+      ;;
+      malformed) cat <<'EOF'
+
+While budgets.initiative.denomination is unreadable the denomination check is OFF: the
+gate cannot tell whether an initiative ceiling — this one, or the next one set — is in
+the same unit as the raw burn it would be compared to. Set it to raw_tokens or
+cost_weighted; the value is a declaration about a past human decision, and setting it
+changes no number.
+EOF
+      ;;
+    esac
+    # Both axes at once. Each paragraph above is correct alone and they point OPPOSITE
+    # ways, so an operator who reads either one in isolation acts wrong in a known
+    # direction — and both remedies name the same integer. Reconciling is not converting:
+    # no net direction is claimed and no divisor is offered. What is stated is the one
+    # thing both paragraphs agree on, which is what the single number has to end up being.
+    if [ "$UNIT_HAZARD" != "none" ] && [ "$DENOM_HAZARD" = "mismatch" ]; then
+      cat <<'EOF'
+
+BOTH AXES ARE LIVE, AND THEY POINT OPPOSITE WAYS. The harvest paragraph and the
+denomination paragraph above are each correct on their own axis, and each names
+budgets.initiative.tokens — the SAME integer — as its remedy. Read either one alone and
+you will move that number the wrong way. No net direction is claimed here: the two
+effects do not cancel to anything this gate can compute, because one of them has no
+fixed ratio.
+
+What both agree on is the destination. One ceiling, sized in RAW per-response tokens —
+the unit the burn above is already summed in — satisfies both axes at once. Sizing it is
+a person's judgment against the initiative's forecast, not an arithmetic conversion of
+the number currently there.
+EOF
+    fi
   fi
 fi
 
@@ -864,6 +1050,28 @@ named in the forecast basis above. The projected total therefore ADDS TWO NUMBER
 NOT IN THE SAME UNIT AS EACH OTHER, and no single divisor converts one into the other.
 
 ${MIXADVICE}
+"
+          fi
+          # The denomination axis reaches this menu on its OWN, and it must not simply
+          # inherit the vintage advice above: that text argues the ceiling is in the
+          # INFLATED unit, and on this axis the ceiling is the SMALLER side — opposite
+          # direction, opposite first move. Same principle as the vintage qualifier
+          # though: the menu is where the wrong move gets made, so the correction belongs
+          # AT the menu rather than left to the banner. Appended (not substituted) when
+          # both fire, so neither axis's direction is silently dropped.
+          if [ "$DENOM_HAZARD" = "mismatch" ]; then
+            MIXNOTE="${MIXNOTE}
+READ THE SETPOINT DENOMINATION HAZARD BANNER ABOVE FIRST — the ceiling in this forecast is
+declared cost_weighted while every token figure above it is a raw four-class count. The
+ceiling is the SMALLER side, so this overrun is OVERSTATED: expressed in the unit the burn
+is actually counted in, the real gap is several times narrower than the figure above, and
+may not be an overrun at all.
+
+HARVEST is the wrong first move here — it is the mirror of the EXTEND trap on the vintage
+axis. Do not descope real work to fit a ceiling that only looks close because it is
+denominated in smaller units. Re-denominate budgets.initiative.tokens into raw tokens
+first, then read this forecast again. Waiting does not clear it either: burn is a raw sum
+in code, so the two sides never converge on their own.
 "
           fi
           # The forecast's own basis, disclosed. projection.sh emits claim/n/observed_weight
