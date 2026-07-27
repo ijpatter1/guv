@@ -1156,7 +1156,7 @@ run_battery "$BP2"
 # still be green — but it must SAY that hermeticity went unchecked, because the
 # failure mode this prevents is a run that looks identically clean whether the
 # property held or was never tested. mk_battery_plane deliberately does not git
-# init its fixture code repo, so this is the harness's default state.
+# init its fixture code repo, so this is that fixture's default state.
 IFS='|' read -r BP3 BC3 <<<"$(mk_battery_plane)"
 plant_suite "$BC3" "solo.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
 run_battery "$BP3"
