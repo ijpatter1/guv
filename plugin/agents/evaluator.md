@@ -53,10 +53,17 @@ bash "${CLAUDE_PLUGIN_ROOT}"/scripts/battery-result.sh read   # script absent �
 Its exit code is the contract:
 
 - **0** — a full run went green against *this exact tree* (HEAD, the tracked diff,
-  and untracked file content all match what was recorded). Record its counts as
+  and untracked file content all match what was recorded). Report its counts as
   your test result and do **not** re-run. The provenance check is the only reason
   this is safe: a stale green consumed as fresh is worse than no result, because it
   looks like verification.
+
+  **Report each count in the unit the output labels it.** Two are printed and they
+  differ by more than an order of magnitude: a `suites:` line and an `assertions:`
+  line. "Tests: X passing" in your report means **assertions** — quoting the suite
+  count there understated one battery ~35x. Where the assertions line reads `NOT
+  RECORDED`, say that, and report the suite count *as suites*; never substitute one
+  for the other silently.
 - **1** — a full run went RED against this tree. Record the failure. If you need
   detail on a particular suite, run just that one:
   `bash .claude/run-core-tests.sh --only '<glob>'`.

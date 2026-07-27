@@ -18,9 +18,10 @@ producing an intermittently flaky battery.
 ## How this is enforced — a guard for correctness, a carve for scheduling
 
 Two mechanisms. They were once one thing, and conflating them again is the mistake
-this section exists to prevent: **the guard checks that suites do not write the
-source tree; the carve keeps the pool from thrashing.** Neither substitutes for the
-other.
+this section exists to prevent: **the guard checks that the source tree ends where
+it started; the carve keeps the pool from thrashing.** Neither substitutes for the
+other — and note what the guard is worded to claim, which is narrower than "no
+suite wrote": see the third limit below.
 
 **The guard: a whole-battery hermeticity check.** The generated runner fingerprints
 the code repo before the first suite and again after the last, and **fails the
@@ -37,8 +38,10 @@ toward claiming a proof nobody produced).
 **The carve: `SERIAL_SET`, and why it outlived its original reason.** The two
 suites below are still run one at a time ahead of the pool. That began as a
 hermeticity quarantine — they wrote the live tree, so they could not overlap
-anything. Prong B made both hermetic and the guard now covers that property for
-*every* suite, so the quarantine argument is gone.
+anything. **Prong B made both hermetic**, which is what actually retired the
+quarantine argument; the guard added a residue backstop over *every* suite on top
+of it. The order matters: the suites were fixed first, and the guard does not
+cover what fixing them covered (third limit below).
 
 The carve stayed on a different, measured argument: **the pool is saturated.**
 Removing it was tried (guv `d1be3dd`, 2026-07-26) and reverted the same day:
@@ -63,7 +66,8 @@ when its pool time is a large multiple of its serial time and it is big enough f
 that multiple to matter.** Read the census the runner prints on every run (Prong C)
 before adding or removing a name.
 
-Two honest limits on the guard, both deliberate:
+Three honest limits on the guard, all deliberate. The third one decides how you
+write a suite, so read it before Axis 1 below:
 
 - **It is whole-battery, not per-suite.** Under a parallel pool the suites
   overlap, so a tree change cannot be attributed to one of them. Per-suite
@@ -74,6 +78,25 @@ Two honest limits on the guard, both deliberate:
   concurrent build within the run that catches it. The trade is a reproducible
   failing battery that names the leak, in place of an intermittent flake nobody
   could reproduce.
+- **It catches writes that PERSIST, not writes that HAPPEN.** The check is
+  before-vs-after, so a suite that plants a fixture and removes it before exiting
+  leaves `before == after` and the guard sees nothing. That is not a corner case:
+  it is the shape every offender in the findings table actually had — each one
+  carried an `rm -f` and an `EXIT` trap precisely so its fixture would not
+  survive. Measured against the three friction entries this property was logged
+  under, the guard catches **one**: `2026-06-29T18:50:15Z-1575732184`, residue
+  from a *crashed* run, which persists by definition. The transiently-phantom-dirty
+  tree (`2026-07-18T17:33:15Z-149671608`) and the concurrent-QA fixture collision
+  (`2026-07-21T17:00:10Z-1640628803`) both restore the tree before the battery
+  ends, and both pass this guard. **Hermeticity is provided by the suite author;
+  the guard is a backstop for forgotten residue, not a substitute for writing the
+  suite correctly.**
+
+  A narrower scope note in the same family: the fingerprint is built from `git
+  status --porcelain`, `git diff HEAD`, and untracked-file *content*, so writes
+  under gitignored paths inside the repo (`sandbox/tmp/`, `.claude/metering/`,
+  `node_modules/`) are invisible to it as well. Its subject is git-visible change,
+  not every write.
 
 ## Method
 
@@ -162,24 +185,31 @@ Both axes get asked about, in this order. Answering only the first is how the
 second one was missed for as long as it was.
 
 **Axis 1 — does it write to the shared live source tree at a fixed path?**
-There is no longer a list to enrol it in. **Make it hermetic**: plant into and
-build from a scratch copy under your own `mktemp -d`. `plugin.test.sh`'s
-`mk_source_copy()` / `copy_build()` pair is the worked example — it tars the repo
-(minus `.git` and `plugin/`) into a scratch root and rewrites the build path to
-match, so a sub-test that needs a *real* build over a *mutated* source gets one
-without touching the repo.
+There is no longer a list to enrol it in — and there is no machine that remembers
+on your behalf either. **Make it hermetic**: plant into and build from a scratch
+copy under your own `mktemp -d`. `plugin.test.sh`'s `mk_source_copy()` /
+`copy_build()` pair is the worked example — it tars the repo (minus `.git` and
+`plugin/`) into a scratch root and rewrites the build path to match, so a sub-test
+that needs a *real* build over a *mutated* source gets one without touching the
+repo.
 
-You do not have to remember to do this. The runner's before/after fingerprint
-fails the battery on any live-tree write, so a suite that skips it reds loudly
-with the path named, rather than flaking someone else's suite three runs later.
-That is the point of the inversion: the property is checked, not catalogued.
+**Do not lean on the fingerprint guard for this.** Per the third limit above, it
+compares before against after, so it catches a fixture you forgot to clean up and
+nothing else. The window in which your fixture exists beside somebody else's suite
+is exactly the window it cannot see — and that window is where every flake in this
+audit came from. Cleaning up on exit makes you invisible to the guard; it does not
+make you hermetic. This paragraph replaces an earlier one that told suite authors
+the opposite ("you do not have to remember to do this"), which was wrong (guv eval,
+2026-07-27).
 
 The guard is behaviorally covered in `setup-control-plane.test.sh` (the
-runner-behavior home) — T11j (a live-tree writer fails the battery, and the report
-names the path), T11k (a clean battery stays green and the guard stays silent),
-T11l (an unfingerprintable repo degrades to an *announced* unchecked run) — and
-the T7 drift guard keeps the CI loop's comment in step, including the distinction
-that serial execution does **not** subsume hermeticity.
+runner-behavior home) — T11j (a *persisting* live-tree write fails the battery, and
+the report names the path), T11j2 (a plant-and-clean write does **not** fail it —
+the blind spot, pinned as a known limit rather than left to be rediscovered), T11k
+(a clean battery stays green and the guard stays silent), T11l (an unfingerprintable
+repo degrades to an *announced* unchecked run) — and the T7 drift guard keeps the CI
+loop's comment in step, including the distinction that serial execution does **not**
+subsume hermeticity.
 
 **Axis 1b — is it slow AND badly hurt by contention?** This is the scheduling
 question, and it is separate from hermeticity: a perfectly hermetic suite can still

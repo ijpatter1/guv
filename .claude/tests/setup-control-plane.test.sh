@@ -813,11 +813,12 @@ printf '%s' "$PROG_ERR" | grep -qiE 'per-suite|slowest' \
 
 # T11q — FOCUSED-SUITE PATH (Prong A1 of the battery-cost attack). The runner had
 # NO positional-argument handling at all, so `commands.test` could only ever run the
-# whole battery — and passing a filter SILENTLY ran all 68 suites anyway. That silent
+# whole battery — and passing a filter SILENTLY ran every suite anyway. That silent
 # swallow is the actual complaint in friction entry 2026-07-18T17:37:57Z-2084922661,
 # and it is what makes a one-suite fix loop cost a full battery. The census landed
-# with Prong C shows why it matters: 41 of 68 suites finish under 30s, so the common
-# mid-loop iteration pays ~800s to re-verify seconds of work.
+# with Prong C shows why it matters: 42 of 71 suites finish under 30s, so the common
+# mid-loop iteration pays ~800s to re-verify seconds of work. (Counts re-measured
+# 2026-07-26; the figures here were 41-of-68 from an unverified earlier estimate.)
 #
 # The precedent is the plugin runner's --only (maintainers/build-plugin.sh), and the
 # invariant carried over from it is the one that keeps Rule 8 intact: a pattern that
@@ -904,22 +905,37 @@ REC="$BP/.claude/metering/.last-battery-result"
   && ok "[prong-A2] a full run records its verdict with suite counts and no filter (the single owner leaves something for the others to read)" \
   || no "[prong-A2] the runner must record the verdict it just produced, or every QA stage pays for its own battery (rc=$BATT_RC rec=$(cat "$REC" 2>/dev/null))"
 
-# A filtered run must be RECORDED AS FILTERED. If --only wrote an unmarked
-# verdict, the next QA stage would read "the battery passed" when one suite ran.
-( cd "$BP" && bash .claude/run-core-tests.sh --only 'reca.test.sh' ) >/dev/null 2>&1
-[ "$(jq -r '.filtered' "$REC" 2>/dev/null)" = "reca.test.sh" ] \
-  && [ "$(jq -r '.suites' "$REC" 2>/dev/null)" = "1" ] \
-  && ok "[prong-A2] a --only run records itself as FILTERED (A1 cannot hand A2 a one-suite verdict that reads as a full battery)" \
-  || no "[prong-A2] a filtered run recorded without its filter is a vacuous green waiting to be consumed (rec=$(cat "$REC" 2>/dev/null))"
+# A filtered run must NOT RECORD AT ALL, and the whole-tree record must survive it.
+# `read` refusing a filtered verdict is the safe direction and is covered directly
+# in battery-result.test.sh — but recording one FIRST is not safe: it destroys a
+# still-valid whole-tree green, so the very loop --only exists to make cheap (fix,
+# --only, eval) would hand the next QA stage a ~800s battery it did not owe (guv
+# eval, 2026-07-27). Leaving the prior record alone costs nothing: its own
+# fingerprint is what decides whether it still describes this tree, so if the fix
+# moved the tree it refuses on its own.
+REC_BEFORE="$(cat "$REC" 2>/dev/null)"
+FILT_ERR="$( cd "$BP" && bash .claude/run-core-tests.sh --only 'reca.test.sh' 2>&1 >/dev/null )"
+[ -n "$REC_BEFORE" ] && [ "$(cat "$REC" 2>/dev/null)" = "$REC_BEFORE" ] \
+  && [ "$(jq -r '.suites' "$REC" 2>/dev/null)" = "2" ] \
+  && [ "$(jq -r '.filtered' "$REC" 2>/dev/null)" = "null" ] \
+  && printf '%s' "$FILT_ERR" | grep -q 'NOT recorded' \
+  && ok "[prong-A2] a --only run leaves the whole-tree record intact and says so (a one-suite verdict must never overwrite a full one)" \
+  || no "[prong-A2] a filtered run overwrote the recorded whole-tree verdict — the next QA stage now pays for a battery it did not owe (rec=$(cat "$REC" 2>/dev/null) err=$(printf '%s' "$FILT_ERR" | tail -2))"
 
 # The recorder must never be able to change the verdict. This is the [15.1]
 # exit-masking invariant: a red battery stays red even if recording is impossible,
 # and a green one is not turned red by a recorder that fails.
 rm -f "$BP/.claude/battery-result.sh"
 run_battery "$BP"
+# Two things must hold, and the banner is the one that was going untested: with the
+# script gone the guard cannot fingerprint either, so this is also the SECOND cause
+# of the degradation banner (T11l covers the not-a-git-repo cause). Asserting rc
+# alone let a silent unchecked run pass for a clean one — the exact failure the
+# announcement exists to prevent.
 [ "$BATT_RC" -eq 0 ] \
-  && ok "[prong-A2] a missing recorder degrades to today's behavior and cannot alter the verdict (record failure never masks or invents a result)" \
-  || no "[prong-A2] recording is bookkeeping — its absence must not fail a green battery (rc=$BATT_RC)"
+  && printf '%s' "$BATT_OUT" | grep -qE 'hermeticity NOT CHECKED' \
+  && ok "[prong-A2] a missing recorder degrades to today's behavior, cannot alter the verdict, and ANNOUNCES that hermeticity went unchecked (the second cause of that banner)" \
+  || no "[prong-A2] recording is bookkeeping — its absence must not fail a green battery, but it must not silently disable the guard either (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic' | tail -2))"
 
 # T11a — fix (c) stdout-only-failure blindness: a suite that announces its FAILURE
 # only on stdout AND lies with exit 0 must NOT yield a green battery. This is the
@@ -1122,10 +1138,12 @@ fi
 # hermeticity one. Do not delete them believing the guard covers this: the guard
 # checks correctness, the carve manages load, and neither substitutes for the other.
 
-# T11j — DETECTION. A suite that writes into the live source tree must fail the
-# battery. The carve narrows exposure to two named suites; this is what covers
-# every other suite, including ones not yet written. The fixture code repo must be
-# a real git repo here (the fingerprint needs one), and the baseline is committed
+# T11j — DETECTION of a PERSISTING write. A suite that leaves a fixture in the live
+# source tree must fail the battery. Be precise about the scope, because the audit
+# doc once overstated it (corrected 2026-07-27): the guard compares before against
+# after, so this covers RESIDUE, not every live-tree write — T11j2 below pins the
+# plant-and-clean case that it deliberately cannot see. The fixture code repo must
+# be a real git repo here (the fingerprint needs one), and the baseline is committed
 # AFTER the suites are planted so the only thing that moves the tree is the leak.
 IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
 plant_suite "$BC" "leaky.test.sh" $'#!/bin/bash\n# Plants a fixture in the SHARED LIVE TREE — the exact hazard the carve used to\n# quarantine. Reports itself green, so only the hermeticity guard can catch it.\nSHARED="$(cd "$(dirname "$0")/.." && pwd)"\n: > "$SHARED/zz-leaked-fixture"\necho "Results: 1 passed, 0 failed"\nexit 0\n'
@@ -1133,10 +1151,13 @@ plant_suite "$BC" "clean.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 fail
 ( cd "$BC" && git init -q . && git config user.email t@t && git config user.name t \
     && git add -A && git commit -qm baseline ) >/dev/null 2>&1
 run_battery "$BP"
-if [ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -qi 'hermeticity'; then
-  ok "[15.1] fix(b): a suite that writes to the live source tree FAILS the battery, named as a hermeticity breach"
+# Match the BREACH banner specifically, not the word "hermeticity" — the
+# degradation banner ("hermeticity NOT CHECKED") carries that word too, i.e. the
+# guard-is-OFF state, which is the opposite outcome from the one under test.
+if [ "$BATT_RC" -ne 0 ] && printf '%s' "$BATT_OUT" | grep -q 'THE CODE REPO MOVED'; then
+  ok "[15.1] fix(b): a suite that LEAVES a write in the live source tree FAILS the battery, named as a hermeticity breach"
 else
-  no "[15.1] fix(b): a live-tree write must fail the run — without the carve, an unnoticed writer is the fixture-collision flake class running unguarded (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|Results' | tail -4))"
+  no "[15.1] fix(b): a persisting live-tree write must fail the run — unnoticed residue is the fixture-collision flake class running unguarded (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|Results' | tail -4))"
 fi
 # The breach report must NAME the path, not just assert that something moved. The
 # guard cannot say WHICH suite wrote (they overlap in the pool), so the path is
@@ -1144,6 +1165,29 @@ fi
 printf '%s' "$BATT_OUT" | grep -q 'zz-leaked-fixture' \
   && ok "[15.1] fix(b): the breach report names the path that appeared (the whole-battery guard cannot name the suite, so the path is what makes it actionable)" \
   || no "[15.1] fix(b): a hermeticity breach must print the porcelain diff naming the changed path — 'the tree moved' alone sends the reader hunting (out=$(printf '%s' "$BATT_OUT" | grep -iA6 'hermeticity' | tail -8))"
+
+# T11j2 — the guard's KNOWN BLIND SPOT, pinned on purpose. A suite that plants a
+# fixture and removes it before exiting leaves before == after, so the guard sees
+# nothing and the battery is green. That is not an oversight to be fixed quietly —
+# it is the shape EVERY offender in maintainers/BATTERY-HERMETICITY.md actually had
+# (each carried an rm -f and an EXIT trap so its fixture would not survive), which
+# is precisely why hermeticity is provided by the suite AUTHOR and this guard is
+# only a residue backstop.
+#
+# Pinned because the audit doc spent a release telling suite authors the opposite
+# ("you do not have to remember to do this — the fingerprint fails the battery on
+# any live-tree write"), and an unwritten limit gets re-forgotten. If this ever
+# RED-lights, the guard grew teeth: that is an improvement, not a regression —
+# update the third limit in BATTERY-HERMETICITY.md and the guard comment in
+# setup-control-plane.sh to match, then invert this assertion.
+IFS='|' read -r BP1B BC1B <<<"$(mk_battery_plane)"
+plant_suite "$BC1B" "transient.test.sh" $'#!/bin/bash\n# Plants into the SHARED LIVE TREE, then cleans up — invisible to a before/after check.\nSHARED="$(cd "$(dirname "$0")/.." && pwd)"\n: > "$SHARED/zz-transient-fixture"\nsleep 1\nrm -f "$SHARED/zz-transient-fixture"\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+( cd "$BC1B" && git init -q . && git config user.email t@t && git config user.name t \
+    && git add -A && git commit -qm baseline ) >/dev/null 2>&1
+run_battery "$BP1B"
+[ "$BATT_RC" -eq 0 ] && ! printf '%s' "$BATT_OUT" | grep -q 'THE CODE REPO MOVED' \
+  && ok "[15.1] fix(b): a plant-and-clean live-tree write passes the guard — the documented blind spot, pinned so the claim cannot drift back to 'any live-tree write'" \
+  || no "[15.1] fix(b): T11j2 pins a KNOWN LIMIT and it just changed. If you strengthened the guard to catch transient writes, that is good news — update BATTERY-HERMETICITY.md's third limit and the guard comment in setup-control-plane.sh, then invert this assertion (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|Results' | tail -4))"
 
 # T11k — NO FALSE RED. The same plane with only hermetic suites must come back
 # green with the guard silent. This is the assertion that keeps the guard alive:
@@ -1205,20 +1249,32 @@ plant_suite "$BC4" "plugin.test.sh"     "${CONC_BODY/__TAG__/serialA}"
 plant_suite "$BC4" "ship-suite.test.sh" "${CONC_BODY/__TAG__/serialB}"
 plant_suite "$BC4" "generic.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
 run_battery "$BP4"
-if [ "$BATT_RC" -eq 0 ] && ! printf '%s' "$BATT_OUT" | grep -qi 'overlapped'; then
-  ok "[15.1] fix(b): the carved suites (plugin.test.sh, ship-suite.test.sh) run SERIALLY, never overlapping the pool"
+# The uncarved suite must still have RUN. Without this leg the non-overlap
+# assertion is satisfiable vacuously: a runner that executed the two carved suites
+# and then skipped the pool entirely would pass on "nothing overlapped".
+POOL_RAN=0
+printf '%s' "$BATT_OUT" | grep -q '== generic.test.sh ==' && POOL_RAN=1
+if [ "$BATT_RC" -eq 0 ] && [ "$POOL_RAN" -eq 1 ] && ! printf '%s' "$BATT_OUT" | grep -qi 'overlapped'; then
+  ok "[15.1] fix(b): the carved suites (plugin.test.sh, ship-suite.test.sh) never overlap each other, and the uncarved suite still runs (the carve removes those two from the pool, not the pool itself)"
 else
-  no "[15.1] fix(b): the carved suites must run one-at-a-time ahead of the pool — they overlapped (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'overlap\|serial\|Results' | tail -4))"
+  no "[15.1] fix(b): the carved suites must run one-at-a-time ahead of a pool that still runs — they overlapped, or the pool was skipped (rc=$BATT_RC pool_ran=$POOL_RAN out=$(printf '%s' "$BATT_OUT" | grep -i 'overlap\|serial\|Results' | tail -4))"
 fi
 
 # T11n — the carve is DECLARED in the runner as a readable list (structural). The
 # behavioral test above proves it is applied; this proves it is legible at the
 # source, so enrolling or retiring a suite is one edit rather than a hunt through
 # the launch loop.
-grep -qE 'SERIAL_SET' "$RUNNER_SRC" \
-  && grep -qE 'plugin\.test\.sh' "$RUNNER_SRC" && grep -qE 'ship-suite\.test\.sh' "$RUNNER_SRC" \
-  && ok "[15.1] fix(b): the runner declares SERIAL_SET naming the carved suites" \
-  || no "[15.1] fix(b): the runner must declare the serial set as a named list (the carve must be readable at the source, not buried in the launch loop)"
+#
+# ANCHORED TO THE ASSIGNMENT, and that is the whole test. The first version of this
+# ran three independent whole-file greps for SERIAL_SET, plugin.test.sh and
+# ship-suite.test.sh — which the runner's own COMMENTS satisfy on their own (the
+# census table names both suites; two rationale paragraphs name SERIAL_SET). It
+# passed with the declaration deleted, i.e. it could not fail (guv eval,
+# 2026-07-27). A line starting SERIAL_SET= at column 0 cannot be a comment, so this
+# form reds when the declaration goes even if every word of the prose survives.
+grep -qE '^SERIAL_SET=.*plugin\.test\.sh.*ship-suite\.test\.sh' "$RUNNER_SRC" \
+  && ok "[15.1] fix(b): the runner declares SERIAL_SET naming the carved suites, as an assignment and not merely in prose" \
+  || no "[15.1] fix(b): the runner must declare the serial set as a named list assignment (the carve must be readable at the source, not buried in the launch loop — and not merely described in a comment)"
 fi  # SCP_TEST_INNER guard ([15.1] block)
 
 # ── T12 [19.5] — hook-registration dedup: --sync + plugin double-fire ────────────

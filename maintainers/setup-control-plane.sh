@@ -599,11 +599,23 @@ write_runner() {
 #      once the same thing and are no longer:
 #
 #      The GUARD is the correctness half. Parallelism is only sound if the suites
-#      are hermetic, so the runner CHECKS that property directly instead of
-#      trusting it: it fingerprints the code repo before the first suite and again
+#      are hermetic, so the runner checks for the RESIDUE a non-hermetic suite
+#      leaves: it fingerprints the code repo before the first suite and again
 #      after the last, and FAILS THE RUN if the tree moved. It covers ALL suites,
 #      including ones not yet written — which is what the old hand-maintained
 #      quarantine list could never do, and it had already gone stale silently.
+#
+#      BE EXACT ABOUT WHAT IT PROVES — the audit doc overstated this once and told
+#      suite authors the machine would remember for them (corrected 2026-07-27).
+#      Before-vs-after catches a write that PERSISTS, not a write that HAPPENS: a
+#      suite that plants a fixture and removes it on the way out leaves
+#      before == after and sails through. That is the shape every real offender
+#      had — each carried an rm -f and an EXIT trap. So hermeticity is still
+#      something the suite AUTHOR provides; this guard turns forgotten residue
+#      into a loud red instead of somebody else's flake three runs later. Same
+#      family, narrower scope: the fingerprint is git-visible change, so writes
+#      under gitignored paths in the repo are invisible to it too.
+#      Full accounting: maintainers/BATTERY-HERMETICITY.md.
 #
 #      The CARVE is the scheduling half, and it is now justified by MEASUREMENT
 #      rather than by hermeticity. Its rationale lives at the SERIAL_SET definition
@@ -619,10 +631,14 @@ write_runner() {
 #      proves "no suite wrote"; the porcelain diff it prints on a breach names the
 #      paths, which in practice identifies the culprit.
 #
-#      It also closes a hole in the (A2) recorded verdict: `record` fingerprints
-#      AFTER the run, so without this check a tree that moved mid-battery would be
-#      recorded under a fingerprint describing a tree the suites never ran against.
-#      before == after is what makes that record honest.
+#      It also closes a hole in the (A2) recorded verdict, and the wiring is the
+#      load-bearing part: left to itself `record` would fingerprint the tree a
+#      THIRD time, after aggregation and the census, so a tree edited in that
+#      window would be recorded under a hash describing a state no suite ran
+#      against — and a downstream `read` would call it VERIFIED. So the AFTER
+#      fingerprint is PASSED to `record` rather than recomputed there. The
+#      recorded provenance is the exact hash this guard compared, which is what
+#      makes before == after mean anything for the record.
 #  (c) NO EXIT-MASKING / NO STDOUT-ONLY BLINDNESS — the gate fails a suite on ANY
 #      of: nonzero rc, ANY stderr byte, OR a failure-shaped STDOUT verdict (a ✗
 #      line, or "Results: N passed, M failed" with M>0) even when the suite lied
@@ -904,6 +920,13 @@ fail=0
 # sfail is the per-suite marker — a suite can trip several gate legs at once and
 # must still count once.
 nfail=0
+# ASSERTION totals, in the unit a QA report actually quotes. nfail/${#SUITES[@]}
+# are SUITE counts, and recording only those made every downstream report describe
+# this battery as "71 passing" when it runs ~2,468 assertions (guv eval,
+# 2026-07-27). The per-suite "Results: N passed, M failed" line is already parsed
+# by gate leg (c-stdout) below; areport counts how many suites produced one, so a
+# partial sum is never passed off as a total.
+apass=0; afail=0; areport=0
 for i in "${!SUITES[@]}"; do
   t="${SUITES[$i]}"
   name="$(basename "$t")"
@@ -940,7 +963,28 @@ for i in "${!SUITES[@]}"; do
   fi
 
   [ "$sfail" = "1" ] && nfail=$((nfail + 1))
+
+  # Assertion tally. Reads the LAST Results line (a suite that prints a per-section
+  # tally still ends with its own total). Stdout-only and gate-free: this touches
+  # neither `fail` nor `sfail`, so the [15.1] verdict is byte-for-byte what it was
+  # before the tally existed.
+  rline=$(grep -oE 'Results:[[:space:]]*[0-9]+[[:space:]]*passed,[[:space:]]*[0-9]+[[:space:]]*failed' "$WORKDIR/$i.out" 2>/dev/null | tail -1)
+  if [ -n "$rline" ]; then
+    areport=$((areport + 1))
+    apass=$(( apass + $(printf '%s' "$rline" | grep -oE '[0-9]+[[:space:]]*passed' | grep -oE '^[0-9]+') ))
+    afail=$(( afail + $(printf '%s' "$rline" | grep -oE '[0-9]+[[:space:]]*failed' | grep -oE '^[0-9]+') ))
+  fi
 done
+
+# A total is a total or it is nothing. If any suite printed no Results line, the
+# sum covers an unknown fraction of the battery, so it is withheld rather than
+# recorded as if it covered all of it — the same refusal shape as everything else
+# in this record.
+if [ "$areport" -ne "${#SUITES[@]}" ]; then
+  A_PASS=""; A_FAIL=""
+else
+  A_PASS="$apass"; A_FAIL="$afail"
+fi
 
 # ── fix (b): the HERMETICITY VERDICT ──
 # A moved tree fails the run. Two things can move it, and the operator has to be
@@ -1009,9 +1053,25 @@ fi
 # usable record refuses and runs the battery itself, which is precisely today's
 # behavior. The degradation direction is toward doing the work, never toward a
 # green nobody verified.
-if [ -f "$HERE/battery-result.sh" ]; then
+#
+# A --only RUN DOES NOT RECORD. `read` already refuses a filtered verdict as "not
+# a whole-tree proof", which is the safe direction — but recording one first is
+# not: it OVERWRITES a still-valid whole-tree green, so the very loop this flag
+# exists to make cheap (fix, --only, eval) would hand the next QA stage a ~800s
+# bill it did not owe. Leaving the previous record in place costs nothing, because
+# its own fingerprint check is what decides whether it still describes this tree —
+# if the fix moved the tree, it refuses on its own and correctly.
+#
+# The AFTER fingerprint is passed in rather than left to `record` to recompute (see
+# the guard's comment above). When the guard degraded and took no fingerprint,
+# HERM_AFTER is empty and `record` computes its own — the record is still written,
+# just without the guard's hash behind it.
+if [ -f "$HERE/battery-result.sh" ] && [ -z "$ONLY" ]; then
   ( bash "$HERE/battery-result.sh" record \
-      "$fail" "${#SUITES[@]}" "$(( ${#SUITES[@]} - nfail ))" "$nfail" "$ONLY" ) >&2 || true
+      "$fail" "${#SUITES[@]}" "$(( ${#SUITES[@]} - nfail ))" "$nfail" \
+      "" "$HERM_AFTER" "$A_PASS" "$A_FAIL" ) >&2 || true
+elif [ -n "$ONLY" ]; then
+  printf '[run-core-tests] --only run: verdict NOT recorded (a filtered result must not overwrite a whole-tree one)\n' >&2
 fi
 
 # The runner's verdict IS its exit status, and NOTHING follows it: a trailing
@@ -1218,7 +1278,12 @@ is the code repo at \`roots.code\` (\`$CODE_REL\`).
 - **Memory authority:** the manifest and the latest session handoff are authoritative;
   treat auto memory as hints and never let it override either.
 - **Commands, roots, ceremony:** \`.claude/project.json\`. \`commands.test\` runs the
-  core's bash suites in the code repo.
+  core's bash suites in the code repo — the whole battery. While iterating use
+  \`bash .claude/run-core-tests.sh --only '<glob>'\` (records nothing — a filtered
+  run is not a verdict) and read the last whole-tree verdict with
+  \`bash .claude/battery-result.sh read\` (provenance-checked; refuses once the tree
+  moves). Full battery once, before committing — and never edit the tree while one
+  runs; the hermeticity fingerprint will red it.
 - **Execution at scale:** saved workflows in \`.claude/workflows/\` (e.g.
   \`/eval-parallel\`) — fan-out execution only; QA stages use the calibrated
   reviewers by name (\`.claude/rules/guv-workflows.md\`).

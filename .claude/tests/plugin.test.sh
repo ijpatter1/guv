@@ -65,9 +65,22 @@ finish() {
 # and plugin/ are excluded because the builder reads neither, and .git is 26M of
 # the repo's 30M; what remains is ~2.8M and copies in well under a second.
 mk_source_copy() {   # echoes a scratch root holding a buildable copy of $ROOT
-  local d; d=$(mktemp -d)
-  ( cd "$ROOT" && tar -cf - --exclude=.git --exclude=plugin . ) 2>/dev/null \
-    | ( cd "$d" && tar -xf - ) 2>/dev/null
+  local d err; d=$(mktemp -d); err="$d.tar-err"
+  ( cd "$ROOT" && tar -cf - --exclude=.git --exclude=plugin . ) 2>"$err" \
+    | ( cd "$d" && tar -xf - ) 2>>"$err"
+  # Fail loud, and in the right place. Both tars used to send stderr to
+  # /dev/null: a copy that died half-way (a vanishing file, a permission, a
+  # full disk) returned a partial tree, and the first thing to notice was T14
+  # reporting "rebuild needed?" — a drift verdict against a source tree that
+  # was never complete. Structural check only, so tar's benign
+  # "file changed as we read it" warnings stay quiet; when the copy really is
+  # short, tar's own message is what gets printed.
+  if [ ! -d "$d/.claude" ]; then
+    printf '  ! mk_source_copy: the scratch copy of %s is INCOMPLETE (no .claude/ at %s).\n' "$ROOT" "$d" >&2
+    printf '    Every check built on this copy below is unreliable — this is NOT plugin drift.\n' >&2
+    [ -s "$err" ] && sed 's/^/    tar: /' "$err" >&2
+  fi
+  rm -f "$err"
   printf '%s' "$d"
 }
 # The copy's own builder, at the same repo-relative path as $BUILD, so a

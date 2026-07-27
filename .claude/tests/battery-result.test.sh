@@ -167,11 +167,24 @@ OUT=$( cd "$P" && bash "$CACHE/battery-result.sh" read 2>&1 ); RC=$?   # read fr
 
 # ── the `fingerprint` subcommand (spike Prong B steps 4–5) ────────────────────
 # The battery's hermeticity guard is a before/after fingerprint pair taken by the
-# generated runner. That guard replaced the SERIAL carve, so its three failure
-# modes are now the only thing standing between "a suite wrote to the live source
-# tree" and nobody noticing: it must be STABLE (or every battery false-reds), it
-# must be SENSITIVE (or it detects nothing), and it must FAIL LOUD AND TYPED when
-# it cannot run (or the runner cannot tell "hermetic" from "unchecked").
+# generated runner. It did NOT replace the SERIAL carve — the carve still runs, on
+# a measured scheduling argument (guv 2089cc9); the guard took over the safety
+# argument only, and only for RESIDUE (a plant-and-clean write leaves before ==
+# after and passes it — see the BATTERY-HERMETICITY audit's third limit, and
+# T11j2 in setup-control-plane.test.sh). That audit's path is deliberately NOT
+# spelled out here: build-plugin.sh partitions maintainer-only suites by grepping
+# the whole file — comments included — against MAINTAINER_ONLY, whose first
+# alternative is the maintainer directory's name with a trailing slash. Writing
+# that token in a comment silently unships this consumer suite. Verified twice
+# while writing this very comment: each time the builder DELETED
+# plugin/tests/battery-result.test.sh, and ship-suite.test.sh derives the same
+# rule from the same source, so nothing red-lights.
+#
+# Within that scope its three failure modes are what stand between "a suite left a
+# write in the live source tree" and nobody noticing: it must be STABLE (or every
+# battery false-reds), it must be SENSITIVE (or it detects nothing), and it must
+# FAIL LOUD AND TYPED when it cannot run (or the runner cannot tell "hermetic"
+# from "unchecked").
 #
 # The subcommand exists so that check lives in ONE place. The runner, `record`
 # and `read` all compare the same function's output; a second hand-rolled copy in
@@ -199,6 +212,20 @@ FP3=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
 [ -n "$FP3" ] && [ "$FP3" != "$FP1" ] \
   && ok "\`fingerprint\` moves when a suite plants an untracked file in the live tree (the guard's detection property)" \
   || no "a fixture planted in the live tree must move the fingerprint — otherwise the hermeticity guard passes a leaking battery (fp1=$FP1 fp3=$FP3)"
+
+# T11b — the discriminator T11 is NOT. T11 creates a new file, and `git status
+# --porcelain` reports that on its own — so T11 passes even if the fingerprint only
+# LISTED untracked names and never hashed their content. The half of the design the
+# header comment spends seven lines defending was therefore untested (guv eval,
+# 2026-07-27). This is the case that separates them: EDIT an untracked file that
+# already existed. Its porcelain line is byte-identical before and after ("?? path"),
+# so only content hashing can move the fingerprint.
+FP3B=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+printf 'the suite under review, now with a second assertion\n' > "$C/.claude-zz-leak-fixture"
+FP3C=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+[ -n "$FP3C" ] && [ "$FP3C" != "$FP3B" ] \
+  && ok "\`fingerprint\` moves when an EXISTING untracked file's CONTENT changes (porcelain shows the same '?? path' either way — this is what proves content is hashed, not just names)" \
+  || no "editing an untracked file must move the fingerprint: without content hashing, changing the very test under review leaves the prior verdict reading as valid (fp=$FP3B -> $FP3C)"
 rm -f "$C/.claude-zz-leak-fixture"
 
 # T12 — the DESIGNED DEGRADATION signal (rule 15). Where the code repo is not a
@@ -214,6 +241,71 @@ OUT=$( ( cd "$P2" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null );
 [ $RC -eq 4 ] && [ -z "$OUT" ] \
   && ok "\`fingerprint\` exits 4 with empty stdout when the code repo is not a git repo (the announced-degradation signal)" \
   || no "an unresolvable code repo must be a typed exit-4 refusal with no stdout — the runner cannot otherwise tell 'hermetic' from 'unchecked' (rc=$RC out=$OUT)"
+
+# ── `record` takes the guard's fingerprint (guv eval, 2026-07-27) ─────────────
+# The runner takes an AFTER fingerprint, then aggregates, then records. Left to
+# recompute its own, `record` would hash the tree a THIRD time — one aggregation
+# pass and one census later — so a tree edited in that window would be recorded
+# under a state no suite ran against, and `read` would stamp it VERIFIED. The
+# runner passes its AFTER hash in; these two pin that the value is USED.
+
+# T13 — a supplied fingerprint is STORED, not silently replaced. Discriminating by
+# construction: the value handed in cannot match the tree, so if `record` ignored
+# it and recomputed, `read` would verify. A refusal is the only outcome that proves
+# the argument reached the artifact.
+IFS='|' read -r P C <<<"$(mk_plane)"
+rec "$P" 0 70 2475 0 "" "deadbeefdeadbeefdeadbeefdeadbeef" >/dev/null 2>&1
+OUT=$(rd "$P" 2>&1); RC=$?
+[ $RC -ne 0 ] && printf '%s' "$OUT" | grep -qiE 'moved|differs' \
+  && ok "\`record\` stores the fingerprint it is GIVEN (a supplied hash that does not describe the tree must refuse on read — proof the guard's AFTER hash is not being discarded)" \
+  || no "a supplied fingerprint must reach the artifact; recomputing it here re-opens the window between the guard's AFTER hash and the write, in which an edit is recorded as tested (rc=$RC out=$OUT)"
+
+# T13b — and the honest path still verifies, so T13 is refusing for the right
+# reason rather than because any sixth argument breaks recording.
+IFS='|' read -r P C <<<"$(mk_plane)"
+FPNOW=$( ( cd "$P" && bash .claude/battery-result.sh fingerprint ) 2>/dev/null )
+rec "$P" 0 70 2475 0 "" "$FPNOW" >/dev/null 2>&1
+OUT=$(rd "$P" 2>&1); RC=$?
+[ $RC -eq 0 ] && printf '%s' "$OUT" | grep -qi 'VERIFIED' \
+  && ok "a supplied fingerprint that DOES describe the tree reads back VERIFIED (T13's refusal is about the value, not about passing the argument at all)" \
+  || no "passing the guard's own fingerprint must verify — otherwise the runner's normal path is broken and T13 is passing vacuously (rc=$RC out=$OUT fp=$FPNOW)"
+
+# ── assertion counts vs suite counts (guv eval, 2026-07-27) ───────────────────
+# `passed`/`failed` are SUITE counts — that is what the runner has at the top
+# level. Recording only those made every downstream QA report describe a
+# ~2,468-assertion battery as "71 passing", a 35x understatement. The totals are
+# additive and optional, which makes the honest-absence case the one that matters.
+
+# T14 — assertion totals round-trip and are labelled as their own unit.
+IFS='|' read -r P C <<<"$(mk_plane)"
+rec "$P" 0 71 71 0 "" "" 2468 0 >/dev/null 2>&1
+OUT=$(rd "$P" 2>&1); RC=$?
+[ $RC -eq 0 ] && printf '%s' "$OUT" | grep -qE 'assertions:[[:space:]]*2468 passed' \
+  && printf '%s' "$OUT" | grep -qE 'suites:[[:space:]]*71 total' \
+  && ok "assertion totals round-trip alongside suite counts, each named as its own unit (a reader cannot quote 71 as the test count)" \
+  || no "the record must carry assertions distinctly from suites, or every QA report understates the battery by ~35x (rc=$RC out=$OUT)"
+
+# T14b — the absence case, which is the whole reason the pair is optional. A record
+# with no assertion totals must SAY they are missing. Reading back a zero here would
+# be worse than the understatement it replaces: "0 failed" over a total nobody
+# counted is a claim, not a gap.
+IFS='|' read -r P C <<<"$(mk_plane)"
+rec "$P" 0 71 71 0 >/dev/null 2>&1
+OUT=$(rd "$P" 2>&1); RC=$?
+[ $RC -eq 0 ] && printf '%s' "$OUT" | grep -q 'NOT RECORDED' \
+  && ! printf '%s' "$OUT" | grep -qE 'assertions:[[:space:]]*[0-9]' \
+  && ok "a record with no assertion totals says NOT RECORDED rather than reading back as zero (an uncounted total must not present as a counted one)" \
+  || no "missing assertion totals must be announced, not defaulted — a silent 0 passed/0 failed is a fabricated measurement (rc=$RC out=$OUT)"
+
+# T14c — the totals are a PAIR. Half of one is not a partial measurement, it is a
+# misleading one: a lone passed-count read beside a null failed-count is exactly
+# the "and nothing failed" implication nobody recorded.
+IFS='|' read -r P C <<<"$(mk_plane)"
+rec "$P" 0 71 71 0 "" "" 2468 >/dev/null 2>&1
+OUT=$(rd "$P" 2>&1); RC=$?
+[ $RC -eq 0 ] && printf '%s' "$OUT" | grep -q 'NOT RECORDED' \
+  && ok "a lone assertion count is discarded, not recorded half-complete (passed-without-failed would read as 'and nothing failed')" \
+  || no "an unpaired assertion total must be refused; recording it alone implies a failure count that was never measured (rc=$RC out=$OUT)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

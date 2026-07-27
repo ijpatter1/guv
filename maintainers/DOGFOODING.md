@@ -63,6 +63,36 @@ machine-readable knows or cares what the directory is called.
 in the control plane. Two commit streams, by design — and the template repo never sees a
 single shell artifact.
 
+### The fix loop: `--only`, and the recorded verdict
+
+`commands.test` runs all 71 suites and costs ~13 minutes on a quiet machine. A fix loop
+does not need that, and paying it per iteration is what
+`docs/spikes/battery-loop-cost-attack.md` (control plane) was written to stop. Two
+mechanisms, both in `run-core-tests.sh`:
+
+```bash
+bash .claude/run-core-tests.sh --only 'replan'    # one suite (or a glob), while you iterate
+bash .claude/run-core-tests.sh                    # the whole battery, once, before you commit
+bash .claude/battery-result.sh read               # what the last whole-tree run proved
+```
+
+Two rules make this safe rather than merely fast:
+
+- **A `--only` run is not a verdict.** It covers the suites it names and nothing else, and
+  it deliberately **records nothing** — a filtered result must never overwrite a whole-tree
+  one. Report it as what it is.
+- **`read` is provenance-checked, not a cache.** It compares HEAD, the tracked diff, and
+  untracked file *content* against what was recorded, and refuses (exit 3) the moment the
+  tree moves. A green it returns describes the tree in front of you; a stale green consumed
+  as fresh is worse than no result, because it looks like verification. This is the reader
+  QA uses, so the battery is paid for once per tree rather than once per reviewer.
+
+The battery also fingerprints the source tree before and after itself and fails on a
+mismatch. **Do not edit the tree while a battery runs** — you will red it, correctly, and
+the message will be about hermeticity rather than about your change. What that guard does
+and does not prove is `maintainers/BATTERY-HERMETICITY.md`; read its "three honest limits"
+before writing a suite that plants a fixture.
+
 ## Why copy-and-sync, not symlink
 
 The control plane's `.claude/` core is a **copy** of guv's core, not a symlink. That is

@@ -184,9 +184,24 @@ fi
 # null past the cap (Rule 15) rather than stalling compaction; without one, read
 # best-effort. Burn is re-derivable at resume (session-start surfaces the budget
 # gate), so a dropped burn here loses nothing load-bearing.
+#
+# THE CAP IS A SEAM (GUV_CKPT_EMIT_TIMEOUT, seconds) because this deadline is
+# LOAD-SENSITIVE and one of its own tests rides on beating it. Measured 2026-07-26:
+# ~1.07s idle, 7.93s at load average 6.5, 9.32s at load average 22.6 — 93% of the
+# default consumed under a saturated core-test battery. Past the cap the emitter is
+# killed, BURN_INIT stays null, and continuation-checkpoint.test.sh's
+# `burn.source == "emit-metrics.sh"` assertion reds on CONTENTION rather than on a
+# defect. The seam lets that suite pin a deadline it cannot lose to its neighbours.
+#
+# Do NOT raise the default to quiet a red test. 10s is a latency budget for
+# PreCompact, which is a user-visible stall; if the emitter needs more than that,
+# the emitter is what to fix. (The related scheduling note — keep the two heaviest
+# suites out of the pool so this margin survives — lives at SERIAL_SET in
+# maintainers/setup-control-plane.sh.)
+CKPT_EMIT_TIMEOUT="${GUV_CKPT_EMIT_TIMEOUT:-10}"
 TBIN=""
-command -v timeout  >/dev/null 2>&1 && TBIN="timeout 10"
-command -v gtimeout >/dev/null 2>&1 && TBIN="gtimeout 10"
+command -v timeout  >/dev/null 2>&1 && TBIN="timeout $CKPT_EMIT_TIMEOUT"
+command -v gtimeout >/dev/null 2>&1 && TBIN="gtimeout $CKPT_EMIT_TIMEOUT"
 BURN_INIT=null
 if [ -f "$BASE/emit-metrics.sh" ]; then
   EM=$( cd "$ROOT" 2>/dev/null && $TBIN bash "$BASE/emit-metrics.sh" --tracker "$ROOT/docs/PHASE_STATUS.md" 2>/dev/null )

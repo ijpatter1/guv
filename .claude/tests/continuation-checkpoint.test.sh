@@ -26,6 +26,17 @@ no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 WORK=$(mktemp -d)
 trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' EXIT
 
+# PIN THE EMITTER DEADLINE. The hook caps its emit-metrics.sh read at 10s and
+# degrades burn to null past the cap (Rule 15, correct in production — burn is
+# re-derived at resume). But the `burn.source == "emit-metrics.sh"` assertion below
+# depends on that read COMPLETING, and the emitter is load-sensitive: measured
+# 2026-07-26 at ~1.07s idle, 7.93s at load average 6.5, and 9.32s at load average
+# 22.6 — 93% of the default, inside the core-test battery this suite runs in. Left
+# at the default, this suite reds when its NEIGHBOURS are slow, which is a flake
+# wearing a defect's clothing. The seam removes the coupling; it does not change
+# what production does.
+export GUV_CKPT_EMIT_TIMEOUT=120
+
 CKPT=".claude/continuation-checkpoint.json"   # written under the resolved root
 
 # A PreCompact payload shaped the way Claude Code sends it (spike §payload).

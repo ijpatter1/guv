@@ -190,5 +190,9 @@ bash "$SCRIPT" /no/such/resolver/output.txt "$SIZED" >/dev/null 2>&1; RC=$?
   || no "a missing input file should exit 2 (got rc=$RC)"
 
 echo ""
-echo "  fanout-offer.test.sh: $PASS passed, $FAIL failed"
+# "Results:" is load-bearing, not cosmetic: the runner's [15.1] stdout-verdict
+# guard and its assertion tally both key on it. This suite used its own bare
+# "<name>: N passed, M failed" and was one of two that made the whole-battery
+# tally withhold (all-or-nothing) on 2026-07-27.
+echo "  fanout-offer.test.sh Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
