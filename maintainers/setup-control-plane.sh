@@ -654,12 +654,29 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODE=$(roots_code_path) || { echo "run-core-tests: could not resolve a code repo from the manifest" >&2; exit 4; }
 
 # ── fix (a): resolve the per-suite timeout command (designed degradation) ──
-# CORE_TEST_TIMEOUT overrides the default bound. The slowest suites are the
-# SERIAL_SET plugin-builders (plugin.test.sh ~190s; ship-suite.test.sh measured
-# 258s before its [22.1] --only cut, 99s after) — 600s leaves generous headroom
-# for sandbox slowness without masking a true hang (258s against the old 300s
-# bound was a latent flake, [22.1]). A missing binary is announced, not silently
-# dropped.
+# CORE_TEST_TIMEOUT overrides the default bound. A missing binary is announced,
+# not silently dropped.
+#
+# DO NOT re-derive this bound from a list of suite names in a comment. The last
+# one said the SERIAL_SET plugin-builders were the slowest (plugin.test.sh ~190s,
+# ship-suite.test.sh 99s after its [22.1] --only cut) and had gone stale by more
+# than 2x in headroom terms: three consecutive censuses in 2026-07 put
+# setup-control-plane.test.sh at 353/363/395s and budget-gate.test.sh at
+# 275/278/297s — both in the POOL, neither in the carve, and plugin.test.sh had
+# fallen to seventh. The runner now PRINTS the census on every run (Prong C), so
+# read that instead of trusting this paragraph.
+#
+# What the bound has to satisfy: it must exceed the slowest suite's POOL time
+# (the timeout wraps each suite as it runs under contention, so pool timings are
+# the right basis, not isolated ones) by enough margin to absorb a slow or loaded
+# machine, without growing so large that a real hang goes unnoticed for minutes.
+# The [22.1] lesson is the calibration point: 258s under a 300s bound — 1.16x —
+# was a latent flake that fired. 600s against the 395s worst sample is 1.52x.
+# That is defensible but it is NOT the "generous headroom" the old comment
+# claimed, and the trend is the wrong way (budget-gate.test.sh went from 62 to
+# 104 assertion sites on 2026-07-24 alone). If the census's top line crosses
+# ~450s, raise this bound or trim that suite — do not let it drift into the
+# 1.16x band that already burned us once.
 TIMEOUT_BIN=""
 if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
 elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN="gtimeout"
