@@ -588,32 +588,36 @@ write_runner() {
 #      LOUD with a NAMED timeout (rc 124), distinguishable from sandbox slowness,
 #      never a silent stall (Rule 15). No timeout binary on PATH is a designed,
 #      ANNOUNCED degradation: the suite runs unbounded rather than breaking.
-#  (b) BOUNDED PARALLEL POOL + HERMETICITY GUARD + DETERMINISTIC AGGREGATION —
-#      EVERY suite runs concurrently (≤ CORE_TEST_JOBS at once), each writing its
-#      own out/err/rc; a final pass then replays them IN SORTED NAME ORDER under
-#      the identical gate, so wall-clock drops toward the slowest while the output
-#      and verdict stay deterministic. Parallelism is only sound if the suites are
-#      hermetic — so the runner CHECKS that property directly instead of trusting
-#      it: it fingerprints the code repo before the first suite and again after the
-#      last, and FAILS THE RUN if the tree moved.
+#  (b) SERIAL CARVE + BOUNDED PARALLEL POOL + HERMETICITY GUARD + DETERMINISTIC
+#      AGGREGATION — two named suites run one-at-a-time first, the rest run
+#      concurrently (≤ CORE_TEST_JOBS at once), each writing its own out/err/rc; a
+#      final pass then replays them IN SORTED NAME ORDER under the identical gate,
+#      so wall-clock drops toward the slowest while the output and verdict stay
+#      deterministic.
 #
-#      This REPLACED a serial carve. The [15.1] audit
-#      (maintainers/BATTERY-HERMETICITY.md) found two suites writing to / building
-#      from the shared live source tree at fixed (non-mktemp) paths and quarantined
-#      them: plugin.test.sh + ship-suite.test.sh ran one-at-a-time ahead of the
-#      pool. That cost 319s of strictly serial time inside an 826s battery, and it
-#      protected only the suites someone had already thought to name. Spike Prong B
-#      made both hermetic (they build from scratch copies now), retiring the
-#      carve's reason — and this guard is the stronger replacement, because it
-#      holds for ALL suites, including ones not yet written, rather than for a
-#      hand-maintained list that goes stale silently.
+#      TWO SEPARATE MECHANISMS, DO NOT CONFLATE THEM. The carve and the guard were
+#      once the same thing and are no longer:
+#
+#      The GUARD is the correctness half. Parallelism is only sound if the suites
+#      are hermetic, so the runner CHECKS that property directly instead of
+#      trusting it: it fingerprints the code repo before the first suite and again
+#      after the last, and FAILS THE RUN if the tree moved. It covers ALL suites,
+#      including ones not yet written — which is what the old hand-maintained
+#      quarantine list could never do, and it had already gone stale silently.
+#
+#      The CARVE is the scheduling half, and it is now justified by MEASUREMENT
+#      rather than by hermeticity. Its rationale lives at the SERIAL_SET definition
+#      below with the numbers; the short version is that the pool is saturated, so
+#      folding the two heaviest suites into it inflates every suite rather than
+#      filling idle lanes. Removing the carve was tried and reverted: it bought 65s
+#      of wall clock and cost the battery's verdict.
 #
 #      The guard is WHOLE-BATTERY, not per-suite, and that limit is deliberate:
 #      under a parallel pool the suites overlap, so a tree change cannot be
-#      attributed to one of them. Per-suite attribution would require running them
-#      serially — reintroducing the exact cost this removed. The guard proves "no
-#      suite wrote"; the porcelain diff it prints on a breach names the paths,
-#      which in practice identifies the culprit.
+#      attributed to one of them. Per-suite attribution would require running every
+#      suite serially, which is the whole cost the pool exists to avoid. The guard
+#      proves "no suite wrote"; the porcelain diff it prints on a breach names the
+#      paths, which in practice identifies the culprit.
 #
 #      It also closes a hole in the (A2) recorded verdict: `record` fingerprints
 #      AFTER the run, so without this check a tree that moved mid-battery would be
@@ -676,12 +680,17 @@ CODE=$(roots_code_path) || { echo "run-core-tests: could not resolve a code repo
 # not silently dropped.
 #
 # DO NOT re-derive this bound from a list of suite names in a comment. The last
-# one said the two plugin-builders were the slowest (plugin.test.sh ~190s,
+# one said the SERIAL_SET plugin-builders were the slowest (plugin.test.sh ~190s,
 # ship-suite.test.sh 99s after its [22.1] --only cut) and had gone stale by more
 # than 2x in headroom terms: three consecutive censuses in 2026-07 put
 # setup-control-plane.test.sh at 353/363/395s and budget-gate.test.sh at
-# 275/278/297s, with plugin.test.sh fallen to seventh. The runner now PRINTS the
-# census on every run (Prong C), so read that instead of trusting this paragraph.
+# 275/278/297s — both in the POOL, neither in the carve, and plugin.test.sh had
+# fallen to seventh. The runner now PRINTS the census on every run (Prong C), so
+# read that instead of trusting this paragraph.
+#
+# The carve is why this bound holds at all: measured without it, the same
+# setup-control-plane.test.sh ran past 600s and was killed (255s standalone). The
+# ceiling and the pool shape are coupled — changing one re-opens the other.
 #
 # What the bound has to satisfy: it must exceed the slowest suite's POOL time
 # (the timeout wraps each suite as it runs under contention, so pool timings are
@@ -744,8 +753,38 @@ run_one() {  # $1 = suite path  $2 = scratch key
   printf '[run-core-tests] done %s (%ss)\n' "$(basename "$t")" "$((ended - started))" >&2
 }
 
+# ── fix (b), scheduling half: the SERIAL CARVE ──
+# These two suites run strictly one at a time, ahead of the pool. This carve was
+# ORIGINALLY a hermeticity quarantine (they wrote the shared live source tree);
+# Prong B made them hermetic and the guard below now checks that property directly,
+# so the quarantine reason is gone. The carve stayed for a DIFFERENT, measured
+# reason: the pool is saturated, and these are the two suites that suffer most from
+# contention.
+#
+# Measured both ways on the same machine (guv 41282d2 vs d1be3dd):
+#
+#                      carved   in-pool
+#   plugin.test.sh      207s ->  571s   2.76x
+#   ship-suite.test.sh  112s ->  330s   2.95x
+#
+# Folding them into a 14-way pool that had no idle lanes did not fill spare
+# capacity — it took time from every other suite. Aggregate suite-seconds went
+# 3860 -> 5733 (+48%) for a 65s (7.9%) wall-clock gain, and the extra contention
+# pushed setup-control-plane.test.sh past the 600s per-suite ceiling and
+# continuation-checkpoint.test.sh past a 10s deadline inside the checkpoint hook.
+# The battery went from 71/0 to 66/5, all five failures contention rather than
+# logic. 65s on a gate that runs once or twice a session does not buy that.
+#
+# So: a scheduling carve, not a safety one. The selection criterion is now
+# measurable — carve a suite when its pool time is a large multiple of its serial
+# time AND it is big enough for that multiple to matter. Re-read the census the
+# runner prints (Prong C) before adding or removing a name; do not reason about it
+# from this comment.
+SERIAL_SET=" plugin.test.sh ship-suite.test.sh "
+
 # Collect the suites in a stable, sorted order — the deterministic spine of both
-# the launch list and the aggregation pass.
+# the launch list and the aggregation pass. The serial carve is applied at launch
+# time below (the SERIAL_SET membership test), so collection stays one list.
 SUITES=()
 while IFS= read -r t; do SUITES+=("$t"); done < <(
   for t in "$CODE"/.claude/tests/*.test.sh; do [ -e "$t" ] && printf '%s\n' "$t"; done | LC_ALL=C sort
@@ -789,7 +828,8 @@ if [ -n "$ONLY" ]; then
   printf '[run-core-tests] running %s suites matching --only %s (filtered; the FULL battery is still the gate at session close)\n' \
     "${#SUITES[@]}" "$ONLY" >&2
 else
-  printf '[run-core-tests] running %s suites at %s-way parallelism\n' "${#SUITES[@]}" "$JOBS" >&2
+  printf '[run-core-tests] running %s suites: serial carve first (%s), then the rest at %s-way parallelism\n' \
+    "${#SUITES[@]}" "$(echo $SERIAL_SET)" "$JOBS" >&2
 fi
 
 # ── fix (b): the HERMETICITY GUARD, first half — the BEFORE fingerprint ──
@@ -814,11 +854,27 @@ else
     "$CODE" >&2
 fi
 
-# Launch every suite under a bounded pool: at most $JOBS in flight. There is no
-# carve — the guard above verifies the hermeticity that makes this sound, rather
-# than a hand-maintained quarantine list asserting it.
+# Serial carve FIRST — sequential foreground runs (no &) guarantee non-overlap.
+# Placed AFTER the BEFORE fingerprint deliberately: the guard's window has to cover
+# every suite, and the carved ones run before the pool. Taking the fingerprint here
+# instead would leave these two outside the check.
+for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*)
+    # Announced on START, not only on completion: these two are the long poles and
+    # they run alone, so this is the one place a start line buys real information.
+    # The pool suites are not announced on start — a burst of $JOBS lines at once
+    # is noise, and their completions arrive steadily enough to show liveness.
+    printf '[run-core-tests] start %s (serial carve)\n' "$(basename "${SUITES[$i]}")" >&2
+    run_one "${SUITES[$i]}" "$i" ;;
+  esac
+done
+
+# Launch the remainder under a bounded pool: at most $JOBS in flight. The guard
+# above is what makes the parallelism sound (it verifies hermeticity for ALL
+# suites); the carve above is what keeps the pool from thrashing.
 running=0
 for i in "${!SUITES[@]}"; do
+  case "$SERIAL_SET" in *" $(basename "${SUITES[$i]}") "*) continue ;; esac
   run_one "${SUITES[$i]}" "$i" &
   running=$((running + 1))
   if [ "$running" -ge "$JOBS" ]; then

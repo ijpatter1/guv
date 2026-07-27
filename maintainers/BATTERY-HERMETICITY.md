@@ -15,9 +15,14 @@ that reads or writes it — concurrent builds pick up a sibling's planted throwa
 fixtures, or trip the build's authored/derived skill-name collision (`exit 2`),
 producing an intermittently flaky battery.
 
-## How this is enforced — the guard, and the carve it replaced
+## How this is enforced — a guard for correctness, a carve for scheduling
 
-**Today: a whole-battery hermeticity guard.** The generated runner fingerprints
+Two mechanisms. They were once one thing, and conflating them again is the mistake
+this section exists to prevent: **the guard checks that suites do not write the
+source tree; the carve keeps the pool from thrashing.** Neither substitutes for the
+other.
+
+**The guard: a whole-battery hermeticity check.** The generated runner fingerprints
 the code repo before the first suite and again after the last, and **fails the
 run** if the tree moved. `battery-result.sh fingerprint` owns the hash — the same
 one the `[A2]` recorded verdict compares — so runner, `record` and `read` cannot
@@ -29,12 +34,34 @@ code repo is not a git repo — the guard **announces** that hermeticity went
 unchecked and the battery proceeds (Rule 15: degrade toward doing the work, never
 toward claiming a proof nobody produced).
 
-**Until 2026-07-26: a serial carve.** The two suites below were quarantined and
-run one at a time ahead of the pool (`SERIAL_SET` in each runner). That worked,
-but it cost **319s of strictly serial time inside an 826s battery**, and it only
-ever protected the suites someone had already thought to name — a new live-tree
-writer would have joined the pool silently. Spike Prong B made both suites
-hermetic, which retired the carve's reason, and the guard replaced it.
+**The carve: `SERIAL_SET`, and why it outlived its original reason.** The two
+suites below are still run one at a time ahead of the pool. That began as a
+hermeticity quarantine — they wrote the live tree, so they could not overlap
+anything. Prong B made both hermetic and the guard now covers that property for
+*every* suite, so the quarantine argument is gone.
+
+The carve stayed on a different, measured argument: **the pool is saturated.**
+Removing it was tried (guv `d1be3dd`, 2026-07-26) and reverted the same day:
+
+| | carved | in-pool |
+|---|---|---|
+| `plugin.test.sh` | 207s | 571s (2.76x) |
+| `ship-suite.test.sh` | 112s | 330s (2.95x) |
+| aggregate suite-seconds | 3860s | 5733s (+48%) |
+| wall clock | 826s | 761s |
+| verdict | 71 passed, 0 failed | **66 passed, 5 failed** |
+
+Folding the two heaviest suites into a 14-way pool with no idle lanes did not use
+spare capacity — it took time from every other suite. The extra contention pushed
+`setup-control-plane.test.sh` past the 600s per-suite ceiling (255s standalone) and
+`continuation-checkpoint.test.sh` past a 10s deadline inside the checkpoint hook.
+All five failures were contention, not logic. 65s of wall clock on a gate that runs
+once or twice a session does not buy that.
+
+So the selection criterion is now measurable rather than audited: **carve a suite
+when its pool time is a large multiple of its serial time and it is big enough for
+that multiple to matter.** Read the census the runner prints on every run (Prong C)
+before adding or removing a name.
 
 Two honest limits on the guard, both deliberate:
 
@@ -153,6 +180,15 @@ names the path), T11k (a clean battery stays green and the guard stays silent),
 T11l (an unfingerprintable repo degrades to an *announced* unchecked run) — and
 the T7 drift guard keeps the CI loop's comment in step, including the distinction
 that serial execution does **not** subsume hermeticity.
+
+**Axis 1b — is it slow AND badly hurt by contention?** This is the scheduling
+question, and it is separate from hermeticity: a perfectly hermetic suite can still
+be worth carving. Compare its standalone time against its pool time in the census.
+A large multiple on a suite that is already a long pole means it is fighting the
+pool rather than using it — enrol it in `SERIAL_SET` (one edit; the plugin runner
+does not need the mirror, as neither carved suite ships). T11m proves the carve is
+actually applied and T11n proves it stays declared as a readable list. Most suites
+fail this test and belong in the pool; two currently pass it.
 
 **Axis 2 — does it execute anything that can reach state OUTSIDE the repo?**
 In practice that means `setup-control-plane.sh`, whose `--sync` refreshes the

@@ -343,14 +343,16 @@ if [ -f "$CI_YML" ]; then
   grep -q '\[stdout\]' "$CI_YML" && grep -q "Results:\[\[:space:\]\]" "$CI_YML" \
     && ok "CI test loop carries the stdout-only-failure detector ([15.1] fix c)" \
     || no "CI inline loop must catch a stdout-only failure (the [15.1] gate-integrity hole)"
-  # [15.1] fix (b) lockstep HERMETICITY: the local battery now runs EVERY suite in
-  # the parallel pool and verifies the property that makes that sound — it
-  # fingerprints the code repo before the first suite and after the last, failing
-  # on a moved tree. (This replaced the serial carve of plugin.test.sh +
-  # ship-suite.test.sh, whose reason was retired when both were made hermetic.)
+  # [15.1] fix (b) lockstep HERMETICITY: the local battery verifies the property
+  # that makes its pool sound — it fingerprints the code repo before the first suite
+  # and after the last, failing on a moved tree. That guard took over the SAFETY
+  # argument from the serial carve of plugin.test.sh + ship-suite.test.sh; the carve
+  # itself remains locally for a separate, measured SCHEDULING reason (see
+  # SERIAL_SET in the generator), which is why this comment must not describe the
+  # guard as having replaced it.
   #
   # The CI loop is serial-by-design, and the distinction matters enough to assert:
-  # serial subsumed the old CARVE (non-overlap — run alone, nothing collides) but
+  # serial subsumes the CARVE (non-overlap — run alone, nothing collides) but
   # does NOT subsume HERMETICITY (a suite that writes the live tree still writes it
   # when run alone; CI simply never notices). So the lockstep invariant is narrower
   # than it was — CI must not silently go parallel without carrying the fingerprint
@@ -1090,35 +1092,41 @@ else
   no "[15.1] fix(a): a timeout-less run must ANNOUNCE the unbounded degradation at runtime (rc=$NOTO_RC out=$(printf '%s' "$NOTO_OUT" | tail -4))"
 fi
 
-# ── fix (b): the HERMETICITY GUARD (T11j–T11l) ────────────────────────────────
-# What these replaced, and why it matters for reading them. Parallelism was
-# originally made safe by a SERIAL CARVE: plugin.test.sh and ship-suite.test.sh
-# wrote to / built from the shared live source tree at fixed paths, so they were
-# quarantined and run one-at-a-time ahead of the pool. The old T11j proved the
-# quarantine held (two decoys that detect concurrency); the old T11k asserted the
-# quarantine LIST existed in the runner.
+# ── fix (b): the HERMETICITY GUARD (T11j–T11l) + the SERIAL CARVE (T11m–T11n) ──
+# Two mechanisms, tested separately, because they were once the same thing and are
+# no longer. Read this before changing either.
 #
-# Spike Prong B made both suites hermetic, which retired the carve's reason — and
-# a carve whose reason is gone is 319s of strictly serial cost buying nothing. It
-# was replaced by a guard on the underlying property: the runner fingerprints the
-# code repo before the first suite and after the last, and fails on a moved tree.
-# That is strictly stronger, because the carve only ever protected the suites
-# someone had already thought to name, while the guard holds for every suite
-# including ones not yet written.
+# Parallelism was originally made safe by a SERIAL CARVE: plugin.test.sh and
+# ship-suite.test.sh wrote to / built from the shared live source tree at fixed
+# paths, so they were quarantined and run one-at-a-time ahead of the pool. Spike
+# Prong B made both suites hermetic, which retired that reason.
 #
-# So the tests invert too. The old pair asked "were the two named suites kept
-# apart?"; these ask "did ANY suite write to the live tree, and does the runner
-# notice?" — detection (T11j), no-false-red (T11k), and the announced degradation
-# where the check cannot run at all (T11l). The guard is WHOLE-BATTERY by
-# necessity: under a parallel pool the suites overlap, so a tree change cannot be
-# attributed to one suite without serializing them again.
+# The GUARD (T11j–T11l) is what replaced the safety argument. The runner
+# fingerprints the code repo before the first suite and after the last, and fails
+# on a moved tree. It is strictly stronger than the quarantine ever was: the carve
+# only protected the suites someone had already thought to name, while the guard
+# holds for every suite including ones not yet written. These tests ask "did ANY
+# suite write to the live tree, and does the runner notice?" — detection (T11j),
+# no-false-red (T11k), and the announced degradation where the check cannot run at
+# all (T11l). The guard is WHOLE-BATTERY by necessity: under a parallel pool the
+# suites overlap, so a tree change cannot be attributed to one suite without
+# serializing them again.
+#
+# The CARVE (T11m–T11n) survived the guard, on a different and now MEASURED
+# justification: scheduling. It was removed once (guv d1be3dd) and reverted, because
+# the pool is saturated and folding the two heaviest suites into it inflated every
+# other suite instead of filling idle lanes — aggregate suite-seconds 3860 -> 5733
+# (+48%) for a 65s wall-clock gain, with the battery going 71/0 -> 66/5 on
+# contention alone. These tests ask the same question the old T11j/T11k asked
+# ("were the two named suites kept apart?") but for the scheduling reason, not the
+# hermeticity one. Do not delete them believing the guard covers this: the guard
+# checks correctness, the carve manages load, and neither substitutes for the other.
 
 # T11j — DETECTION. A suite that writes into the live source tree must fail the
-# battery. This is the property the whole change rests on: the carve is gone, so
-# if this does not hold, a live-tree writer now runs in the pool with nothing
-# watching — strictly worse than before. The fixture code repo must be a real git
-# repo here (the fingerprint needs one), and the baseline is committed AFTER the
-# suites are planted so the only thing that moves the tree is the leak itself.
+# battery. The carve narrows exposure to two named suites; this is what covers
+# every other suite, including ones not yet written. The fixture code repo must be
+# a real git repo here (the fingerprint needs one), and the baseline is committed
+# AFTER the suites are planted so the only thing that moves the tree is the leak.
 IFS='|' read -r BP BC <<<"$(mk_battery_plane)"
 plant_suite "$BC" "leaky.test.sh" $'#!/bin/bash\n# Plants a fixture in the SHARED LIVE TREE — the exact hazard the carve used to\n# quarantine. Reports itself green, so only the hermeticity guard can catch it.\nSHARED="$(cd "$(dirname "$0")/.." && pwd)"\n: > "$SHARED/zz-leaked-fixture"\necho "Results: 1 passed, 0 failed"\nexit 0\n'
 plant_suite "$BC" "clean.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
@@ -1163,6 +1171,54 @@ run_battery "$BP3"
 [ "$BATT_RC" -eq 0 ] && printf '%s' "$BATT_OUT" | grep -qiE 'hermeticity NOT CHECKED' \
   && ok "[15.1] fix(b): an unfingerprintable code repo degrades to an ANNOUNCED unchecked run, not a silent one that looks verified" \
   || no "[15.1] fix(b): where the guard cannot run it must announce so — an unchecked run that reads as a clean run is the failure this prevents (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'hermetic\|Results' | tail -4))"
+
+# T11m — the SERIAL CARVE holds (behavioral). The two named suites must not run
+# concurrently with each other or with the pool. Proof by decoy: plant suites named
+# exactly plugin.test.sh and ship-suite.test.sh that DETECT concurrency — each marks
+# itself live, sleeps so an overlap is observable, then fails if the other was live
+# in the same window. Serialized, they never overlap and both pass; thrown into the
+# pool, they overlap and at least one fails. A third generic suite stays in the pool
+# so the test also proves the carve removes only the named suites, not the pool.
+#
+# This is the SCHEDULING property, not the hermeticity one — T11j–T11l cover that.
+# Kept behavioral rather than structural because the failure being prevented is a
+# runner that declares SERIAL_SET but never applies it, which a grep cannot see.
+IFS='|' read -r BP4 BC4 <<<"$(mk_battery_plane)"
+CONC_BODY='#!/bin/bash
+set -u
+SHARED="$(cd "$(dirname "$0")/.." && pwd)"
+SELFTAG="__TAG__"
+SIB="$([ "$SELFTAG" = serialA ] && echo serialB || echo serialA)"
+: > "$SHARED/conc.$SELFTAG.live"
+sleep 1
+if [ -e "$SHARED/conc.$SIB.live" ]; then
+  echo "  ✗ serial suites $SELFTAG and $SIB overlapped — NOT serialized"
+  echo "Results: 0 passed, 1 failed"
+  rm -f "$SHARED/conc.$SELFTAG.live"
+  exit 1
+fi
+rm -f "$SHARED/conc.$SELFTAG.live"
+echo "Results: 1 passed, 0 failed"
+exit 0
+'
+plant_suite "$BC4" "plugin.test.sh"     "${CONC_BODY/__TAG__/serialA}"
+plant_suite "$BC4" "ship-suite.test.sh" "${CONC_BODY/__TAG__/serialB}"
+plant_suite "$BC4" "generic.test.sh" $'#!/bin/bash\necho "Results: 1 passed, 0 failed"\nexit 0\n'
+run_battery "$BP4"
+if [ "$BATT_RC" -eq 0 ] && ! printf '%s' "$BATT_OUT" | grep -qi 'overlapped'; then
+  ok "[15.1] fix(b): the carved suites (plugin.test.sh, ship-suite.test.sh) run SERIALLY, never overlapping the pool"
+else
+  no "[15.1] fix(b): the carved suites must run one-at-a-time ahead of the pool — they overlapped (rc=$BATT_RC out=$(printf '%s' "$BATT_OUT" | grep -i 'overlap\|serial\|Results' | tail -4))"
+fi
+
+# T11n — the carve is DECLARED in the runner as a readable list (structural). The
+# behavioral test above proves it is applied; this proves it is legible at the
+# source, so enrolling or retiring a suite is one edit rather than a hunt through
+# the launch loop.
+grep -qE 'SERIAL_SET' "$RUNNER_SRC" \
+  && grep -qE 'plugin\.test\.sh' "$RUNNER_SRC" && grep -qE 'ship-suite\.test\.sh' "$RUNNER_SRC" \
+  && ok "[15.1] fix(b): the runner declares SERIAL_SET naming the carved suites" \
+  || no "[15.1] fix(b): the runner must declare the serial set as a named list (the carve must be readable at the source, not buried in the launch loop)"
 fi  # SCP_TEST_INNER guard ([15.1] block)
 
 # ── T12 [19.5] — hook-registration dedup: --sync + plugin double-fire ────────────

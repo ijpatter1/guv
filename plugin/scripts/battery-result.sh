@@ -32,11 +32,11 @@
 # `fingerprint` exposes the same tree hash `record` and `read` compare, so the
 # generated runner's HERMETICITY GUARD can call it instead of hand-rolling a
 # second copy. The runner takes one before the suites and one after: a difference
-# means a suite wrote to the live source tree. That guard is what replaced the
-# SERIAL carve (spike Prong B) — the carve serialized the two suites that used to
-# write the live tree, at 319s of strictly serial cost per battery; the suites
-# were made hermetic instead, and this checks the property directly rather than
-# quarantining the suites that once broke it.
+# means a suite wrote to the live source tree. The guard took over the SAFETY
+# argument from the runner's SERIAL carve (spike Prong B): the two carved suites
+# were made hermetic, so the property is now checked directly rather than assumed
+# from a hand-maintained quarantine list. The carve itself still runs, on a
+# separate scheduling argument — see SERIAL_SET in the generator.
 #
 # Exit codes for `read` — chosen so the natural `if ... read; then` idiom means
 # "there is a VERIFIED GREEN", which is the conservative reading:

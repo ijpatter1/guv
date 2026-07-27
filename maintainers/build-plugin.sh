@@ -373,12 +373,13 @@ fi
 #      throwaway directory. The core runner's guard exists because its suites run
 #      against the real repo; that hazard has no analogue on this side.
 #
-#      (The carve this replaced named plugin.test.sh + ship-suite.test.sh, per
-#      maintainers/BATTERY-HERMETICITY.md. It was retired when spike Prong B made
-#      both suites hermetic and the core runner began verifying the property
-#      directly instead of quarantining a hand-maintained list. Here it was doubly
-#      redundant: both suites are maintainer-only and rarely reach the SHIPPED
-#      partition at all.)
+#      (A carve naming plugin.test.sh + ship-suite.test.sh used to be mirrored here
+#      "in lockstep" with the core runner, per maintainers/BATTERY-HERMETICITY.md.
+#      It was dropped because it was INERT: neither suite ships — check
+#      plugin/tests/ — so the membership test never matched. The core runner still
+#      carves those two, now for a scheduling reason rather than a hermeticity one;
+#      this copy needs no mirror, and the "three lockstep copies" framing was
+#      always wrong by one.)
 #  (c) no exit-masking / no stdout-only blindness — the gate fails a suite on ANY
 #      of: nonzero rc, ANY stderr byte, or a failure-shaped stdout verdict (a ✗
 #      line or "Results: N passed, M failed" with M>0) even at exit 0. The runner's

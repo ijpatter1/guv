@@ -47,11 +47,14 @@ jobs:
           # HERMETICITY GUARD (audit: maintainers/BATTERY-HERMETICITY.md): it
           # fingerprints the code repo before the first suite and again after the
           # last, and fails the run if the SHARED LIVE SOURCE TREE moved. That
-          # guard is what makes the pool sound; it replaced an earlier serial carve
-          # of the two suites then known to write the live tree.
+          # guard is what makes the pool sound. It took over the SAFETY argument
+          # from an earlier serial carve of plugin.test.sh + ship-suite.test.sh,
+          # but did not remove the carve: those two still run one-at-a-time locally
+          # for a separate, measured SCHEDULING reason (folding them into a
+          # saturated pool inflated every other suite ~48% — see the audit doc).
           #
           # Be precise about what serial buys here — the two properties are NOT the
-          # same. Serial execution SUBSUMED the old CARVE, which was only about
+          # same. Serial execution SUBSUMES the CARVE, which is only about
           # non-overlap: run alone, nothing can collide. It does NOT subsume
           # HERMETICITY — a suite that writes the live tree still writes it when run
           # alone; this loop simply never notices. So CI is safe from the collision
