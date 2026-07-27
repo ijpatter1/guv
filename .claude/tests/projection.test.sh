@@ -465,8 +465,9 @@ echo "$SRC" | grep -qE 'calibration|CALIB' \
 # citation to stop dangling — either ship the finding in a code-repo doc, or reword so
 # the citation does not imply the file ships. The robust, install-agnostic check: the
 # projection source must NOT carry the docs/notes/meter-forensics.md PATH unless that
-# file actually ships in this repo. The forensic FINDINGS (the ≈70–350M numbers) stay
-# inline in the prose — the citation just stops claiming a file the install lacks.
+# file actually ships in this repo. The forensic FINDINGS (the ≈70–350M numbers —
+# pre-dedupe vintage, raw four-class count, pre-[28.3] model era; [28.4]) stay inline
+# in the prose — the citation just stops claiming a file the install lacks.
 FORENSIC_DOC="$CLAUDE_DIR/../docs/notes/meter-forensics.md"
 if [ -f "$FORENSIC_DOC" ]; then
   # the doc was shipped into the code repo — a path citation now RESOLVES, so it is fine.
@@ -828,6 +829,135 @@ if [ -f "$SHAPE" ]; then
   grep -qiE 'occupancy_budget|expected.turns|occupancy.{0,4}turns' "$SHAPE" \
     && ok "[13.3] shape doc documents the occupancy×turns structural model" \
     || no "[13.3] shape doc must document the occupancy×turns rate model (occupancy_budget × expected_turns)"
+
+  # ── [28.4] the derivation must describe the band the CODE actually emits ──────
+  # The shape doc is the published calibration derivation, and it had drifted a whole
+  # band behind the constants: it still walked through turns 220/470/1090 → 70.4M /
+  # 150.4M / 348.8M, which [15.6] replaced with 115/470/1963 → 36.8M / 150.4M / 628.16M.
+  # The stale numbers are not a typo — they are the *reasoning* for a spread the code no
+  # longer has, so a reader auditing the prior reconstructs the wrong band and finds it
+  # reconciles, which is worse than finding nothing. DERIVED from the script's own
+  # constants rather than hard-coded here, so the pairing cannot rot on a VALUE change:
+  # move a constant without touching the doc and this reds.
+  #
+  # It can still rot on a RENAME, and the failure mode of an unparsed constant has to be
+  # loud rather than convenient. `$(( "" + 115 ))` is 115 in bash, so a half-parsed set
+  # silently yields a plausible band (115/115/1963) and the assertion PASSES while
+  # advertising a spread the script does not define. So: require all three to parse as
+  # non-empty digit strings, and FAIL LOUD naming the unparsed one if not (Rule 10) —
+  # never skip, which would quietly drop two assertions from a count nobody diffs.
+  SH_LOW=$(grep -E '^BASE_BUILD_TURNS=' "$SCRIPT" | sed 's/[^0-9]*\([0-9]*\).*/\1/')
+  SH_TYP=$(grep -E '^EVAL_FIX_TURNS_TYPICAL=' "$SCRIPT" | sed 's/[^0-9]*\([0-9]*\).*/\1/')
+  SH_HVY=$(grep -E '^EVAL_FIX_TURNS_HEAVY=' "$SCRIPT" | sed 's/[^0-9]*\([0-9]*\).*/\1/')
+  SH_UNPARSED=""
+  for v in BASE_BUILD_TURNS:"$SH_LOW" EVAL_FIX_TURNS_TYPICAL:"$SH_TYP" EVAL_FIX_TURNS_HEAVY:"$SH_HVY"; do
+    case "${v#*:}" in *[!0-9]*|"") SH_UNPARSED="$SH_UNPARSED ${v%%:*}" ;; esac
+  done
+  if [ -n "$SH_UNPARSED" ]; then
+    no "[28.4] the turn constants could not be read out of projection.sh —$SH_UNPARSED did not parse as an integer; the doc-vs-code band check cannot run and must not report a band derived from a partial read"
+  else
+    SH_CEN=$(( SH_LOW + SH_TYP )); SH_HIGH=$(( SH_LOW + SH_HVY ))
+    MISSING=""
+    for t in "$SH_LOW" "$SH_CEN" "$SH_HIGH"; do
+      grep -q "$t" "$SHAPE" || MISSING="$MISSING $t"
+    done
+    [ -z "$MISSING" ] \
+      && ok "[28.4] the shape doc's derivation walks the turn band the script actually defines ($SH_LOW/$SH_CEN/$SH_HIGH)" \
+      || no "[28.4] the shape doc's derivation is a band behind the constants — turn counts$MISSING appear nowhere in it, so a reader auditing the prior reconstructs a spread the code does not have and finds it reconciles"
+    # The turn counts alone are a weak pin — bare integers match anywhere in 300+ lines.
+    # Require the TOKEN band they multiply out to as well, which is far more specific.
+    BAND_MISSING=""
+    for b in '36.8M' '150.4M' '628.16M'; do
+      grep -qF "$b" "$SHAPE" || BAND_MISSING="$BAND_MISSING $b"
+    done
+    [ -z "$BAND_MISSING" ] \
+      && ok "[28.4] the derivation states the token band those turns multiply out to (36.8M / 150.4M / 628.16M)" \
+      || no "[28.4] the derivation names turn counts but not the resulting token band —$BAND_MISSING missing, so the reader cannot check the multiplication"
+    # and the doc must not still be teaching the superseded band as current. Pin BOTH
+    # edges of it: a partial revert that restores only one is still the wrong band.
+    # Pin the superseded TURN counts too, not just the token edges. [15.6] moved the
+    # tails from 220/1090 to 115/1963, but the doc's own `expected_turns` pseudo-code
+    # block kept the OLD pair for two deliverables — so the doc simultaneously stated
+    # 220/470/1090 (line ~53) and 115/470/1963 (the derivation). The MISSING check
+    # above cannot catch that: it passes the moment the new counts appear ANYWHERE,
+    # even with the old ones still sitting three lines from the formula they contradict.
+    # Word-boundary match via -w, NOT an ERE like '(^|[^0-9.])220([^0-9]|$)': that idiom
+    # is NOT PORTABLE across the greps on a dev machine. Measured here — same one-line
+    # ASCII input, `expected_turns = { base_build: 220, ..., high: 1090 }`:
+    #   [^0-9.]1090        BSD grep MATCH   ugrep MATCH
+    #   (^|[^0-9.])1090    BSD grep MATCH   ugrep MISS     <-- silently vacuous
+    # An `^` branch inside a leading group makes ugrep 7.5 drop a mid-line match that
+    # BSD/GNU grep finds, so the assertion would pass for the wrong reason on any box
+    # where `grep` resolves to ugrep. -w is honored identically by both.
+    STALE=""
+    for s in '348.8M' '70.4M'; do
+      grep -qF "$s" "$SHAPE" && STALE="$STALE $s"
+    done
+    for s in 220 1090; do
+      grep -qw "$s" "$SHAPE" && STALE="$STALE ${s}turns"
+    done
+    [ -z "$STALE" ] \
+      && ok "[28.4] the superseded pre-[15.6] band is gone from the derivation — neither its token edges (70.4M/348.8M) nor its turn counts (220/1090) survive" \
+      || no "[28.4] the shape doc still presents pre-[15.6] figures ($STALE) as the model's spread; the band moved to 115/470/1963 turns = 36.8M-628.16M and the doc never followed — a reader auditing the prior finds two contradictory turn bands in one file"
+  fi
+
+  # ── [28.4] the evidence behind the band must carry its VINTAGE and DENOMINATION ──
+  # Two independent ways a token figure fails to be comparable, and the derivation
+  # declared neither. The band is calibrated on the meter-forensics deltas, which were
+  # differenced from NAIVE per-line sums — pre-[9.1], so pre-dedupe — while the burn this
+  # rate is added to is harvested per_response. And both sides are RAW four-class counts,
+  # not the cost-weighted denomination a ceiling may be chosen in ([28.5]). A reader who
+  # cannot tell which unit the prior is in cannot tell whether it is high, low, or right.
+  # `pre-dedupe` alone is a weak pin — it is also the literal value of
+  # budgets.initiative.harvest_basis, so any future sentence documenting that FIELD would
+  # satisfy it while the band's own vintage went undeclared. Require the vintage to be
+  # attached to this band's evidence: the marker AND the forensic-deltas subject.
+  grep -qiE 'pre-dedupe|pre-\[9\.1\]|pre-9\.1' "$SHAPE" \
+    && grep -qiE 'forensic delta|deltas were differenced|band.{0,40}calibrat|calibrat.{0,40}band' "$SHAPE" \
+    && ok "[28.4] the shape doc names the VINTAGE of the evidence its band is calibrated on" \
+    || no "[28.4] the derivation cites a forensic band without tying a harvest vintage to it; pre-dedupe evidence overstates ~2.55x, and the rate is added to a per_response burn"
+  # Note the grep: NOT a bare /denominat/. This doc already uses "denomination" for a
+  # different axis entirely — `range.denomination = "tokens"`, the Spike-C tokens-vs-dollars
+  # rung — and a bare match on the word passes on that unrelated sentence while the
+  # raw-vs-cost-weighted question goes unanswered. The contrast term is what carries the
+  # claim, so require the raw side named AND the cost-weighted side named as the thing it
+  # is not.
+  grep -qiE 'raw (four-class|token)|four-class' "$SHAPE" && grep -qi 'cost-weight' "$SHAPE" \
+    && ok "[28.4] the shape doc names the DENOMINATION of that evidence — a raw four-class count, contrasted against the cost-weighted unit it is not" \
+    || no "[28.4] the derivation never says what unit its numbers are IN; a raw four-class count and a cost-weighted one differ by 3.9-6.8x on guv's own record ([28.5]), and this doc's existing 'denomination' line is the tokens-vs-dollars axis, not this one"
+
+  # ── [28.4] a retained prior owes a NAMED REVISIT TRIGGER ─────────────────────
+  # Retention with no stated condition for revisiting is retention forever: every future
+  # reader inherits "someone looked once" and no test of whether it still holds. The
+  # comment used to say the trigger must be "mechanically evaluable" while the assertion
+  # only grepped the WORD "revisit" — a doc saying "revisit when it seems wrong" passed.
+  # Test the property instead: the trigger word AND at least one evaluable OPERAND (a
+  # sample-size rung, or a ratio band against the post-fix mean). Note these are
+  # conditions for a PERSON — nothing in this repo evaluates them, and the doc must not
+  # claim otherwise (see the reconcile test's note on what its literals actually pin).
+  grep -qiE 'revisit|re-derive|re-fit' "$SHAPE" \
+    && grep -qiE 'n *(>=|≥) *[0-9]|0\.5.{0,3}[x×].{0,40}mean|mean.{0,40}(in )?either direction' "$SHAPE" \
+    && ok "[28.4] the derivation names a revisit trigger WITH an evaluable operand, not just the word" \
+    || no "[28.4] the band is retained with no evaluable revisit trigger — a bare 'revisit when it seems wrong' tells a later session nothing about when the retention stops being justified"
+
+  # ── [28.4] a RETAINED constant still owes a post-fix trace, with its sample size ──
+  # The done-when is "every retained or moved constant traces to a named post-fix
+  # measurement with its sample size stated". Retention is a decision, not a default: a
+  # constant kept without checking it against the post-fix record is indistinguishable
+  # from one nobody looked at. The sample size is part of the claim because n=3 supports
+  # a very different conclusion than n=30 would.
+  #
+  # The bare /n=3/ pin was VACUOUS — this doc also discusses BLEND_K=3, so the sentences
+  # "refitting a prior to n=3 defeats the blend" and "at n=3 the observed rate carries
+  # half the weight" satisfied it with the entire post-fix measurement deleted. Same
+  # false-positive class as the /denominat/ one above, found by sweeping for it after
+  # catching that one. Require the sample size AND the measured mean it produced —
+  # a figure the blend sentences cannot supply. (Digit-group separators vary in this
+  # doc, so the mean is matched with an optional space-or-comma between groups.)
+  grep -qiE 'n *= *3|n=3|three post-fix|3 post-fix' "$SHAPE" \
+    && grep -qE '89[ ,]?070[ ,]?974' "$SHAPE" \
+    && ok "[28.4] the derivation states the post-fix sample size AND the mean that sample measured" \
+    || no "[28.4] the derivation reports no post-fix check, or names a sample size without the measurement behind it, so a retained constant is indistinguishable from an unexamined one"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1009,12 +1139,19 @@ echo "$DOC8" | jq -e '.basis.sample_vintage == "per_response"' >/dev/null 2>&1 \
 # ════════════════════════════════════════════════════════════════════════════
 # T_MODEL_RECONCILE — [13.3] the modeled rate reconciles with the forensic band
 # ════════════════════════════════════════════════════════════════════════════
-# meter-forensics (B4) fixed the unit: real per-deliverable throughput ≈ 70–350M/session,
-# mean ~150M; occupancy_budget ≈ avg working set ≈ 0.4× the 800k setpoint (~320k). With
-# the REAL setpoint the structural occupancy×turns model must land IN that band — the
-# calibration is the deliverable's point (a prior that under/over-shoots the forensic
-# evidence would be untrustworthy). occ_budget = 800000 × 0.4 = 320000; expected_turns
-# 220/470/1090 → structural 70.4M / 150.4M / 348.8M.
+# The forensic finding calibrated the model: real per-deliverable throughput ≈ 70–350M/
+# session, mean ~150M; occupancy_budget ≈ avg working set ≈ 0.4× the 800k setpoint (~320k).
+# With the REAL setpoint the structural occupancy×turns model must land IN that band — the
+# calibration is the deliverable's point (a prior that under/over-shoots the evidence would
+# be untrustworthy). occ_budget = 800000 × 0.4 = 320000; expected_turns 115/470/1963 →
+# structural 36.8M / 150.4M / 628.16M ([15.6] widened the tails; the central is unchanged).
+#
+# [28.4] THE UNIT OF THAT EVIDENCE: pre-dedupe vintage (differenced from naive per-line
+# sums, so pre-[9.1]), a RAW four-class count (not the cost-weighted denomination a
+# ceiling may be chosen in), and a model boundary (all of it claude-opus-4-8/fable-5,
+# while every post-fix sample is claude-opus-5 — [28.3] measures that one). All three
+# matter to what this test may assert, which is why the post-fix re-anchor below replaced
+# the old assertion against the 70–350M figure.
 MR=$(mk_instance); write_tracker "$MR"
 bash "$MR/.claude/estimate.sh" set 9.7 2 "$MR/docs/estimates.json" >/dev/null 2>&1
 jq '.occupancy={threshold:800000}' "$MR/.claude/project.json" > "$MR/.claude/project.json.tmp" \
@@ -1033,10 +1170,31 @@ echo "$MR_DOC" | jq -e '
   and .spine.unit_rate.structural_high_tokens == 628160000' >/dev/null 2>&1 \
   && ok "[15.6] RECONCILE: at the real 800k setpoint the widened band brackets the observed envelope (low 36.8M / central 150.4M / high 628.16M)" \
   || no "[15.6] the modeled structural band must bracket ~37M–628M with central unchanged (got: $(echo "$MR_DOC" | jq -c '.spine.unit_rate'))"
-# the central estimate sits inside the forensic 70–350M envelope (the meter's real deltas).
-echo "$MR_DOC" | jq -e '.spine.unit_rate.structural_tokens >= 70000000 and .spine.unit_rate.structural_tokens <= 350000000' >/dev/null 2>&1 \
-  && ok "[13.3] RECONCILE: the central structural estimate sits inside the forensic 70–350M envelope" \
-  || no "[13.3] the central structural estimate must lie in the forensic envelope (got: $(echo "$MR_DOC" | jq -r '.spine.unit_rate.structural_tokens'))"
+# [28.4] RE-ANCHORED to the POST-FIX record. This assertion used to pin the central inside
+# the 70–350M forensic envelope, which is pre-dedupe, raw, and from a different model era —
+# grading the prior in a unit the burn is no longer counted in. It is re-anchored to the
+# post-fix record: three per_response sessions in the live initiative measured 46,375,417 /
+# 54,215,374 / 166,622,133 (mean 89,070,974, median 54,215,374, n=3).
+#
+# BE HONEST ABOUT WHAT THIS ASSERTION IS. It is a REGRESSION PIN, not a tripwire:
+#   • Every clause is a frozen literal. 178141948 is today's mean doubled, hard-coded. The
+#     mean is the operand that will actually move, and this test never reads the live log —
+#     so it CANNOT fire when new evidence shifts the ratio. It fires only if someone raises
+#     the central, which is the direction nobody is proposing. The doc's revisit trigger is
+#     a condition for a PERSON; nothing in this repo evaluates it, and the doc says so.
+#   • Against the current source it is also ENTAILED by the == pins twenty lines above and
+#     by T_BAND_BRACKETS below, so it adds no independent failure capability today. Its
+#     value is deferred: an editor who moves a constant updates the == pins mechanically
+#     and must then confront a bound anchored to the MEASUREMENT instead of to the code.
+#   • Containment is a weak test on its own — the band spans 17x (36.8M–628.16M) and would
+#     contain almost any plausible session. The ratio to the mean is the real signal, and
+#     the constants it guards are known-high (central 1.69x the mean, 2.77x the median).
+echo "$MR_DOC" | jq -e '
+  .spine.unit_rate.structural_low_tokens  <= 46375417
+  and .spine.unit_rate.structural_high_tokens >= 166622133
+  and .spine.unit_rate.structural_tokens <= 178141948' >/dev/null 2>&1 \
+  && ok "[28.4] RECONCILE: the band contains all three post-fix observations (46.4M–166.6M) and its central is within 2x their mean (89.1M)" \
+  || no "[28.4] the band must contain the post-fix observed envelope 46375417–166622133 and keep its central within 2x the post-fix mean 89070974 (got: $(echo "$MR_DOC" | jq -c '.spine.unit_rate'))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T_BAND_BRACKETS — [15.6] the n=0 band BRACKETS the observed envelope (~37M–628M)

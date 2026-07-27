@@ -50,10 +50,10 @@ remaining_sessions = Σ  estimate(d)   for d in remaining work
 
 ```
 occupancy_budget_tokens = max( occupancy_reference × 2/5 , floor_tokens )      # the modeled working set
-expected_turns          = { base_build: 220, low: 220, central: 470, high: 1090 }  # base_build + eval/fix term
-structural_low_tokens   = occupancy_budget × expected_turns.low                # 220   (clean run)
-structural_tokens       = occupancy_budget × expected_turns.central            # 470   (typical eval/fix)
-structural_high_tokens  = occupancy_budget × expected_turns.high               # 1090  (fix-heavy)
+expected_turns          = { base_build: 115, low: 115, central: 470, high: 1963 }  # base_build + eval/fix term
+structural_low_tokens   = occupancy_budget × expected_turns.low                # 115   (clean run)
+structural_tokens       = occupancy_budget × expected_turns.central            # 470   (typical eval/fix, 115 + 355)
+structural_high_tokens  = occupancy_budget × expected_turns.high               # 1963  (fix-heavy, 115 + 1848)
 floor_tokens               = tokenize(CLAUDE.md + .claude/rules/*.md)          # INFORMATIONAL lower bound
 occupancy_reference_tokens = occupancy.threshold (else window-relative default)  # INFORMATIONAL setpoint
 ```
@@ -81,19 +81,91 @@ never as the cost itself.
   accrues). The eval/fix term's **distribution sets the band**: the **low** edge is
   `base_build` alone (a **clean run**, no fix iterations), the **high** edge adds the
   **fix-heavy** eval/fix loop. At the real 800k setpoint, `occupancy_budget = 320 000`
-  and turns `220/470/1090` give structural `70.4M / 150.4M / 348.8M` — in the forensic
-  band (≈70–350M/session, mean ~150M).
+  and turns `115/470/1963` give structural `36.8M / 150.4M / 628.16M` — bracketing the
+  observed per-session envelope (≈37M–628M) from outside, around a central that
+  reproduces the forensic mean (≈150M). ([15.6] widened the tails; the central is
+  byte-unchanged from [13.3].)
   - **Calibration vs measurement** (which inputs are evidence, which are modeled): the
     forensic deltas independently ground the **working-set fraction** (≈0.375 observed,
     rounded to 0.4) and the **token band**. `expected_turns` is the **fitted free
     parameter** — `turns_central` is chosen so `occupancy_budget × turns` reproduces the
     forensic *mean* (320 000 × 470 = 150.4M; the forensics' own main-only estimate is
     ~360 inferences/session, of which 470 is the subagent-inclusive analog). The base/eval
-    **split** (220 + 250/870) and the band **spread** are a **modeling assumption** shaped
-    to the 70–350M envelope; [13.1]'s now-in-scope subagent burn grounds the *direction*
-    (fix-heavy sessions cost more), not the exact turn counts. A measured per-session
-    inference-count distribution would refine the split — the exact reconcile lands the
-    *product* on the evidence, not three independently measured factors.
+    **split** (115 + 355/1848) and the band **spread** are a **modeling assumption** shaped
+    to bracket the ≈37M–628M envelope; [13.1]'s now-in-scope subagent burn grounds the
+    *direction* (fix-heavy sessions cost more), not the exact turn counts. A measured
+    per-session inference-count distribution would refine the split — the exact reconcile
+    lands the *product* on the evidence, not three independently measured factors.
+  - **What unit that evidence is in** ([28.4]). Three axes separate the band's evidence
+    from the burn this rate is added to. The first two are measured; the third is not:
+    - **Vintage — `pre-dedupe`.** The forensic deltas were differenced from *naive
+      per-line* usage sums, i.e. **pre-[9.1]**, which over-counted **~2.55x** in
+      aggregate.
+    - **Denomination — a `raw` four-class count.** `input + output + cache_read +
+      cache_creation`, each weighted 1. **Not cost-weighted** (the base-input-equivalent
+      unit a [9.3] ceiling may be chosen in, where `cache_read` ×0.1, `cache_creation` ×2,
+      output ×5). The two differ by **3.9–6.8x** on guv's own record, and that ratio moves
+      with a session's output/cache mix — no fixed conversion exists ([28.5] carries the
+      gate-side hazard).
+    - **Model — unquantified.** Every pre-fix entry in the log is `claude-opus-4-8` or
+      `claude-fable-5`; every post-fix entry, including all three check samples below, is
+      `claude-opus-5`. The vintage boundary is also a model boundary with **zero overlap**,
+      and a per-session token rate depends on turn count, subagent use and cache behaviour
+      — all plausibly model-dependent. [28.3] is the deliverable that measures this; until
+      it lands, any old-vs-new comparison here is confounded.
+  - **A deflator is arithmetically admissible — the earlier claim that it was not is
+    withdrawn** ([28.4]). An earlier framing (and the pre-[28.4] text of this file) said no
+    divisor could reconcile the vintages because the [9.1] error is *shape-dependent*,
+    citing ≈1.04x subagent vs ≈3.20x main-loop. Those are **output-class** ratios, and
+    output is **under 1%** of a session's burn — `cache_read` is 97–98%. Measured on the
+    quantity that actually matters, all-class burn, `metering-log.md` records the spread as
+    **2.65x main-loop vs 2.27x subagent** (2.31–2.88x across 18 reconstructed entries,
+    weighted 2.53x; corpus-wide 2.49x / 2.35x), and states that **a single ~2.55x deflator
+    recovers every one of them to within ±13%**. Per Rule 7 that measured finding wins over
+    the older framing, which is corrected here rather than left to contradict it.
+    What still blocks *using* a deflator on **this band** is narrower and worth stating
+    exactly: the deflator was measured against surviving transcripts in the **metering
+    log's** corpus, not the older forensic corpus this band was fitted to, and those
+    transcripts do not survive. Applying it here is inference, not measurement — and it
+    would carry the unquantified model axis with it.
+  - **The post-fix check, and the retention decision** ([28.4]). Checked against the
+    unit-correct record: **n = 3** `per_response` sessions in the live initiative,
+    measuring **46 375 417 / 54 215 374 / 166 622 133** tokens (mean **89 070 974**,
+    median **54 215 374**, a 3.6× spread). Two exclusions, both deliberate: pre-`[9.1]`
+    entries are the wrong vintage, and the window's one
+    `slice_basis = unbounded_cumulative` entry is a session scalar, not a burn slice.
+    Three estimates of the same quantity, and **two of the three sit well below the
+    retained central**:
+
+    | estimate | value | vs central 150.4M |
+    |---|---|---|
+    | forensic mean, deflated ~2.55x | ≈59M (52–65M over the deflator spread) | 2.5× lower |
+    | post-fix measured mean (n=3) | 89.07M | 1.69× lower |
+    | post-fix measured median (n=3) | 54.2M | 2.77× lower |
+
+    The band **contains all three observations** — but note that is a weak test: at
+    36.8M–628.16M the band spans **17×** and would contain almost any plausible session.
+    The ratios above, not containment, are the signal.
+
+    **All four constants are nonetheless RETAINED, and this prior should be read as
+    known-high rather than validated.** Moving the central means re-deriving the whole
+    band — the central is the fitted product `occupancy_budget × 470`, and both tails were
+    separately fitted by [15.6] to bracket the observed envelope — across a model boundary
+    nobody has measured yet. Note also what the check can and cannot reach: it constrains
+    the **product**, so `WORKING_SET_FRACTION` is not separately re-examined here and
+    cannot be — the fraction and the turn counts appear only multiplied together (the
+    "calibration vs measurement" note above makes the same point about the original
+    fit). Fitting to n=3 at a 3.6× spread, or to a deflated figure whose deflator was
+    measured on a different corpus, would bake that confound into the coefficients. **The cost of retaining is real and is not hidden:** at n=3 the emitted
+    blended rate is **119.7M**, **+34%** above the observed mean, and `blended_high` is
+    **397.4M**, **2.4×** the largest session ever measured post-fix. That inflates the
+    published cost-to-complete range and biases the operator's extend / harvest / accept
+    call toward extend. **Revisit trigger:** re-derive when **[28.3] lands** (it removes
+    the model confound), when **n ≥ 10** post-fix sessions accumulate, or when the central
+    leaves the band **0.5×–2× the post-fix mean** in *either* direction. None of these is
+    enforced by code — they are conditions for a person to evaluate; the suite pins the
+    constants against today's measurement so a silent move reds, which is not the same
+    thing as watching the evidence move.
 - The **floor** (the *fixed overhead* a session loads at least once — tokenizing the
   rendered `CLAUDE.md` plus the natively-loaded `.claude/rules/*.md`, the deterministic
   **chars/4** heuristic, Rule 12) and the raw **occupancy reference** ([9.2] threshold,
@@ -152,9 +224,10 @@ blended_high_rate= (1 − weight) × structural_high_tokens + weight × observed
   anchor, the spine is purely structural (a real modeled band).
   - **Vintage** — only entries harvested in the current unit
     (`harvest_basis: "per_response"`, written after the [9.1] dedupe fix). An
-    **absent** key is pre-fix by construction and overstates burn (~2.5x in
-    aggregate, but **shape-dependent** — subagent output 1.04x, main-loop output
-    3.20x — which is why no divisor rescues a pre-fix sample). An **explicit
+    **absent** key is pre-fix by construction and overstates burn (~2.55x in
+    aggregate; the spread across work shapes is **2.27x–2.65x** on all-class burn,
+    so the mixing is what makes a cross-vintage average meaningless — *not* an
+    inability to deflate, see the [28.4] note above). An **explicit
     `null`** is a degraded harvest of unknown unit, and unknown degrades to *not
     a sample*, never to an assumed one. Averaging across the vintage boundary
     produces a rate in **no unit at all**.

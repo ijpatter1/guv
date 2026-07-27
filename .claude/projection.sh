@@ -143,7 +143,9 @@ BLEND_K=3
 # coefficients are calibrated against the forensic per-deliverable deltas measured
 # during guv's own development (the B4 finding: real throughput ≈ 70–350M/session,
 # mean ~150M, with an observed per-session envelope of ~37M–628M; occupancy_budget ≈
-# avg working set ≈ 0.4× the setpoint). Those numbers are inlined here — the forensic
+# avg working set ≈ 0.4× the setpoint). EVERY FIGURE IN THAT FINDING IS PRE-DEDUPE AND
+# RAW — see the [28.4] axes block below before comparing any of them to a post-fix
+# number; the prior they calibrate is known-high. Those numbers are inlined here — the forensic
 # analysis is a maintainer artifact and does not ship in this code repo, so this cites
 # the FINDING, not a file path a fresh install would lack ([15.6]):
 #   • occupancy_budget = occupancy setpoint × WORKING_SET_FRACTION. The avg working set
@@ -163,7 +165,8 @@ BLEND_K=3
 # CALIBRATION vs MEASUREMENT — be honest about which is which (Rule 10). The forensic
 # evidence independently grounds TWO inputs: the working-set fraction (≈0.375 observed,
 # ~300k/800k — rounded to 0.4) and the target token band (70–350M/session mean ~150M,
-# the wider ~37M–628M per-session envelope at the tails). expected_turns is the FITTED
+# the wider ~37M–628M per-session envelope at the tails — again, pre-dedupe and raw).
+# expected_turns is the FITTED
 # free parameter: turns_central is chosen so occupancy_budget × turns reproduces the
 # forensic MEAN (320000 × 470 = 150.4M; the forensics' own main-only estimate is ~360
 # inferences/session, of which 470 is the subagent-inclusive analog). The base/eval SPLIT
@@ -172,6 +175,62 @@ BLEND_K=3
 # (fix-heavy sessions burn more), not the exact turn counts. A measured per-session
 # inference-count distribution would refine the split. So the exact reconcile lands the
 # PRODUCT on the evidence; it is not independent triangulation of three measured factors.
+#
+# [28.4] WHAT UNIT THAT EVIDENCE IS IN — THREE axes separate this band's evidence from the
+# burn the rate is added to. The first two are measured; the third is not.
+#   • VINTAGE = pre-dedupe. The forensic deltas were differenced from NAIVE per-line usage
+#     sums — pre-[9.1], which over-counted ~2.55x in aggregate. The burn this rate is
+#     ADDED to is harvested per_response.
+#   • DENOMINATION = a RAW four-class count (input + output + cache_read + cache_creation,
+#     each weighted 1). NOT cost-weighted — the base-input-equivalent unit a [9.3] ceiling
+#     may be denominated in (cache_read ×0.1, cache_creation ×2, output ×5) runs 3.9–6.8x
+#     smaller on guv's own record, and that ratio moves with the session's output/cache
+#     mix, so no fixed conversion exists ([28.5]).
+#   • MODEL = unquantified. Every pre-fix log entry is claude-opus-4-8 or claude-fable-5;
+#     every post-fix entry, including all three check samples, is claude-opus-5. The
+#     vintage boundary is also a model boundary with ZERO overlap, and a per-session token
+#     rate plausibly depends on the model. [28.3] measures this; until then every
+#     old-vs-new comparison below is confounded.
+#
+# A DEFLATOR IS ARITHMETICALLY ADMISSIBLE — the earlier claim that it was not is WITHDRAWN.
+# The pre-[28.4] text here said no divisor could reconcile the vintages because the [9.1]
+# error is SHAPE-DEPENDENT, citing ~1.04x subagent vs ~3.20x main-loop. Those are
+# OUTPUT-CLASS ratios, and output is under 1% of a session's burn (cache_read is 97-98%).
+# On all-class burn — the quantity actually at issue — .claude/metering-log.md records the
+# spread as 2.65x main-loop vs 2.27x subagent (2.31-2.88x over 18 reconstructed entries,
+# weighted 2.53x; corpus-wide 2.49x/2.35x) and states that a single ~2.55x deflator
+# recovers every one to within +/-13%. Rule 7: the measured finding wins over the older
+# framing, and the older framing is corrected rather than left to contradict it.
+# What still blocks deflating THIS band is narrower: the deflator was measured against
+# surviving transcripts in the METERING LOG's corpus, not the older forensic corpus this
+# band was fitted to, whose transcripts do not survive. Applying it here is inference, not
+# measurement — and it would carry the unquantified model axis with it.
+#
+# THE POST-FIX CHECK AND THE RETENTION DECISION: checked against the unit-correct record —
+# n=3 per_response sessions in the live initiative, measuring 46,375,417 / 54,215,374 /
+# 166,622,133 tokens (mean 89,070,974, median 54,215,374, a 3.6x spread). Three estimates
+# of the same quantity, and TWO OF THREE SIT WELL BELOW the retained central of 150.4M:
+#     forensic mean deflated ~2.55x   ~59M (52-65M over the deflator spread)  2.5x lower
+#     post-fix measured mean (n=3)     89.07M                                 1.69x lower
+#     post-fix measured median (n=3)   54.2M                                  2.77x lower
+# The band CONTAINS all three observations, but that is a WEAK test: at 36.8M-628.16M it
+# spans 17x and would contain almost anything. The ratios, not containment, are the signal.
+# All four constants are nonetheless RETAINED, and this prior should be read as KNOWN-HIGH
+# rather than validated. Moving the central means re-deriving the whole band (the central
+# is the fitted product occupancy_budget × 470; both tails were separately fitted by [15.6]
+# to bracket the envelope) across a model boundary nobody has measured. Fitting to n=3 at a
+# 3.6x spread, or to a deflator measured on a different corpus, bakes that confound into
+# the coefficients. Note also what the check can reach: it constrains the PRODUCT, so
+# WORKING_SET_FRACTION is not separately re-examined and cannot be — fraction and turns
+# appear only multiplied. THE COST OF RETAINING IS REAL AND NOT HIDDEN: at n=3 the emitted
+# blended rate is 119.7M (+34% over the observed mean) and blended_high is 397.4M (2.4x the
+# largest post-fix session ever measured), which inflates the published cost-to-complete
+# and biases the operator's extend/harvest/accept call toward EXTEND.
+# REVISIT TRIGGER (none of these is enforced by code — they are conditions for a person):
+# re-derive when [28.3] lands (it removes the model confound), when n >= 10 post-fix
+# sessions accumulate, or when the central leaves 0.5x-2x the post-fix mean in EITHER
+# direction. The suite pins these constants against today's measurement so a silent move
+# reds; that is not the same as watching the evidence move.
 WORKING_SET_FRACTION_NUM=2          # occupancy_budget = setpoint × 2/5 = 0.4 × setpoint
 WORKING_SET_FRACTION_DEN=5
 # [15.6] the band TAILS are widened to BRACKET the observed per-session envelope
@@ -322,7 +381,8 @@ remaining_ids() {
 # budget-gate.sh uses) — session THROUGHPUT (cache_read-dominated, unbounded by the
 # window). [13.6] made the log slice-aware, so this reads each entry as the right
 # unit (forensics: averaging cumulative snapshots produced the inflated ~503M
-# anchor; the real per-session burns are ~70–350M):
+# anchor; the real per-session burns are ~70–350M — both figures pre-dedupe and raw,
+# the [28.4] axes above; they establish the SLICE ratio, not a rate in today's unit):
 #   • slice-tagged (slice_basis per_deliverable / since_process_start) — tokens IS
 #     the bounded slice; counted directly as a sample.
 #   • unbounded_cumulative (disclosed degradation) and tokens:null — NOT samples.
@@ -338,9 +398,10 @@ remaining_ids() {
 #   "per_response", written after the [9.1] dedupe fix). An ABSENT key is pre-fix
 #   BY CONSTRUCTION and over-counts: the pre-fix meter summed usage once per
 #   transcript LINE, and one API response is serialized as N lines each repeating
-#   the identical usage object. The overstatement is ~2.5x in aggregate but
-#   SHAPE-DEPENDENT (subagent output 1.04x, main-loop output 3.20x), which is
-#   exactly why no divisor can rescue a pre-fix sample. An EXPLICIT null is a
+#   the identical usage object. The overstatement is ~2.55x in aggregate, and the
+#   spread across work shapes is 2.27x-2.65x on all-class burn — so what makes a
+#   cross-vintage average meaningless is the MIXING, not an inability to deflate
+#   (see the [28.4] note above the constants). An EXPLICIT null is a
 #   degraded harvest whose unit the writer could not determine; unknown degrades to
 #   "not a sample", never to an assumed one (Rule 15). Averaging ACROSS the vintage
 #   boundary produces a rate in NO unit — the error emit-metrics.shape.md discloses

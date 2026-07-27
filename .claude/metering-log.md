@@ -119,7 +119,8 @@ A guv session is a **slice** of that transcript, not the whole thing. The pre-[1
 harvest summed the *whole* transcript at every capture, so each entry was a **cumulative
 snapshot of the entire process to date** — the entries for one transcript strictly
 increase, and averaging those running totals inflated the observed per-session anchor
-~4.6× (a bogus ~503M mean vs. a real ~70–350M).
+~4.6× (a bogus ~503M mean vs. a real ~70–350M — both figures **pre-dedupe and raw**;
+they establish the *slice ratio*, not a per-session rate in today's unit).
 
 The fix records the **delta**, not the total:
 
@@ -318,9 +319,18 @@ what makes the next one recognizable:
 - `budgets.initiative.tokens` was **4,741,208,137**, denominated in the **pre-fix**
   unit: every one of the 53 samples behind it came from the inflated log. It was
   **re-denominated to 1,000,000,000 on 2026-07-26**, derived bottom-up from measured
-  post-fix cost rather than by dividing the old figure — the meter error is
-  shape-dependent (subagent output 1.04x, main-loop output 3.20x), so no single
-  divisor converts a pre-fix number and none was applied.
+  post-fix cost rather than by dividing the old figure.
+
+  > **[28.4] corrects the reason recorded here.** This bullet used to justify the
+  > bottom-up derivation by asserting the meter error is shape-dependent at "subagent
+  > output 1.04x, main-loop output 3.20x", so no single divisor converts a pre-fix
+  > number. Those are **output-class** ratios; the measurement recorded above in
+  > *Migration* puts the **all-class** spread at **2.27x–2.65x**, where a single
+  > ~2.55x deflator recovers 18 entries to ±13%. A divisor was arithmetically
+  > available. Deriving bottom-up was still the better call — a deflator applied to a
+  > setpoint is an estimate standing in for a measurement — but the bottom-up
+  > derivation is the defensible part, not an impossibility claim this same file
+  > refutes sixty lines earlier.
 - The banked opening forecast (`blended_tokens` 105,712,556, from
   `observed_mean_tokens_per_session` 103,183,079 over n=53 — 53, not the 54 entries
   counted below, because the forecast was banked one entry before the count was taken)
