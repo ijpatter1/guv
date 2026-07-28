@@ -1914,6 +1914,33 @@ done
   && ok "[28.5] with both axes live the reconciliation rides the FORESEEN OVERRUN menu at entry AND exit, exactly once per run, with the second headline pointed at rather than restated" \
   || no "[28.5] the reconciliation is missing from the surface the extend/harvest/accept call is made from, or it printed twice in one run ($V49) — a duplicated correction is the noise the banner exists to remove"
 
+# V50 — a MALFORMED harvest marker silences the reconciliation. The reconciler exists to
+# resolve two remedies that name the same integer in opposite directions; the malformed arm
+# names no remedy for the setpoint at all (it sends the operator to fix the MARKER), so
+# there is no second direction to reconcile. Firing it there tells an operator both axes
+# have narrowed their advice when one of them has explicitly declined to give any — and it
+# contradicts the malformed arm two paragraphs above it in the same output.
+V50=""
+PF50=$(mk_proj 10000000)
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-16-001",deliverable_ids:["13.5"],
+         tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  >> "$PF50/.claude/metering/metering.ndjson"
+CTC50=$(proj_ctc "$PF50")
+# identical to V49's fixture except the declared harvest basis is OUT OF ENUM
+jq --argjson b "$(( 10002000 + CTC50 / 2 ))" \
+   '.budgets = {initiative:{tokens:$b, harvest_basis:"per-response", denomination:"cost_weighted"}}' \
+   "$PF50/.claude/project.json" > "$PF50/.b" && mv "$PF50/.b" "$PF50/.claude/project.json"
+for B in entry exit; do
+  O=$(gate "$PF50" "$B")
+  printf '%s' "$O" | grep -q 'hazard: *malformed' || { V50="$V50 $B:not-malformed"; continue; }
+  [ "$(n_of 'BOTH AXES ARE LIVE' "$O")" = 0 ] || V50="$V50 $B:long=$(n_of 'BOTH AXES ARE LIVE' "$O")"
+  [ "$(n_of 'RE-DERIVED in that unit' "$O")" = 0 ] || V50="$V50 $B:brief=$(n_of 'RE-DERIVED in that unit' "$O")"
+done
+[ -z "$V50" ] \
+  && ok "[28.5] a malformed harvest marker silences the reconciliation — the arm that refuses a setpoint remedy is not credited with having given one" \
+  || no "[28.5] the reconciliation fired against a malformed marker ($V50) — it tells the operator to RE-DERIVE the setpoint while the banner above it says to fix the marker instead"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
