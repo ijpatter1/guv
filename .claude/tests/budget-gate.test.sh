@@ -1221,11 +1221,19 @@ printf '%s' "$V14EXT" | grep -qi 'phantom headroom' \
 # this in prose ("it reads the burn's vintages, never the setpoint's") and left it
 # there, which makes the hazard a paragraph rather than a check.
 #
-# It is not hypothetical: initiative 004's live window is ONE pre-dedupe entry
-# (186,946,906) against a setpoint re-denominated post-fix, so the gate reports ~18.7%
-# of budget consumed where the real figure is ~3-4%. budgets.initiative.harvest_basis
-# is the missing half — a person declaring the unit their setpoint was chosen in, so
-# the gate can compare units instead of inferring one.
+# It is not hypothetical: initiative 004's live window opened as ONE pre-dedupe entry
+# (186,946,906) measured against a setpoint harvested in that same pre-dedupe vintage,
+# so the two sides agreed on vintage by accident and the gate could not say so.
+# budgets.initiative.harvest_basis is the missing half — a person declaring the unit
+# their setpoint was chosen in, so the gate can compare units instead of inferring one.
+#
+# Both halves of the original sentence here were WRONG and are struck ([28.4], 2026-07-28):
+# it called the setpoint "re-denominated post-fix" — the manifest declares
+# harvest_basis "pre-dedupe", and the post-fix framing is the same error corrected in
+# CLAUDE.md and metering-log.md — and its 18.7%/3-4% figures were a one-entry snapshot
+# that the log outgrew (the live window is now four bounded entries, 454,159,830, 45.4%
+# of the cost-weighted ceiling). A live-log figure does not belong in a permanent
+# comment; the shape of the hazard does.
 
 # V15 — the live 004 shape. A uniformly pre-dedupe window against a post-dedupe
 # setpoint is disclosed, WITHIN BUDGET, exit 0, manifest untouched. Same argument as
@@ -1621,9 +1629,9 @@ mk_denom_log() {
 # V38 — a cost_weighted ceiling against raw burn RAISES, and says so in its own words.
 # The case is drawn from guv's own 004 setpoint, whose numerator reproduces only under a
 # cost weighting while the gate sums raw — every boundary compared the two in silence.
-# (guv's manifest does not itself declare `denomination`: the reproduction is strong but
-# is inference about intent, and declaring on inference would put an assertion of fact in
-# a manifest. The fixture below is what such a project looks like once someone DOES.)
+# (guv's own manifest DOES declare it, as of 2026-07-27 and by operator direction — the
+# reproduction is strong, though it remains inference about intent rather than a recovered
+# record of one. This fixture predates that and stands on its own either way.)
 P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response","denomination":"cost_weighted"}}' 0 0)
 mk_denom_log > "$P/.claude/metering/metering.ndjson"
 V38OUT=$(gate "$P" exit); V38RC=$?
@@ -1719,7 +1727,7 @@ printf '%s' "$V43OUT" | grep -q 'budget-gate\] HARVEST UNIT HAZARD' \
 # alone moves that number the wrong way in a known direction. Reconciling is not
 # converting: no net direction is claimed, only the destination both axes agree on.
 printf '%s' "$V43OUT" | grep -q 'POINT OPPOSITE WAYS' \
-  && printf '%s' "$V43OUT" | grep -qi 'no net direction is claimed' \
+  && printf '%s' "$V43OUT" | grep -qi 'no net direction' \
   && printf '%s' "$V43OUT" | grep -qi 'raw per-response tokens' \
   && ok "[28.5] when both axes fire the banner reconciles them — opposite directions named, no net direction claimed, one destination both satisfy" \
   || no "[28.5] the two axes' remedies contradict on the same integer with nothing reconciling them; whichever paragraph the operator reads first decides which way they move it (out='$V43OUT')"
@@ -1805,30 +1813,106 @@ printf '%s' "$V47OUT" | grep -q 'SETPOINT DENOMINATION HAZARD' \
 # ── V48 — the withdrawn no-divisor framing must not creep back into shipped prose ──
 # [28.4] withdrew the framing that the [9.1] error is shape-dependent and therefore
 # admits no deflator: measured all-class inflation is 2.31–2.88x, and one ~2.55x
-# deflator fits 18 reconstructed entries to ±13%. That framing survived the
-# withdrawal in FOUR places the fix never touched — this file twice, the gate header,
-# the gate's operator-facing MIXNOTE, and the schema's harvest_basis description — so
-# the repo shipped a claim and its retraction at once (Rule 7). A grep over the source
-# is the only thing that catches a prose regression; no behavioral assertion can.
+# deflator fits 18 reconstructed entries to ±13%.
+#
+# That withdrawal has now been published incompletely TWICE, the same way both times.
+# Round one left it standing in the gate header, the gate's MIXNOTE and the schema.
+# Round two (2026-07-27) struck exactly the four literal strings a reviewer had
+# enumerated and left THREE more — including the operator-facing `mismatch` banner,
+# which printed the claim and its retraction 34 lines apart in one `exit` run. The
+# defect both times was scoping the fix to the STRINGS someone listed instead of to
+# the CLAIM. So this pin does two things the old one could not:
+#   1. it scans every core file that carries the prose, not the three that happened
+#      to be named, and it flattens newlines first so a claim that WRAPS across two
+#      lines is still caught (the survivor did exactly that);
+#   2. it asserts on the gate's ACTUAL OUTPUT for the banner that regressed, because
+#      that is the surface that reaches a person, and on THREE site-specific positive
+#      needles rather than one whole-file check — the old anti-vacuity grep passed
+#      when either withdrawal site was deleted outright, since either one satisfied
+#      it alone.
+#
 # The needles are ASSEMBLED at runtime on purpose: spelled out, they would match this
 # assertion's own text and the pin would fail on itself (measured — the first version
-# of this block did exactly that). NOTE the two axes are NOT symmetric: on the
-# DENOMINATION axis "a divisor would have to be invented" remains TRUE, because the
-# raw/cost-weighted ratio really does move with session shape (2.93–6.81x measured),
-# so this pin targets the vintage-axis wording only.
+# of this block did exactly that).
+#
+# NOTE the two axes are NOT symmetric. On the DENOMINATION axis "a divisor would have
+# to be invented" remains TRUE — the raw/cost-weighted ratio really does move with
+# session shape (2.93–6.81x measured). What is withdrawn is the VINTAGE-axis claim,
+# and, separately, any statement that the two axes refuse a divisor for one shared
+# reason. Both are pinned. The control plane's spike doc carries the claim too, but a
+# consumer install has no control plane, so it is corrected by hand and not scanned.
 V48=""
 N_DIV="no single divisor conver""ts"
-N_PAR="exactly as on the vintage ax""is"
-for f in "$GATE" "$SCHEMA" "$0"; do
-  grep -qF "$N_DIV" "$f" && V48="$V48 $(basename "$f"):no-divisor-claim"
-  grep -qF "$N_PAR" "$f" && V48="$V48 $(basename "$f"):vintage-parity"
+N_SYM="exactly as on the vintage ax""is"
+N_PAR="the same reason the harvest-vintage ax""is"
+N_SHAPE="varies with the shape of the ""work"
+# EVERY needle is matched against the FLATTENED file, never line by line. This is not
+# defensive dressing: both surviving instances wrapped mid-clause ("… the same reason /
+# the harvest-vintage axis …", "… varies with the shape of the / work"), and a
+# line-oriented grep silently missed both. Measured — the first draft of this pin used
+# `grep -qF` per line and went GREEN on the very tree that was shipping the claim.
+for f in "$GATE" "$SCHEMA" "$0" "$ROOT/.claude/metering-log.md" "$ROOT/.claude/emit-metrics.shape.md"; do
+  b=$(basename "$f")
+  [ -f "$f" ] || { V48="$V48 $b:MISSING"; continue; }
+  flat=$(tr '\n' ' ' < "$f" | tr -s ' ')
+  printf '%s' "$flat" | grep -qF "$N_DIV"   && V48="$V48 $b:no-divisor-claim"
+  printf '%s' "$flat" | grep -qF "$N_SYM"   && V48="$V48 $b:vintage-parity"
+  printf '%s' "$flat" | grep -qF "$N_SHAPE" && V48="$V48 $b:unqualified-shape-dependence"
+  printf '%s' "$flat" | grep -qF "$N_PAR"   && V48="$V48 $b:axis-parity"
 done
-# The withdrawal must also be POSITIVELY present, or an empty file would pass above.
-grep -qF '2.55x' "$GATE" && grep -qiE 'admissible|does not convert|converts nothing' "$GATE" \
-  || V48="$V48 budget-gate.sh:withdrawal-not-stated"
+# The withdrawal statements are pinned as OUTPUT below, never as source prose. Pinning
+# a COMMENT makes that comment undeletable, and a suite that freezes prose is why this
+# file grew faster than the behavior it covers. mk_denom_log gives
+# a uniformly post-fix window with a matching declared basis, so the vintage axis stays
+# silent and everything asserted here is attributable to the denomination axis alone.
+V48P=$(mk_project '{"initiative":{"tokens":100000000,"harvest_basis":"per_response","denomination":"cost_weighted"}}' 0 0)
+mk_denom_log > "$V48P/.claude/metering/metering.ndjson"
+V48OUT=$(gate "$V48P" exit)
+V48FLAT=$(printf '%s' "$V48OUT" | tr '\n' ' ' | tr -s ' ')
+printf '%s' "$V48OUT" | grep -q 'DENOMINATION'                        || V48="$V48 output:no-denomination-banner"
+printf '%s' "$V48FLAT" | grep -qF "$N_PAR"                            && V48="$V48 output:axis-parity"
+printf '%s' "$V48FLAT" | grep -qF 'Evidence there, arithmetic here'   || V48="$V48 output:withdrawal-not-printed"
 [ -z "$V48" ] \
-  && ok "[28.4] the withdrawn shape-dependence claim is absent from the gate, the schema and this suite, and the gate positively states why it discloses instead of converting" \
-  || no "[28.4] the withdrawn no-divisor claim is still shipped ($V48) — the repo carries both the withdrawal and the claim it withdrew, and the gate's MIXNOTE is operator-facing output"
+  && ok "[28.4] the withdrawn shape-dependence and axis-parity claims are absent from every core file that carries the prose AND from the mismatch banner's live output" \
+  || no "[28.4] the withdrawn no-divisor claim is still shipped, or a withdrawal was deleted ($V48) — the repo carries both a claim and its retraction, and the mismatch banner is operator-facing output"
+
+# ── V49 — the reconciliation reaches the MENU, at BOTH boundaries, exactly once ──
+# The extend/harvest/accept call is made off the FORESEEN OVERRUN menu, not the banner,
+# and the menu prints at ENTRY too — where the banner states no remedy at all. The other
+# half of the pin is that it must appear ONCE: there were two versions of this text, and
+# at exit both printed in the same output. Counts, not presence — a presence check
+# passes on a duplicate.
+V49=""
+PF49=$(mk_proj 10000000)
+# a second, post-fix entry makes the window MIXED on the vintage axis while the declared
+# ceiling below keeps the denomination axis live — the live 004 manifest's own shape, and
+# the only shape in which the two remedies contradict.
+jq -nc '{schema:"guv.meter.v1",session:"session-2026-06-16-001",deliverable_ids:["13.5"],
+         tokens:{input:1000,output:0,cache_read:0,cache_creation:0},
+         slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+  >> "$PF49/.claude/metering/metering.ndjson"
+CTC49=$(proj_ctc "$PF49")
+jq --argjson b "$(( 10002000 + CTC49 / 2 ))" \
+   '.budgets = {initiative:{tokens:$b, harvest_basis:"pre-dedupe", denomination:"cost_weighted"}}' \
+   "$PF49/.claude/project.json" > "$PF49/.b" && mv "$PF49/.b" "$PF49/.claude/project.json"
+# `grep -c` counts LINES, not occurrences, so each needle is chosen to sit on one line of
+# its own block; the flattened form is used for the wrapped ones.
+n_of() { printf '%s' "$2" | tr '\n' ' ' | tr -s ' ' | grep -o "$1" | wc -l | tr -d ' '; }
+for B in entry exit; do
+  O=$(gate "$PF49" "$B")
+  printf '%s' "$O" | grep -q 'FORESEEN OVERRUN' || { V49="$V49 $B:no-menu"; continue; }
+  # the brief reconciliation rides the menu at BOTH boundaries, once
+  [ "$(n_of 'RE-DERIVED in that unit' "$O")" = 1 ] || V49="$V49 $B:brief=$(n_of 'RE-DERIVED in that unit' "$O")"
+  # and there is no SECOND, longer copy anywhere in the same output
+  [ "$(n_of 'BOTH AXES ARE LIVE' "$O")" = 1 ] || V49="$V49 $B:copies=$(n_of 'BOTH AXES ARE LIVE' "$O")"
+  # and the second axis's headline sentence is POINTED AT from the first, not restated:
+  # appended verbatim it was the first two lines an operator read, the same sentence twice.
+  h=$(n_of 'the setpoint is declared cost_weighted while burn is summed as a raw token count' "$O")
+  [ "$h" = 1 ] || V49="$V49 $B:headline=$h"
+done
+[ -z "$V49" ] \
+  && ok "[28.5] with both axes live the reconciliation rides the FORESEEN OVERRUN menu at entry AND exit, exactly once per run, with the second headline pointed at rather than restated" \
+  || no "[28.5] the reconciliation is missing from the surface the extend/harvest/accept call is made from, or it printed twice in one run ($V49) — a duplicated correction is the noise the banner exists to remove"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

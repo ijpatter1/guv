@@ -92,8 +92,8 @@ exact. The distinction is not recoverable from the payload alone.
 **These tokens carry no unit guarantee, and this shape does not disclose it.** The
 raw log's second axis, `harvest_basis`, records *how* a reading was harvested —
 `per_response` for entries written after the dedupe fix, absent for the pre-fix ones
-that counted usage once per transcript LINE and so overstate by roughly 2.5x, by a
-factor that varies with the shape of the work. This document's aggregates sum across
+that counted usage once per transcript LINE and so overstate by roughly 2.5x (measured
+2.31x-2.88x all-class). This document's aggregates sum across
 that axis without projecting it: a `cost.by_phase` figure spanning the fix is a total
 in no single unit, and nothing in the payload says which entries contributed to it.
 The axis is orthogonal to `slice_basis` above — a `per_deliverable` entry is a bounded

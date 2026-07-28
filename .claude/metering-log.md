@@ -325,23 +325,40 @@ what makes the next one recognizable:
   per-unit cost rather than by dividing the old figure.
 
   > **The word "post-fix" was wrong here and is struck (2026-07-27).** The bottom-up
-  > derivation's base is initiative 003 at **420,810,420**, and 003 closed
-  > 2026-07-02 — every entry behind that figure is **pre-dedupe** vintage, months
-  > before the [9.1] fix. What is post-fix about 1,000,000,000 is *nothing*; what is
-  > true is that it was measured rather than divided. The manifest's
+  > derivation's base is initiative 003 at **420,810,420**, and its window closes at
+  > the `kind:"grade"` stamp of **2026-07-10T12:49:12Z** (`calibration.ndjson`; the
+  > archive commit `7a46783` is the same day) — so every entry behind that figure is
+  > **pre-dedupe** vintage, banked before the [9.1] fix landed in `329a9a6` on
+  > 2026-07-25. What is post-fix about 1,000,000,000 is *nothing*; what is true is
+  > that it was measured rather than divided. The manifest's
   > `harvest_basis: "pre-dedupe"` was correct all along and does **not** contradict
   > this bullet — the bullet contradicted the manifest.
+  >
+  > **Two details in that paragraph were themselves wrong and are struck ([28.4],
+  > 2026-07-28):** it dated 003's close to **2026-07-02** and put the fix **"months"**
+  > later. 2026-07-02 is the `phase-22` forecast stamp — the last *phase* boundary,
+  > and the date of 003's last deliverable-bearing session — not the initiative
+  > close, which is the grade stamp eight days later. And the gap to the fix is
+  > **15 days**, not months. The conclusion is unaffected either way (both candidate
+  > dates precede 2026-07-25), which is exactly why the error survived two passes:
+  > a wrong date that does not change the answer is invisible to anyone checking
+  > only the answer. Both bounds are read from the `banked_at` stamps above, never
+  > inferred from prose — but pairing them into a closed window is this correction's
+  > own reading, not gate behavior: `budget-gate.sh` windows the *live* initiative
+  > from a single `last` lifecycle stamp, on an open bound with no close.
 
   > **[28.4] corrects the reason recorded here.** This bullet used to justify the
   > bottom-up derivation by asserting the meter error is shape-dependent at "subagent
-  > output 1.04x, main-loop output 3.20x", so no single divisor converts a pre-fix
-  > number. Those are **output-class** ratios; the measurement recorded above in
-  > *Migration* puts the **all-class** spread at **2.27x–2.65x**, where a single
-  > ~2.55x deflator recovers 18 entries to ±13%. A divisor was arithmetically
-  > available. Deriving bottom-up was still the better call — a deflator applied to a
-  > setpoint is an estimate standing in for a measurement — but the bottom-up
-  > derivation is the defensible part, not an impossibility claim this same file
-  > refutes sixty lines earlier.
+  > output 1.04x, main-loop output 3.20x" and therefore admits no deflator at all.
+  > Those are **output-class** ratios, and output is 0.78% of this log's burn in
+  > aggregate (never above 1.75% of any single entry), so it cannot carry a total.
+  > The measurement recorded above in *Migration* puts the **all-class** inflation at
+  > **2.31–2.88x** across 18 entries — and, read as a shape pair, **2.27x subagent vs
+  > 2.65x main-loop** over the same population. A single ~2.55x deflator recovers all
+  > 18 to ±13%, so a divisor was arithmetically available. Deriving bottom-up was
+  > still the better call — a deflator applied to a setpoint is an estimate standing
+  > in for a measurement — but the bottom-up derivation is the defensible part, not
+  > an impossibility claim this same file refutes sixty lines earlier.
 - The banked opening forecast (`blended_tokens` 105,712,556, from
   `observed_mean_tokens_per_session` 103,183,079 over n=53 — 53, not the 54 entries
   counted below, because the forecast was banked one entry before the count was taken)
