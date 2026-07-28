@@ -210,10 +210,13 @@ inflation, ~1.32B phantom tokens**.
 
 This was never cosmetic. `burn = input+output+cache_read+cache_creation` feeds
 `budget-gate.sh`'s BREACH decision, the [13.4] forecast grade, and the calibration
-record. And the error is **shape-dependent** — tool-heavy turns inflate far more
-than prose turns (**corpus-wide, 2026-07-25**: main-loop output 3.02x vs subagent
-output 1.03x) — so it biases any comparison between differently-shaped work instead
-of cancelling out. Every ratio in this section is stamped and population-labelled
+record. The error is **shape-dependent in the OUTPUT class** — tool-heavy turns
+inflate far more than prose turns (**corpus-wide, 2026-07-25**: main-loop output
+3.02x vs subagent output 1.03x). But output is **under 1%** of entry burn, so that
+spread does **not** carry the total: all-class inflation is a much tighter
+**2.31–2.88x** ([28.4]), and a comparison between differently-shaped work is biased
+far less than the output ratios alone suggest. Every ratio in this section is
+stamped and population-labelled
 because they all drift as the corpus grows; re-measure rather than reuse them.
 
 **The fix.** The harvest groups usage by `requestId` and takes the **max** per class
@@ -318,8 +321,16 @@ what makes the next one recognizable:
 
 - `budgets.initiative.tokens` was **4,741,208,137**, denominated in the **pre-fix**
   unit: every one of the 53 samples behind it came from the inflated log. It was
-  **re-denominated to 1,000,000,000 on 2026-07-26**, derived bottom-up from measured
-  post-fix cost rather than by dividing the old figure.
+  **re-denominated to 1,000,000,000 on 2026-07-26**, derived bottom-up from a measured
+  per-unit cost rather than by dividing the old figure.
+
+  > **The word "post-fix" was wrong here and is struck (2026-07-27).** The bottom-up
+  > derivation's base is initiative 003 at **420,810,420**, and 003 closed
+  > 2026-07-02 — every entry behind that figure is **pre-dedupe** vintage, months
+  > before the [9.1] fix. What is post-fix about 1,000,000,000 is *nothing*; what is
+  > true is that it was measured rather than divided. The manifest's
+  > `harvest_basis: "pre-dedupe"` was correct all along and does **not** contradict
+  > this bullet — the bullet contradicted the manifest.
 
   > **[28.4] corrects the reason recorded here.** This bullet used to justify the
   > bottom-up derivation by asserting the meter error is shape-dependent at "subagent

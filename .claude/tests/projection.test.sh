@@ -876,19 +876,30 @@ if [ -f "$SHAPE" ]; then
     # and the doc must not still be teaching the superseded band as current. Pin BOTH
     # edges of it: a partial revert that restores only one is still the wrong band.
     # Pin the superseded TURN counts too, not just the token edges. [15.6] moved the
-    # tails from 220/1090 to 115/1963, but the doc's own `expected_turns` pseudo-code
-    # block kept the OLD pair for two deliverables — so the doc simultaneously stated
-    # 220/470/1090 (line ~53) and 115/470/1963 (the derivation). The MISSING check
-    # above cannot catch that: it passes the moment the new counts appear ANYWHERE,
-    # even with the old ones still sitting three lines from the formula they contradict.
-    # Word-boundary match via -w, NOT an ERE like '(^|[^0-9.])220([^0-9]|$)': that idiom
-    # is NOT PORTABLE across the greps on a dev machine. Measured here — same one-line
-    # ASCII input, `expected_turns = { base_build: 220, ..., high: 1090 }`:
+    # constants in projection.sh from 220/1090 to 115/1963; the doc never followed, so
+    # from b26d509 (2026-06-19) until this deliverable BOTH halves of the doc — the
+    # `expected_turns` pseudo-code AND the derivation prose below it — taught the old
+    # pair while the code computed the new one. The doc was internally consistent and
+    # uniformly a band behind; it did NOT state two bands at once. (An earlier version
+    # of this comment and of 38bf930's commit message claimed a self-contradiction
+    # WITHIN the file. That is false and is struck: `git show
+    # 2de38cd:.claude/projection.shape.md | grep '115\|1963'` returns nothing, and
+    # `git log -S1963 -- .claude/projection.shape.md` names only the fixing commit.)
+    # The MISSING check above cannot catch a uniformly-stale doc: it passes the moment
+    # the new counts appear ANYWHERE, even with the old ones still sitting three lines
+    # from the formula they contradict.
+    # Word-boundary match via -w, NOT an ERE like '(^|[^0-9.])1090([^0-9]|$)': that
+    # idiom is NOT PORTABLE across the greps on a dev machine. Measured here on the
+    # one-line input `expected_turns = { base_build: 220, central: 470, high: 1090 }`:
     #   [^0-9.]1090        BSD grep MATCH   ugrep MATCH
     #   (^|[^0-9.])1090    BSD grep MATCH   ugrep MISS     <-- silently vacuous
-    # An `^` branch inside a leading group makes ugrep 7.5 drop a mid-line match that
-    # BSD/GNU grep finds, so the assertion would pass for the wrong reason on any box
-    # where `grep` resolves to ugrep. -w is honored identically by both.
+    #   (^|[^0-9.])220     BSD grep MATCH   ugrep MATCH    <-- does NOT diverge
+    # The divergence tracks the LITERAL's length, not the `^`-branch shape: 4-char
+    # literals (1090, 1963, 1234, 2200, abcd) diverge under ugrep 7.5; 2-3 char ones
+    # (220, 470, 990, 90) do not. So the assertion would pass for the wrong reason on
+    # any box where `grep` resolves to ugrep AND the pinned literal is long enough.
+    # `-w` is honored identically by both. Only BSD grep and ugrep 7.5 were measured —
+    # there is no GNU grep on this machine, so GNU behavior here is UNVERIFIED.
     STALE=""
     for s in '348.8M' '70.4M'; do
       grep -qF "$s" "$SHAPE" && STALE="$STALE $s"

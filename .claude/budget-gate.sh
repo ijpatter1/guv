@@ -26,8 +26,15 @@
 # Burn and setpoint are only comparable if both are denominated in the same unit.
 # The meter's pre-dedupe harvest counted usage once per transcript LINE rather
 # than once per API response, so those entries overstate by the response's
-# content-block count — by a factor that varies with the shape of the work, which
-# is why no single divisor converts them. Entries harvested after the fix
+# content-block count. A divisor is arithmetically ADMISSIBLE — the earlier claim
+# that it was not is withdrawn ([28.4]): measured all-class inflation is 2.31–2.88x
+# across 18 reconstructed entries, and a single ~2.55x deflator recovers every one
+# to within ±13%. (The 1.04x/3.20x spread that framing rested on is the OUTPUT
+# class alone, which is under 1% of entry burn.) What refuses a divisor here is
+# EVIDENCE, not arithmetic: the pre-fix transcripts no longer survive to validate
+# one against, so the gate DISCLOSES the mixed unit and converts nothing. That is
+# a different reason from the denomination axis below, where the raw/cost-weighted
+# ratio genuinely does move with each session's shape. Entries harvested after the fix
 # self-describe with `harvest_basis: per_response`; earlier ones carry no such
 # field. A setpoint carries no unit at all — it is an integer — so its unit must be
 # DECLARED: `budgets.initiative.harvest_basis`, written by the same commit that
@@ -1047,7 +1054,11 @@ they are not qualified the same way. Burn-to-date is summed from the entries tha
 describes. The cost-to-complete is NOT: the observed rate excludes pre-fix entries
 outright, so it either rests on post-fix samples or falls back to the structural estimate
 named in the forecast basis above. The projected total therefore ADDS TWO NUMBERS THAT ARE
-NOT IN THE SAME UNIT AS EACH OTHER, and no single divisor converts one into the other.
+NOT IN THE SAME UNIT AS EACH OTHER. The gate does not convert one into the other — not
+because the inflation is unconvertible in principle (a single ~2.55x deflator fits every
+reconstructed pre-fix entry to within ±13%), but because the transcripts that would validate
+a deflator against THIS log no longer survive. Disclosure is what the evidence supports;
+conversion would be precision the record cannot back.
 
 ${MIXADVICE}
 "

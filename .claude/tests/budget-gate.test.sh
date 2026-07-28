@@ -899,7 +899,9 @@ W11BURN=$(profile_burn "$W11OUT")
 # ── HARVEST UNIT HAZARD, kind=mixed: the gate discloses when its comparison is invalid ──
 # harvest_basis was written by the meter and read by NOTHING, which is the phantom-
 # HEADROOM mirror of a phantom breach. Pre-dedupe entries counted usage once per
-# transcript LINE instead of once per API response (~2.5x over, and shape-dependent),
+# transcript LINE instead of once per API response (~2.5x over; measured 2.31–2.88x
+# all-class, where a single ~2.55x deflator fits every reconstructed entry to ±13% —
+# so what refuses conversion here is the lost transcripts, not the arithmetic, [28.4]),
 # so summing them beside per_response entries yields a total in no unit at all — while
 # the gate compares it to a setpoint chosen in one unit and stays SILENT, because
 # silence is what within-budget looks like. This is the one case where the gate's
@@ -1596,9 +1598,12 @@ printf '%s' "$V37OUT" | grep -q 'hazard: *mixed' \
 # cache_read + cache_creation, unweighted) — that is a code constant, not a log field.
 # A ceiling, though, is a bare integer, and a person may well have chosen it in
 # cost-weighted tokens (base-input-equivalents: cache_read at 0.1x, cache_creation 2x,
-# output 5x). Measured on guv's own record the two differ by 3.9x–6.8x — and the ratio
-# moves with each session's output and cache mix, which is why the remedy DISCLOSES and
-# never converts: a divisor would have to be invented, exactly as on the vintage axis.
+# output 5x). Measured on guv's own record the two differ by 2.93x–6.81x across the whole
+# log (3.9x–6.8x on [28.5]'s three named sessions) — and the ratio moves with each session's
+# output and cache mix, which is why the remedy DISCLOSES and never converts: a divisor
+# would have to be invented. This is NOT the vintage axis's reason — there a single ~2.55x
+# deflator does fit (±13% across 18 reconstructed entries), and what refuses conversion is
+# the lost pre-fix transcripts, not the arithmetic ([28.4]).
 # Nothing in the manifest could express this, so the mismatch was undetectable by
 # construction.
 #
@@ -1796,6 +1801,34 @@ printf '%s' "$V47OUT" | grep -q 'SETPOINT DENOMINATION HAZARD' \
   && [ "$V47RC" -eq 0 ] \
   && ok "[28.5] a malformed denomination with no initiative ceiling names the defect without asserting a ceiling the output itself reports as unset" \
   || no "[28.5] the malformed prose described a ceiling that does not exist; the operator is sent to re-denominate a setpoint they never set, and the row two lines above says <none set> (rc=$V47RC out='$V47OUT')"
+
+# ── V48 — the withdrawn no-divisor framing must not creep back into shipped prose ──
+# [28.4] withdrew the framing that the [9.1] error is shape-dependent and therefore
+# admits no deflator: measured all-class inflation is 2.31–2.88x, and one ~2.55x
+# deflator fits 18 reconstructed entries to ±13%. That framing survived the
+# withdrawal in FOUR places the fix never touched — this file twice, the gate header,
+# the gate's operator-facing MIXNOTE, and the schema's harvest_basis description — so
+# the repo shipped a claim and its retraction at once (Rule 7). A grep over the source
+# is the only thing that catches a prose regression; no behavioral assertion can.
+# The needles are ASSEMBLED at runtime on purpose: spelled out, they would match this
+# assertion's own text and the pin would fail on itself (measured — the first version
+# of this block did exactly that). NOTE the two axes are NOT symmetric: on the
+# DENOMINATION axis "a divisor would have to be invented" remains TRUE, because the
+# raw/cost-weighted ratio really does move with session shape (2.93–6.81x measured),
+# so this pin targets the vintage-axis wording only.
+V48=""
+N_DIV="no single divisor conver""ts"
+N_PAR="exactly as on the vintage ax""is"
+for f in "$GATE" "$SCHEMA" "$0"; do
+  grep -qF "$N_DIV" "$f" && V48="$V48 $(basename "$f"):no-divisor-claim"
+  grep -qF "$N_PAR" "$f" && V48="$V48 $(basename "$f"):vintage-parity"
+done
+# The withdrawal must also be POSITIVELY present, or an empty file would pass above.
+grep -qF '2.55x' "$GATE" && grep -qiE 'admissible|does not convert|converts nothing' "$GATE" \
+  || V48="$V48 budget-gate.sh:withdrawal-not-stated"
+[ -z "$V48" ] \
+  && ok "[28.4] the withdrawn shape-dependence claim is absent from the gate, the schema and this suite, and the gate positively states why it discloses instead of converting" \
+  || no "[28.4] the withdrawn no-divisor claim is still shipped ($V48) — the repo carries both the withdrawal and the claim it withdrew, and the gate's MIXNOTE is operator-facing output"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
