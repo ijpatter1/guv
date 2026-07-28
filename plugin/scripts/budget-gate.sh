@@ -422,9 +422,10 @@ measurement — but note that over-counting is the SAFE direction, and waiting i
 designed rung here, not an unfixed defect." ;;
   *:headroom)
     UNIT_REMEDY="Waiting does NOT clear this one — a setpoint does not decay, and the ceiling is
-the side in the wrong unit. Two remedies, both a person's commit: re-denominate
-budgets.initiative.tokens into the unit this window is actually recorded in, or — if the
-setpoint is right and the marker is wrong — correct budgets.initiative.harvest_basis. Do
+the side in the wrong unit. Two remedies, both a person's commit: RE-DERIVE
+budgets.initiative.tokens in the post-fix harvest unit (per_response), not scale the old
+figure by a ratio — or, if the setpoint is right and the marker is wrong, correct
+budgets.initiative.harvest_basis. Do
 not treat the burn above as a measurement against this ceiling until one of them is done,
 and treat any headroom it appears to show as unearned." ;;
   *:headroom_prior)
@@ -625,7 +626,7 @@ these two numbers into the same unit.
 Nothing is converted here, and that is deliberate: the ratio moves with each session's
 output and cache mix, so a single divisor would have to be invented. That reason belongs
 to THIS axis alone. The harvest-vintage axis also refuses a divisor, but for a different
-reason ([28.4]): there the inflation is convertible in principle — one ~2.55x deflator
+reason: there the inflation is convertible in principle — one ~2.55x deflator
 fits every reconstructed pre-fix entry to within ±13% — and what refuses it is that the
 transcripts needed to validate a deflator no longer survive. Evidence there, arithmetic
 here. Do not carry a conclusion from one axis to the other.
@@ -633,8 +634,9 @@ here. Do not carry a conclusion from one axis to the other.
 The remedy is a person's commit: re-denominate budgets.initiative.tokens into raw tokens,
 or — if the ceiling is right and the marker is wrong — correct
 budgets.initiative.denomination. Re-denominating means REDOING the setpoint's derivation
-in the target unit, not scaling the old figure by a ratio: the ratio is exactly what this
-paragraph says does not exist. This is a DECLARATION, not a stop; the machinery never
+in the target unit, not scaling the old figure by a ratio. Any ratio you can compute from
+the figures above describes one window's session mix, not the ceiling — which is why no
+conversion constant is offered. This is a DECLARATION, not a stop; the machinery never
 moves a setpoint.
 EOF
       ;;
@@ -649,8 +651,10 @@ EOF
       ;;
     esac
     # Both remedy paragraphs above are now present, each correct on its own axis and each
-    # naming budgets.initiative.tokens as what to move — in opposite directions.
-    [ "$UNIT_HAZARD" != "none" ] && [ "$DENOM_HAZARD" = "mismatch" ] && emit_reconciler
+    # naming budgets.initiative.tokens as what to move — in opposite directions. Excludes
+    # malformed: that arm refuses a remedy, so there is no second one to reconcile against.
+    [ "$UNIT_HAZARD" != "none" ] && [ "$UNIT_HAZARD" != "malformed" ] \
+      && [ "$DENOM_HAZARD" = "mismatch" ] && emit_reconciler
   fi
 fi
 
@@ -771,8 +775,8 @@ in code, so the two sides never converge on their own.
           # is, so the brief form has to carry the whole correction alone.
           # Command substitution runs in a SUBSHELL, so the flag it sets there is lost —
           # check and set it out here, or the menu would repeat what the banner just said.
-          if [ "$UNIT_HAZARD" != "none" ] && [ "$DENOM_HAZARD" = "mismatch" ] \
-             && [ "$RECONCILED" = 0 ]; then
+          if [ "$UNIT_HAZARD" != "none" ] && [ "$UNIT_HAZARD" != "malformed" ] \
+             && [ "$DENOM_HAZARD" = "mismatch" ] && [ "$RECONCILED" = 0 ]; then
             RECONCILED=1
             MIXNOTE="${MIXNOTE}$(RECONCILED=0; emit_reconciler)
 "
@@ -793,11 +797,24 @@ in code, so the two sides never converge on their own.
                            constant): a statement about the PLAN'S SHAPE, not about how this
                            project has actually been burning. The range is the honest width.
                            The constant itself was fitted against PRE-DEDUPE per-session burns,
-                           so this figure reads high by roughly the meter error until [28.4]
-                           re-derives it. Do not treat a MODELED overrun as grounds to EXTEND."
+                           so this figure reads high by roughly the meter error until that
+                           constant is re-derived. Do not treat a MODELED overrun as grounds to EXTEND."
           elif [ -n "$PCLAIM" ]; then
             BASISNOTE="
     forecast basis:        ${PCLAIM} — ${PN:-?} observed session(s) contributed."
+          fi
+          # With both axes live the generic three-item menu is actively wrong: the two
+          # remedies above each rule out one of its options. Close on what they agree on.
+          if [ "$RECONCILED" = 1 ]; then
+            CLOSER="It is a signal for a person at this boundary, and the two
+hazards above have already narrowed it: do NOT extend and do NOT harvest off these
+figures. RE-DERIVE budgets.initiative.tokens as ONE ceiling in raw per-response tokens,
+then read this forecast again. Surface it in the handoff for that decision."
+          else
+            CLOSER="It is a signal for a person at
+this boundary: EXTEND the initiative budget (a commit to budgets.initiative.tokens
+in ${MANIFEST}), HARVEST and re-plan the remaining work, or accept the forecast and
+continue. Surface it in the handoff for that decision."
           fi
           cat <<EOF
 [budget-gate] FORESEEN OVERRUN ${WHERE} — the initiative is PROJECTED to exceed its budget.
@@ -812,10 +829,7 @@ in code, so the two sides never converge on their own.
 ${MIXNOTE}
 This is a DECLARATION, not a stop. A deliverable-budget breach is fuzzy — the
 projection is a RANGE, not a fact — so the session is NOT paused and NOTHING is
-changed (the machinery never raises a setpoint). It is a signal for a person at
-this boundary: EXTEND the initiative budget (a commit to budgets.initiative.tokens
-in ${MANIFEST}), HARVEST and re-plan the remaining work, or accept the forecast and
-continue. Surface it in the handoff for that decision.
+changed (the machinery never raises a setpoint). ${CLOSER}
 EOF
         fi
       fi
