@@ -412,8 +412,9 @@ unreadable: no unit remedy is offered against an instrument known to be broken."
 
   WAIT (no commit) — the ceiling is already in the unit you want; it is the BURN that is
     stale. Nothing is owed from you.
-  RE-DENOMINATE budgets.initiative.tokens — only if the ceiling was in fact chosen in the
-    burn's unit and the setpoint basis named above is what is wrong.
+  RE-DENOMINATE budgets.initiative.tokens — only if the ceiling was in fact chosen against
+    PRE-DEDUPE readings (the inflated side here) and the setpoint basis named above is what
+    is wrong. Not \"the burn's unit\": in a MIXED window that names no single unit.
   CORRECT budgets.initiative.harvest_basis — only if the setpoint is right and the marker
     misdescribes it.
 
@@ -650,11 +651,17 @@ changes no number.
 EOF
       ;;
     esac
-    # Both remedy paragraphs above are now present, each correct on its own axis and each
-    # naming budgets.initiative.tokens as what to move — in opposite directions. Excludes
-    # malformed: that arm refuses a remedy, so there is no second one to reconcile against.
-    [ "$UNIT_HAZARD" != "none" ] && [ "$UNIT_HAZARD" != "malformed" ] \
-      && [ "$DENOM_HAZARD" = "mismatch" ] && emit_reconciler
+    # Scoped to the directions where "they point opposite ways" is TRUE — the two that
+    # send a person to re-derive the ceiling DOWN into the post-fix unit while the
+    # denomination axis sends them to re-denominate it UP into raw. The other two name no
+    # opposing move at all: `breach` leads with WAIT ("nothing is owed from you"), and
+    # `undetermined` (which malformed resolves to) refuses a remedy outright — so the
+    # denomination axis stands alone there and CAN be acted on alone, which is the exact
+    # opposite of what this text says.
+    case "$UNIT_DIR" in
+      headroom|headroom_prior)
+        [ "$UNIT_HAZARD" != "none" ] && [ "$DENOM_HAZARD" = "mismatch" ] && emit_reconciler ;;
+    esac
   fi
 fi
 
@@ -701,6 +708,11 @@ if [ -z "$BREACH_KIND" ]; then
           # post-fix unit is met by a gate demanding they raise it back. Composed before
           # the heredoc because a heredoc cannot hold a conditional.
           MIXNOTE=""
+          # Which menu options the paragraphs below rule out. Raised where each rule-out
+          # is WRITTEN, so the option and the warning that removes it can never drift
+          # apart; the closer is assembled from what survives.
+          EXTEND_OUT=0
+          HARVEST_OUT=0
           if [ "$UNIT_HAZARD" != "none" ]; then
             # The direction decides whether EXTEND is merely premature or actively
             # backwards — not the same warning.
@@ -708,6 +720,7 @@ if [ -z "$BREACH_KIND" ]; then
               breach)
                 # "some or all", never "wholly": in a MIXED window only the pre-dedupe
                 # portion is inflated.
+                EXTEND_OUT=1
                 MIXADVICE="EXTEND is the wrong first move here. The BURN side is inflated against this ceiling,
 so some or all of this overrun may be an artifact of the old unit rather than real work, and
 raising a ceiling to accommodate tokens that were never spent is the one move waiting cannot
@@ -717,6 +730,7 @@ arithmetic working, not the remedy failing." ;;
               headroom|headroom_prior)
                 # headroom_prior ASSUMED a ceiling unit rather than reading one, so the
                 # flat claim below must be prefixed as a prior, not stated as evidence.
+                EXTEND_OUT=1
                 MIXADVICE=""
                 [ "$UNIT_DIR" = "headroom_prior" ] && MIXADVICE="The setpoint's unit is UNDECLARED, so what
 follows rests on the historical prior, not on a reading of your manifest. If your ceiling is
@@ -732,9 +746,14 @@ declaration to keep firing for the rest of this initiative, because the burn sid
 counted in the old unit and the log is append-only. That is the arithmetic working, not
 the remedy failing." ;;
               *)
+                # Neither setpoint move survives an unreadable unit. Named as the two
+                # moves rather than "any option below": accept-and-continue is not a
+                # move on the setpoint, and this block is a declaration, not a stop.
+                EXTEND_OUT=1
+                HARVEST_OUT=1
                 MIXADVICE="No move can be chosen from this evidence. The setpoint's declared unit is
 unreadable, so whether this overrun is real or an artifact is not knowable from the record as
-it stands. Settle the units before acting on any option below." ;;
+it stands. Settle the units before extending or harvesting against them." ;;
             esac
             MIXNOTE="
 READ THE HARVEST UNIT HAZARD BANNER ABOVE FIRST — it qualifies both figures in this forecast, and
@@ -755,6 +774,7 @@ ${MIXADVICE}
           # inflated side, here it is the smaller one — opposite direction, opposite
           # first move. Appended rather than substituted so neither is dropped.
           if [ "$DENOM_HAZARD" = "mismatch" ]; then
+            HARVEST_OUT=1
             MIXNOTE="${MIXNOTE}
 READ THE SETPOINT DENOMINATION HAZARD BANNER ABOVE FIRST — the ceiling in this forecast is
 declared cost_weighted while every token figure above it is a raw four-class count. The
@@ -775,12 +795,15 @@ in code, so the two sides never converge on their own.
           # is, so the brief form has to carry the whole correction alone.
           # Command substitution runs in a SUBSHELL, so the flag it sets there is lost —
           # check and set it out here, or the menu would repeat what the banner just said.
-          if [ "$UNIT_HAZARD" != "none" ] && [ "$UNIT_HAZARD" != "malformed" ] \
-             && [ "$DENOM_HAZARD" = "mismatch" ] && [ "$RECONCILED" = 0 ]; then
-            RECONCILED=1
-            MIXNOTE="${MIXNOTE}$(RECONCILED=0; emit_reconciler)
+          case "$UNIT_DIR" in
+            headroom|headroom_prior)
+              if [ "$UNIT_HAZARD" != "none" ] && [ "$DENOM_HAZARD" = "mismatch" ] \
+                 && [ "$RECONCILED" = 0 ]; then
+                RECONCILED=1
+                MIXNOTE="${MIXNOTE}$(RECONCILED=0; emit_reconciler)
 "
-          fi
+              fi ;;
+          esac
           # A modeled number and a measured one look identical once both are just
           # digits, and the extend/harvest/accept call is made off these digits.
           BASISNOTE=""
@@ -791,6 +814,7 @@ in code, so the two sides never converge on their own.
             # The structural constant was fitted against pre-[9.1] burns, so a MODELED
             # cost-to-complete reads high — the same phantom the banner above stops,
             # arriving from the other side of the sum.
+            EXTEND_OUT=1
             BASISNOTE="
     forecast basis:        MODELED — ${PN:-0} observed sessions contributed. The cost-to-complete
                            above is the structural estimate (remaining sessions x a per-session
@@ -803,13 +827,37 @@ in code, so the two sides never converge on their own.
             BASISNOTE="
     forecast basis:        ${PCLAIM} — ${PN:-?} observed session(s) contributed."
           fi
-          # With both axes live the generic three-item menu is actively wrong: the two
-          # remedies above each rule out one of its options. Close on what they agree on.
-          if [ "$RECONCILED" = 1 ]; then
-            CLOSER="It is a signal for a person at this boundary, and the two
-hazards above have already narrowed it: do NOT extend and do NOT harvest off these
-figures. RE-DERIVE budgets.initiative.tokens as ONE ceiling in raw per-response tokens,
-then read this forecast again. Surface it in the handoff for that decision."
+          # The menu offers exactly the moves this output has NOT ruled out. Branching on
+          # RECONCILED instead answered a different question — "did both axes fire?" —
+          # which coincides with "what is still on the table?" in only two of the five
+          # hazard states. In the other three the menu printed "X is the wrong first move"
+          # and then offered X a few paragraphs later, on the one surface where the wrong
+          # move actually gets made.
+          #
+          # accept-and-continue is never ruled out: no unit error makes continuing wrong,
+          # and this block is a DECLARATION, not a stop — a closer that lists nothing has
+          # silently promoted it to one.
+          # Wrapped to compose at the ~85 columns the rest of this output uses: DEST lands
+          # mid-sentence, so its own first line is short by exactly the tail it follows.
+          DEST=""
+          [ "$RECONCILED" = 1 ] && DEST=" RE-DERIVE budgets.initiative.tokens as
+ONE ceiling in raw per-response tokens, then read this forecast again."
+          if [ "$EXTEND_OUT" = 1 ] && [ "$HARVEST_OUT" = 1 ]; then
+            CLOSER="It is a signal for a person at this
+boundary, and the paragraphs above have already narrowed it: do NOT extend and do NOT
+harvest off these figures. That leaves one move on this menu — accept the forecast and
+continue — and it is still a person's to make.${DEST} Surface it in
+the handoff for that decision."
+          elif [ "$EXTEND_OUT" = 1 ]; then
+            CLOSER="It is a signal for a person at this
+boundary, minus the option ruled out above: HARVEST and re-plan the remaining work, or
+accept the forecast and continue. Do NOT extend off these figures. Surface it in the
+handoff for that decision."
+          elif [ "$HARVEST_OUT" = 1 ]; then
+            CLOSER="It is a signal for a person at this
+boundary, minus the option ruled out above: EXTEND the initiative budget (a commit to
+budgets.initiative.tokens in ${MANIFEST}), or accept the forecast and continue.
+Do NOT harvest off these figures. Surface it in the handoff for that decision."
           else
             CLOSER="It is a signal for a person at
 this boundary: EXTEND the initiative budget (a commit to budgets.initiative.tokens
