@@ -713,6 +713,11 @@ if [ -z "$BREACH_KIND" ]; then
           # apart; the closer is assembled from what survives.
           EXTEND_OUT=0
           HARVEST_OUT=0
+          # The corrective those paragraphs prescribe, carried onto the decision line —
+          # the one sentence that gets copied into a handoff. Set at the write site for
+          # the same reason the flags are; later sites overwrite earlier ones, which is
+          # the precedence we want (both axes > denomination > vintage).
+          DEST=""
           if [ "$UNIT_HAZARD" != "none" ]; then
             # The direction decides whether EXTEND is merely premature or actively
             # backwards — not the same warning.
@@ -731,6 +736,8 @@ arithmetic working, not the remedy failing." ;;
                 # headroom_prior ASSUMED a ceiling unit rather than reading one, so the
                 # flat claim below must be prefixed as a prior, not stated as evidence.
                 EXTEND_OUT=1
+                DEST=" RE-DENOMINATE budgets.initiative.tokens into
+the post-fix unit, then read this forecast again."
                 MIXADVICE=""
                 [ "$UNIT_DIR" = "headroom_prior" ] && MIXADVICE="The setpoint's unit is UNDECLARED, so what
 follows rests on the historical prior, not on a reading of your manifest. If your ceiling is
@@ -751,7 +758,7 @@ the remedy failing." ;;
                 # move on the setpoint, and this block is a declaration, not a stop.
                 EXTEND_OUT=1
                 HARVEST_OUT=1
-                MIXADVICE="No move can be chosen from this evidence. The setpoint's declared unit is
+                MIXADVICE="Neither setpoint move can be chosen from this evidence. The setpoint's declared unit is
 unreadable, so whether this overrun is real or an artifact is not knowable from the record as
 it stands. Settle the units before extending or harvesting against them." ;;
             esac
@@ -773,8 +780,16 @@ ${MIXADVICE}
           # This axis must NOT inherit the vintage advice: there the ceiling is the
           # inflated side, here it is the smaller one — opposite direction, opposite
           # first move. Appended rather than substituted so neither is dropped.
+          # EXTEND is out here for the same reason it is out on an unreadable unit: the
+          # only sizing signal printed is a raw "projected over by", and the field it
+          # would be written into is declared cost_weighted — so taking the option
+          # deepens the very mismatch these paragraphs exist to stop. Unexecutable, not
+          # merely premature.
           if [ "$DENOM_HAZARD" = "mismatch" ]; then
+            EXTEND_OUT=1
             HARVEST_OUT=1
+            DEST=" RE-DENOMINATE budgets.initiative.tokens into
+raw tokens, then read this forecast again."
             MIXNOTE="${MIXNOTE}
 READ THE SETPOINT DENOMINATION HAZARD BANNER ABOVE FIRST — the ceiling in this forecast is
 declared cost_weighted while every token figure above it is a raw four-class count. The
@@ -787,6 +802,11 @@ axis. Do not descope real work to fit a ceiling that only looks close because it
 denominated in smaller units. Re-denominate budgets.initiative.tokens into raw tokens
 first, then read this forecast again. Waiting does not clear it either: burn is a raw sum
 in code, so the two sides never converge on their own.
+
+EXTEND is the wrong first move here too, for a different reason: nothing above can size
+one. The only overrun figure printed is a raw count, while the field an extension would be
+written into is declared cost_weighted — so sizing one off these figures deepens the
+mismatch instead of clearing it. Neither setpoint move survives a denomination mismatch.
 "
           fi
           # Both blocks above may now be present, each naming budgets.initiative.tokens
@@ -837,11 +857,17 @@ in code, so the two sides never converge on their own.
           # accept-and-continue is never ruled out: no unit error makes continuing wrong,
           # and this block is a DECLARATION, not a stop — a closer that lists nothing has
           # silently promoted it to one.
+          # The single-axis destinations are set at their write sites; this one cannot be,
+          # because RECONCILED may already have been raised by the banner's own call to
+          # emit_reconciler further up. Applied last, so both-axes wins over either alone.
           # Wrapped to compose at the ~85 columns the rest of this output uses: DEST lands
           # mid-sentence, so its own first line is short by exactly the tail it follows.
-          DEST=""
           [ "$RECONCILED" = 1 ] && DEST=" RE-DERIVE budgets.initiative.tokens as
 ONE ceiling in raw per-response tokens, then read this forecast again."
+          # No arm for HARVEST_OUT alone: both sites that raise it — an unreadable unit and
+          # a denomination mismatch — raise EXTEND_OUT with it, because neither state can
+          # size a setpoint move from what it printed. An arm for a state nothing reaches
+          # is a claim the code cannot back.
           if [ "$EXTEND_OUT" = 1 ] && [ "$HARVEST_OUT" = 1 ]; then
             CLOSER="It is a signal for a person at this
 boundary, and the paragraphs above have already narrowed it: do NOT extend and do NOT
@@ -851,13 +877,8 @@ the handoff for that decision."
           elif [ "$EXTEND_OUT" = 1 ]; then
             CLOSER="It is a signal for a person at this
 boundary, minus the option ruled out above: HARVEST and re-plan the remaining work, or
-accept the forecast and continue. Do NOT extend off these figures. Surface it in the
-handoff for that decision."
-          elif [ "$HARVEST_OUT" = 1 ]; then
-            CLOSER="It is a signal for a person at this
-boundary, minus the option ruled out above: EXTEND the initiative budget (a commit to
-budgets.initiative.tokens in ${MANIFEST}), or accept the forecast and continue.
-Do NOT harvest off these figures. Surface it in the handoff for that decision."
+accept the forecast and continue. Do NOT extend off these figures.${DEST} Surface it in
+the handoff for that decision."
           else
             CLOSER="It is a signal for a person at
 this boundary: EXTEND the initiative budget (a commit to budgets.initiative.tokens

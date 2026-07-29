@@ -1785,10 +1785,19 @@ PF45=$(mk_proj 10000000)   # lone entry, no harvest_basis declared -> vintage ax
 CTC45=$(proj_ctc "$PF45")
 set_init_budget_denom "$PF45" $(( 10001000 + CTC45 / 2 )) cost_weighted
 V46OUT=$(gate "$PF45" exit); V46RC=$?
+# The negative pins the vintage axis's REASONING, not the phrase "EXTEND is the wrong
+# first move" it happens to open with. That phrase is the shared idiom both axes use to
+# take an option off the menu, and this axis now uses it too — for its own reason: an
+# extension here cannot be SIZED, because the only overrun figure printed is raw while
+# the field is cost_weighted. What must never appear is the inflated-ceiling claim, which
+# is the opposite direction. Pinning the phrase would have forced this axis to remove an
+# option in silence, which is the defect V51 exists to catch.
 printf '%s' "$V46OUT" | grep -qi 'FORESEEN OVERRUN' && [ "$V46RC" -eq 0 ] \
   && printf '%s' "$V46OUT" | grep -q 'HARVEST is the wrong first move' \
   && printf '%s' "$V46OUT" | grep -q 'OVERSTATED' \
-  && ! printf '%s' "$V46OUT" | grep -q 'EXTEND is the wrong first move' \
+  && printf '%s' "$V46OUT" | grep -q 'nothing above can size' \
+  && ! printf '%s' "$V46OUT" | grep -q 'side in the inflated unit' \
+  && ! printf '%s' "$V46OUT" | grep -q 'real overrun is likely LARGER' \
   && ok "[28.5] a foreseen overrun read off a cost_weighted ceiling warns off HARVEST — the denomination axis carries its own polarity to the menu, not the vintage axis's" \
   || no "[28.5] the foreseen menu gave no denomination qualifier, or gave the vintage one: on this axis the overrun is overstated and HARVEST is the trap, so inherited advice sends the operator to descope work against a ceiling nothing has reached (rc=$V46RC out='$V46OUT')"
 
@@ -1952,17 +1961,19 @@ done
 # hazard arm above it can rule an option off that menu — "EXTEND is the wrong first
 # move", "HARVEST is the wrong first move", "Do not treat a MODELED overrun as grounds
 # to EXTEND" — and the closer must then not list it. Branching that closer on "did BOTH
-# axes fire" answered a different question and got it right in only two of the six
-# states below; the other four printed a rule-out and then offered that same option
-# three paragraphs later.
+# axes fire" answered a different question and got it right in only two of the states
+# below; the others printed a rule-out and then offered that same option three
+# paragraphs later.
 #
 # The pin is the PROPERTY, not the wording: whatever this output rules out is absent
 # from its own menu, whatever it does not rule out is still offered, and `accept` is
 # offered always — no unit error makes continuing wrong, and a closer that lists nothing
 # has quietly turned a declaration into a stop. Because it reads one output and compares
-# it against itself, every sentence involved can be rewritten and this still fails on the
-# defect — which is why the six defects it covers survived a four-pass eval loop with the
-# suite green.
+# it against itself, a reword of any sentence involved still fails it on the defect —
+# which is why the defects it covers survived a four-pass eval loop with the suite green.
+# It is blind in one direction: a NEW rule-out paragraph written later with new wording
+# and no flag raised is invisible to the phrase list above. What guards that is
+# structural — the flag is raised on the same line as the warning — not this test.
 V51=""
 # What this output ruled out, vs. what its menu offers. Flattened first: both the
 # rule-outs and the menu wrap mid-clause.
@@ -1998,31 +2009,54 @@ mk_state() {
     "$d/.claude/project.json" > "$d/.b" && mv "$d/.b" "$d/.claude/project.json"
   echo "$d"
 }
-check_state() {  # <label> <project_dir> — both boundaries; the menu rides each one
-  local b o v
+# Which of the closer's arms this output took. Pinned per fixture because the property
+# above holds in EVERY arm — so without this a fixture can silently migrate to another
+# arm and the matrix covers fewer arms than its labels claim, still green.
+closer_arm() {
+  local flat
+  flat=$(printf '%s' "$1" | tr '\n' ' ' | tr -s ' ')
+  case "$flat" in
+    *"That leaves one move on this menu"*)           printf 'narrowed' ;;
+    *"minus the option ruled out above"*)            printf 'extend-out' ;;
+    *"this boundary: EXTEND the initiative budget"*) printf 'open' ;;
+    *)                                               printf 'unknown' ;;
+  esac
+}
+check_state() {  # <label> <project_dir> <expected-arm> — both boundaries; the menu rides each one
+  local b o v arm
   for b in entry exit; do
     o=$(gate "$2" "$b")
     printf '%s' "$o" | grep -q 'FORESEEN OVERRUN' || { V51="$V51 $1/$b:no-menu"; continue; }
+    arm=$(closer_arm "$o")
+    [ "$arm" = "$3" ] || V51="$V51 $1/$b:arm=$arm,want=$3"
     v=$(menu_violations "$o")
     [ -n "$v" ] && V51="$V51 $1/$b:$v"
   done
 }
-check_state denomination-only "$(mk_state 0 '{denomination:"cost_weighted"}')"
-check_state vintage-only      "$(mk_state 1 '{harvest_basis:"pre-dedupe"}')"
-check_state malformed-marker  "$(mk_state 1 '{harvest_basis:"per-response",denomination:"cost_weighted"}')"
-check_state both-axes-live    "$(mk_state 1 '{harvest_basis:"pre-dedupe",denomination:"cost_weighted"}')"
-check_state breach-polarity   "$(mk_state 1 '{harvest_basis:"per_response",denomination:"cost_weighted"}')"
-# The sixth is the state guv's own manifest reaches once the vintage axis clears: a
-# uniformly post-fix window (so vintage is silent AND the basis is blended rather than
-# MODELED) against a cost_weighted ceiling. It is the only state that rules out HARVEST
-# alone, so without it that arm of the closer ships untested.
-PF51=$(mk_proj 10000000)
-mk_denom_log > "$PF51/.claude/metering/metering.ndjson"
-CTC51=$(proj_ctc "$PF51")
-jq --argjson b "$(( 2000 + CTC51 / 2 ))" \
-   '.budgets = {initiative:{tokens:$b, harvest_basis:"per_response", denomination:"cost_weighted"}}' \
-   "$PF51/.claude/project.json" > "$PF51/.b" && mv "$PF51/.b" "$PF51/.claude/project.json"
-check_state denomination-blended "$PF51"
+check_state denomination-only "$(mk_state 0 '{denomination:"cost_weighted"}')"                             narrowed
+check_state vintage-only      "$(mk_state 1 '{harvest_basis:"pre-dedupe"}')"                               extend-out
+check_state malformed-marker  "$(mk_state 1 '{harvest_basis:"per-response",denomination:"cost_weighted"}')" narrowed
+check_state both-axes-live    "$(mk_state 1 '{harvest_basis:"pre-dedupe",denomination:"cost_weighted"}')"   narrowed
+check_state breach-polarity   "$(mk_state 1 '{harvest_basis:"per_response",denomination:"cost_weighted"}')" narrowed
+# The last two are the states guv's own manifest passes through once the vintage axis
+# clears: a uniformly post-fix window (so vintage is silent AND the basis is blended
+# rather than MODELED), against a cost_weighted ceiling and then against a raw one. The
+# raw one is the ordinary healthy shape — every marker correct, still forecast over — and
+# it is the ONLY fixture that reaches the closer's open arm. Without it that arm ships
+# untested, and under `set -u` an unset CLOSER aborts the gate mid-heredoc on the state
+# most projects are in, with every other assertion in this file still green.
+mk_pf51() {  # <denomination> -> project dir with a uniformly post-fix over-budget window
+  local d ctc
+  d=$(mk_proj 10000000)
+  mk_denom_log > "$d/.claude/metering/metering.ndjson"
+  ctc=$(proj_ctc "$d")
+  jq --argjson b "$(( 2000 + ctc / 2 ))" --arg dn "$1" \
+     '.budgets = {initiative:{tokens:$b, harvest_basis:"per_response", denomination:$dn}}' \
+     "$d/.claude/project.json" > "$d/.b" && mv "$d/.b" "$d/.claude/project.json"
+  echo "$d"
+}
+check_state denomination-blended "$(mk_pf51 cost_weighted)" narrowed
+check_state clean-blended        "$(mk_pf51 raw_tokens)"    open
 [ -z "$V51" ] \
   && ok "[13.5] across every hazard state the foreseen menu offers exactly the moves that output has not ruled out, at entry and exit, and never drops accept" \
   || no "[13.5] the foreseen menu offered a move the same output ruled out, or dropped one it did not ($V51) — the menu is where the wrong move gets made, and a rule-out three paragraphs above it does not un-offer the option"
