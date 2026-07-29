@@ -1934,6 +1934,12 @@ jq --argjson b "$(( 10002000 + CTC50 / 2 ))" \
 for B in entry exit; do
   O=$(gate "$PF50" "$B")
   printf '%s' "$O" | grep -q 'hazard: *malformed' || { V50="$V50 $B:not-malformed"; continue; }
+  # TWO preconditions, not one. The malformed check confirms the arm under test fired; this
+  # one confirms the surface the assertions below READ. At entry the banner emits no
+  # reconciler by design, so the menu is the only site an entry-boundary copy could ride —
+  # without this guard both count==0 checks pass against output that never printed a menu,
+  # and V50 goes green on a gate whose whole forecast block was suppressed.
+  printf '%s' "$O" | grep -q 'FORESEEN OVERRUN' || { V50="$V50 $B:no-menu"; continue; }
   [ "$(n_of 'BOTH AXES ARE LIVE' "$O")" = 0 ] || V50="$V50 $B:long=$(n_of 'BOTH AXES ARE LIVE' "$O")"
   [ "$(n_of 'RE-DERIVED in that unit' "$O")" = 0 ] || V50="$V50 $B:brief=$(n_of 'RE-DERIVED in that unit' "$O")"
 done
