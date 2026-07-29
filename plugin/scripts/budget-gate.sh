@@ -726,6 +726,13 @@ if [ -z "$BREACH_KIND" ]; then
                 # "some or all", never "wholly": in a MIXED window only the pre-dedupe
                 # portion is inflated.
                 EXTEND_OUT=1
+                # Without this the decision line leads with HARVEST while the paragraph
+                # above says the overrun may not be real — an operator carrying only that
+                # line descopes real work against a ceiling nothing has reached. WAIT is
+                # the banner's own first rung on this polarity, and the only corrective
+                # that survives an overrun which may be an artifact.
+                DEST=" WAIT (no commit) — this ceiling is sound; it is the
+BURN side that is inflated, and nothing is owed from you to clear it."
                 MIXADVICE="EXTEND is the wrong first move here. The BURN side is inflated against this ceiling,
 so some or all of this overrun may be an artifact of the old unit rather than real work, and
 raising a ceiling to accommodate tokens that were never spent is the one move waiting cannot
@@ -736,8 +743,21 @@ arithmetic working, not the remedy failing." ;;
                 # headroom_prior ASSUMED a ceiling unit rather than reading one, so the
                 # flat claim below must be prefixed as a prior, not stated as evidence.
                 EXTEND_OUT=1
-                DEST=" RE-DENOMINATE budgets.initiative.tokens into
-the post-fix unit, then read this forecast again."
+                # The two directions in this arm need DIFFERENT destinations, and the
+                # union hid that. On headroom_prior the unit is UNDECLARED, so the
+                # direction is a prior rather than a reading — the paragraph below says
+                # so, and says none of it applies if the ceiling is already post-fix.
+                # Hoisting an unconditional re-denomination onto the decision line strips
+                # exactly that hedge, on the one sentence built to be carried away from
+                # its own context. Declaring the marker is the move that is right either
+                # way, and it is what turns the prior into a reading.
+                if [ "$UNIT_DIR" = "headroom_prior" ]; then
+                  DEST=" DECLARE budgets.initiative.harvest_basis —
+that turns the paragraph above from a guess into a derivation, and names the move."
+                else
+                  DEST=" RE-DENOMINATE budgets.initiative.tokens into
+per_response, then read this forecast again."
+                fi
                 MIXADVICE=""
                 [ "$UNIT_DIR" = "headroom_prior" ] && MIXADVICE="The setpoint's unit is UNDECLARED, so what
 follows rests on the historical prior, not on a reading of your manifest. If your ceiling is

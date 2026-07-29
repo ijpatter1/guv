@@ -1530,10 +1530,17 @@ printf '%s' "$V32OUT" | grep -q 'hazard: *malformed' \
 V33ENT=$(gate "$PF24" entry)
 V33ELINES=$(printf '%s\n' "$V33ENT" | wc -l | tr -d ' ')
 V33XLINES=$(printf '%s\n' "$V29OUT" | wc -l | tr -d ' ')
+# The negatives pin the absence of the BANNER's remedy block — its lead-in and its
+# conditional rung — not the bare word WAIT they used to. WAIT is the rung this direction
+# leads with, so it is also the corrective the forecast menu's decision line carries, and
+# that menu prints at BOTH boundaries by design (V51). Pinning the word made an entry-side
+# decision line that names its own corrective indistinguishable from the banner re-injecting
+# five paragraphs of remedy prose, which is the only thing this test is about.
 [ "$V33ELINES" -lt "$V33XLINES" ] \
   && printf '%s' "$V33ENT" | grep -q 'hazard: *mismatch' \
   && printf '%s' "$V33ENT" | grep -q 'not a measurement' \
-  && ! printf '%s' "$V33ENT" | grep -q 'WAIT' \
+  && ! printf '%s' "$V33ENT" | grep -q 'Three responses' \
+  && ! printf '%s' "$V33ENT" | grep -q 'RE-DENOMINATE budgets.initiative.tokens — only if' \
   && ok "[9.1] the mismatch banner is terse at entry and full at exit (${V33ELINES} vs ${V33XLINES} lines) — profile and warning at both, remedy where it is acted on" \
   || no "[9.1] the mismatch banner re-injects its full remedy prose into every session's context; it never clears, so that is a standing charge against the work the disclosure protects (entry=${V33ELINES}L exit=${V33XLINES}L)"
 
@@ -2022,22 +2029,47 @@ closer_arm() {
     *)                                               printf 'unknown' ;;
   esac
 }
-check_state() {  # <label> <project_dir> <expected-arm> — both boundaries; the menu rides each one
-  local b o v arm
+# The destination sentence the closer carries — the corrective spliced onto the decision
+# line, which is the one line the gate tells the operator to copy into a handoff. Read
+# out of the CLOSER, never off the whole output: every phrase a destination uses also
+# appears in the banners far above, so an unscoped grep passes on the banner alone and
+# pins nothing. The right boundary is shared by all three arms; the left is whatever
+# option text precedes it.
+closer_dest() {
+  printf '%s' "$1" | tr '\n' ' ' | tr -s ' ' \
+    | sed -n 's/.*continue\(.*\) Surface it in the handoff.*/\1/p'
+}
+check_state() {  # <label> <project_dir> <expected-arm> <expected-destination|none>
+  local b o v arm dest
   for b in entry exit; do
     o=$(gate "$2" "$b")
     printf '%s' "$o" | grep -q 'FORESEEN OVERRUN' || { V51="$V51 $1/$b:no-menu"; continue; }
     arm=$(closer_arm "$o")
     [ "$arm" = "$3" ] || V51="$V51 $1/$b:arm=$arm,want=$3"
+    dest=$(closer_dest "$o")
+    case "$4" in
+      none) case "$dest" in *budgets.initiative*|*WAIT*) V51="$V51 $1/$b:dest-present" ;; esac ;;
+      *)    case "$dest" in *"$4"*) ;; *) V51="$V51 $1/$b:dest!=$4" ;; esac ;;
+    esac
     v=$(menu_violations "$o")
     [ -n "$v" ] && V51="$V51 $1/$b:$v"
   done
 }
-check_state denomination-only "$(mk_state 0 '{denomination:"cost_weighted"}')"                             narrowed
-check_state vintage-only      "$(mk_state 1 '{harvest_basis:"pre-dedupe"}')"                               extend-out
-check_state malformed-marker  "$(mk_state 1 '{harvest_basis:"per-response",denomination:"cost_weighted"}')" narrowed
-check_state both-axes-live    "$(mk_state 1 '{harvest_basis:"pre-dedupe",denomination:"cost_weighted"}')"   narrowed
-check_state breach-polarity   "$(mk_state 1 '{harvest_basis:"per_response",denomination:"cost_weighted"}')" narrowed
+# Each state's destination is pinned alongside its arm, for the reason the arm is: five
+# paragraphs can prescribe a remedy and the decision line still carry none, or carry one
+# the paragraphs above it contradict — and both read as green against the property alone.
+# The prior-vs-reading split is the case in point: headroom_prior ASSUMES the ceiling's
+# unit, so it must send the operator to DECLARE the marker, never to re-denominate a
+# ceiling that may already be correct. The union arm that once covered both directions
+# shipped the reading's destination on the prior's output, uncaught, because no fixture
+# below exercised an undeclared marker.
+check_state denomination-only "$(mk_state 0 '{denomination:"cost_weighted"}')"                             narrowed   'into raw tokens'
+check_state vintage-only      "$(mk_state 1 '{harvest_basis:"pre-dedupe"}')"                               extend-out 'into per_response'
+check_state headroom-prior    "$(mk_state 1 '{}')"                                                         extend-out 'DECLARE budgets.initiative.harvest_basis'
+check_state breach-only       "$(mk_state 1 '{harvest_basis:"per_response"}')"                             extend-out 'WAIT (no commit)'
+check_state malformed-marker  "$(mk_state 1 '{harvest_basis:"per-response",denomination:"cost_weighted"}')" narrowed   'into raw tokens'
+check_state both-axes-live    "$(mk_state 1 '{harvest_basis:"pre-dedupe",denomination:"cost_weighted"}')"   narrowed   'ONE ceiling in raw per-response tokens'
+check_state breach-polarity   "$(mk_state 1 '{harvest_basis:"per_response",denomination:"cost_weighted"}')" narrowed   'into raw tokens'
 # The last two are the states guv's own manifest passes through once the vintage axis
 # clears: a uniformly post-fix window (so vintage is silent AND the basis is blended
 # rather than MODELED), against a cost_weighted ceiling and then against a raw one. The
@@ -2055,11 +2087,11 @@ mk_pf51() {  # <denomination> -> project dir with a uniformly post-fix over-budg
      "$d/.claude/project.json" > "$d/.b" && mv "$d/.b" "$d/.claude/project.json"
   echo "$d"
 }
-check_state denomination-blended "$(mk_pf51 cost_weighted)" narrowed
-check_state clean-blended        "$(mk_pf51 raw_tokens)"    open
+check_state denomination-blended "$(mk_pf51 cost_weighted)" narrowed 'into raw tokens'
+check_state clean-blended        "$(mk_pf51 raw_tokens)"    open     none
 [ -z "$V51" ] \
-  && ok "[13.5] across every hazard state the foreseen menu offers exactly the moves that output has not ruled out, at entry and exit, and never drops accept" \
-  || no "[13.5] the foreseen menu offered a move the same output ruled out, or dropped one it did not ($V51) — the menu is where the wrong move gets made, and a rule-out three paragraphs above it does not un-offer the option"
+  && ok "[13.5] across every hazard state the foreseen menu offers exactly the moves that output has not ruled out and carries that state's corrective onto the decision line, at entry and exit, and never drops accept" \
+  || no "[13.5] the foreseen menu offered a move the same output ruled out, dropped one it did not, or closed on the wrong corrective ($V51) — the menu is where the wrong move gets made, and a rule-out three paragraphs above it does not un-offer the option"
 
 # ── V52 — the reconciliation is scoped to the direction where its premise holds ──
 # "BOTH AXES ARE LIVE AND THEY POINT OPPOSITE WAYS ... acting on either one alone moves it
