@@ -22,7 +22,7 @@
 #   --for is how an entry command asks "is this the right door?" A wrong-door
 #   invocation REDIRECTS (match=no, door=<correct>) rather than errors —
 #   redirect is a route, not a failure (exit 0). <door> must be one of the
-#   known doors (init|onboard|next|phase|task|spike); a typo is a
+#   known doors (init|onboard|next|phase|task|spike|plan); a typo is a
 #   caller bug (exit 2), not a redirect.
 #
 # Output (name=value, one per line — the resolve-ready.sh contract shape):
@@ -40,7 +40,7 @@
 #         this is NOT ambiguity. The scaffolding doors (init, onboard)
 #         are about to WRITE the manifest this router would have read, so under
 #         --for they CONFIRM and PROCEED (match=yes, exit 0); the live-plan doors
-#         (next, phase, task) have nothing to resume and see exit 4 so
+#         (next, phase, task, spike, plan) have nothing to resume and see exit 4 so
 #         their Step 0 defers to a scaffolding door. Plain (no --for) emits no
 #         door — which of the two scaffolding doors applies is a content decision
 #         (is there a spec? existing code?), not a state one — but names the
@@ -54,10 +54,12 @@ RESOLVER="$(cd "$(dirname "$0")" && pwd)/resolve-ready.sh"
 TRACKER="docs/PHASE_STATUS.md"
 
 # The closed door vocabulary — the router knows exactly these (the [8.1] entry
-# split left five; spike is the sixth, the exploration door for free-form work).
-# The routing collapse is the function over them. A --for outside this set is a
-# caller typo, not a redirect target.
-KNOWN_DOORS="init onboard next phase task spike"
+# split left five; spike is the sixth, the exploration door for free-form work;
+# plan is the seventh, the door that opens a new initiative on an existing
+# project — the state the between-initiatives branch below names). The routing
+# collapse is the function over them. A --for outside this set is a caller typo,
+# not a redirect target.
+KNOWN_DOORS="init onboard next phase task spike plan"
 
 # The SCAFFOLDING doors — the two that write the manifest into a fresh repo. On
 # the PRE-SCAFFOLD state (no manifest) these PROCEED rather than stop, because
@@ -117,7 +119,7 @@ stop() {
 # prescaffold REASON — the PRE-SCAFFOLD state (no manifest here yet): NOT
 # ambiguity, so NOT exit 3. Under --for, a SCAFFOLDING door (init,
 # onboard) CONFIRMS and proceeds (match=yes, exit 0) — it is about to write the
-# manifest; a live-plan door (next, phase, task) gets match=no + exit 4
+# manifest; a live-plan door (next, phase, task, spike, plan) gets match=no + exit 4
 # and defers to a scaffolding door. Plain (no --for) emits no door — the
 # scaffold-door choice is content-driven — and names the scaffolding route in
 # reason= so a person (or the door's Step 0) routes correctly rather than seeing
@@ -140,6 +142,24 @@ prescaffold() {
   exit 4
 }
 
+# between_initiatives STATE — emits the plan door when this project has already RUN
+# initiatives but has none in flight; returns (falls through to greenfield) when it
+# hasn't. archive-initiative.sh MOVES REQUIREMENTS.md + PHASE_STATUS.md into
+# docs/initiatives/NNN-<slug>/ at close, so "no initiative in flight" is equally the
+# just-closed state of an established project — and calling that greenfield sends it
+# to the scaffolding door (…1016129787, observed live twice). The signal is the
+# ARCHIVED TRACKER, the archiver's own output: a stray NNN-prefixed folder is not an
+# archived initiative, and an empty docs/initiatives/ is still greenfield. STATE names
+# which no-initiative-in-flight shape this is — the two the archiver itself reports as
+# status=NONE (no tracker, or a tracker holding only unauthored placeholders). Both
+# read greenfield to the probes below; neither is greenfield to a person.
+between_initiatives() {
+  for _arch in docs/initiatives/[0-9][0-9][0-9]-*; do
+    [ -f "$_arch/PHASE_STATUS.md" ] || continue
+    emit plan "ceremony=phased with archived initiatives under docs/initiatives/ but no initiative in flight ($1) — between initiatives; plan opens the next one on an existing project"
+  done
+}
+
 # ── (a) manifest: its absence is the PRE-SCAFFOLD state, not ambiguity. There
 # is no ceremony to read yet — but a fresh repo is exactly what the scaffolding
 # doors (init, onboard) exist to handle: they are about to WRITE this
@@ -155,6 +175,17 @@ if ! jq -e . "$MANIFEST" >/dev/null 2>&1; then
 fi
 
 CEREMONY=$(jq -r '.ceremony // empty' "$MANIFEST")
+
+# plan is the door that OPENS an initiative, and a project with no phase ceremony is
+# squarely its territory: its only stated precondition is a manifest (its Step 0), it
+# flips ceremony itself at Step 6, and onboard's Step 6 names plan-with-a-spec as the
+# sanctioned route out of onboard mode. So a caller asking --for plan here chose the
+# right door — redirecting them to task/onboard/spike below would send them away from
+# it. On a PHASED project the redirect stands: plan's own Step 1 refuses an initiative
+# still in flight, so only the between-initiatives branch confirms it.
+case "$CEREMONY" in
+  task|onboard|spike) [ "$FOR" = plan ] && emit plan "ceremony=$CEREMONY — no phase ceremony yet; plan opens a multi-phase initiative on an existing project and flips ceremony itself" ;;
+esac
 
 case "$CEREMONY" in
   task)
@@ -182,6 +213,7 @@ esac
 # handles the NOT_SCAFFOLDED state itself. The absence of the tracker is the
 # clean single signal — a scaffoldCheck that also fails only corroborates it.
 if [ ! -f "$TRACKER" ]; then
+  between_initiatives "no $TRACKER"   # ...unless the project has already run some
   emit init "ceremony=phased but no $TRACKER — greenfield; init scaffolds the plan"
 fi
 
@@ -199,6 +231,11 @@ PLACEHOLDER_RE='^\s*-\s*(✅|🔄|⬜|❌|🔒)\s*\[Deliverable [0-9]'
 MARKER_RE='^\s*-\s*(✅|🔄|⬜|❌|🔒)'
 if grep -qE "$MARKER_RE" "$TRACKER" 2>/dev/null \
    && ! grep -E "$MARKER_RE" "$TRACKER" 2>/dev/null | grep -qvE "$PLACEHOLDER_RE"; then
+  # Same carve as the `! -f` probe above, and reachable from the very misroute this
+  # closes: an established project sent to init by the old router, interrupted after
+  # the skeleton tracker lands, is archived-plus-placeholders. Unauthored stubs are
+  # status=NONE to the archiver too, so both probes ask the same question of it.
+  between_initiatives "$TRACKER holds only unauthored scaffold placeholders"
   emit init "ceremony=phased but $TRACKER carries only verbatim placeholder stubs (unauthored) — greenfield; init authors the plan"
 fi
 

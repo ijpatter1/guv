@@ -530,6 +530,133 @@ run "$SPIKENM" --for spike
   && ok "pre-scaffold + --for spike → defer (match=no, exit 4) — spike is not a scaffolding door" \
   || no "spike on a manifest-less repo must defer exit 4 match=no (got rc=$RC match=$(val match "$OUT"))"
 
+# ── [24.2] G1 — BETWEEN INITIATIVES: archived initiatives + no tracker → plan ──
+# The misroute this closes (…1016129787, twice-observed live): archive-initiative.sh
+# MOVES REQUIREMENTS.md + PHASE_STATUS.md into docs/initiatives/NNN-<slug>/ when an
+# initiative closes, so an established project between initiatives has no tracker —
+# and the greenfield branch read that absence as "never planned" and sent it to the
+# scaffolding door. The correct door for a new initiative on an existing project is
+# plan. The signal is the archiver's own: a docs/initiatives/NNN-<slug> directory.
+# The state is not hypothetical — the control plane's own 7a46783 (initiative 003
+# close) has docs/initiatives/{001,002,003}-* and NO docs/PHASE_STATUS.md. That
+# commit is the git-pinned reference this fixture mirrors, per [24.2]'s acceptance.
+BTW=$(mkproj between-initiatives); manifest "$BTW" phased
+touch "$BTW/.scaffolded"
+mkdir -p "$BTW/docs/initiatives/001-first-initiative"
+cp "$MID/docs/PHASE_STATUS.md" "$BTW/docs/initiatives/001-first-initiative/PHASE_STATUS.md"
+cp "$MID/docs/REQUIREMENTS.md" "$BTW/docs/initiatives/001-first-initiative/REQUIREMENTS.md"
+# no docs/PHASE_STATUS.md — the archiver moved it
+
+run "$BTW"
+[ "$RC" -eq 0 ] && [ "$(val door "$OUT")" = "plan" ] \
+  && ok "between initiatives (archived + no tracker) → plan, not the greenfield door" \
+  || no "between initiatives must route to plan (got rc=$RC door=$(val door "$OUT"); err=$ERR)"
+# Match the SUCCESS reason's distinctive words, and prove it is not the greenfield
+# reason wearing a different door name (the spike lesson: a bare match can pass on
+# the wrong branch).
+echo "$OUT" | grep -qiE 'between initiatives|archived' \
+  && ok "between initiatives: the reason names the archived-initiative state" \
+  || no "the reason should name the between-initiatives state (got: $(val reason "$OUT"))"
+echo "$OUT" | grep -qi 'greenfield' \
+  && no "the between-initiatives reason must not call an established project greenfield" \
+  || ok "between initiatives: the reason does not say greenfield"
+
+# --for plan CONFIRMS — and proves plan is a KNOWN door. Without this the router
+# would emit a door= no caller may ask about (--for plan would exit 2 as a typo).
+run "$BTW" --for plan
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "between initiatives + --for plan → confirm (match=yes, exit 0) — plan is a recognized door" \
+  || no "the correct door (plan) must confirm match=yes exit 0 (got rc=$RC match=$(val match "$OUT"); err=$ERR)"
+
+# --for next REDIRECTS to plan rather than erroring — the live-plan door has no
+# frontier to resume between initiatives.
+run "$BTW" --for next
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "plan" ] \
+  && ok "between initiatives + --for next → redirect to plan (match=no, door=plan, exit 0)" \
+  || no "next between initiatives must redirect to plan (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+
+# DISCRIMINATOR 1 — an EMPTY docs/initiatives/ is still greenfield. The signal is an
+# archived initiative (the archiver's NNN-<slug> directory), not the parent folder,
+# which a scaffold or a stray mkdir can leave behind.
+EMPTYI=$(mkproj empty-initiatives-dir); manifest "$EMPTYI" phased
+mkdir -p "$EMPTYI/docs/initiatives"
+run "$EMPTYI"
+[ "$(val door "$OUT")" = "init" ] \
+  && ok "empty docs/initiatives/ + no tracker → still greenfield (init), not plan" \
+  || no "an empty initiatives dir must not trip the between-initiatives branch (got door=$(val door "$OUT"))"
+
+# DISCRIMINATOR 2 — archived initiatives ALONGSIDE a live tracker is a normal live
+# plan: the new branch belongs inside the no-tracker case, never in front of it.
+# This is the state this very repo is in (003 archived, 004 live).
+LIVEA=$(mkproj archived-plus-live); manifest "$LIVEA" phased
+touch "$LIVEA/.scaffolded"
+mkdir -p "$LIVEA/docs/initiatives/003-previous"
+cp "$MID/docs/PHASE_STATUS.md" "$LIVEA/docs/initiatives/003-previous/PHASE_STATUS.md"
+cp "$MID/docs/PHASE_STATUS.md" "$LIVEA/docs/PHASE_STATUS.md"
+cp "$MID/docs/REQUIREMENTS.md" "$LIVEA/docs/REQUIREMENTS.md"
+run "$LIVEA"
+[ "$(val door "$OUT")" = "next" ] \
+  && ok "archived initiatives + a LIVE tracker → next (the live plan still wins)" \
+  || no "an archived initiative must not divert a live plan to plan (got door=$(val door "$OUT"))"
+
+# plan stays OUT of SCAFFOLD_DOORS: it writes phase docs onto a project that already
+# has a manifest ("this project isn't guv-governed yet" is its own Step 0 stop), so a
+# manifest-less repo DEFERS to a scaffolding door exactly as next/phase/task/spike do.
+PLANNM=$(mkproj plan-no-manifest)  # mkproj leaves no project.json
+run "$PLANNM" --for plan
+[ "$RC" -eq 4 ] && [ "$(val match "$OUT")" = "no" ] \
+  && ok "pre-scaffold + --for plan → defer (match=no, exit 4) — plan is not a scaffolding door" \
+  || no "plan on a manifest-less repo must defer exit 4 match=no (got rc=$RC match=$(val match "$OUT"))"
+
+# DISCRIMINATOR 3 — the signal is the archiver's OUTPUT, not a folder that looks like
+# it. archive-initiative.sh MOVES PHASE_STATUS.md into docs/initiatives/NNN-<slug>/, so
+# a NNN-prefixed directory with no archived tracker (stray notes, an interrupted
+# archive) is not an archived initiative and must not divert a greenfield project to a
+# door whose contract is "the project already has a manifest, CLAUDE.md and README".
+STRAYI=$(mkproj stray-initiative-dir); manifest "$STRAYI" phased
+mkdir -p "$STRAYI/docs/initiatives/001-notes"
+run "$STRAYI"
+[ "$(val door "$OUT")" = "init" ] \
+  && ok "NNN-prefixed dir with no archived tracker → still greenfield (init), not plan" \
+  || no "a folder without the archiver's moved tracker must not read as an archived initiative (got door=$(val door "$OUT"))"
+
+# The CLASS, not the instance: the sibling greenfield probe (placeholder-only tracker,
+# test 11) carries the same carve. Reachable from this very misroute — an established
+# project sent to init by the old router, interrupted after the skeleton tracker lands,
+# is archived-plus-placeholders. The archiver reports unauthored stubs as status=NONE
+# too, so both probes ask it the same question and get the same answer.
+BTWU=$(mkproj between-initiatives-unauthored); manifest "$BTWU" phased
+touch "$BTWU/.scaffolded"
+mkdir -p "$BTWU/docs/initiatives/001-first-initiative"
+cp "$MID/docs/PHASE_STATUS.md" "$BTWU/docs/initiatives/001-first-initiative/PHASE_STATUS.md"
+cp "$UNAUTH/docs/PHASE_STATUS.md" "$BTWU/docs/PHASE_STATUS.md"
+cp "$UNAUTH/docs/PHASE_STATUS.md" "$BTWU/docs/REQUIREMENTS.md"
+run "$BTWU"
+[ "$(val door "$OUT")" = "plan" ] \
+  && ok "archived initiatives + a placeholder-only tracker → plan (the sibling probe carries the carve)" \
+  || no "the placeholder-only probe must not call an established project greenfield (got door=$(val door "$OUT"))"
+
+# --for plan on a project with NO phase ceremony. plan is the door that CONVERTS one:
+# onboard's Step 6 names `/plan <spec>` as the sanctioned route out of onboard mode,
+# and plan flips ceremony itself at its own Step 6. Redirecting such a caller to
+# task/onboard sends them away from the door they deliberately chose — a CONFIDENT
+# wrong answer, which costs more than the exit-2 "unknown door" it replaced.
+run "$TASK" --for plan
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] && [ "$(val door "$OUT")" = "plan" ] \
+  && ok "ceremony=task + --for plan → confirm (match=yes) — plan opens the initiative and flips ceremony" \
+  || no "plan must confirm on a task-ceremony project (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+run "$OB" --for plan
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "ceremony=onboard + --for plan → confirm — the documented onboard → /plan route" \
+  || no "plan must confirm on an onboard-ceremony project (got rc=$RC match=$(val match "$OUT"))"
+# ...and the redirect STILL stands where plan's own Step 1 would refuse: a phased
+# project with an initiative in flight. This is what proves the clause above is a
+# carve for the no-ceremony case, not a blanket confirm.
+run "$MID" --for plan
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "no" ] && [ "$(val door "$OUT")" = "next" ] \
+  && ok "live plan + --for plan → redirect to next — plan refuses an initiative still in flight" \
+  || no "plan must not confirm over a live initiative (got rc=$RC match=$(val match "$OUT") door=$(val door "$OUT"))"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
