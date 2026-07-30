@@ -181,8 +181,10 @@ CEREMONY=$(jq -r '.ceremony // empty' "$MANIFEST")
 # flips ceremony itself at Step 6, and onboard's Step 6 names plan-with-a-spec as the
 # sanctioned route out of onboard mode. So a caller asking --for plan here chose the
 # right door — redirecting them to task/onboard/spike below would send them away from
-# it. On a PHASED project the redirect stands: plan's own Step 1 refuses an initiative
-# still in flight, so only the between-initiatives branch confirms it.
+# it. On a PHASED project the redirect stands wherever plan's own Step 1 would refuse:
+# an initiative still in flight. A COMPLETE-but-unarchived tracker is deliberately NOT
+# carved — plan would archive it (its Step 3) but so would the phase boundary, and the
+# router does not adjudicate between two legitimate doors.
 case "$CEREMONY" in
   task|onboard|spike) [ "$FOR" = plan ] && emit plan "ceremony=$CEREMONY — no phase ceremony yet; plan opens a multi-phase initiative on an existing project and flips ceremony itself" ;;
 esac

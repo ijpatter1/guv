@@ -649,6 +649,13 @@ run "$OB" --for plan
 [ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
   && ok "ceremony=onboard + --for plan → confirm — the documented onboard → /plan route" \
   || no "plan must confirm on an onboard-ceremony project (got rc=$RC match=$(val match "$OUT"))"
+# spike is the third arm and needs its own catcher: narrowing the clause to
+# `task|onboard)` reds nothing without this, and spike → plan is a documented route
+# (the spike skill drains a finding to plan when it gates real build work).
+run "$SPIKE" --for plan
+[ "$RC" -eq 0 ] && [ "$(val match "$OUT")" = "yes" ] \
+  && ok "ceremony=spike + --for plan → confirm — the documented spike-findings-drain route" \
+  || no "plan must confirm on a spike-ceremony project (got rc=$RC match=$(val match "$OUT"))"
 # ...and the redirect STILL stands where plan's own Step 1 would refuse: a phased
 # project with an initiative in flight. This is what proves the clause above is a
 # carve for the no-ceremony case, not a blanket confirm.
