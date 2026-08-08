@@ -57,7 +57,8 @@ Removing it was tried (guv `d1be3dd`, 2026-07-26) and reverted the same day:
 Folding the two heaviest suites into a 14-way pool with no idle lanes did not use
 spare capacity — it took time from every other suite. The extra contention pushed
 `setup-control-plane.test.sh` past the 600s per-suite ceiling (255s standalone) and
-`continuation-checkpoint.test.sh` past a 10s deadline inside the checkpoint hook.
+`continuation-checkpoint.test.sh` (a suite since deleted at [32.2]) past a 10s
+deadline inside the checkpoint hook it exercised.
 All five failures were contention, not logic. 65s of wall clock on a gate that runs
 once or twice a session does not buy that.
 

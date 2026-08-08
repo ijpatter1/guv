@@ -3,10 +3,12 @@
 #
 # [16.2] gives the scaffold/onboard flow a place to RECORD the operator's
 # context-wall posture (the mode CHOICE) and a deterministic surface that turns
-# the three population states into the right person-visible signal. The arming
-# of governors (occupancy setpoint / CLAUDE_CODE_AUTO_COMPACT_WINDOW) is NOT here
-# — that is [16.4] (reconciliation) and [16.3] (the env carrier). This deliverable
-# is the carrier block + the discriminator + the surfacing, per the S1 finding
+# the three population states into the right person-visible signal. The occupancy
+# meter arms itself from the mode; the auto-compaction window
+# (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored — since [32.2] guv
+# neither places nor strips it, and surface's hard-stop arm warns when a
+# lingering window contests the meter (the W tests below). This deliverable
+# is the manifest block + the discriminator + the surfacing, per the S1 finding
 # (docs/spikes/16-1-context-wall-mode.md, Q2 and the build-time watch-items).
 #
 # The three population paths the deliverable names (and this suite proves):
@@ -107,9 +109,9 @@ fi
 # person-visible signal (or silence). session-start.sh and /status consume it.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# T6 — hard-stop is a CONFIGURED mode with nothing unconfigured to shout about: the
-# occupancy meter owns the wall, so surface is silent. (continue-mode advisory is
-# [16.4]'s concern — T6b–T6d below — deliberately not [16.2]'s.)
+# T6 — hard-stop with NO authored window is a CONFIGURED mode with nothing to shout
+# about: the occupancy meter owns the wall, so surface is silent. (The hard-stop +
+# lingering-window conflict warning is W1 below; continue-mode advisory is T6b–T6d.)
 MAN=$(mkproj cfg-hard-stop hard-stop)
 OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
 [ -z "$OUT" ] \
@@ -118,7 +120,7 @@ OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
 
 # T6b — continue WITH an operator-authored window: nothing to guide, so silent. The
 # operator already set their compaction point; surface does not nag. (Settings inlined
-# here — seed_settings/VAR are defined later, in the reconcile section.)
+# here — seed_settings/VAR are defined later, in the warning section.)
 MAN=$(mkproj cfg-continue-win continue)
 printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"180000"}}\n' > "$(dirname "$MAN")/settings.local.json"
 OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
@@ -329,20 +331,15 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# reconcile — the meter ↔ auto-compaction arm/disarm ([16.4]). The mode chosen in
-# the manifest selects EXACTLY ONE authoritative governor (spike Q3); reconcile
-# drives the [16.3] carrier to match. The [14.2] doctrine is load-bearing, taken to
-# its ratified conclusion ([16.4] continue-arm decision: GUIDE, don't auto-arm):
-# reconcile NEVER arms the compaction window on the operator's behalf — not the
-# blessed validated_reference, not even on a [1m] --model run. In continue mode an
-# operator-authored window is PRESERVED; absent one the window stays UNSET (the
-# model's native auto-compaction default governs) and `surface` guides the operator
-# to author one. hard-stop WITHDRAWS the window (value-free); unset/absent are no-ops
-# (a hand-deployed setpoint like guv-guv's own live 250000 must survive — format-survival).
+# the hard-stop lingering-window warning ([32.2]). The [16.3] carrier that used
+# to WITHDRAW a stale CLAUDE_CODE_AUTO_COMPACT_WINDOW in hard-stop mode is
+# deleted, and guv never edits settings — so when an operator-authored window
+# lingers under hard-stop, BOTH governors are armed and auto-compaction can
+# pre-empt the meter's clean stop. What surface owes the operator is the
+# DISCLOSURE: a warning every session until they clear the window (or switch
+# modes), naming the env key so the remedy is actionable. Never an edit.
 # ─────────────────────────────────────────────────────────────────────────────
 VAR='CLAUDE_CODE_AUTO_COMPACT_WINDOW'
-CARRIER="$ROOT/.claude/auto-compact-carrier.sh"
-SETPOINT="$ROOT/.claude/compaction-setpoint.sh"
 win_of() { jq -r --arg k "$VAR" '.env[$k] // empty' "$1" 2>/dev/null; }
 # Seed a settings.local.json beside a manifest: a window value (or "" for none) plus
 # an optional extra jq filter to add other settings (env vars, permissions). Echoes path.
@@ -356,112 +353,37 @@ seed_settings() { # <manifest> <window|""> [extra-jq-filter]
   echo "$s"
 }
 
-if [ ! -f "$CARRIER" ] || [ ! -f "$SETPOINT" ]; then
-  # Both ship as .claude/*.sh and run from roots.code in the battery; an absent pair
-  # means we're outside the code repo (e.g. a partial sync) — skip honestly, never
-  # claim a false pass. The canonical battery runs where both are present.
-  echo "  ~ skipped reconcile tests (auto-compact-carrier/compaction-setpoint absent — not the code repo)"
-else
-  M1M='claude-opus-4-8[1m]'
+# W1 — hard-stop + an authored window in settings.local.json: surface WARNS, naming
+# the env key and the value, and does NOT touch the settings (the remedy is the
+# operator's). Repeats every session — a live two-governor conflict is a hazard,
+# not a one-time nudge, so no did-fire marker gates it.
+MAN=$(mkproj w1 hard-stop); S=$(seed_settings "$MAN" "250000")
+OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
+{ printf '%s' "$OUT" | grep -q "hard-stop" && printf '%s' "$OUT" | grep -q "$VAR=250000"; } \
+  && ok "surface hard-stop + lingering window: warns, naming the mode and the authored value" \
+  || no "surface must warn on hard-stop with an authored window (out=$OUT)"
+[ "$(win_of "$S")" = "250000" ] \
+  && ok "surface hard-stop warning: settings untouched — the remedy is the operator's, never an edit" \
+  || no "surface must never edit settings (win=$(win_of "$S"))"
+OUT2=$(bash "$CM" surface "$MAN" 2>/dev/null)
+[ -n "$OUT2" ] \
+  && ok "surface hard-stop warning: repeats every session while the conflict persists (no did-fire marker)" \
+  || no "the warning must not be one-shot — the conflict is live until cleared (out2=$OUT2)"
 
-  # R1 — continue + a [1m] model + an explicit --model: the window stays UNSET. The
-  # ratified [16.4] continue-arm decision is GUIDE, don't auto-arm — guv NEVER places a
-  # window on the operator's behalf, not even the setpoint-blessed value, not even when
-  # handed the [1m] model that would bless one. The operator authors the window; surface
-  # (T6c) guides them to. reconcile itself arms nothing.
-  MAN=$(mkproj r1 continue); S=$(seed_settings "$MAN" "")
-  bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
-  [ -z "$(win_of "$S")" ] \
-    && ok "reconcile continue + [1m] + --model: leaves the window UNSET (guide, don't auto-arm)" \
-    || no "reconcile continue must never auto-arm, even with an explicit --model (got=$(win_of "$S"))"
-
-  # R1b — continue, NO model: the window stays UNSET. The doctrine forbids fabricating a
-  # value; a standard model's recommend is 'optional' (leave unset). No blessed value →
-  # nothing placed. (This is the dead-letter-AVOIDANCE counterpart: continue never
-  # leaves the meter armed, but it also never invents the compaction window.)
-  MAN=$(mkproj r1b continue); S=$(seed_settings "$MAN" "")
-  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
-  [ -z "$(win_of "$S")" ] \
-    && ok "reconcile continue, no model: leaves the window UNSET (never fabricates a value)" \
-    || no "reconcile continue with no model must not invent a window (got=$(win_of "$S"))"
-
-  # R1c — continue + an OPERATOR-AUTHORED window: preserved, even with a [1m] model. The
-  # human's setpoint wins; reconcile never clobbers a hand-placed window with the blessed one.
-  MAN=$(mkproj r1c continue); S=$(seed_settings "$MAN" "222222")
-  bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
-  [ "$(win_of "$S")" = "222222" ] \
-    && ok "reconcile continue preserves an operator-authored window (the human's setpoint wins)" \
-    || no "reconcile must preserve an authored window, not overwrite with the blessed value (got=$(win_of "$S"))"
-
-  # R2 — hard-stop: WITHDRAW the window, preserving every OTHER setting (other env vars,
-  # permissions). The meter owns the wall; a lingering window would pre-empt it.
-  MAN=$(mkproj r2 hard-stop)
-  S=$(seed_settings "$MAN" "250000" '.env.OTHER="keep" | .permissions={allow:["Bash"]}')
-  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
-  { [ -z "$(win_of "$S")" ] \
-      && [ "$(jq -r '.env.OTHER // empty' "$S")" = "keep" ] \
-      && [ "$(jq -r '.permissions.allow[0] // empty' "$S")" = "Bash" ]; } \
-    && ok "reconcile hard-stop: withdraws the window, preserves other env + permissions" \
-    || no "reconcile hard-stop must strip ONLY the window key (win=$(win_of "$S") other=$(jq -r '.env.OTHER // empty' "$S"))"
-
-  # R3 — unset: a NO-OP. A hand-deployed window survives untouched (the carrier never
-  # strips what it never placed — guv-guv's own live 250000 is exactly this case).
-  MAN=$(mkproj r3 unset); S=$(seed_settings "$MAN" "250000")
-  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
-  [ "$(win_of "$S")" = "250000" ] \
-    && ok "reconcile unset: no-op — a hand-deployed window survives (250000)" \
-    || no "reconcile unset must not touch a hand-deployed window (got=$(win_of "$S"))"
-
-  # R4 — absent block: a NO-OP too (format-survival). A pre-feature project keeps its
-  # hand-deployed setpoint; reconcile never strips a window on a project that never opted in.
-  MAN=$(mkproj r4); S=$(seed_settings "$MAN" "250000")   # no contextManagement block
-  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
-  [ "$(win_of "$S")" = "250000" ] \
-    && ok "reconcile absent block: no-op — format-survival preserves a hand-deployed window" \
-    || no "reconcile on a block-less project must not strip the window (got=$(win_of "$S"))"
-
-  # R5 — the round-trip with the operator's window: in continue mode reconcile PRESERVES
-  # the human-authored window (guv never arms, but never strips an authored one either —
-  # even on a [1m] --model run); flip to hard-stop and reconcile WITHDRAWS it. Authored
-  # arm → disarm; exactly one governor at a time. Under the ratified guide-don't-auto-arm
-  # decision the window is operator-authored, so the round-trip starts from a seeded one.
-  MAN=$(mkproj r5 continue); S=$(seed_settings "$MAN" "333333")
-  bash "$CM" reconcile "$MAN" --model "$M1M" >/dev/null 2>&1
-  AFTER_ARM=$(win_of "$S")
-  bash "$CM" set-mode "$MAN" hard-stop >/dev/null 2>&1
-  bash "$CM" reconcile "$MAN" >/dev/null 2>&1
-  AFTER_DISARM=$(win_of "$S")
-  { [ "$AFTER_ARM" = "333333" ] && [ -z "$AFTER_DISARM" ]; } \
-    && ok "reconcile round-trip: continue preserves the operator's window, hard-stop withdraws it (one governor at a time)" \
-    || no "reconcile round-trip must preserve then withdraw the authored window (armed=$AFTER_ARM disarmed=$AFTER_DISARM)"
-
-  # R6 — a missing manifest: clean no-op, exit 0 (Rule 15 — a reconcile helper never
-  # blocks; absent in → nothing done, no crash).
-  bash "$CM" reconcile "$WORK/nope/.claude/project.json" >/dev/null 2>&1; RC=$?
-  [ "$RC" -eq 0 ] \
-    && ok "reconcile degrades cleanly on a missing manifest (exit 0, no-op)" \
-    || no "reconcile must exit 0 on a missing manifest (rc=$RC)"
-
-  # R7 — hard-stop over a MALFORMED settings.local.json (a non-object .env): the carrier's
-  # require_mergeable_settings raises a Rule-15 `die 4` refusal — a DESIGNED loud stop that
-  # protects the unmergeable file. reconcile must honor all three properties at once:
-  #   (a) NEVER block the session — it exits 0 (the `|| exit 0` governs reconcile's exit
-  #       code, never propagating the carrier's failure as a session block);
-  #   (b) NEVER clobber the file — the carrier refused before any write, so it survives
-  #       byte-identical;
-  #   (c) NOT swallow the loud stop — reconcile drops the carrier's `2>&1`, so the refusal
-  #       reaches a direct caller's stderr instead of vanishing.
-  # This is the Important-finding regression: the earlier `2>&1` silently ate the carrier's
-  # designed loud refusal. (`2>&1 >/dev/null` captures stderr, discards stdout — so the
-  # carrier's message lands in $ERR and the suite itself stays stderr-clean.)
-  MAN=$(mkproj r7 hard-stop); S=$(seed_settings "$MAN" "" '.env="not-an-object"')
-  BEFORE=$(cat "$S")
-  ERR=$(bash "$CM" reconcile "$MAN" 2>&1 >/dev/null); RC=$?
-  AFTER=$(cat "$S")
-  { [ "$RC" -eq 0 ] && [ "$BEFORE" = "$AFTER" ] && printf '%s' "$ERR" | grep -qi 'refus'; } \
-    && ok "reconcile hard-stop over malformed settings: never blocks (exit 0), never clobbers, surfaces the carrier's loud refusal (not swallowed)" \
-    || no "reconcile must pass the carrier's loud refusal through without blocking or clobbering (rc=$RC clobbered=$([ "$BEFORE" = "$AFTER" ] && echo no || echo yes) err=$ERR)"
-fi
+# W2 — the settings.json fallback: a window authored in settings.json (no local
+# override) is the same live conflict, and settings.local.json wins when both
+# exist (the runtime's own precedence — warn about the value that will act).
+MAN=$(mkproj w2 hard-stop)
+printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"300000"}}\n' > "$(dirname "$MAN")/settings.json"
+OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
+printf '%s' "$OUT" | grep -q "$VAR=300000" \
+  && ok "surface hard-stop warning: reads the settings.json env block too (300000 found)" \
+  || no "surface must fall back to settings.json for the deployed window (out=$OUT)"
+seed_settings "$MAN" "250000" >/dev/null
+OUT=$(bash "$CM" surface "$MAN" 2>/dev/null)
+printf '%s' "$OUT" | grep -q "$VAR=250000" \
+  && ok "surface hard-stop warning: settings.local.json (250000) wins over settings.json (300000)" \
+  || no "surface must honor the runtime's local-over-shared precedence (out=$OUT)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

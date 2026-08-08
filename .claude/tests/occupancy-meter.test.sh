@@ -9,8 +9,11 @@
 # artifact, no output, no banner. The threshold is a project.json setpoint with a
 # shipped default, person-adjustable.
 #
-# There is NO live numeric occupancy field exposed to a Claude Code hook, and no
-# PreCompact event exists (verified against the hooks reference, 2026-06-13). The
+# There is NO live numeric occupancy field exposed to a Claude Code hook. (An
+# earlier version of this comment claimed no PreCompact event exists — wrong:
+# PreCompact exists and guv's [14.3] checkpoint hook rode it until [32.2] deleted
+# that machinery; it carries no occupancy number either, so the meter's source
+# below stands.) The
 # mechanical source that IS available is the transcript JSONL at .transcript_path:
 # each assistant entry carries message.usage, and the LATEST assistant turn's
 # (input_tokens + cache_read_input_tokens + cache_creation_input_tokens) is the

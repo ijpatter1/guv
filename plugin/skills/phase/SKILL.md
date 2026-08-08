@@ -142,7 +142,7 @@ this order:
 
 "Compare the Phase [N] deliverables in docs/REQUIREMENTS.md against the original spec at [path]. For each incomplete deliverable (⬜ or 🔄 in PHASE_STATUS.md) that the agent is about to work on this session, flag anything that was thinned out, oversimplified, or lost in translation from the spec. Don't review the whole project or completed deliverables — just what's in scope for this session. Be specific: quote the spec and quote the requirement side by side where there's a gap."
 
-Review the product reviewer's findings. **This step detects and routes; it does not
+Review the reviewer's findings. **This step detects and routes; it does not
 mutate.** If it identifies gaps, close them by routing each finding through
 the `/guv:replan` command's procedure — classify, confirm, apply REQUIREMENTS first
 through the engine, verify:

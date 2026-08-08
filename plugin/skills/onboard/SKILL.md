@@ -148,7 +148,7 @@ pre-feature one that the migration nudge would grandfather.
   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json unset
   ```
 
-Reconciling the two governors to the chosen mode is [16.4]; the auto-compaction env carrier is [16.3].
+The occupancy meter arms itself from the mode; the auto-compaction window (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored in the settings env block — guv never places or strips it ([32.2]).
 
 ## Step 4 — Render CLAUDE.md (no bootstrapping)
 

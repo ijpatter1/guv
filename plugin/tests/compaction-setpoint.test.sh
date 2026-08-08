@@ -12,16 +12,15 @@
 #     dogfood-validated 250000 on the 1M model; the [13.3]→band coupling is LIVE, not
 #     dormant — when working_set exceeds the 2× anchor it DRIVES the ceiling (R7);
 #   - a model window too small to host the anti-thrash floor is a NAMED loud stop, never
-#     a degenerate sub-floor band emitted as recommend=deploy (R8/C8, Rule 10/15);
+#     a degenerate sub-floor band emitted as recommend=deploy (R8, Rule 10/15);
 #   - on a standard (≤ standard-window) model `recommend` degrades to `optional` —
 #     the model already auto-compacts at its boundary, so a larger window is inert
 #     (the [14.1] lever-a finding), and the active path is the model default + manual;
-#   - `check` VERIFIES a deployed setpoint (Rule 9): in-band → ok; ABSENT → the
-#     designed manual/handoff degrade is active (NOT a failure, exit 0, Rule 15);
-#     malformed or out-of-band → a NAMED loud stop (Rule 10/15);
-#   - settings.local.json overrides settings.json (the proven deploy surface);
 #   - root resolves from --root / $CLAUDE_PROJECT_DIR, never the payload cwd (finding e);
-#   - jq absent → a NAMED loud stop (a check that cannot read its inputs cannot verify).
+#   - jq absent → a NAMED loud stop (a derivation that cannot read the manifest
+#     cannot derive).
+# ([32.2]: the `check` verb and its deployed-value verification left with the
+# continuation machinery — deployment is plain env-var configuration now.)
 # Pure bash + jq, no test runner. Run: bash .claude/tests/compaction-setpoint.test.sh
 set -u
 
@@ -57,17 +56,6 @@ write_manifest() {
   mkdir -p "$1/.claude"
   jq -n --argjson t "$2" '{name:"fix", ceremony:"phased", occupancy:{threshold:$t}}' \
     > "$1/.claude/project.json"
-}
-
-# Deploy a CLAUDE_CODE_AUTO_COMPACT_WINDOW value into a settings file's env block.
-# args: root filename value   (value "" → write an env block WITHOUT the key)
-deploy() {
-  mkdir -p "$1/.claude"
-  if [ -n "$3" ]; then
-    jq -n --arg v "$3" '{env:{CLAUDE_CODE_AUTO_COMPACT_WINDOW:$v}}' > "$1/.claude/$2"
-  else
-    jq -n '{env:{}}' > "$1/.claude/$2"
-  fi
 }
 
 echo "── recommend ─────────────────────────────────────────────────────────────────"
@@ -127,59 +115,18 @@ run -- recommend --window 250000
 printf '%s' "$ERR" | grep -q "200000" && ok "recommend/too-small: loud stop names the anti-thrash floor (200000)" || no "recommend/too-small: stderr should name the floor (err=$ERR)"
 printf '%s' "$OUT" | grep -q "recommend=deploy" && no "recommend/too-small: must NOT emit recommend=deploy for a degenerate band" || ok "recommend/too-small: no false recommend=deploy emitted"
 
-echo "── check ─────────────────────────────────────────────────────────────────────"
+# R9: finding (e) — root resolves from CLAUDE_PROJECT_DIR when --root is absent, never
+# cwd: the manifest setpoint at the env-named root is read, not the cwd's.
+ENVR="$WORK/envroot"; write_manifest "$ENVR" 500000
+OUT=$( CLAUDE_PROJECT_DIR="$ENVR" bash "$CSP" recommend --window 1000000 2>/dev/null ); RC=$?
+[ "$(field quality_setpoint)" = "500000" ] && ok "recommend/finding-e: resolved root from \$CLAUDE_PROJECT_DIR (read the manifest setpoint 500000)" || no "recommend/finding-e: quality_setpoint=$(field quality_setpoint) (expected 500000)"
 
-# C1: a deployed in-band setpoint on an extended model → status=ok, exit 0.
-OK="$WORK/ok"; deploy "$OK" settings.local.json 250000
-run -- check --root "$OK" --model 'claude-opus-4-8[1m]'
-[ "$RC" -eq 0 ] && ok "check/in-band: exit 0" || no "check/in-band: rc=$RC err=$ERR"
-[ "$(field setpoint)" = "250000" ] && ok "check/in-band: setpoint=250000 read from the deployed env block" || no "check/in-band: setpoint=$(field setpoint)"
-[ "$(field status)" = "ok" ] && ok "check/in-band: status=ok (250000 inside the derived band)" || no "check/in-band: status=$(field status)"
-
-# C2: NO deployed setpoint → the designed manual/handoff degrade is active (exit 0).
-NONE="$WORK/none"; mkdir -p "$NONE/.claude"
-run -- check --root "$NONE" --model 'claude-opus-4-8[1m]'
-[ "$RC" -eq 0 ] && ok "check/absent: exit 0 (absence is the DESIGNED degrade, not a failure — Rule 15)" || no "check/absent: rc=$RC err=$ERR"
-[ "$(field setpoint)" = "unset" ] && ok "check/absent: setpoint=unset" || no "check/absent: setpoint=$(field setpoint)"
-[ "$(field status)" = "degrade-active" ] && ok "check/absent: status=degrade-active" || no "check/absent: status=$(field status)"
-printf '%s' "$OUT" | grep -qi "manual" && ok "check/absent: names the manual/handoff degrade path (the written Rule-15 rung)" || no "check/absent: should name the degrade path (out=$OUT)"
-
-# C3: malformed deployed setpoint (non-integer) → NAMED loud stop, non-zero.
-BAD="$WORK/bad"; deploy "$BAD" settings.local.json abc
-run -- check --root "$BAD" --model 'claude-opus-4-8[1m]'
-[ "$RC" -ne 0 ] && ok "check/malformed: non-zero on a non-integer deployed setpoint" || no "check/malformed: expected non-zero (rc=$RC)"
-printf '%s' "$ERR" | grep -qi "integer\|numeric\|malformed" && ok "check/malformed: loud stop names the malformed value (Rule 10)" || no "check/malformed: stderr should name it (err=$ERR)"
-
-# C4: out-of-band (below the anti-thrash floor) → NAMED loud stop naming the band.
-LOW="$WORK/low"; deploy "$LOW" settings.local.json 50000
-run -- check --root "$LOW" --model 'claude-opus-4-8[1m]'
-[ "$RC" -ne 0 ] && ok "check/out-of-band: non-zero on a thrash-low window (50000 < the 200000 floor)" || no "check/out-of-band: expected non-zero (rc=$RC)"
-printf '%s' "$ERR" | grep -q "200000" && ok "check/out-of-band: loud stop names the band floor (200000)" || no "check/out-of-band: stderr should name the band (err=$ERR)"
-
-# C5: settings.local.json overrides settings.json (the local deploy wins).
-PREC="$WORK/prec"; deploy "$PREC" settings.json 999999; deploy "$PREC" settings.local.json 250000
-run -- check --root "$PREC" --model 'claude-opus-4-8[1m]'
-[ "$(field setpoint)" = "250000" ] && ok "check/precedence: settings.local.json (250000) overrides settings.json (999999)" || no "check/precedence: setpoint=$(field setpoint) (expected 250000)"
-[ "$(field source)" = "settings.local.json" ] && ok "check/precedence: source=settings.local.json named" || no "check/precedence: source=$(field source)"
-
-# C6: jq absent → NAMED loud stop (cannot read JSON inputs → cannot verify).
+# R10: jq absent → NAMED loud stop (a derivation that cannot read the manifest cannot derive).
 BIN="$WORK/bin"; mkdir -p "$BIN"
 for t in cat sed bash; do ln -s "$(command -v $t)" "$BIN/$t" 2>/dev/null; done
-run --bin "$BIN" -- check --root "$OK" --model 'claude-opus-4-8[1m]'
-[ "$RC" -ne 0 ] && ok "check/no-jq: non-zero (a check that cannot read its JSON inputs cannot verify)" || no "check/no-jq: expected non-zero (rc=$RC)"
-printf '%s' "$ERR" | grep -qi "jq" && ok "check/no-jq: loud stop names jq" || no "check/no-jq: stderr should name jq (err=$ERR)"
-
-# C7: finding (e) — root resolves from CLAUDE_PROJECT_DIR when --root is absent, never cwd.
-ENV="$WORK/envroot"; deploy "$ENV" settings.local.json 250000
-OUT=$( CLAUDE_PROJECT_DIR="$ENV" bash "$CSP" check --model 'claude-opus-4-8[1m]' 2>/dev/null ); RC=$?
-[ "$(field setpoint)" = "250000" ] && ok "check/finding-e: resolved root from \$CLAUDE_PROJECT_DIR (read the deployed 250000)" || no "check/finding-e: setpoint=$(field setpoint) (expected 250000)"
-
-# C8: the degenerate-band guard is SHARED — check on a too-small model window also loud-stops
-# (rather than verifying against a sub-floor band). --window 250000 → cap=187500 < 200000.
-TOOSMALL="$WORK/toosmall"; deploy "$TOOSMALL" settings.local.json 220000
-run -- check --root "$TOOSMALL" --window 250000
-[ "$RC" -ne 0 ] && ok "check/too-small: non-zero — a model window too small to host the floor is a loud stop, not a verdict" || no "check/too-small: expected non-zero (rc=$RC out=$OUT)"
-printf '%s' "$ERR" | grep -q "200000" && ok "check/too-small: loud stop names the anti-thrash floor (200000)" || no "check/too-small: stderr should name the floor (err=$ERR)"
+run --bin "$BIN" -- recommend --window 1000000 --root "$M"
+[ "$RC" -ne 0 ] && ok "recommend/no-jq: non-zero (a derivation that cannot read its JSON input cannot derive)" || no "recommend/no-jq: expected non-zero (rc=$RC)"
+printf '%s' "$ERR" | grep -qi "jq" && ok "recommend/no-jq: loud stop names jq" || no "recommend/no-jq: stderr should name jq (err=$ERR)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

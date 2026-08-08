@@ -51,8 +51,8 @@ worktree's manifest and `route.sh` as authoritative over ambient prose.)
 
 You run in your **own context window** as a Task subagent (confirm it:
 `bash .claude/lane-recovery.sh detect` → `child=1`). The crucial consequence: a
-lane receives **no `SessionStart` dispatch**, so the main session's seamless
-continuation ([14.4]) **does not reach you**. If your context compacts mid-build,
+lane receives **no `SessionStart` dispatch**, and the platform's native compaction
+continuity belongs to the main session — it **does not reach you**. If your context compacts mid-build,
 nothing re-primes you — recovery for a lane is **re-spawn-from-disk**, not in-place
 continue.
 

@@ -51,8 +51,10 @@ First decide *which* deliverables to fan out: the ready set comes from the resol
 resolver says what *may* be worked, you decide what *is*).
 
 **Size each lane under one context window ([14.5] primary recovery rung).** A lane is a
-Task subagent: it runs in its own window and gets **no** `SessionStart` re-injection, so
-the [14.4] seamless-continuation path does not reach it ([14.1] lever-d). The first line
+Task subagent: it runs in its own window and gets **no** `SessionStart` re-injection
+([14.1] lever-d) — and continuity across a compaction is the platform's native summary,
+which reaches the main session only, never a lane ([32.2] deleted guv's own
+checkpoint/resume pair). The first line
 of defense is therefore the [13.2] context-sizing discipline — pick deliverables that
 fit one window so no lane ever compacts. A deliverable too big for one window should be
 split (`/replan`) before the fan-out, not pushed into a lane that will overflow.

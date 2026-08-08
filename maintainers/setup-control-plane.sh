@@ -149,7 +149,7 @@ copy_core() {
   # consumer-owned ones. Append a path here when a future change removes a
   # guv-owned core artifact. (Renames WITHIN a wholesale-replaced dir — skills/,
   # agents/ — are already handled by the rm-rf+cp above; only removals need this.)
-  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh workflows/eval-parallel.js; do
+  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh workflows/eval-parallel.js auto-compact-carrier.sh continuation-checkpoint.json; do
     if [ -e "$DEST/.claude/$obsolete" ]; then
       rm -rf "$DEST/.claude/$obsolete"
       echo "[setup] pruned obsolete core artifact: .claude/$obsolete (removed upstream)"
@@ -787,7 +787,8 @@ run_one() {  # $1 = suite path  $2 = scratch key
 # capacity — it took time from every other suite. Aggregate suite-seconds went
 # 3860 -> 5733 (+48%) for a 65s (7.9%) wall-clock gain, and the extra contention
 # pushed setup-control-plane.test.sh past the 600s per-suite ceiling and
-# continuation-checkpoint.test.sh past a 10s deadline inside the checkpoint hook.
+# continuation-checkpoint.test.sh (a suite since deleted at [32.2]) past a 10s
+# deadline inside the checkpoint hook it exercised.
 # The battery went from 71/0 to 66/5, all five failures contention rather than
 # logic. 65s on a gate that runs once or twice a session does not buy that.
 #

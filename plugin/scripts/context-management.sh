@@ -4,9 +4,10 @@
 #   set-mode  records the MODE CHOICE in the manifest's contextManagement block
 #   surface   turns the manifest state into the right person-visible signal
 #
-# This is the carrier block + the discriminator + the surfacing ONLY. The arming
-# of the chosen governor (occupancy setpoint vs auto-compaction window) is [16.4];
-# the auto-compaction env carrier (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is [16.3].
+# This is the manifest block + the discriminator + the surfacing ONLY. The
+# occupancy meter arms itself from the mode (occupancy-meter.sh); the
+# auto-compaction window (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored
+# in the settings env block — guv never places or strips it ([32.2]).
 #
 # Design authority: docs/spikes/16-1-context-wall-mode.md (Q1 no-silent-default,
 # Q2 the manifest-block carrier + three population paths, and the build-time
@@ -17,22 +18,17 @@
 # (absent → one-time grandfather nudge) are told apart by presence, never by
 # block-absence alone.
 #
-# [16.4] adds a third operation, `reconcile`, which drives the sibling helpers
-# (auto-compact-carrier.sh [16.3], compaction-setpoint.sh [14.2]) to arm exactly
-# one governor for the chosen mode — so BASE resolves where those siblings live.
+# ([16.4]'s `reconcile` verb is gone: its auto-compaction half was the [16.3]
+# carrier, deleted at [32.2] with the continuation machinery, and a verb that
+# provably does nothing earns no wiring. surface's hard-stop arm carries the
+# one disclosure that half still owes: a lingering operator-authored window.)
 set -u
-
-# The directory holding this script and its sibling helpers (carrier + setpoint),
-# resolved so reconcile finds them regardless of the caller's CWD. Falls back to "."
-# if the path can't be resolved (never aborts under set -u).
-BASE="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || BASE="."
 
 usage() {
   cat >&2 <<'EOF'
 usage: context-management.sh <command> <args>
   set-mode  <manifest> <hard-stop|continue|unset>            record the operator's mode choice
   surface   <manifest>                                       emit the population-appropriate signal (or nothing)
-  reconcile <manifest> [--settings PATH] [--model MODEL]     reconcile the governor to the chosen mode (--model accepted but ignored)
 EOF
   exit 2
 }
@@ -85,7 +81,18 @@ case "$cmd" in
       MODE=$(jq -r '.contextManagement.mode // "unset"' "$MAN" 2>/dev/null)
       case "$MODE" in
         hard-stop)
-          : # configured — the occupancy meter owns the wall; nothing unconfigured to surface
+          # The meter owns the wall — but guv no longer withdraws a lingering
+          # auto-compaction window ([32.2] deleted the [16.3] carrier), so an
+          # operator-authored window here means BOTH governors are armed and
+          # auto-compaction can pre-empt the meter's clean stop. Surface the
+          # conflict EVERY session until the operator clears it: a warning,
+          # never an edit (guide, don't act). settings.local.json wins over
+          # settings.json, matching the runtime's own precedence.
+          HCUR=$(jq -r '.env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] // empty' "$(dirname "$MAN")/settings.local.json" 2>/dev/null)
+          [ -n "$HCUR" ] || HCUR=$(jq -r '.env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] // empty' "$(dirname "$MAN")/settings.json" 2>/dev/null)
+          if [ -n "$HCUR" ]; then
+            printf '%s\n' "guv context-wall: hard-stop mode is chosen, but CLAUDE_CODE_AUTO_COMPACT_WINDOW=$HCUR is authored in the settings env block — auto-compaction can pre-empt the meter's clean stop and handoff. guv never edits your settings: remove the env entry to give the meter the wall, or switch to continue mode."
+          fi
           ;;
         continue)
           # continue is armed: auto-compaction owns the wall, the meter demotes to advisory.
@@ -119,72 +126,6 @@ case "$cmd" in
         : > "$MARKER" 2>/dev/null || true   # best-effort; a failed write re-nudges (safe), never crashes
       fi
     fi
-    ;;
-
-  reconcile)
-    # [16.4] — arm/disarm so EXACTLY ONE threshold is authoritative for the chosen
-    # mode (spike Q3). The occupancy meter reads the same mode and stands down or
-    # arms itself (occupancy-meter.sh); this is the auto-compaction HALF — it drives
-    # the [16.3] carrier to deploy or withdraw CLAUDE_CODE_AUTO_COMPACT_WINDOW to
-    # match. Wired into session-start so the two governors re-reconcile every session.
-    MAN="${1:-}"; shift 2>/dev/null || true
-    [ -n "$MAN" ] || usage
-    SETTINGS=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --settings) [ $# -ge 2 ] || { echo "[context-management] --settings requires a path" >&2; exit 2; }; SETTINGS="$2"; shift 2 ;;
-        # --model is still ACCEPTED (callers and the R1/R1c/R5 tests pass it) but the value
-        # is intentionally DISCARDED — under guide-don't-auto-arm there is no value reconcile
-        # would deploy, so it is consumed for compatibility, not stored.
-        --model)    [ $# -ge 2 ] || { echo "[context-management] --model requires a value" >&2; exit 2; }; shift 2 ;;
-        *) echo "[context-management] unknown reconcile option '$1'" >&2; exit 2 ;;
-      esac
-    done
-
-    # Never-blocking, like surface: this runs at session start. No jq, or a missing/
-    # unparseable manifest, or no carrier present (a partial install) → clean no-op
-    # exit 0 (Rule 15 — reconcile never denies the session its start).
-    command -v jq >/dev/null 2>&1 || exit 0
-    { [ -f "$MAN" ] && jq -e . "$MAN" >/dev/null 2>&1; } || exit 0
-    CARRIER="$BASE/auto-compact-carrier.sh"
-    [ -f "$CARRIER" ] || exit 0
-    SET="${SETTINGS:-$(dirname "$MAN")/settings.local.json}"
-    MODE=$(jq -r '.contextManagement.mode // "absent"' "$MAN" 2>/dev/null)
-
-    # Both branches below invoke the carrier with its stdout suppressed (the success
-    # banner would clutter session start) but its STDERR let through. That is deliberate:
-    # the carrier's Rule-15 `die 4` refusal over a malformed settings.local.json (a
-    # non-object root or .env) is a DESIGNED loud stop — reconcile must not swallow it, or
-    # a direct caller never learns their settings are unmergeable. The `|| exit 0` governs
-    # reconcile's own EXIT CODE only: it never propagates the carrier's failure as a
-    # session block (the carrier already protected the file by REFUSING to clobber — it
-    # touched nothing). The never-block silence is the session-start caller's to apply at
-    # its own boundary (`reconcile … 2>&1 || true`), not reconcile's to bury here.
-    case "$MODE" in
-      continue)
-        # continue = auto-compaction owns the wall; the meter demotes to advisory. guv
-        # NEVER arms the compaction window on the operator's behalf — not the blessed
-        # validated_reference, not even on a [1m] --model run (the ratified [16.4]
-        # continue-arm decision: GUIDE, don't auto-arm — the [14.2] operator-authored
-        # doctrine taken to its conclusion). So reconcile places NOTHING here: an
-        # operator-authored window survives because this branch touches nothing (a
-        # literal no-op — the carrier is not even invoked in continue mode), and absent
-        # one the window stays UNSET so the model's native auto-compaction default
-        # governs. `surface` GUIDES the operator to author a window if they want an
-        # explicit point. --model is accepted (callers pass it) but deliberately NOT
-        # consulted — there is no value reconcile would deploy.
-        : # no-op — never arm; the authored window (if any) is preserved untouched
-        ;;
-      *)
-        # hard-stop → the carrier WITHDRAWS the window (the meter owns the wall, so a
-        # lingering window must never pre-empt it). unset / absent → the carrier is a
-        # no-op (it never strips a window it did not place — a hand-deployed setpoint
-        # like guv-guv's own live 250000 survives). The carrier reads the SAME mode and
-        # does the right thing; reconcile just invokes it value-free.
-        bash "$CARRIER" apply "$MAN" --settings "$SET" >/dev/null || exit 0
-        ;;
-    esac
-    exit 0
     ;;
 
   ""|-h|--help) usage ;;

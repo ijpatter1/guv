@@ -218,7 +218,7 @@ case "$CMD" in
     # `record` is only ever called by the maintainer-only generated runner, so a
     # consumer install has no recorder and this message is that project's PERMANENT
     # state, not a step it has yet to take.
-    [ -f "$ART" ] || die "no recorded battery run — nothing has been recorded for this project yet. If you are the evaluator, run the battery. If you are the product reviewer, this is expected and is NOT a finding: most projects have no recorder at all, and you do not run the battery yourself — take test state from the evaluator's report." 3
+    [ -f "$ART" ] || die "no recorded battery run — nothing has been recorded for this project yet. If you are the evaluator, run the battery. If you are the reviewer, this is expected and is NOT a finding: most projects have no recorder at all, and you do not run the battery yourself — take test state from the evaluator's report." 3
     rc=$(jq -r '.rc // empty' "$ART" 2>/dev/null)
     suites=$(jq -r '.suites // empty' "$ART" 2>/dev/null)
     passed=$(jq -r '.passed // empty' "$ART" 2>/dev/null)

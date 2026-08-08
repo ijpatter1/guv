@@ -14,8 +14,10 @@
 # at the boundary and otherwise says nothing.
 #
 # OCCUPANCY SIGNAL (probe + fallback, Rule 15) ───────────────────────────────────
-# No live numeric occupancy field is exposed to a Claude Code hook, and there is no
-# PreCompact event (verified against the hooks reference, 2026-06-13). The mechanical
+# No live numeric occupancy field is exposed to a Claude Code hook. (An earlier
+# version of this comment claimed no PreCompact event exists — wrong: PreCompact
+# exists, guv's [14.3] checkpoint hook rode it until [32.2]; it carries no
+# occupancy number either.) The mechanical
 # source that IS available is the transcript JSONL at .transcript_path: each
 # assistant entry carries message.usage, and the latest assistant turn that
 # reports usage —
@@ -156,9 +158,10 @@ fi
 
 # ── Which governor owns the wall? The chosen context-wall MODE decides ([16.4]) ──
 # [16.2] records the operator's posture in the manifest's contextManagement block;
-# [16.3]'s carrier arms/disarms the auto-compaction window to match. This is the
-# meter's half of "exactly one authoritative threshold" (spike Q3): it reconciles
-# itself against the SAME mode so the two governors never both fire.
+# the auto-compaction window is operator-authored — since [32.2] guv neither arms
+# nor withdraws it (context-management's surface warns when a lingering window
+# contests hard-stop). This is the meter's half of "exactly one authoritative
+# threshold" (spike Q3): it reconciles itself against the SAME mode.
 #   continue → auto-compaction owns the wall. The meter STANDS DOWN (advisory only) —
 #              a hard-stop here would race the compaction window and silently
 #              dead-letter the meter (the dead-letter bug this guards).
