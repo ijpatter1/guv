@@ -413,29 +413,16 @@ for r in "$SRC"/rules/guv-*.md; do
 done
 [ "$T10_OK" -eq 1 ] && ok "all $RULE_COUNT guv-* rules ship byte-identical in plugin/rules/"
 
-# T11 — the workflow ships as a skill-fronted asset under workflows/, fronted
-# by a skill that launches it via scriptPath + \${CLAUDE_PLUGIN_ROOT} (plugins
-# cannot ship .claude/workflows/ natively). The plugin copy must spawn the
-# NAMESPACED reviewers — plugin agents resolve only as guv:<name> (verified
-# live 2026-06-11); bare names would fail for plugin-only consumers. Apart from
-# that rewrite the script is byte-identical to the saved workflow.
-WF="$PLUGIN/workflows/eval-parallel.js"
-if [ -f "$WF" ]; then
-  grep -q "agentType: 'guv:evaluator'" "$WF" && grep -q "agentType: 'guv:reviewer'" "$WF" \
-    && ! grep -qE "agentType: '(evaluator|reviewer)'" "$WF" \
-    && ok "plugin workflow spawns the namespaced reviewers (guv:evaluator, guv:reviewer)" \
-    || no "plugin workflow must use guv:-namespaced agentType (bare names don't resolve from the plugin)"
-  diff <(sed "s/agentType: 'guv:/agentType: '/g" "$WF") "$SRC/workflows/eval-parallel.js" >/dev/null 2>&1 \
-    && ok "workflow asset identical to the saved workflow modulo agentType namespacing" \
-    || no "plugin workflow differs from source beyond the agentType rewrite"
+# T11 — retired at [32.1] (spec-2026-07-31): the eval-parallel workflow and its
+# fronting skill left the plugin — the review gate is /code-review plus the
+# reviewer agent (skills/eval). The shipped-workflow invariants now bind the
+# remaining workflows via the generic per-file rewrite in build-plugin.sh; the
+# eval-parallel-specific assertions died with their subject. This tombstone keeps
+# the T-numbering stable for the suites that cite it.
+if [ ! -f "$PLUGIN/workflows/eval-parallel.js" ] && [ ! -d "$PLUGIN/skills/eval-parallel" ]; then
+  ok "eval-parallel workflow and skill are retired from the plugin ([32.1])"
 else
-  no "plugin/workflows/eval-parallel.js missing"
-fi
-EP="$PLUGIN/skills/eval-parallel/SKILL.md"
-if [ -f "$EP" ] && grep -q 'scriptPath' "$EP" && grep -q 'CLAUDE_PLUGIN_ROOT.*workflows/eval-parallel\.js' "$EP"; then
-  ok "eval-parallel skill fronts the asset via scriptPath + \${CLAUDE_PLUGIN_ROOT}"
-else
-  no "skills/eval-parallel/SKILL.md must invoke the Workflow tool with the plugin-root scriptPath"
+  no "eval-parallel must not ship: retired at [32.1] (stale plugin artifact — rebuild)"
 fi
 
 # T12 — no stale project-relative script invocations survive inside plugin

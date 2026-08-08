@@ -42,11 +42,11 @@ fi
 HANDOFF_FLAT=$(tr '\n' ' ' < "$HANDOFF" 2>/dev/null | tr -s ' ')
 
 # T1 — the pointer target is intact: /eval's skill still canonically defines
-# the dual review by invoking BOTH subagents by name. If this regresses, the
-# pointer /handoff now carries would be dangling.
-grep -q '`evaluator`' "$EVALUATE" && grep -q '`reviewer`' "$EVALUATE" \
-  && ok "the /eval skill still defines the dual-review procedure (pointer target intact)" \
-  || no "the /eval skill must canonically invoke both reviewers by name"
+# the review gate — the platform /code-review pass plus the `reviewer` by name
+# ([32.1]). If this regresses, the pointer /handoff carries would be dangling.
+grep -q '`reviewer`' "$EVALUATE" && grep -q '/code-review' "$EVALUATE" \
+  && ok "the /eval skill still defines the review gate (pointer target intact)" \
+  || no "the /eval skill must define the gate: /code-review plus the reviewer by name"
 
 # T2 — /handoff POINTS at /eval for the review procedure. The pointer is the
 # whole deliverable: the review steps live once, in /eval, and /handoff
@@ -108,6 +108,24 @@ echo "$HANDOFF_FLAT" | grep -qiE 'no review[^.]*(silent|drop)' \
 echo "$HANDOFF_FLAT" | grep -qiE '(un-?reviewed|not[^.]*reviewed|any[^.]*commit)[^.]*(still|run|review)' \
   && ok "an un-reviewed commit still runs the session-close review" \
   || no "handoff must require the review when any session commit was not reviewed in-band"
+
+# T7 — [32.1] acceptance pins: the round cap and the Critical provenance split
+# are prose-pinned at the gate's one definition (/eval), and the split's
+# application is pinned in handoff's verdict gates. "Prose-pinned" is this
+# project's construction for "a test asserts the wording" — without these, the
+# cap or the split could be edited out with the battery still green.
+EVALUATE_FLAT=$(tr '\n' ' ' < "$EVALUATE" 2>/dev/null | tr -s ' ')
+echo "$EVALUATE_FLAT" | grep -qi 'Two rounds maximum' \
+  && ok "the two-round cap is prose-pinned in /eval" \
+  || no "/eval must state the round cap verbatim: 'Two rounds maximum'"
+echo "$EVALUATE_FLAT" | grep -qi 'Critical in the change under review' \
+  && echo "$EVALUATE_FLAT" | grep -qi 'Critical in surrounding code' \
+  && ok "the Critical provenance split is prose-pinned in /eval (in-change vs surrounding)" \
+  || no "/eval must carry the provenance split: Critical in the change under review vs Critical in surrounding code"
+echo "$HANDOFF_FLAT" | grep -qiE 'Critical in (a|the) change under review' \
+  && echo "$HANDOFF_FLAT" | grep -qi 'Critical in surrounding code' \
+  && ok "handoff's verdict gates apply the provenance split" \
+  || no "handoff's verdict gates must carry the provenance split (in-change vs surrounding code)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

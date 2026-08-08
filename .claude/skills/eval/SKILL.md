@@ -1,126 +1,93 @@
 ---
 name: eval
-description: "Run a dual QA review — technical evaluator + product reviewer — on recent work. Use when a feature is complete, before handoff, or when the user wants a quality check on what's been built."
+description: "Run the review gate on recent work: the session-invoked platform review plus the alignment reviewer. Findings are graded — fix what changes a decision, record the rest. Two rounds maximum."
 user-invocable: true
 ---
 
-# Evaluate — Dual QA Review
+# Review Gate
 
-Run an independent quality assessment of recent work using both the technical evaluator and the product reviewer.
+Review recent work through two instruments: the platform's `/code-review` for
+technical findings, and the `reviewer` subagent for alignment with the spec and
+vision. Findings, not scores. ([32.1]; S2/S3, spec-2026-07-31.)
 
 ## When to Use
 
-- After completing a feature (self-check before moving on)
+- At a change's commit gate (the `/task` paths invoke this)
 - When the user asks for a review, gut-check, or quality assessment
-- Automatically as part of `/handoff` (Step 1 and Step 2)
-- When you're uncertain whether work meets the bar
 
 ## Input
 
 $ARGUMENTS
 
-If arguments are provided, they describe the scope of the evaluation (e.g., "just the Compiler changes" or "the last 3 commits"). If no arguments, evaluate all work since the last session handoff or the last evaluation, whichever is more recent.
+If arguments are provided, they scope the gate (e.g. "the last 3 commits", "the
+working diff"). Default: the working diff plus any commits since the last gate.
 
-## Step 1 — Gather Context
-
-Collect the information both reviewers need:
-
-Run git against the **code** repo (`roots.code` from `.claude/project.json`; a no-op for single-repo where it is `"."`):
+## Step 1 — Scope
 
 ```bash
-# Recent commits
-bash .claude/guv-git.sh log --oneline -10
-
-# Determine scope — commits since last handoff or last evaluation
-# Look for the most recent session artifact for a reference point
-ls -t docs/sessions/session-*.md 2>/dev/null | head -1
-```
-
-```bash
-# Full diff for the evaluation scope
-bash .claude/guv-git.sh diff HEAD~N  # where N = number of commits in scope
-```
-
-```bash
-# Current phase
+bash .claude/guv-git.sh log --oneline -10   # recent commits (roots.code)
+bash .claude/guv-git.sh diff HEAD~N          # the diff under review
 grep -m1 "Current Phase" docs/PHASE_STATUS.md 2>/dev/null || echo "Phase unknown"
 ```
 
-Build a context summary:
+Name the commits, files, and deliverable(s) in scope before invoking anything.
 
-- Phase number
-- Commits in scope (hashes and messages)
-- Files changed
-- Deliverables these changes relate to (cross-reference with PHASE_STATUS.md)
+## Step 2 — Technical review: the platform gate
 
-## Step 2 — Invoke the Technical Evaluator
+The session fires the platform review itself: invoke the `code-review` skill with
+an **explicit target** and an **explicit effort level** — never bare. The target is
+the `roots.code` path from the manifest (the skill derives the repo from the path
+and scopes there; pass a file path to narrow further). The level is `low` or
+`medium` for a routine gate — fewer, high-confidence findings; with no level the
+skill reuses whatever was typed last, which is how a routine gate inherits an
+audit-sized fleet. Verified findings return in-session. Operator-typed
+`/code-review` at high or ultra is the **audit posture** — a person deliberately
+spending a large fleet; it is not the routine gate. PR-shaped work passes the
+PR number as the target; `security-review` and `simplify` are available for
+targeted passes. If the platform skill is unavailable to the session, the
+technical pass is **skipped and disclosed** in the record — never silently.
 
-Invoke the `evaluator` subagent using the Agent tool with a prompt like:
+## Step 3 — Alignment review
 
-"Evaluate the following work from Phase [N]. Commits: [list]. Changed files: [list]. Run your full evaluation procedure — Functionality, Test Quality, Code Quality, Completeness, and Integration."
+Invoke the `reviewer` subagent **by name**, worktree-isolated, with a prompt like:
 
-Present the evaluator's full report without modification or softening.
+"Review the following work from Phase [N] for alignment. Commits: [list]. Changed
+files: [list]. Grade alignment against docs/REQUIREMENTS.md, the governing spec,
+and any content guides in CLAUDE.md. Report findings with severity and evidence —
+no scores."
 
-## Step 3 — Invoke the Product Reviewer
+Present the report without modification or softening.
 
-Invoke the `reviewer` subagent using the Agent tool with a prompt like:
+## Step 4 — Grade and disposition
 
-"Review the following work from Phase [N] for product quality. Commits: [list]. Changed files: [list]. Review against the product vision in docs/REQUIREMENTS.md and any content guides referenced in CLAUDE.md. Run your full review — Vision Alignment, User Experience, Content Quality, and Feature Depth."
+A finding is evidence; severity is the session's judgment (Rule 3). For each
+finding, one of two dispositions:
 
-Present the product reviewer's full report without modification or softening.
+- **Fix now** — it changes a decision: a defect in the change that alters its
+  behavior, acceptance, or a consumer's correctness.
+- **Record** — real but not decision-changing, or outside the change under review:
+  it lands in the handoff's **Issues & Technical Debt** with its severity,
+  reviewer, and provenance. Recorded-as-debt is a first-class outcome, not a
+  failure.
 
-## Step 4 — Combined Summary
+**Provenance split:** a **Critical in the change under review** stops the gate — fix
+it before the change lands. A **Critical in surrounding code** the review happened
+to walk is disclosed and recorded — never a blocker on a change that did not cause
+it.
 
-After both reports are presented, provide a brief combined summary:
+## Step 5 — The cap
 
-```
-═══ Evaluation Summary (Pass N) ═══
-
-Technical:  [score]/5 — [PASS | PASS WITH ISSUES | FAIL]
-Product:    [score]/5 — [PASS | NEEDS WORK]
-
-Critical issues: [count, or "none"]
-Major issues:    [count, or "none"]
-Minor issues:    [count, or "none"]
-
-Action:  [fix and re-evaluate | proceed ✓]
-```
-
-**Recommendation logic:**
-
-- Any critical issue from either reviewer → "fix and re-evaluate"
-- Major issues → "fix and re-evaluate"
-- Minor issues only → "fix and re-evaluate"
-- Clean (no issues) → "proceed"
-
-## Step 5 — Fix and Re-Evaluate Loop
-
-**Evaluation is iterative, not a single pass.** If the combined summary has any issues (Critical, Major, or Minor), fix them — do not log them and move on.
-
-1. Work through the issues in severity order: Critical → Major → Minor
-2. Fix each issue, run the relevant tests to confirm the fix
-3. Commit the fixes: `fix(scope): address evaluation finding — [description]`
-4. After all issues from the current pass are fixed, re-invoke Steps 2-4 (both reviewers, fresh evaluation of the updated code)
-5. Repeat until the evaluation is clean
-
-**The loop terminates when:**
-
-- Both reviewers return no issues → proceed to the next feature or to `/handoff`
-- The user explicitly defers specific issues (e.g., "skip the minor formatting issues for now") → proceed, but note deferred issues in the session handoff under Issues & Technical Debt with the reason for deferral
-
-**Do not:**
-
-- Present issues and ask "should I fix these?" — fix them. The default is to fix.
-- Treat Major or Minor issues as acceptable debt. They are work items, not documentation items.
-- Move to the next feature with unresolved issues from evaluation unless the user explicitly approves deferral.
-- Argue that issues are "non-blocking" or "cosmetic" as a reason to skip them. If the reviewer flagged it, it matters.
-
-**Context budget awareness:** If the context window is getting long after multiple passes, note the remaining issues in the session handoff with the tag `[deferred: context limit]` so the next session picks them up immediately. This is the only acceptable automatic deferral.
+**Two rounds maximum.** One fix pass over the graded fix-now findings, one re-check
+of exactly those fixes (graded against the prior findings, not a fresh review). At
+the cap with findings still open, put the three-way call to the person — **converge
+/ cut scope / accept as debt** — instead of opening another round. Unanswered or
+headless takes the **stop**, recorded in the handoff. Watch round sizes: a growing
+round is divergence, not progress.
 
 ## Notes
 
-- **Parallel variant:** the saved `/eval-parallel` workflow (`.claude/workflows/eval-parallel.js`) runs Steps 1–4 with both reviewers concurrent and returns both reports plus the combined summary. The run's completion notification truncates long reports, and the on-disk output nests the combined result under a JSON-string `result` field — so to read both sub-reports whole, run `bash "${CLAUDE_SKILL_DIR}/scripts/extract-eval-report.sh" <output.json>` against the task-output file the notification names; it decodes the nesting, prints the full untruncated report, and fails loud on a half review. Step 5 — the fix loop — stays here, conversational: apply fixes in the main session, then re-run for the next pass.
-- Both reviewers are read-only. They inspect the code and report findings. They do not modify files.
-- If this is invoked as part of `/handoff` and either reviewer returns critical issues, the handoff stops. Fix the issues and re-run `/handoff`.
-- Do not editorialize or soften either report. Present them as-is. The user needs honest assessment, not reassurance.
-- The iterative loop is the default behavior. The agent should expect multiple passes — a first evaluation rarely comes back clean, and that's normal. The goal is zero debt at the feature boundary, not forward progress at the cost of quality.
+- The `reviewer` is read-only by tool grant and worktree isolation; it reports, it
+  never edits. Its project memory persists across sessions.
+- Recurring mechanical patterns graduate to tests; judgment patterns persist in the
+  reviewer's memory.
+- Do not editorialize or soften findings. The user needs honest assessment.

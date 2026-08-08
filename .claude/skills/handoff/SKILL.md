@@ -1,91 +1,56 @@
 ---
 name: handoff
-description: "End the current work session by running QA evaluation, generating a structured handoff artifact, and updating the phase tracker."
+description: "End the current work session by accounting for the review gates, generating a structured handoff artifact, and updating the phase tracker."
 user-invocable: true
 ---
 
 
-## Steps 1–2 — Session-Close Review (run `/eval`)
+## Step 1 — Review Accounting (the gate ledger)
 
-The session-close review **is** `/eval` — the dual QA review (technical
-`evaluator` + `reviewer`) defined once in the `/eval` skill
-(`.claude/skills/eval/SKILL.md`). **Do not restate its procedure here.** Run
-that one definition — its Steps 1–4 gather context, invoke both reviewers, and
-emit the combined summary; the saved `/eval-parallel` workflow runs the same
-Steps 1–4 with the two reviewers concurrent. Handoff owns only what is specific to
-session-close: the **skip condition**, the **review target**, and the **verdict
-gates** below — never a second copy of how the reviewers are invoked (two copies
-drift; the pointer is the fix).
+Review cost is paid **in-band, once per change**, at the review gate defined once in
+the `/eval` skill (`.claude/skills/eval/SKILL.md`) — the session-invoked
+platform review plus the `reviewer` by name. **Do not restate its procedure
+here.** Handoff runs no duplicate session-close review; it **accounts**: every
+session commit either passed an in-band gate or gets one now.
 
-### Skip condition — review cost is paid once
+- **All commits gated in-band** (each carried through `/task` or an equivalent
+  scoped flow whose gate ran before commit): skip the session-close review — and
+  **disclose the skip** in the handoff artifact under **Review Results**, naming
+  the in-band gate(s). The skip is **never silent**, and no review is ever
+  silently dropped.
+- **Any commit not gated in-band** (a hand commit, or any commit you cannot
+  account to a gate): the skip does not apply — that scope still gets reviewed:
+  run the `/eval` gate over it now. When in doubt, do not skip: run it.
+- **Docs-only sessions** (no code-repo commits this session): the gate, when it
+  runs, is told it is reviewing control-plane/doc work — not product code — so
+  findings are judged accordingly rather than reporting "no tests" against
+  documentation.
 
-Skip this session-close review **only when every commit in the session was already
-dual-reviewed in-band** — i.e. each was carried through `/task` (or an equivalent
-scoped flow) whose Step 3 ran `/eval` (both reviewers) on the change before it
-was committed. In that case the duplicate session-close review buys nothing, so
-skip it — and **disclose the skip**: record in the handoff artifact, under
-**Evaluator Results** / **Product Review Results**, that the session-close review
-was skipped because all session commits were dual-reviewed in-band, naming the
-in-band pass(es). The skip is **never silent** — a skipped review is always
-disclosed in the record.
+### Verdict gates (provenance split)
 
-The skip is **conditional**. If **any** session commit was *not* dual-reviewed
-in-band (a hand commit, a commit landed outside `/task`/`/eval`, or any commit
-you cannot account to an in-band pass), the skip does not apply — **run the review
-below** over the session scope. When in doubt, do not skip: run it. No review is
-ever dropped silently; either it runs, or its skip is disclosed with the reason.
+- A **Critical in a change under review** (surfaced at its gate) blocks **that
+  change** — fix it before the handoff proceeds.
+- A **Critical in surrounding code** the review happened to walk is **recorded**
+  in **Issues & Technical Debt** with its provenance — never a blocker on a
+  change that did not cause it.
+- Major/Minor findings were graded at the gate (fix what changes a decision,
+  record the rest); the recorded residuals land in **Issues & Technical Debt**
+  with severity, reviewer, and the reason they were carried.
+- Ship-with-debt is the **person's** selection, made on a drafted disclosure;
+  unanswered or headless takes the stop.
 
-### Review target
-
-`/eval` scopes to the code repo (`roots.code`); handoff must first decide
-**which repo's commits to review**, because a pre-scaffold session has no code
-history yet (`git -C roots.code log` would error or be empty), and a docs-only
-session in a control-plane split — at any point in the project's life — made no
-code commits *this session* even though the code repo has history. Pick the target:
-
-```
-CODE=$(jq -r '.roots.code' .claude/project.json)
-CONTROL=$(jq -r '.roots.control' .claude/project.json)
-# Use the code repo only if it's scaffolded AND a git repo with commits; else the control plane.
-if sh -c "$(jq -r '.scaffoldCheck' .claude/project.json)" 2>/dev/null \
-   && git -C "$CODE" rev-parse --verify HEAD >/dev/null 2>&1; then
-  TARGET="$CODE"   # review product commits
-else
-  TARGET="$CONTROL"   # pre-scaffold / docs-only: review control-plane session commits
-fi
-```
-
-The snippet answers "does the code repo have *any* history", not "did *this
-session* commit there" — so after it: if `TARGET` is the code repo but this session
-made no commits in it (a docs-only session in a mature split), switch `TARGET` to
-the control plane. When `TARGET` is the control plane, tell `/eval` it is reviewing
-control-plane / doc work — pre-scaffold or docs-only — not product code, so the
-reviewers judge accordingly rather than reporting "no tests" against documentation.
-Pass `/eval` this session's scope: the commits in `$TARGET` and the phase number
-from `docs/PHASE_STATUS.md` (skipped if absent — non-phased). Present both
-reviewers' full reports to the user without modification or softening, exactly as
-`/eval` does.
-
-> For a pre-scaffold session — or, in a control-plane split, any session whose
-> commits live only in the control plane — prefer the conversational `/eval`
-> over `/eval-parallel`: the workflow's default scope targets the code repo and
-> will (loudly) find no commits there. (Single-repo projects are unaffected:
-> `roots.code` is `.`, so every commit is in scope.)
-
-### Verdict gates (handoff-specific)
-
-These gates are what `/handoff` adds on top of `/eval`'s reports — they decide
-whether the handoff proceeds:
-
-- **Evaluator FAIL:** Stop the handoff here. Fix the critical issues, then invoke `/handoff` again from the top (the evaluator re-runs on the fixed code).
-- **Product reviewer NEEDS WORK with Critical issues:** Stop the handoff. Address the critical product issues, then invoke `/handoff` again.
-- **PASS WITH ISSUES / NEEDS WORK with Major/Minor only:** Note the issues but continue. They are captured in the handoff artifact.
-- **Both PASS:** Continue with Step 3.
+(Step 2 was absorbed into Step 1 when the dual session-close review retired at
+[32.1]; later step numbers are unchanged so cross-references hold.)
 
 ## Step 3 — Final Test Run
 
-Run the full test suite to confirm the codebase is in a clean state, via the
-manifest-command helper. Time the run and write the measured wall-clock to the
+**Skip when no code changed:** if this session made no commits to `roots.code` and
+holds no uncommitted changes there, do not run the battery — record "battery
+skipped: no code changes this session" under **Test State** and move on
+(…318248606). A docs-only session pays no suite tax.
+
+Otherwise run the full test suite to confirm the codebase is in a clean state, via
+the manifest-command helper. Time the run and write the measured wall-clock to the
 metering artifact mechanically — this single number is the **only** mechanical
 source for `perf.suite_runtime_s` in Step 6b's metering entry (the writer reads
 the artifact; no agent ever types the runtime):
@@ -140,8 +105,8 @@ Where YYYY-MM-DD is today's date and NNN is a zero-padded sequence number (001, 
 **Read the fill-in skeleton from `handoff-artifact.md` in this skill's directory**,
 then write the artifact with every section it specifies — the section set is the
 contract, drop none: **Completed This Session**, **In Progress**, **Blocked**,
-**Issues & Technical Debt**, **Evaluator Results**, **Product Review Results**,
-**Test State**, **Build State**, **Next Steps**, **Session Notes**. (The skeleton
+**Issues & Technical Debt**, **Review Results**, **Test State**, **Build State**,
+**Next Steps**, **Session Notes**. (The skeleton
 lives in a sibling file so this procedure stays short enough to remain resident —
 the cold read found the all-in-one skill truncated mid-procedure.)
 
@@ -303,14 +268,15 @@ re-running the handoff for this same completed phase does not double-bank. The e
 joins the forecast lineage the initiative-close grade reads; no manual `bank` call is
 needed, here or anywhere in the lifecycle.
 
-Then generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage (the evaluator handles that) or spec alignment (the product reviewer handles that), but real-world workflows from start to finish.
+Then generate a user acceptance testing plan. The UAT plan verifies that the phase's deliverables work end-to-end as a user would experience them — not unit test coverage or spec alignment (the review gate covered those at each change's landing), but real-world workflows from start to finish.
 
 ### Generating the UAT Plan
 
 Invoke the `reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
 
 Use the reviewer's scenarios to produce the artifact. Then **vet it via the
-`evaluator`** ([18.2]) — by name (Rule 14), and **independent of the `reviewer`** that
+`evaluator`** ([18.2]) — by name (the agent is retained until [32.3] for exactly
+this vet rung), and **independent of the `reviewer`** that
 generated it: the agent that wrote the scenarios never grades its own work. The vet is
 **declared-not-gated** (the exit-0 rung — a NEEDS WORK verdict never blocks the handoff),
 and its verdict is both recorded in this handoff and stamped on the artifact; a review

@@ -40,33 +40,27 @@ Anything that can't proceed and why:
 
 ## Issues & Technical Debt
 
-Any issues identified (by you or either reviewer) that weren't resolved this session:
+Any issues identified (by you or at a review gate) that weren't resolved this session:
 
 - Issue description
 - Severity (critical / important / minor)
-- Source (evaluator / product reviewer / self-identified)
+- Provenance (in the change under review / in surrounding code)
+- Source (technical `/code-review` / alignment `reviewer` / self-identified)
 - Where it lives in the code
 
-## Evaluator Results
+## Review Results
 
-Summary of the evaluator's technical assessment:
+The session's gate ledger — one entry per gated change ([32.1]: findings, not
+scores):
 
-- Weighted score: X.X/5.0
-- Verdict: PASS / PASS WITH ISSUES / FAIL
-- Critical issues (if any): [list]
-- Unresolved important issues: [list]
-
-## Product Review Results
-
-Summary of the product reviewer's assessment:
-
-- Weighted score: X.X/5.0
-- Verdict: PASS / NEEDS WORK
-- Vision alignment: [score]/5
-- User experience: [score]/5
-- Content quality: [score]/5
-- Feature depth: [score]/5
-- Issues (if any): [list]
+- The change (commit hash or working diff) and which instruments ran: the
+  platform review pass, the alignment `reviewer`, or both
+- Findings by severity and provenance, each with its disposition — fixed at the
+  gate, or recorded under Issues & Technical Debt
+- Rounds used (two maximum); at the cap, the three-way call that was made
+  (converge / cut scope / accept as debt) and who made it
+- Skips and stops, disclosed with reasons: the all-commits-gated-in-band skip,
+  a headless skip of the technical pass, or a headless stop
 
 ## Test State
 

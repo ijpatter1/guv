@@ -23,12 +23,12 @@ Where NNN is a zero-padded sequence number for the day (001, 002, etc.). To dete
 When loading context from a previous session:
 
 1. Read the **most recent** file in `docs/sessions/` (sort by filename descending — the `session-YYYY-MM-DD-NNN` naming convention ensures lexicographic sort matches chronological order)
-2. Focus on these sections first: **In Progress**, **Blocked**, **Next Steps**, **Evaluator Results**
+2. Focus on these sections first: **In Progress**, **Blocked**, **Next Steps**, **Review Results**
 3. Cross-reference **Completed This Session** with `docs/PHASE_STATUS.md` to confirm the tracker is up to date
 4. Check **Issues & Technical Debt** for any unresolved items that need attention
 5. Read **Session Notes** for implicit context — architecture decisions, gotchas, environment changes
 
-If the most recent session artifact references unresolved critical issues from the evaluator, address those before starting new feature work.
+If the most recent session artifact references unresolved critical issues from a review gate, address those before starting new feature work.
 
 ### Writing Session Artifacts
 

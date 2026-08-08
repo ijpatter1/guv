@@ -4,7 +4,7 @@
 # The committed plugin/ directory is GENERATED, never hand-edited. The single
 # source of truth stays in .claude/ (skills, agents, hooks, rules,
 # helper scripts, the saved workflow); plugin-only files (manifest, the
-# reviewer-readonly guard, the zen and eval-parallel skills) are authored in
+# reviewer-readonly guard, the zen and scaffold skills) are authored in
 # maintainers/plugin-src/ and copied verbatim. The plugin hooks.json is DERIVED
 # from .claude/settings.json (one source — a hook wired in project mode can't
 # silently miss plugin mode; the [9.2] dead-hook class), not authored: see the
@@ -66,8 +66,8 @@ rewrite_paths() {
 # can actually invoke. Plugin skills and agents resolve ONLY as guv:<name>
 # (verified live 2026-06-11), so bare /command mentions and reviewer-spawn
 # instructions are dead pointers in a plugin-only project.
-#   - slash commands: longest name first so /eval-parallel is consumed
-#     before /eval; the preceding-char guard [^[:alnum:].:-] keeps path
+#   - slash commands: longest name first so /phase-docs is consumed
+#     before /phase; the preceding-char guard [^[:alnum:].:-] keeps path
 #     segments (docs/manual/task-*.md) and already-namespaced (/guv:task)
 #     mentions untouched
 #   - agent spawns: the "`<name>` subagent" instruction phrasing and the
@@ -76,8 +76,8 @@ rewrite_paths() {
 # Every name that registers as /<name> for consumers — commands, skills, and
 # saved workflows — DERIVED from the source tree (a hand-maintained copy of
 # this list is exactly the drift this build exists to prevent; plugin.test.sh
-# derives its detector the same way). Longest first so /eval-parallel is
-# consumed before /eval.
+# derives its detector the same way). Longest first so /phase-docs is
+# consumed before /phase.
 slash_names() {
   {
     for d in "$SRC/skills"/*/; do basename "$d"; done
@@ -98,8 +98,6 @@ _namespace_pass() {
   local lit; lit=$(printf '\001')
   local args=(-E
     -e "s#(built-in|native|bare) \`/#\\1 \`${lit}#g"
-    -e 's|the saved `/eval-parallel` workflow|the `/eval-parallel` skill|g'
-    -e 's|\(`\.claude/workflows/eval-parallel\.js`\)|(launching the plugin-shipped workflow)|g'
     -e 's|`\.claude/skills/phase-docs/SKILL\.md`|plugin-shipped|g'
     -e 's|\(`\.claude/skills/eval/SKILL\.md`\)|(plugin-shipped)|g')
   local n
@@ -542,7 +540,7 @@ cp "$ROOT/docs/REQUIREMENTS.md" "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/PHASE_S
 # Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the plugin
 # copy of each saved workflow spawns guv:evaluator / guv:reviewer; the project copy
 # keeps bare names for .claude/agents/ consumers. EVERY workflow in .claude/workflows/
-# passes through the same rewrite (eval-parallel.js, build-fanout.js, …) — a per-file
+# passes through the same rewrite (build-fanout.js, …) — a per-file
 # copy here was the gap that would have left a new workflow unshipped.
 for wf in "$SRC/workflows"/*.js; do
   sed "s/agentType: 'evaluator'/agentType: 'guv:evaluator'/; s/agentType: 'reviewer'/agentType: 'guv:reviewer'/" \

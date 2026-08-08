@@ -7,9 +7,8 @@ user-invocable: true
 # Build Fan-Out — the runbook
 
 A build fan-out builds several independent deliverables **in parallel lanes**, gates
-each with the calibrated dual review, and lands the ones that pass. This is the
-build-half companion to `/guv:eval-parallel` (which gates one commit range); here the
-fan-out spans many lanes.
+each, and lands the ones that pass. Here the fan-out spans many lanes rather than
+one commit range.
 
 It completes the [7.4]/[7.5] surface: Phase 7 shipped the deterministic JOIN
 (`lane-dispatch.sh`) and the gated queue (`merge-queue.sh`), but the EXECUTION and the

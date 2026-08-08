@@ -65,11 +65,11 @@ the record. guv-guv is the instance where the governed project is guv itself.
 - `/phase N` — Phase-boundary entry: branch, deep-read, full context + spec-alignment, present a plan (crossing into a phase)
 - `/next` — Light daily/mid-phase resume: read the resolver's ready-frontier and present the next pick with a plan, no boundary ritual
 - `/replan` — Mutate the live plan through the one sanctioned door: classify, confirm, apply atomically with an amendment record
-- `/eval` — Trigger independent dual QA review mid-session
-- `/handoff` — End session with full QA + handoff artifact for continuity
+- `/eval` — Run the review gate on recent work mid-session
+- `/handoff` — End session with review accounting + handoff artifact for continuity
 - `/status` — Quick 10-line project orientation
 
-**Dynamic workflows** — Saved workflows in `.claude/workflows/` register as slash commands. The planning layer is the phase docs and the commands; the execution layer is the model, subagents, and — for wide mechanical fan-out — workflows (`.claude/rules/guv-workflows.md`: QA stages invoke the calibrated reviewers by name; ultracode is fan-out-only, dropped back after). Ships with `/eval-parallel`: both reviewers concurrently over a commit-range scope, returning both reports plus the combined summary — the fix loop stays conversational, in the main session.
+**Dynamic workflows** — Saved workflows in `.claude/workflows/` register as slash commands. The planning layer is the phase docs and the commands; the execution layer is the model, subagents, and — for wide mechanical fan-out — workflows (`.claude/rules/guv-workflows.md`: QA gates use the platform review plus the `reviewer` by name; ultracode is fan-out-only, dropped back after). Ships with `/build-fanout`: the gate stage of a build fan-out, run over built lanes — the fix loop stays conversational, in the main session.
 
 **Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/rules/` (`guv-*.md`, loaded natively).
 
@@ -295,15 +295,15 @@ code .
 │   │   ├── init/                       # /init — greenfield: scaffold + render CLAUDE.md
 │   │   ├── onboard/                    # /onboard — adopt an existing repo (no phase ceremony)
 │   │   ├── replan/                     # /replan — plan mutation: the one sanctioned door (engine: replan.sh)
-│   │   ├── eval/                       # /eval — dual QA review
+│   │   ├── eval/                       # /eval — the review gate
 │   │   ├── feedback/                   # /feedback — record guv friction
-│   │   ├── handoff/                    # /handoff — session end + dual QA + handoff
+│   │   ├── handoff/                    # /handoff — session end + review accounting
 │   │   ├── status/                     # /status — quick status check
 │   │   ├── manual/                     # /manual — out-of-sandbox task artifacts
 │   │   ├── phase-docs/                 # Shared phase-doc templates (init + plan)
 │   │   └── session-management/         # Context continuity conventions
 │   ├── workflows/
-│   │   └── eval-parallel.js       # /eval-parallel — both reviewers, concurrent
+│   │   └── build-fanout.js        # /build-fanout — gate stage of a build fan-out
 │   ├── tests/                         # Bash test suites for the guv scripts/skills
 │   └── feedback/                      # guv-friction log — local-only, never phones home (submit is opt-in; created on first /feedback)
 ├── maintainers/                       # Maintainer-only — developing guv (consumers can delete)

@@ -195,11 +195,14 @@ its form, the reviewer is its calibrated eye (its checklist already covers "is t
 verification real"), and one matched vet keeps the latency bounded (Rule 7: the choice is
 made, not blended).
 
-This vet is **declared-not-gated** — the Rule-15 exit-0 rung: a NEEDS WORK verdict does
-**not** block creating the artifact or the session (exit 0). Do **two** things with the
-verdict: **record it** in the handoff artifact alongside the task reference (the written
-record), and **stamp it** on the artifact with the canonical helper — it overwrites the
-template's default `QA: UNVETTED` line in place:
+The reviewer returns **findings, not a verdict** ([32.1]); the session **grades** them
+into the stamp verdict — an unaddressed Critical or Major against the artifact's scope
+grades `needs-work`, otherwise `pass`. This vet is **declared-not-gated** — the Rule-15
+exit-0 rung: a needs-work grade does **not** block creating the artifact or the session
+(exit 0). Do **two** things with the graded verdict: **record it** in the handoff
+artifact alongside the task reference (the written record), and **stamp it** on the
+artifact with the canonical helper — the stamp's REVIEWER field names whose findings
+ground the grade, and it overwrites the template's default `QA: UNVETTED` line in place:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}"/scripts/qa-stamp.sh docs/manual/task-YYYY-MM-DD-NNN.sh pass guv:reviewer "0 findings"

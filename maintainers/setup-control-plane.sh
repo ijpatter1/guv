@@ -149,7 +149,7 @@ copy_core() {
   # consumer-owned ones. Append a path here when a future change removes a
   # guv-owned core artifact. (Renames WITHIN a wholesale-replaced dir — skills/,
   # agents/ — are already handled by the rm-rf+cp above; only removals need this.)
-  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh; do
+  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh workflows/eval-parallel.js; do
     if [ -e "$DEST/.claude/$obsolete" ]; then
       rm -rf "$DEST/.claude/$obsolete"
       echo "[setup] pruned obsolete core artifact: .claude/$obsolete (removed upstream)"
@@ -1365,8 +1365,8 @@ is the code repo at \`roots.code\` (\`$CODE_REL\`).
   moves). Full battery once, before committing — and never edit the tree while one
   runs; the hermeticity fingerprint will red it.
 - **Execution at scale:** saved workflows in \`.claude/workflows/\` (e.g.
-  \`/eval-parallel\`) — fan-out execution only; QA stages use the calibrated
-  reviewers by name (\`.claude/rules/guv-workflows.md\`).
+  \`/build-fanout\`) — fan-out execution only; QA gates use the platform review
+  plus the \`reviewer\` by name (\`.claude/rules/guv-workflows.md\`).
 - **Where edits go:** improve guv in the **code repo** ($CODE_REL) — that's
   where product commits land. This control plane holds session artifacts only
   (handoffs in \`docs/sessions/\`, guv friction in \`.claude/feedback/\`).

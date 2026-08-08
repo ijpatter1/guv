@@ -7,8 +7,9 @@
 # the artifact. This script writes that stamp.
 #
 # It is the MECHANICAL half (Rule 12 — deterministic, no judgment, no LLM): the VERDICT
-# is the calibrated reviewer's judgment — guv:evaluator for a UAT, guv:reviewer for a
-# manual card, invoked BY NAME (Rule 14) — and is passed in. This script only composes
+# is the session's grade of the named reviewer's findings ([32.1]: calibrated agents
+# return findings, not verdicts) — guv:evaluator findings for a UAT, guv:reviewer
+# findings for a manual card, invoked BY NAME — and is passed in. This script only composes
 # the canonical stamp line and places it idempotently, so both generation points stamp
 # identically and a re-run never double-stamps. The stamp format is documented HERE (its
 # single source of truth — no separate shape doc to drift from); nothing parses it today,

@@ -4,8 +4,8 @@
 # Guards the invariants the rule promises:
 #   - the rule file exists in the natively-loaded rules dir with the guv- prefix
 #     (the acceptance criterion: "rule file loads")
-#   - both calibrated reviewers are named verbatim (evaluator, reviewer)
-#     and ad-hoc reviewer agents are prohibited
+#   - the review gate is named verbatim ([32.1]: the /code-review platform gate
+#     plus the reviewer agent) and ad-hoc reviewer agents are prohibited
 #   - the plan-of-record boundary is stated (workflows execute; phase docs plan)
 #   - the ultracode posture is stated (wide mechanical fan-out, dropped back after)
 #   - rule numbering stays unique across ALL rules files (drift guard: a new rule
@@ -33,11 +33,12 @@ else
   exit 1
 fi
 
-# T2 — both calibrated reviewers are invoked BY NAME. The rule's whole point is
-# routing workflow QA to these two agents, so the literal agent names must appear.
-grep -q '`evaluator`' "$RULE" \
-  && ok "names the evaluator agent verbatim" \
-  || no "rule must name the \`evaluator\` agent verbatim"
+# T2 — the review gate is named BY NAME ([32.1]): the platform /code-review gate
+# for technical review, and the reviewer agent for alignment. The rule's whole
+# point is routing QA to named, calibrated instruments, so both literals must appear.
+grep -q '/code-review' "$RULE" \
+  && ok "names the platform review gate (/code-review) verbatim" \
+  || no "rule must name the /code-review platform gate verbatim"
 grep -q '`reviewer`' "$RULE" \
   && ok "names the reviewer agent verbatim" \
   || no "rule must name the \`reviewer\` agent verbatim"

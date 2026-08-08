@@ -284,7 +284,6 @@ maintainers/render-smoke.js
 .claude/skills/onboard/SKILL.md
 .claude/skills/plan/SKILL.md
 .claude/skills/status/SKILL.md
-maintainers/plugin-src/skills/eval-parallel/SKILL.md
 maintainers/plugin-src/skills/scaffold/SKILL.md
 maintainers/plugin-src/skills/zen/SKILL.md
 maintainers/setup-control-plane.sh
@@ -297,7 +296,6 @@ maintainers/DOGFOODING.md
 .claude/tests/scaffold.test.sh
 .claude/tests/render-hook.test.sh
 .claude/tests/plugin.test.sh
-.claude/tests/eval-parallel.test.sh
 .claude/tests/estimate.test.sh
 .claude/tests/check-template-clean.test.sh
 .claude/tests/single-writer.test.sh

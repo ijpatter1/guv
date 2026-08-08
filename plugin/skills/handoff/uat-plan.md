@@ -57,8 +57,9 @@ chmod +x docs/uat/phase-N-uat.sh
 ### Vet the generated plan (calibrated, by name)
 
 The `reviewer` generated these scenarios, so vet them with an **independent** second eye:
-invoke the **`evaluator`** subagent **by name** (Rule 14 — the entire value is calibrated
-test-quality scrutiny; an ad-hoc verifier is prohibited) to judge the UAT for soundness —
+invoke the **`evaluator`** subagent **by name** (calibrated test-quality scrutiny, retained
+until [32.3] for exactly this vet; ad-hoc verifiers remain prohibited — Rule 14) to judge
+the UAT for soundness —
 do the scenarios exercise the deliverables end-to-end, are the `verify()` checks real, do
 the `confirm()` gates ask genuine human-judgment questions. The evaluator vetting what the
 reviewer wrote is the point: independent of the generator, never the same agent grading

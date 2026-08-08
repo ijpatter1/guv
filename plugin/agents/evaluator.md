@@ -1,6 +1,6 @@
 ---
 name: evaluator
-description: QA evaluator for completed features. Invoke after finishing a feature or work session to get an independent, skeptical assessment of the work. Use @guv:evaluator or /guv:eval to trigger.
+description: QA evaluator for completed features — an independent, skeptical assessment. Invoked by the handoff UAT vet and the build-fanout gate (retained for these until [32.3]); or use @guv:evaluator directly.
 tools: Read, Glob, Grep, Bash
 model: inherit
 memory: project

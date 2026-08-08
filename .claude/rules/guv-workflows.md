@@ -8,15 +8,15 @@ own scope is scope drift with a progress bar. `ultracode` follows the same logic
 is appropriate only for wide mechanical fan-out and should be dropped back after — a
 standing high-effort mode turns every judgment call into a fleet.
 
-## 14 — Calibrated reviewers, not ad-hoc ones
-When a workflow includes a review, verification, or QA stage, that stage must invoke
-the `evaluator` and `reviewer` subagents by name — under a guv plugin install
-the resolvable names carry the namespace (`guv:evaluator`, `guv:reviewer`);
-ad-hoc reviewer agents are prohibited. The two are calibrated — scoring anchors,
-read-only enforcement, project memory — and a generated generic verifier has none of
-that: it grades to whatever bar the prompt implies that day. Verification only means
-something when the verifier's standards persist across sessions. (Spawned by name,
-both agents resolve and the evaluator's read-only hook fires — verified empirically
-under workflow execution and again under plugin install, where only the namespaced
-forms resolve; the workflow runtime is a research preview, so re-verify if its
-behavior shifts.)
+## 14 — Platform review first; one calibrated alignment reviewer
+Technical review belongs to the platform: the `code-review` skill, session-invoked
+with an explicit target and level (`/code-review` typed at high effort is the
+operator's audit posture) — verified findings, calibrated upstream, no scoring
+apparatus of ours to maintain. guv
+adds the one dimension the platform cannot: the `reviewer` subagent (`guv:reviewer`
+under a plugin install) grades alignment against the spec and vision — findings, not
+scores — spawned **by name**, worktree-isolated, with project memory. Ad-hoc generated
+reviewer agents remain prohibited: a generic verifier grades to whatever bar the
+prompt implies that day, and its standards persist nowhere. Recurring mechanical
+patterns graduate to tests; judgment patterns persist in the reviewer's memory.
+(S2/S3, spec-2026-07-31; the dual-eval apparatus retired at [32.1].)

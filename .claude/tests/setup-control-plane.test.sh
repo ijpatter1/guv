@@ -48,7 +48,7 @@ make_guv() {
   echo "hook" > "$h/.claude/hooks/guard.sh"
   mkdir -p "$h/.claude/rules" "$h/.claude/workflows/dir-wf"
   printf 'guv rule body v1\n' > "$h/.claude/rules/guv-core.md"
-  echo "export const meta = {}" > "$h/.claude/workflows/eval-parallel.js"
+  echo "export const meta = {}" > "$h/.claude/workflows/wf-core.js"
   echo "dir-wf main v1" > "$h/.claude/workflows/dir-wf/main.js"
   echo "archive" > "$h/.claude/archive-initiative.sh"
   echo "resolver" > "$h/.claude/resolve-ready.sh"
@@ -112,7 +112,7 @@ run_setup "$H" "$D"
   && [ -f "$D/.claude/archive-initiative.sh" ] && [ -f "$D/.claude/resolve-ready.sh" ] \
   && ok "create: core copied (skills, guv rules, archive + resolver scripts present)" \
   || no "create: core should be copied (archive + resolver helpers asserted here; copy_core's hand-enumerated list means an unlisted helper is unreachable by sync — the class is retired by [7.1]'s glob-derived registry)"
-[ -f "$D/.claude/workflows/eval-parallel.js" ] \
+[ -f "$D/.claude/workflows/wf-core.js" ] \
   && ok "create: workflows dir copied (saved workflows are core)" \
   || no "create: .claude/workflows/ should be copied to the control plane"
 
@@ -200,7 +200,7 @@ echo "legacy rules file" > "$D/.claude/RULES.md"
 echo "edited" > "$H/.claude/rules/guv-core.md"
 echo "consumer workflow — mine" > "$D/.claude/workflows/my-migration.js"
 cp "$D/.claude/workflows/my-migration.js" "$WORK/my-migration.before"
-echo "wf-edited" > "$H/.claude/workflows/eval-parallel.js"
+echo "wf-edited" > "$H/.claude/workflows/wf-core.js"
 echo "stale" > "$D/.claude/workflows/dir-wf/stale-nested.js"
 echo "dir-wf main v2" > "$H/.claude/workflows/dir-wf/main.js"
 ( bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) > "$WORK/sync.out" 2>&1
@@ -210,7 +210,7 @@ grep -q "edited" "$D/.claude/rules/guv-core.md" 2>/dev/null \
 cmp -s "$WORK/team-style.before" "$D/.claude/rules/team-style.md" \
   && ok "sync: consumer-authored rule survives byte-for-byte (cmp)" \
   || no "sync: unprefixed consumer rules must never be touched"
-grep -q "wf-edited" "$D/.claude/workflows/eval-parallel.js" 2>/dev/null \
+grep -q "wf-edited" "$D/.claude/workflows/wf-core.js" 2>/dev/null \
   && ok "sync: stale guv workflow refreshed" \
   || no "sync: guv-shipped workflows should be refreshed"
 cmp -s "$WORK/my-migration.before" "$D/.claude/workflows/my-migration.js" \
@@ -494,8 +494,8 @@ if [ -f "$RM" ] && ! grep -q 'guv-template-readme' "$RM"; then
   # Detector-drift probe: a marker-less README that still carries template-only
   # content is not a rendered project README — it means the marker (or this
   # detector's literal) drifted, and skipping would silently disable the guards
-  # in the canonical repo. Fail loud instead. (The probe literal also lives in
-  # eval-parallel.test.sh's README gate — keep the two in step.)
+  # in the canonical repo. Fail loud instead. (Sole home of the probe literal
+  # since [32.1] retired eval-parallel.test.sh.)
   if flat "$RM" | grep -qi 'replaces core-owned surfaces'; then
     no "README carries template content but no guv-template-readme marker — marker/detector drift"
   else
