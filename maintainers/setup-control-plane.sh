@@ -81,6 +81,18 @@ fi
 
 mkdir -p "$DEST/.claude"
 DEST_ABS="$(cd "$DEST" && pwd)"
+# Refuse the guv repo itself as the destination. copy_core rm-rf's each guv-owned
+# tree in DEST before copying from source — with DEST == source that deletes the
+# source tree and the copy reads from the rubble (demonstrated live 2026-08-10:
+# a self-targeted --sync destroyed the working .claude/ core; only the git index
+# saved it). A control plane is a SIBLING of this repo, never this repo.
+# -ef, not a string compare: two spellings of one directory (a symlinked parent,
+# a logical-vs-physical path) must both refuse — the inode is the identity.
+if [ "$DEST_ABS" -ef "$GUV_DIR" ]; then
+  echo "error: destination is the guv repo itself ($DEST_ABS) — a self-targeted sync rm-rf's the source trees before copying from them." >&2
+  echo "       Pass the control-plane directory (a sibling, e.g. ../$(basename "$GUV_DIR")-guv)." >&2
+  exit 2
+fi
 
 # Relative path from the control plane back to guv (for roots.code).
 # Falls back to an absolute path if a relative one can't be computed.
@@ -149,7 +161,7 @@ copy_core() {
   # consumer-owned ones. Append a path here when a future change removes a
   # guv-owned core artifact. (Renames WITHIN a wholesale-replaced dir — skills/,
   # agents/ — are already handled by the rm-rf+cp above; only removals need this.)
-  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh workflows/eval-parallel.js auto-compact-carrier.sh continuation-checkpoint.json; do
+  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh workflows/eval-parallel.js workflows/evaluate-parallel.js auto-compact-carrier.sh continuation-checkpoint.json guv-lane.sh lane-dispatch.sh lane-recovery.sh merge-queue.sh fanout-offer.sh workflows/build-fanout.js .lane-checkpoint.json; do
     if [ -e "$DEST/.claude/$obsolete" ]; then
       rm -rf "$DEST/.claude/$obsolete"
       echo "[setup] pruned obsolete core artifact: .claude/$obsolete (removed upstream)"
@@ -243,7 +255,7 @@ dedup_hook_registration() {
 # walk only ever enters a named tree — NOT the number of trees named. .in_use/ (per-
 # session PID locks) and every other cache-ROOT entry are siblings of these trees, so
 # they are unreachable whether this list holds three names or eight.
-GUV_CACHE_TREES="agents hooks rules scripts shell skills tests workflows"
+GUV_CACHE_TREES="agents hooks rules scripts shell skills tests"
 # Set by refresh_plugin_cache, read by refresh_one_plugin_cache. Declared here with a
 # default rather than passed: it is one fact about the SOURCE, computed once for every
 # cache, and `set -u` must not depend on a `local` leaking through dynamic scope.
@@ -434,6 +446,19 @@ refresh_one_plugin_cache() {
     echo "[setup] plugin cache NOT verified — '$cache' declares plugin name '${cn:-<none>}' but this repo builds '${bn:-<none>}'; refusing to overwrite a plugin this repo does not build"
     return 0
   fi
+  # Retired trees are pruned by NAME, not by the walk: GUV_CACHE_TREES only walks
+  # trees the built plugin ships, so a tree the plugin STOPPED shipping is
+  # unreachable by the drift/stale machinery and would linger LIVE in every
+  # pre-existing cache (workflows/ kept /guv:build-fanout registered after [32.3]
+  # while this same refresh pruned the lane scripts it invokes). Explicit list,
+  # the same idiom as the control-plane obsolete-artifact prune.
+  local rt
+  for rt in workflows; do
+    if [ -d "$cache/$rt" ]; then
+      rm -rf "$cache/$rt"
+      echo "[setup] pruned retired plugin-cache tree: $rt/ (removed upstream at [32.3])"
+    fi
+  done
   # "Could not enumerate" and "already current" both look like an empty diff, and the
   # whole point of this function is that a silence must not read as a verification.
   local nbuilt t
@@ -1303,22 +1328,21 @@ SH
   rm -f "$tmp"
 }
 
-# Ensure the plane ignores the fan-out scratch (.lane-reports/) even on --sync to
-# an EXISTING plane — the create-mode .gitignore write is skipped when one already
-# exists, so a plane scaffolded before this line shipped would never get it
-# (UAT-F4 + eval Minor). Idempotent: append only if absent; never rewrites.
-ensure_lane_reports_ignored() {
+# On --sync to an EXISTING plane, drop the fan-out scratch ignore the lane era
+# left behind (.lane-reports/ — retired with the lane cluster at [32.3]).
+# Idempotent: removes only the exact line; never rewrites anything else.
+prune_lane_reports_ignore() {
   local gi="$DEST/.gitignore"
   [ -f "$gi" ] || return 0
-  grep -qxF '.lane-reports/' "$gi" || {
-    printf '.lane-reports/\n' >> "$gi"
-    echo "[setup] added .lane-reports/ to the plane's .gitignore (fan-out scratch)"
-  }
+  if grep -qxF '.lane-reports/' "$gi"; then
+    grep -vxF '.lane-reports/' "$gi" > "$gi.tmp" && mv "$gi.tmp" "$gi"
+    echo "[setup] removed .lane-reports/ from the plane's .gitignore (lane cluster retired at [32.3])"
+  fi
 }
 
 if [ "$MODE" = "sync" ]; then
   write_render_hook
-  ensure_lane_reports_ignored
+  prune_lane_reports_ignore
   echo "[setup] --sync complete. Manifest, CLAUDE.md, docs, and feedback left untouched."
   exit 0
 fi
@@ -1365,8 +1389,8 @@ is the code repo at \`roots.code\` (\`$CODE_REL\`).
   \`bash .claude/battery-result.sh read\` (provenance-checked; refuses once the tree
   moves). Full battery once, before committing — and never edit the tree while one
   runs; the hermeticity fingerprint will red it.
-- **Execution at scale:** saved workflows in \`.claude/workflows/\` (e.g.
-  \`/build-fanout\`) — fan-out execution only; QA gates use the platform review
+- **Execution at scale:** workflows you author in \`.claude/workflows/\` (none ship
+  since [32.3]) — fan-out execution only; QA gates use the platform review
   plus the \`reviewer\` by name (\`.claude/rules/guv-workflows.md\`).
 - **Where edits go:** improve guv in the **code repo** ($CODE_REL) — that's
   where product commits land. This control plane holds session artifacts only
@@ -1389,11 +1413,8 @@ mkdir -p "$DEST/docs/sessions"
 # dogfooding record).
 if [ ! -f "$DEST/.gitignore" ]; then
   # status.json is the manual render chain's intermediate file; status.html is
-  # the committed derived artifact, the JSON is not. .lane-reports/ is the
-  # fan-out scratch (lane failure reports + collected outputs); it lives in the
-  # CONTROL PLANE (the worktrees live in roots.code, which gets the guv-core
-  # block via the scaffold), so the plane's own gitignore must carry it (UAT-F4).
-  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\nstatus.json\n.lane-reports/\n' > "$DEST/.gitignore"
+  # the committed derived artifact, the JSON is not.
+  printf '.claude/agent-memory/\n.claude/settings.local.json\n.DS_Store\nstatus.json\n' > "$DEST/.gitignore"
 fi
 
 # Init the control plane's own git (its own commit stream), if not already a repo.

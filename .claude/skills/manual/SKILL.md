@@ -188,9 +188,9 @@ unambiguous, the prerequisites complete, the verification real, the navigation p
 exact. You drafted it, so the reviewer is the independent second eye.
 
 **Routing is by artifact class, deliberately.** Every manual artifact goes to the
-`reviewer` regardless of form — a prose card *or* a script-dominant task. Spike S3 left a
-dominant-nature refinement open (a script-dominant task "leans evaluator"); it is resolved
-here to **class-based routing** — a manual artifact is a content-and-UX surface whatever
+`reviewer` regardless of form — a prose card *or* a script-dominant task. Spike S3's
+dominant-nature refinement is resolved the same way every generated-artifact vet is
+since [32.3] — a manual artifact is a content-and-UX surface whatever
 its form, the reviewer is its calibrated eye (its checklist already covers "is the
 verification real"), and one matched vet keeps the latency bounded (Rule 7: the choice is
 made, not blended).

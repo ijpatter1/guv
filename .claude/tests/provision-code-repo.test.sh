@@ -1,16 +1,16 @@
 #!/bin/bash
-# Tests for .claude/provision-code-repo.sh ([10.10] — code-repo-agnostic lane machinery).
-# A foreign code repo becomes a functional guv lane target: a deploy-once manifest
-# (ceremony=task) + the marker-idempotent guv-core .gitignore block, so /task routes in
-# a lane worktree and .worktrees/ doesn't leak. Idempotent / no-clobber against an
-# already-provisioned repo (the guv self-hosting case — roots.code IS guv — is the
-# already-done degenerate, not a skipped exception). Pure bash.
+# Tests for .claude/provision-code-repo.sh ([10.10] — the per-repo guv core for a
+# split-topology code repo). A foreign code repo gets the deploy-once manifest
+# (ceremony=task) a control plane assumes it has, so /task and worktree-isolated
+# QA agents route there. Idempotent / no-clobber against an already-provisioned
+# repo (the guv self-hosting case — roots.code IS guv — is the already-done
+# degenerate, not a skipped exception). The .gitignore half retired with the lane
+# cluster at [32.3]: provision writes the manifest and nothing else. Pure bash.
 # Run: bash .claude/tests/provision-code-repo.test.sh
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROV="$ROOT/.claude/provision-code-repo.sh"
 ROUTE="$ROOT/.claude/route.sh"
-TMPL="$ROOT/plugin/shell/gitignore"     # canonical guv-core block (drift guard; source-shape only)
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -35,7 +35,7 @@ mkrepo() {  # $1 = dir — a plain foreign git repo (no .claude/, no .gitignore)
   git -C "$1" commit -qm init >/dev/null 2>&1
 }
 
-# T2 — provision a fresh foreign repo: manifest + gitignore, stderr-clean
+# T2 — provision a fresh foreign repo: manifest only, stderr-clean
 R1="$WORK/r1"; mkrepo "$R1"
 bash "$PROV" "$R1" --test "bash src/app.sh" >/dev/null 2>"$WORK/e1"
 [ -s "$WORK/e1" ] && no "provision emitted stderr: $(cat "$WORK/e1")" || ok "provision runs stderr-clean"
@@ -44,8 +44,10 @@ jq -e '.ceremony=="task"' "$R1/.claude/project.json" >/dev/null 2>&1 \
   && ok "manifest ceremony=task" || no "manifest ceremony not task"
 jq -e '.commands.test=="bash src/app.sh"' "$R1/.claude/project.json" >/dev/null 2>&1 \
   && ok "commands.test set from --test" || no "commands.test not set from --test"
-grep -qF '.worktrees/' "$R1/.gitignore" 2>/dev/null \
-  && ok ".worktrees/ is gitignored (G1 closed)" || no ".worktrees/ not gitignored"
+# [32.3]: the lane-era gitignore block retired — provision must write NO .gitignore.
+[ ! -f "$R1/.gitignore" ] \
+  && ok "provision writes no .gitignore (the lane block retired at [32.3])" \
+  || no "provision wrote a .gitignore — the [32.3] retirement regressed: $(cat "$R1/.gitignore")"
 
 # T3 — /task routes in the provisioned repo (G2 closed)
 ( cd "$R1" && bash "$ROUTE" --for task >"$WORK/route.out" 2>&1 )
@@ -54,48 +56,36 @@ grep -q '^door=task' "$WORK/route.out" \
   || no "route did not yield door=task: $(tr '\n' ' ' <"$WORK/route.out")"
 
 # T4 — idempotent / no-clobber (the guv self-hosting invariant): re-run preserves an
-# existing manifest and never duplicates the gitignore block.
+# existing manifest.
 jq '.commands.test="SENTINEL"' "$R1/.claude/project.json" >"$WORK/m.tmp" 2>/dev/null && mv "$WORK/m.tmp" "$R1/.claude/project.json"
-before_gi=$(grep -cF '.worktrees/' "$R1/.gitignore" 2>/dev/null)
 bash "$PROV" "$R1" --test "bash src/app.sh" >/dev/null 2>&1
 jq -e '.commands.test=="SENTINEL"' "$R1/.claude/project.json" >/dev/null 2>&1 \
   && ok "re-run did NOT clobber the existing manifest (deploy-once)" \
   || no "re-run overwrote the manifest"
-after_gi=$(grep -cF '.worktrees/' "$R1/.gitignore" 2>/dev/null)
-[ "$before_gi" = "$after_gi" ] \
-  && ok "re-run did NOT duplicate the gitignore block (marker-idempotent)" \
-  || no "gitignore block duplicated ($before_gi -> $after_gi)"
 
-# T5 — a foreign .gitignore already present (no guv marker): block appended, prior preserved
+# T5 — a foreign .gitignore already present: provision leaves it byte-identical
+# (the append path retired with the gitignore half at [32.3]).
 R2="$WORK/r2"; mkrepo "$R2"; printf 'node_modules/\n' > "$R2/.gitignore"
+before=$(cksum < "$R2/.gitignore")
 bash "$PROV" "$R2" --test "bash src/app.sh" >/dev/null 2>&1
-{ grep -qF 'node_modules/' "$R2/.gitignore" && grep -qF '.worktrees/' "$R2/.gitignore"; } \
-  && ok "appended guv-core block while preserving the existing .gitignore" \
-  || no "append/preserve failed"
+after=$(cksum < "$R2/.gitignore")
+[ "$before" = "$after" ] \
+  && ok "an existing .gitignore is left byte-identical (no append at [32.3])" \
+  || no "provision touched a consumer's .gitignore — the [32.3] retirement regressed"
 
-# T6 — drift guard: the canonical guv-core block still carries the lane entries this
-# script writes (so a hardcoded subset can't silently diverge). Source-shape only.
-if [ -f "$TMPL" ]; then
-  block=$(awk '/^# guv-core-start/,/^# guv-core-end/' "$TMPL")
-  miss=0
-  for e in '.worktrees/' '.lane-reports/'; do printf '%s\n' "$block" | grep -qF "$e" || miss=1; done
-  [ "$miss" -eq 0 ] \
-    && ok "lane entries present in the canonical guv-core block (drift guard)" \
-    || no "provision's lane entries drifted from the canonical guv-core block"
-else
-  echo "  - canonical gitignore template absent ($TMPL) — drift guard skips (plugin/fork shape)"
-fi
+# (T6, the canonical-block drift guard, retired with the gitignore half at [32.3].)
 
-# T7 — the provisioned core is COMMITTED, so a lane worktree (a checkout of HEAD)
+# T7 — the provisioned core is COMMITTED, so a worktree (a checkout of HEAD)
 # inherits it. An untracked manifest passes a working-tree check but is ABSENT from
-# every new worktree — a lane builder then can't route work there (the [10.10] e2e bug).
+# every new worktree — a worktree-isolated agent then can't route work there (the
+# [10.10] e2e bug).
 git -C "$R2" ls-files --error-unmatch .claude/project.json >/dev/null 2>&1 \
   && ok "provisioned manifest is committed (tracked)" \
   || no "manifest must be committed so worktrees inherit it"
 git -C "$R2" worktree add -q "$WORK/wt" HEAD 2>/dev/null
-{ [ -f "$WORK/wt/.claude/project.json" ] && [ -f "$WORK/wt/.gitignore" ]; } \
-  && ok "a worktree of the provisioned repo carries the guv-core (lane builders can route)" \
-  || no "worktree must inherit the provisioned guv-core"
+[ -f "$WORK/wt/.claude/project.json" ] \
+  && ok "a worktree of the provisioned repo carries the manifest (agents can route)" \
+  || no "worktree must inherit the provisioned manifest"
 # acceptance: `guv-cmd test` runs the provisioned repo's OWN test command in the worktree
 ( cd "$WORK/wt" && bash "$ROOT/.claude/guv-cmd.sh" test >/dev/null 2>&1 ); GC=$?
 [ "$GC" -eq 0 ] \

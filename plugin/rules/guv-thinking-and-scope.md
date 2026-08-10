@@ -10,7 +10,7 @@ Three layers, three jobs — don't confuse them:
 
 - **These rules** govern *judgment* — the calls you make in the moment.
 - **The commands** (`/phase`, `/task`, `/handoff`, … — `/guv:`-namespaced under a plugin install) govern *process* — repeatable workflows. When a command gives numbered steps, follow them; Rule 4 is about tasks the commands *don't* script, not a license to skip a command's procedure.
-- **The hooks** (bash-guard, auto-format, stop-check) and the **evaluator / reviewer** enforce *invariants* deterministically. Where a hook already guarantees something, these rules don't restate it — they cover what enforcement can't.
+- **The hooks** (bash-guard, auto-format, stop-check) and the **review gate** (the platform review plus the `reviewer`) enforce *invariants* deterministically. Where a hook already guarantees something, these rules don't restate it — they cover what enforcement can't.
 
 Bias: caution over speed on non-trivial work; use judgment on trivial work.
 

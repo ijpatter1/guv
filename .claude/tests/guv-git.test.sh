@@ -77,7 +77,7 @@ OUT=$( (cd "$P" && bash "$SCRIPT" log --oneline -1) 2>&1 ); RC=$?
 # T5 — the teaching surfaces route through the helper: no jq read of
 # roots.code survives in executable command/skill/agent markdown — this
 # catches the one-line git -C "$(jq …)" form AND the two-step
-# CODE=$(jq …) form. One pinned exception: handoff.md's evaluator-target
+# CODE=$(jq …) form. One pinned exception: handoff.md's review-target
 # block genuinely needs BOTH roots to compare (the disclosed judgment, same
 # class as check-citations.sh). Prose explaining roots.code topology without
 # a jq read is legitimate.

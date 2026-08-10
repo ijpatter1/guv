@@ -84,8 +84,8 @@ without agent I/O. Probe result: **yes for tokens, no for dollars.**
 ### [13.1] — subagent-token completeness (the eval/fix spike)
 
 **Finding: the harvested token total INCLUDES subagent-reviewer burn.** The
-subagents a session spawns — the `evaluator`/`reviewer` of the eval/fix loop, lane
-builders, workflow agents — do **not** write into the main `<session>.jsonl`. Each
+subagents a session spawns — the `reviewer` of the eval/fix loop, review and
+workflow agents — do **not** write into the main `<session>.jsonl`. Each
 writes its own transcript under the **sibling `<session>/` directory tree**
 (`<session>/subagents/agent-*.jsonl`, `<session>/workflows/…`), carrying the
 identical per-message `usage` object. A harvest that read only the main transcript
@@ -446,6 +446,13 @@ the writer; the artifact, like every other field, is guv-measured or null.
 ---
 
 # Queue-boundary entry (`guv.meter.queue.v1`, [9.4])
+
+> **Historical since [32.3].** The writer's only invokers (`merge-queue.sh` /
+> `lane-dispatch.sh`) were deleted with the lane cluster, so **no new
+> `guv.meter.queue.v1` line can be written** — this section describes the shape of
+> lines that already exist in append-only logs, not a live boundary. Do not build
+> against it. [32.4] owns the deletion of `meter-queue.sh` and the collapse of
+> this section.
 
 A merge-queue **landing** appends one `guv.meter.queue.v1` line to the same log,
 written by `.claude/meter-queue.sh`. It is the **per-deliverable** sibling of the

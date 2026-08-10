@@ -3,7 +3,7 @@
 # Guards the invariants the deliverable promises:
 #   - /handoff REFERENCES /eval's procedure by pointer, not by inlining its
 #     steps — killing the drift class where the restatement diverges from its
-#     source. The canonical evaluator/reviewer invocation lives once, in
+#     source. The canonical review-gate invocation lives once, in
 #     the /eval skill; /handoff points at it.
 #   - /handoff carries no inlined copy of /eval's review steps (asserted: the
 #     two prose passages that *were* the inline restatement are gone).

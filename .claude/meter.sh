@@ -46,7 +46,7 @@
 # harvested mechanically from the Claude Code runtime transcript
 # (~/.claude/projects/<cwd-slug>/<CLAUDE_CODE_SESSION_ID>.jsonl), which carries a
 # per-assistant-message `usage` object — PLUS every *.jsonl under the sibling
-# <session>/ tree, where the subagents a session spawns (evaluator/reviewer, lane
+# <session>/ tree, where the subagents a session spawns (the reviewer, review
 # and workflow agents) write their own transcripts ([13.1]): a session-scalar
 # total includes that subagent burn, not just the main transcript. The transcript
 # is a research-preview
@@ -97,7 +97,7 @@ done
 
 # --- project root + log path (root-relative, the sibling convention) ----------
 # cwd must be the project root (where .claude/project.json lives) — the same
-# contract guv-git.sh / guv-cmd.sh / merge-queue.sh carry. The log lives in the
+# contract guv-git.sh / guv-cmd.sh carry. The log lives in the
 # control plane; in a single-repo project control == code == cwd.
 MANIFEST=".claude/project.json"
 [ -f "$MANIFEST" ] || die 4 "no manifest at $MANIFEST (cwd must be the project root)"
@@ -153,7 +153,7 @@ fi
 # Rung B (session-scalar token attribution); dollars at C (token-only). The
 # transcript is named by the Claude Code runtime session id under a cwd-derived
 # project slug. The MAIN session transcript is <session>.jsonl; the subagents a
-# session spawns (evaluator/reviewer, lane builders, workflow agents) write their
+# session spawns (the reviewer, review and workflow agents) write their
 # OWN transcripts under the SIBLING <session>/ directory tree (subagents/,
 # workflows/), each carrying the identical per-message `usage` object. A session-
 # scalar token total MUST include that subagent burn ([13.1]): the eval/fix

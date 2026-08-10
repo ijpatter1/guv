@@ -363,10 +363,9 @@ SUM_AFTER=$(cksum < "$RT")
 
 # T8e — the skill SOURCE documents the helper, not hand-rolled jq, for the
 # mutation operations (Rule 12 — a deterministic transform is code, not a pasted
-# command). Scoped to SKILL_SRC: the plugin/ mirror is a DERIVED tree rebuilt at
-# the build-fanout join, so it carries this repoint only after the join syncs it —
-# asserting the mirror in-lane would test JOIN-owned state. The general plugin-vs-
-# source parity is guarded by plugin.test.sh, which the join re-greens.
+# command). Scoped to SKILL_SRC: the plugin/ mirror is a DERIVED tree, rebuilt by
+# build-plugin.sh — the general plugin-vs-source parity is guarded by
+# plugin.test.sh, so asserting the mirror here would double-cover it.
 grep -q 'scripts/feedback.sh' "$SKILL_SRC" \
   && ok "skill source references the feedback.sh helper (${SKILL_SRC#"$ROOT"/})" \
   || no "${SKILL_SRC#"$ROOT"/} must point its triage/new/list ops at scripts/feedback.sh, not inline jq (Rule 12)"

@@ -70,13 +70,13 @@ EOF
 
 # ════ T1 — stamp PASS into a SCRIPT: the artifact carries a `# QA:` stamp (clause 3) ════
 F="$WORK/uat.sh"; mk_sh "$F"
-OUT=$(bash "$SCRIPT" "$F" pass guv:evaluator "0 findings" 2>/dev/null); RC=$?
+OUT=$(bash "$SCRIPT" "$F" pass guv:reviewer "0 findings" 2>/dev/null); RC=$?
 [ "$RC" -eq 0 ] && grep -qE '^# QA: PASS' "$F" \
   && ok "script: pass → carries a '# QA: PASS' stamp (clause 3)" \
   || no "script pass should write a '# QA: PASS' stamp, exit 0 (rc=$RC)"
-grep -q 'guv:evaluator' "$F" \
-  && ok "script: the stamp NAMES the calibrated reviewer (guv:evaluator)" \
-  || no "stamp must name the reviewer (guv:evaluator missing)"
+grep -q 'guv:reviewer' "$F" \
+  && ok "script: the stamp NAMES the calibrated reviewer (guv:reviewer)" \
+  || no "stamp must name the reviewer (guv:reviewer missing)"
 grep -q 'BODY_SENTINEL_KEEP' "$F" \
   && ok "script: the artifact body is preserved across the stamp rewrite" \
   || no "stamp rewrite dropped the artifact body"
@@ -99,7 +99,7 @@ grep -q 'BODY_SENTINEL_KEEP' "$G" \
 
 # ════ T3 — NEEDS WORK is a distinct verdict label ════
 F3="$WORK/nw.sh"; mk_sh "$F3"
-bash "$SCRIPT" "$F3" needs-work guv:evaluator "3 findings" >/dev/null 2>&1
+bash "$SCRIPT" "$F3" needs-work guv:reviewer "3 findings" >/dev/null 2>&1
 grep -qE '^# QA: NEEDS WORK' "$F3" \
   && ok "needs-work → '# QA: NEEDS WORK' (distinct verdict label)" \
   || no "needs-work should write 'NEEDS WORK'"
@@ -109,7 +109,7 @@ grep -q '3 findings' "$F3" \
 
 # ════ T4 — UNVETTED is loud and NEVER textually a pass (clause 4) ════
 F4="$WORK/unvetted.sh"; mk_sh "$F4"
-bash "$SCRIPT" "$F4" unvetted guv:evaluator "evaluator unavailable" >/dev/null 2>&1
+bash "$SCRIPT" "$F4" unvetted guv:reviewer "reviewer unavailable" >/dev/null 2>&1
 S=$(grep -E '^# QA:' "$F4")
 printf '%s' "$S" | grep -q 'UNVETTED' \
   && ok "review-unavailable → '# QA: UNVETTED' (clause 4: loud, recorded)" \
@@ -120,8 +120,8 @@ printf '%s' "$S" | grep -qiv 'pass' \
 
 # ════ T5 — idempotent: re-stamping REPLACES, never appends a duplicate ════
 F5="$WORK/idem.sh"; mk_sh "$F5"
-bash "$SCRIPT" "$F5" pass guv:evaluator >/dev/null 2>&1
-bash "$SCRIPT" "$F5" needs-work guv:evaluator "1 finding" >/dev/null 2>&1
+bash "$SCRIPT" "$F5" pass guv:reviewer >/dev/null 2>&1
+bash "$SCRIPT" "$F5" needs-work guv:reviewer "1 finding" >/dev/null 2>&1
 N=$(grep -cE '^# QA:' "$F5")
 [ "$N" -eq 1 ] \
   && ok "idempotent: exactly ONE QA stamp after two stamps (replaced, not appended)" \
@@ -142,7 +142,7 @@ cat > "$F5b" <<'EOF'
 # ═══════════════════════════════════════════════════════
 set -euo pipefail
 EOF
-bash "$SCRIPT" "$F5b" pass guv:evaluator >/dev/null 2>&1
+bash "$SCRIPT" "$F5b" pass guv:reviewer >/dev/null 2>&1
 N5b=$(grep -cE '^# QA:' "$F5b")
 [ "$N5b" -eq 1 ] && grep -qE '^# QA: PASS' "$F5b" \
   && ok "template default: the in-header UNVETTED default is updated in place to PASS (one stamp)" \
@@ -151,20 +151,20 @@ N5b=$(grep -cE '^# QA:' "$F5b")
 # ════ T6 — insert-when-absent keeps the shebang first (a script must still run) ════
 F6="$WORK/noslot.sh"; mk_sh "$F6"
 # (mk_sh has no QA line) — stamping inserts one; the shebang must remain line 1.
-bash "$SCRIPT" "$F6" pass guv:evaluator >/dev/null 2>&1
+bash "$SCRIPT" "$F6" pass guv:reviewer >/dev/null 2>&1
 [ "$(head -1 "$F6")" = "#!/bin/bash" ] \
   && ok "insert: the shebang remains line 1 (the stamped script still executes)" \
   || no "stamping must not displace the shebang"
 
 # ════ T7 — mode preserved: a chmod +x UAT script stays executable after stamping ════
 F7="$WORK/exec.sh"; mk_sh "$F7"; chmod +x "$F7"
-bash "$SCRIPT" "$F7" pass guv:evaluator >/dev/null 2>&1
+bash "$SCRIPT" "$F7" pass guv:reviewer >/dev/null 2>&1
 [ -x "$F7" ] \
   && ok "the executable bit survives the stamp rewrite (chmod +x before vet is safe)" \
   || no "stamping a +x script dropped the executable bit"
 
 # ════ T8 — loud failure (Rule 15): missing artifact exits non-zero, writes nothing ════
-OUT8=$(bash "$SCRIPT" "$WORK/does-not-exist.sh" pass guv:evaluator 2>/dev/null); RC8=$?
+OUT8=$(bash "$SCRIPT" "$WORK/does-not-exist.sh" pass guv:reviewer 2>/dev/null); RC8=$?
 [ "$RC8" -ne 0 ] \
   && ok "missing artifact → non-zero exit (loud, Rule 15)" \
   || no "a missing artifact must fail loudly (rc=$RC8)"
@@ -175,7 +175,7 @@ OUT8=$(bash "$SCRIPT" "$WORK/does-not-exist.sh" pass guv:evaluator 2>/dev/null);
 # ════ T9 — unknown verdict exits non-zero and leaves the artifact untouched ════
 F9="$WORK/badverdict.sh"; mk_sh "$F9"
 BEFORE=$(cat "$F9")
-bash "$SCRIPT" "$F9" maybe guv:evaluator >/dev/null 2>&1; RC9=$?
+bash "$SCRIPT" "$F9" maybe guv:reviewer >/dev/null 2>&1; RC9=$?
 [ "$RC9" -ne 0 ] \
   && ok "unknown verdict → non-zero exit (only pass|needs-work|unvetted are valid)" \
   || no "an unknown verdict must fail loudly (rc=$RC9)"
@@ -185,7 +185,7 @@ bash "$SCRIPT" "$F9" maybe guv:evaluator >/dev/null 2>&1; RC9=$?
 
 # ════ T10 — stderr is clean on the success path (the battery's empty-stderr gate) ════
 F10="$WORK/quiet.sh"; mk_sh "$F10"
-ERR=$(bash "$SCRIPT" "$F10" pass guv:evaluator 2>&1 >/dev/null)
+ERR=$(bash "$SCRIPT" "$F10" pass guv:reviewer 2>&1 >/dev/null)
 [ -z "$ERR" ] \
   && ok "success path emits nothing to stderr (battery empty-stderr gate)" \
   || no "success path leaked to stderr: $ERR"
@@ -206,7 +206,7 @@ echo "expected a '# QA: PASS' line in the header"
 grep -qE '^# QA:' "$out" && echo "stamped"
 EOF
 N11_before=$(grep -cE '^# QA:' "$F11")          # 0 — only off-line-start substrings exist
-OUT11=$(bash "$SCRIPT" "$F11" pass guv:evaluator "0 findings" 2>/dev/null); RC11=$?
+OUT11=$(bash "$SCRIPT" "$F11" pass guv:reviewer "0 findings" 2>/dev/null); RC11=$?
 N11_after=$(grep -cE '^# QA: PASS' "$F11")
 [ "$RC11" -eq 0 ] && [ "$N11_before" -eq 0 ] && [ "$N11_after" -eq 1 ] \
   && ok "off-line-start marker doesn't fool detection: a real stamp is INSERTED, not a silent no-op" \

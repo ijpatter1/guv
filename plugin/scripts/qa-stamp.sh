@@ -8,8 +8,8 @@
 #
 # It is the MECHANICAL half (Rule 12 — deterministic, no judgment, no LLM): the VERDICT
 # is the session's grade of the named reviewer's findings ([32.1]: calibrated agents
-# return findings, not verdicts) — guv:evaluator findings for a UAT, guv:reviewer
-# findings for a manual card, invoked BY NAME — and is passed in. This script only composes
+# return findings, not verdicts) — guv:reviewer findings for a UAT and for a manual
+# card alike, invoked BY NAME ([32.3]: one calibrated vet) — and is passed in. This script only composes
 # the canonical stamp line and places it idempotently, so both generation points stamp
 # identically and a re-run never double-stamps. The stamp format is documented HERE (its
 # single source of truth — no separate shape doc to drift from); nothing parses it today,
@@ -32,7 +32,7 @@
 # review did not run" (the vet WAS attempted but the reviewer was unavailable — the
 # loud degrade). Same loud signal, different cause; a reader can tell "not yet" from
 # "tried and failed."
-# An optional NOTE is appended as " — <note>" (e.g. "3 findings", "evaluator unavailable").
+# An optional NOTE is appended as " — <note>" (e.g. "3 findings", "reviewer unavailable").
 #
 # Idempotent: an existing QA stamp line is REPLACED in place, wherever it sits (so the
 # templates' default UNVETTED stamp is overwritten with the real verdict, and a second
@@ -43,7 +43,7 @@
 # Usage: qa-stamp.sh ARTIFACT VERDICT REVIEWER [NOTE]
 #   ARTIFACT  path to stamp (must exist)
 #   VERDICT   pass | needs-work | unvetted   (case-insensitive)
-#   REVIEWER  e.g. guv:evaluator — REQUIRED for pass|needs-work, ignored for unvetted
+#   REVIEWER  e.g. guv:reviewer — REQUIRED for pass|needs-work, ignored for unvetted
 #   NOTE      freeform tail, optional (on needs-work, locate the findings — e.g.
 #             "3 findings — see handoff Issues & Technical Debt")
 set -euo pipefail

@@ -111,10 +111,10 @@ OUT=$(cd "$PLAIN" && jq -n '{tool_input: {}}' | bash "$HOOK")
 # plan-of-record tracker via shell; the MAIN session (no agent_type) still can.
 
 # T7 — a subagent's Bash write to a tracker is denied, across the write shapes.
-denies_as "echo '✅ done' >> docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+denies_as "echo '✅ done' >> docs/PHASE_STATUS.md" "$PLAIN" "reviewer" \
   && ok "subagent append (>>) to PHASE_STATUS denied" \
   || no "subagent >> to a tracker must be denied"
-denies_as "sed -i 's/⬜/✅/' docs/REQUIREMENTS.md" "$PLAIN" "lane-7.5" \
+denies_as "sed -i 's/⬜/✅/' docs/REQUIREMENTS.md" "$PLAIN" "worker-7.5" \
   && ok "subagent sed -i on REQUIREMENTS denied" \
   || no "subagent sed -i on a tracker must be denied"
 denies_as "printf done | tee docs/PHASE_STATUS.md" "$PLAIN" "guv:reviewer" \
@@ -123,36 +123,36 @@ denies_as "printf done | tee docs/PHASE_STATUS.md" "$PLAIN" "guv:reviewer" \
 denies_as "cat staged.md > ./docs/REQUIREMENTS.md" "$PLAIN" "Explore" \
   && ok "subagent overwrite (>) of ./docs/REQUIREMENTS.md denied" \
   || no "subagent > overwrite of a tracker must be denied"
-denies_as "cp /tmp/staged docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+denies_as "cp /tmp/staged docs/PHASE_STATUS.md" "$PLAIN" "reviewer" \
   && ok "subagent cp ONTO the tracker (target) denied" \
   || no "subagent cp onto a tracker must be denied"
 # Seams closed after the [7.4] evaluator pass: the noclobber-override redirect
 # (>|), the &> redirect, and a cp-onto-tracker CHAINED past the line end — all
 # honest write shapes the first patterns let slip.
-denies_as "echo x >| docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+denies_as "echo x >| docs/PHASE_STATUS.md" "$PLAIN" "reviewer" \
   && ok "subagent >| (noclobber-override) onto the tracker denied" \
   || no "subagent >| redirect to a tracker must be denied"
-denies_as "make build &> docs/REQUIREMENTS.md" "$PLAIN" "lane-7.4" \
+denies_as "make build &> docs/REQUIREMENTS.md" "$PLAIN" "worker-7.4" \
   && ok "subagent &> redirect onto the tracker denied" \
   || no "subagent &> redirect to a tracker must be denied"
-denies_as "cp /tmp/staged docs/PHASE_STATUS.md && echo done" "$PLAIN" "evaluator" \
+denies_as "cp /tmp/staged docs/PHASE_STATUS.md && echo done" "$PLAIN" "reviewer" \
   && ok "subagent cp ONTO the tracker chained past line-end denied" \
   || no "subagent cp onto a tracker must be denied even when chained"
 # Negative guards for the cp/mv arm — the destination semantic must not overblock
 # a benign copy that merely SHARES a command line with a tracker READ, nor a
 # tracker used as a non-final source. (Both regressed an earlier greedy pattern.)
-denies_as "cp a.txt b.txt && cat docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+denies_as "cp a.txt b.txt && cat docs/PHASE_STATUS.md" "$PLAIN" "reviewer" \
   && no "benign copy chained with a tracker READ must stay allowed (overblock)" \
   || ok "subagent cp of unrelated files + a tracker read on one line allowed"
-denies_as "cp seed docs/REQUIREMENTS.md backup" "$PLAIN" "evaluator" \
+denies_as "cp seed docs/REQUIREMENTS.md backup" "$PLAIN" "reviewer" \
   && no "tracker as a non-final cp SOURCE must stay allowed (it's a read)" \
   || ok "subagent cp with the tracker as a middle source allowed (read)"
 # Pin the destination anchor's branches ($|;|>) so a future edit can't quietly
 # drop a separator and reopen the chained-onto seam from the other side.
-denies_as "cp staged docs/PHASE_STATUS.md ; echo hi" "$PLAIN" "evaluator" \
+denies_as "cp staged docs/PHASE_STATUS.md ; echo hi" "$PLAIN" "reviewer" \
   && ok "subagent cp ONTO the tracker then ';' denied (anchor branch)" \
   || no "cp onto tracker followed by ';' must be denied"
-denies_as "cp staged docs/PHASE_STATUS.md > /dev/null" "$PLAIN" "evaluator" \
+denies_as "cp staged docs/PHASE_STATUS.md > /dev/null" "$PLAIN" "reviewer" \
   && ok "subagent cp ONTO the tracker then '>' denied (anchor branch)" \
   || no "cp onto tracker followed by '>' must be denied"
 
@@ -163,29 +163,29 @@ denies "echo '✅ done' >> docs/PHASE_STATUS.md" "$PLAIN" \
   || ok "main session (no agent_type) writes a tracker freely"
 
 # T9 — a subagent READING a tracker is allowed — only writes are denied.
-denies_as "grep '⬜' docs/PHASE_STATUS.md" "$PLAIN" "evaluator" \
+denies_as "grep '⬜' docs/PHASE_STATUS.md" "$PLAIN" "reviewer" \
   && no "subagent read (grep) of a tracker must stay allowed" \
   || ok "subagent grep of a tracker allowed (read, not write)"
-denies_as "cat docs/REQUIREMENTS.md" "$PLAIN" "evaluator" \
+denies_as "cat docs/REQUIREMENTS.md" "$PLAIN" "reviewer" \
   && no "subagent cat of a tracker must stay allowed" \
   || ok "subagent cat of a tracker allowed (read)"
-denies_as "cp docs/PHASE_STATUS.md /tmp/backup" "$PLAIN" "evaluator" \
+denies_as "cp docs/PHASE_STATUS.md /tmp/backup" "$PLAIN" "reviewer" \
   && no "subagent cp FROM the tracker (source) must stay allowed" \
   || ok "subagent cp from the tracker allowed (read, tracker not the target)"
 
 # T10 — a subagent writing a NON-tracker file via Bash is allowed (only the two
 # plan-of-record trackers are guarded; ARCHITECTURE and siblings are not).
-denies_as "echo x >> docs/ARCHITECTURE.md" "$PLAIN" "evaluator" \
+denies_as "echo x >> docs/ARCHITECTURE.md" "$PLAIN" "reviewer" \
   && no "subagent write to docs/ARCHITECTURE.md must stay allowed" \
   || ok "subagent write to a non-tracker doc allowed"
-denies_as "echo x >> notes.md" "$PLAIN" "lane-7.4" \
+denies_as "echo x >> notes.md" "$PLAIN" "worker-7.4" \
   && no "subagent write to an unrelated file must stay allowed" \
   || ok "subagent write to an unrelated file allowed"
 
 # T11 — the deny reason names the offending agent_type and routes to /replan.
-REASON=$(run_guard_as "echo x >> docs/PHASE_STATUS.md" "$PLAIN" "lane-7.5" \
+REASON=$(run_guard_as "echo x >> docs/PHASE_STATUS.md" "$PLAIN" "worker-7.5" \
   | jq -r '.hookSpecificOutput.permissionDecisionReason')
-echo "$REASON" | grep -q "lane-7.5" && echo "$REASON" | grep -q "/replan" \
+echo "$REASON" | grep -q "worker-7.5" && echo "$REASON" | grep -q "/replan" \
   && ok "tracker deny reason names the agent_type and routes to /replan" \
   || no "tracker deny reason must name the offender and route to /replan: $REASON"
 

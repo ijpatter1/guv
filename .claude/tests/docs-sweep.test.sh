@@ -300,7 +300,6 @@ maintainers/DOGFOODING.md
 .claude/tests/check-template-clean.test.sh
 .claude/tests/single-writer.test.sh
 .claude/tests/render-status.test.sh
-.claude/tests/guv-lane.test.sh
 .claude/tests/feedback-log.test.sh
 .claude/tests/entry-split.test.sh
 .claude/meter.sh

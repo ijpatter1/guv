@@ -56,24 +56,25 @@ chmod +x docs/uat/phase-N-uat.sh
 
 ### Vet the generated plan (calibrated, by name)
 
-The `reviewer` generated these scenarios, so vet them with an **independent** second eye:
-invoke the **`evaluator`** subagent **by name** (calibrated test-quality scrutiny, retained
-until [32.3] for exactly this vet; ad-hoc verifiers remain prohibited — Rule 14) to judge
-the UAT for soundness —
-do the scenarios exercise the deliverables end-to-end, are the `verify()` checks real, do
-the `confirm()` gates ask genuine human-judgment questions. The evaluator vetting what the
-reviewer wrote is the point: independent of the generator, never the same agent grading
-its own work.
+The session generated these scenarios, so vet them with an **independent** second eye:
+invoke the **`reviewer`** subagent **by name** (ad-hoc verifiers remain prohibited —
+Rule 14) to judge the UAT for soundness —
+do the scenarios exercise the deliverables end-to-end as the spec intends, are the
+`verify()` checks real, do the `confirm()` gates ask genuine human-judgment questions.
+The reviewer vetting what the session wrote is the point: independent of the generator,
+never the same agent grading its own work.
 
-**Routing is by artifact class, deliberately.** Every UAT vet goes to the `evaluator`
-regardless of the plan's form — an executable `.sh` script *or* a tier-3 prose `.md`
-card. Spike S3 left a dominant-nature refinement open (a prose UAT card "leans
-reviewer"); it is resolved here to **class-based routing** — a UAT is a test-quality
-surface whatever its form, the evaluator is its calibrated eye, and one matched vet keeps
-the latency bounded (Rule 7: the choice is made, not blended). For a prose `.md` card
-(no `verify()`/`confirm()` constructs to judge) point the evaluator at scenario coverage,
-edge-case completeness, and whether each scenario's expected outcome is a concrete check
-— and stamp the `.md` form (`qa-stamp.sh` selects `**QA:**` by extension automatically).
+**Every generated-artifact vet routes to the `reviewer`, deliberately.** Since [32.3]
+the calibrated roster is one deep (the evaluator retired with the build-fanout gate),
+so the class-based routing this section once carried collapses: UAT plan or manual
+card, `.sh` script or tier-3 prose `.md`, the reviewer is the vet (Rule 7: the choice
+is made, not blended). The fit is real, not just forced — a UAT is a walkthrough of
+the user experience the spec promises, which is the reviewer's calibration; scrutiny
+of real test code belongs to the platform review at each change's landing. For a prose
+`.md` card (no `verify()`/`confirm()` constructs to judge) point the reviewer at
+scenario coverage, edge-case completeness, and whether each scenario's expected outcome
+is a concrete check — and stamp the `.md` form (`qa-stamp.sh` selects `**QA:**` by
+extension automatically).
 
 This vet is **declared-not-gated** — the Rule-15 exit-0 rung: a NEEDS WORK verdict does
 **not** block the handoff. The session still exits 0 and the plan ships labelled with its
@@ -86,17 +87,17 @@ with the verdict, never one:
    idempotent — it overwrites the script's default `# QA: UNVETTED` line in place):
 
    ```bash
-   bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh pass guv:evaluator "0 findings"
+   bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh pass guv:reviewer "0 findings"
    # On NEEDS WORK, locate the findings in the NOTE so a reader of the stamp can find them:
-   bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh needs-work guv:evaluator "N findings — see handoff Issues & Technical Debt"
+   bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh needs-work guv:reviewer "N findings — see handoff Issues & Technical Debt"
    ```
 
-If the vet **cannot run** (the evaluator is unavailable), do **not** present the plan as
+If the vet **cannot run** (the reviewer is unavailable), do **not** present the plan as
 passed: degrade **loudly** to UNVETTED — recorded and stamped — so the unvetted state is
 visible, never a silent pass.
 
 ```bash
-bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh unvetted guv:evaluator "evaluator unavailable"
+bash .claude/qa-stamp.sh docs/uat/phase-N-uat.sh unvetted guv:reviewer "reviewer unavailable"
 ```
 
 Because the header stamp is authored UNVETTED by construction (see *UAT artifact

@@ -140,7 +140,7 @@ jq -r '.version // empty' "$MANIFEST" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
   && ok ".claude-plugin/ contains only plugin.json" \
   || no ".claude-plugin/ must contain only plugin.json, got: $(ls "$PLUGIN/.claude-plugin" | tr '\n' ' ')"
 MISPLACED=0
-for d in skills agents hooks scripts rules workflows; do
+for d in skills agents hooks scripts rules; do
   [ -e "$PLUGIN/.claude-plugin/$d" ] && MISPLACED=1
 done
 [ "$MISPLACED" -eq 0 ] \
@@ -217,11 +217,11 @@ else
   no "zen skill missing: $ZEN"
 fi
 
-# T6 — both reviewer agents ship, with the frontmatter hooks: block STRIPPED
+# T6 — the reviewer agent ships, with the frontmatter hooks: block STRIPPED
 # (plugin agents do not support frontmatter hooks — security restriction in the
 # plugin docs) and everything else preserved: name, tools, memory, and the body.
 T6_OK=1
-for a in evaluator reviewer; do
+for a in reviewer; do
   pa="$PLUGIN/agents/$a.md"
   sa="$SRC/agents/$a.md"
   if [ ! -f "$pa" ]; then no "agent $a missing from plugin"; T6_OK=0; continue; fi
@@ -235,10 +235,10 @@ for a in evaluator reviewer; do
   # plugin-only project doesn't have) — forward-rewrite the source side,
   # un-namespace the plugin side, and compare
   diff <(awk '/^---$/{n++; next} n>=2' "$sa" | apply_path_rewrite) \
-       <(awk '/^---$/{n++; next} n>=2' "$pa" | sed -E 's|/guv:|/|g; s|@guv:|@|g; s|`guv:(evaluator\|reviewer)` subagent|`\1` subagent|g') >/dev/null 2>&1 \
+       <(awk '/^---$/{n++; next} n>=2' "$pa" | sed -E 's|/guv:|/|g; s|@guv:|@|g; s|`guv:(reviewer)` subagent|`\1` subagent|g') >/dev/null 2>&1 \
     || { no "agent $a body differs from source beyond the namespace + path rewrites"; T6_OK=0; }
 done
-[ "$T6_OK" -eq 1 ] && ok "both agents ship hook-free with name/tools/body preserved"
+[ "$T6_OK" -eq 1 ] && ok "the reviewer ships hook-free with name/tools/body preserved"
 
 # T7 — hooks.json wires all three core hooks plus the reviewer read-only
 # guard, every command routed through \${CLAUDE_PLUGIN_ROOT}.
@@ -266,15 +266,10 @@ fi
 # on stdin, exactly as Claude Code delivers it. Deny messages must keep the
 # verbatim prefixes the Phase 4 spike verified live.
 if [ -f "$READONLY_SH" ]; then
-  out=$(printf '%s' '{"agent_type":"evaluator","tool_name":"Bash","tool_input":{"command":"echo x > /tmp/f"}}' | bash "$READONLY_SH")
-  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
-    && echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -q '^Evaluator is read-only\. Blocked write-pattern command:' \
-    && ok "evaluator + write-pattern command -> deny with verbatim message" \
-    || no "evaluator write-pattern must be denied with the verbatim message"
-  out=$(printf '%s' '{"agent_type":"evaluator","tool_name":"Bash","tool_input":{"command":"ls /tmp | head -3"}}' | bash "$READONLY_SH"); rc=$?
+  out=$(printf '%s' '{"agent_type":"reviewer","tool_name":"Bash","tool_input":{"command":"ls /tmp | head -3"}}' | bash "$READONLY_SH"); rc=$?
   [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
-    && ok "evaluator + read-only command -> allowed" \
-    || no "evaluator read-only command must pass"
+    && ok "reviewer + read-only command -> allowed" \
+    || no "reviewer read-only command must pass"
   out=$(printf '%s' '{"agent_type":"reviewer","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | bash "$READONLY_SH")
   echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
     && echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -q '^Product reviewer is read-only\. Blocked write-pattern command:' \
@@ -288,29 +283,18 @@ if [ -f "$READONLY_SH" ]; then
   [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
     && ok "other subagents -> guard stands aside" \
     || no "non-reviewer subagents must not be blocked by the reviewer guard"
-  # plugin agents resolve NAMESPACED (guv:evaluator) — verified live 2026-06-11:
-  # agent_type arrives prefixed, so the guard must match that form too
-  out=$(printf '%s' '{"agent_type":"guv:evaluator","tool_name":"Bash","tool_input":{"command":"echo x > /tmp/f"}}' | bash "$READONLY_SH")
-  echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
-    && ok "guv:evaluator (namespaced plugin form) + write-pattern -> deny" \
-    || no "guv:evaluator write-pattern must be denied (plugin agents resolve namespaced)"
+  # plugin agents resolve NAMESPACED (verified live 2026-06-11 with the
+  # then-shipped guv:evaluator): agent_type arrives prefixed, so the guard must
+  # match that form too
   out=$(printf '%s' '{"agent_type":"guv:reviewer","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | bash "$READONLY_SH")
   echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
     && ok "guv:reviewer (namespaced plugin form) + write-pattern -> deny" \
     || no "guv:reviewer write-pattern must be denied (plugin agents resolve namespaced)"
-  # T8b — [20.1] over-block fix (and its re-fix). The evaluator guard must NOT
-  # deny a benign read-only probe. Three over-block classes must pass: (1) a
-  # write-ish WORD (install/create/write/modify) or substring (tee) riding inside
-  # a quoted grep pattern / path / commit-message search — not a command, so
-  # read-only; (2) the benign redirects an evaluator actually uses — N>/dev/null,
-  # 2>&1, > /dev/null — which write nothing real and are SCRUBBED before matching;
-  # (3) a wrapper word inside an argument (grep "sudo rm") — peeling happens only
-  # at command position, so the quoted form stays read-only. Symmetrically, the
-  # deny cases prove the scrub did not under-block: a real-file redirect, and a
-  # write verb behind a command-position wrapper (sudo rm / find | xargs rm /
-  # FOO=1 rm) is still denied. The guard anchors detection to command position;
-  # a word in an argument is not a command. jq builds the hook JSON so the
-  # embedded quotes survive into a valid payload.
+  # T8b — [32.3] posture probes for the surviving reviewer arm. (The [20.1]
+  # SCRUB machinery and its over/under-block table lived in the evaluator arm
+  # and retired with the evaluator agent at [32.3]; these probes pin what the
+  # reviewer arm actually is — a command-position write-verb match, with
+  # redirects an accepted UNDER-block whose backstop is the isolation tier.)
   evjson() { jq -cn --arg a "$1" --arg c "$2" '{agent_type:$a,tool_name:"Bash",tool_input:{command:$c}}'; }
   while IFS='|' read -r agent verdict cmd; do
     [ -z "$agent" ] && continue
@@ -318,75 +302,65 @@ if [ -f "$READONLY_SH" ]; then
     denied=no; echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 && denied=yes
     if [ "$verdict" = allow ]; then
       [ $rc -eq 0 ] && [ "$denied" = no ] \
-        && ok "evaluator allows benign read-only probe: $cmd" \
-        || no "evaluator over-blocks benign read-only probe: $cmd"
+        && ok "reviewer allows: $cmd" \
+        || no "reviewer over-blocks: $cmd"
     else
       [ "$denied" = yes ] \
-        && ok "evaluator still denies write at command position: $cmd" \
-        || no "evaluator under-blocks a real write: $cmd"
+        && ok "reviewer denies write verb at command position: $cmd" \
+        || no "reviewer under-blocks a real write: $cmd"
     fi
   done <<'T8B'
-evaluator|allow|grep -rn "install" .
-evaluator|allow|git log --grep="createTable"
-evaluator|allow|grep -rn "writeFile" src/
-evaluator|allow|grep -r "guarantee none" notes.md
-guv:evaluator|allow|grep -rn "modifyConfig" .
-evaluator|allow|cat foo 2>/dev/null
-evaluator|allow|make test 2>&1
-evaluator|allow|ls > /dev/null
-guv:evaluator|allow|bash run.sh 2>&1 | grep -i fail
-evaluator|allow|grep "sudo rm" file
-evaluator|deny|ls; rm -rf build
-evaluator|deny|cat a | tee out.txt
-evaluator|deny|echo hi && mkdir d
-evaluator|deny|echo $(touch f)
-evaluator|deny|sudo rm -rf build
-evaluator|deny|find . | xargs rm
-evaluator|deny|FOO=1 rm x
-guv:evaluator|deny|cmd > output.txt
-evaluator|deny|cp src dst
+reviewer|allow|grep -rn "install" .
+reviewer|allow|grep "rm -rf" notes.md
+reviewer|allow|make test 2>&1
+reviewer|allow|echo done > /tmp/log
+guv:reviewer|allow|cat docs/REQUIREMENTS.md
+reviewer|deny|rm -rf build
+reviewer|deny|git push origin main
+guv:reviewer|deny|python -c "print()"
 T8B
 else
   no "reviewer-readonly.sh missing: $READONLY_SH"
 fi
 
-# T8c — [20.1] dual-surface parity. The project-mode evaluator.md frontmatter
-# carries the SAME scrub+grep as the plugin reviewer-readonly.sh, but until now
-# nothing asserted they stay equal — T9 byte-checks only the .sh against its
-# source; T8b drives only the .sh. A future edit to one surface that missed the
-# other would ship a silently-divergent guard (the recurring cross-install-rot
-# class). Drive BOTH surfaces with the same probes and assert identical verdicts —
-# behavioral parity, robust to the whitespace/escaping a textual diff trips on.
-# The frontmatter command is extracted exactly as Claude Code runs it (a
-# single-quoted YAML scalar, '' -> ' unescaped) and fed the hook JSON on stdin.
-EVAL_MD="$SRC/agents/evaluator.md"
-if [ -f "$READONLY_SH" ] && [ -f "$EVAL_MD" ]; then
-  raw=$(sed -n "s/^[[:space:]]*command: '\(COMMAND=.*\)'\$/\1/p" "$EVAL_MD" | head -1)
-  fmcmd=${raw//\'\'/\'}
+# T8c — dual-surface parity, retargeted to the reviewer at [32.3] (the
+# evaluator surface retired with the agent). The project-mode reviewer.md
+# frontmatter carries the SAME write-verb pattern as the plugin
+# reviewer-readonly.sh's reviewer arm, but nothing else asserts they stay
+# equal — T9 byte-checks only the .sh against its source. A future edit to one
+# surface that missed the other would ship a silently-divergent guard (the
+# recurring cross-install-rot class). Drive BOTH surfaces with the same probes
+# and assert identical VERDICTS — behavioral parity, robust to the
+# whitespace/escaping a textual diff trips on. (Deny MESSAGES differ by
+# design: the frontmatter says "Reviewer", the plugin arm "Product reviewer".)
+# The frontmatter command is a YAML block scalar — extracted as the lines
+# under `command: |`, de-indented, and fed the hook JSON on stdin.
+REV_MD_SRC="$SRC/agents/reviewer.md"
+if [ -f "$READONLY_SH" ] && [ -f "$REV_MD_SRC" ]; then
+  fmcmd=$(awk '/^[[:space:]]*command: \|/{f=1; next} f && /^---$/{exit} f{sub(/^[[:space:]]{12}/,""); print}' "$REV_MD_SRC")
   if [ -z "$fmcmd" ]; then
-    no "T8c parity: could not extract evaluator.md frontmatter hook command"
+    no "T8c parity: could not extract reviewer.md frontmatter hook command"
   else
     T8C_OK=1
     while IFS='|' read -r want cmd; do
       [ -z "$want" ] && continue
-      j=$(jq -cn --arg a evaluator --arg c "$cmd" '{agent_type:$a,tool_name:"Bash",tool_input:{command:$c}}')
+      j=$(evjson reviewer "$cmd")
       shv=allow; printf '%s' "$j" | bash "$READONLY_SH" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 && shv=deny
       mdv=allow; printf '%s' "$j" | bash -c "$fmcmd"     | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1 && mdv=deny
       [ "$shv" = "$mdv" ] && [ "$shv" = "$want" ] \
         || { no "frontmatter/script parity broke: '$cmd' -> sh=$shv md=$mdv want=$want"; T8C_OK=0; }
     done <<'T8C'
 allow|grep -rn "install" .
-allow|cat foo 2>/dev/null
-allow|grep "sudo rm" file
-deny|sudo rm -rf build
-deny|find . | xargs rm
-deny|cmd > output.txt
-deny|echo x > /tmp/f
+allow|grep "rm -rf" notes.md
+allow|echo done > /tmp/log
+deny|rm -rf build
+deny|git push origin main
+deny|python -c "print()"
 T8C
-    [ "$T8C_OK" -eq 1 ] && ok "evaluator.md frontmatter and reviewer-readonly.sh enforce identically (dual-surface parity)"
+    [ "$T8C_OK" -eq 1 ] && ok "reviewer.md frontmatter and reviewer-readonly.sh enforce identically (dual-surface parity)"
   fi
 else
-  no "T8c parity: missing $READONLY_SH or $EVAL_MD"
+  no "T8c parity: missing $READONLY_SH or $REV_MD_SRC"
 fi
 
 # T9 — hook + helper scripts ship byte-identical (cmp) to their .claude/ sources.
@@ -415,14 +389,24 @@ done
 
 # T11 — retired at [32.1] (spec-2026-07-31): the eval-parallel workflow and its
 # fronting skill left the plugin — the review gate is /code-review plus the
-# reviewer agent (skills/eval). The shipped-workflow invariants now bind the
-# remaining workflows via the generic per-file rewrite in build-plugin.sh; the
-# eval-parallel-specific assertions died with their subject. This tombstone keeps
-# the T-numbering stable for the suites that cite it.
+# reviewer agent (skills/eval). The eval-parallel-specific assertions died with
+# their subject. This tombstone keeps the T-numbering stable for the suites
+# that cite it.
 if [ ! -f "$PLUGIN/workflows/eval-parallel.js" ] && [ ! -d "$PLUGIN/skills/eval-parallel" ]; then
   ok "eval-parallel workflow and skill are retired from the plugin ([32.1])"
 else
   no "eval-parallel must not ship: retired at [32.1] (stale plugin artifact — rebuild)"
+fi
+
+# T11b — retired at [32.3] (spec-2026-07-31): the lane cluster left with the
+# build-fanout skill/workflow and the evaluator agent — no workflows ship at
+# all now, so the plugin has no workflows/ dir. Same tombstone idiom as T11:
+# a stale rebuild is the failure this catches.
+if [ ! -d "$PLUGIN/workflows" ] && [ ! -d "$PLUGIN/skills/build-fanout" ] && [ ! -f "$PLUGIN/agents/evaluator.md" ] \
+   && [ ! -f "$PLUGIN/agents/lane-builder.md" ] && [ ! -f "$PLUGIN/scripts/guv-lane.sh" ] && [ ! -f "$PLUGIN/scripts/fanout-offer.sh" ]; then
+  ok "the lane cluster and the evaluator are retired from the plugin ([32.3])"
+else
+  no "lane-cluster artifacts must not ship: retired at [32.3] (stale plugin artifact — rebuild)"
 fi
 
 # T12 — no stale project-relative script invocations survive inside plugin
@@ -444,14 +428,13 @@ STALE=$(grep -rE "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" "$PLUGIN/skills" "$PLUGI
 # preceding-char guard skips path segments and already-namespaced forms; the
 # trailing guard skips longer names (/task-foo) and the :-suffixed guv forms.
 # Derived from the source tree exactly as the build's slash_names() derives
-# its rewrite list — a future command/skill/workflow is covered by both or by
+# its rewrite list — a future command/skill is covered by both or by
 # neither, never silently by one. plugin-src skills (zen, scaffold) register
 # as /guv:<name> too; the guard tolerates their absence in a consumer fork
 # (maintainers/ deleted), where the detector is just slightly narrower.
 CMDS=$(
   {
     for d in "$SRC/skills"/*/; do basename "$d"; done
-    for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
     for d in "$ROOT/maintainers/plugin-src/skills"/*/; do
       [ -e "$d" ] && basename "$d"
     done
@@ -575,12 +558,10 @@ fi
 rm -f "$T12D_FIX"
 trap - EXIT
 
-# T12e — SOURCE-side decoder lint: the in-lane shift-left of T12d. T12d scans the
-# BUILT plugin/, which a source-only fan-out lane never rebuilds (the join owns
-# the rebuild; lane-dispatch confine even refuses a lane that touches plugin/).
-# So a new script's bare /command with no guv: decoder slips every rebuild-free
-# in-lane check and surfaces only at the join battery — exactly how [9.6]'s
-# estimate.sh missed its /plan + /replan decoders. This lint applies
+# T12e — SOURCE-side decoder lint: the shift-left of T12d. T12d scans the
+# BUILT plugin/, so a new script's bare /command with no guv: decoder slips
+# every rebuild-free check and surfaces only at the full battery — exactly how
+# [9.6]'s estimate.sh missed its /plan + /replan decoders. This lint applies
 # the SAME decoder rule to the source that reaches plugin consumers verbatim for
 # slash-command purposes — the FULL byte-identical-shipping surface, both halves:
 #   - .claude helper + hook scripts        -> scripts/ (byte-identical)
@@ -588,19 +569,15 @@ trap - EXIT
 #                                             [8.3] single-owner bundle, referenced
 #                                             via ${CLAUDE_SKILL_DIR}, NOT rewritten)
 #   - maintainers/plugin-src/scripts/*.sh  -> scripts/ (byte-identical; authored
-#                                             plugin-only, but lane-editable
-#                                             source — confine T3c permits it)
+#                                             plugin-only)
 #   - .claude/rules/guv-*.md               -> rules/   (byte-identical)
-#   - .claude/workflows/*.js               -> workflows/ (rewritten ONLY at its
-#                                             agentType lines, never at /command
-#                                             mentions — so the decoder rule holds)
 # No plugin/ rebuild needed, so it fires the moment any context runs the suite,
 # naming the SOURCE file. SKILL.md/agent prose is excluded — the build
 # namespace-rewrites those in transit, so bare mentions there are fixed on the
 # way in (T12b owns that surface); bundled skill scripts/ are NOT rewritten, so
 # they ARE scanned here. Reuses $CMDS and $GENERIC_DECODER from
 # T12b/T12d. Runs unconditionally (no plugin/ dependency; tolerates an absent
-# maintainers/), so it is the one plugin-transform check a lane can run.
+# maintainers/).
 # Both take an optional ROOT so the positive control below can scan a scratch
 # copy instead of planting its fixture in the live tree (spike Prong B). The real
 # lint still runs against $ROOT — it exists to catch violations in the real source.
@@ -608,7 +585,7 @@ t12e_sources() {  # [<root>]
   local r="${1:-$ROOT}" x
   for x in "$r"/.claude/*.sh "$r"/.claude/hooks/*.sh "$r"/.claude/skills/*/scripts/*.sh \
            "$r"/maintainers/plugin-src/scripts/*.sh \
-           "$r"/.claude/rules/guv-*.md "$r"/.claude/workflows/*.js; do
+           "$r"/.claude/rules/guv-*.md; do
     [ -e "$x" ] && echo "$x"
   done
 }

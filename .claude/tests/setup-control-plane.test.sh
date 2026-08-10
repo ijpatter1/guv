@@ -138,11 +138,10 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
   || no "create: .DS_Store leaked into the control plane: $FOUND"
 grep -q '^\.DS_Store$' "$D/.gitignore" && ok "create: generated .gitignore covers .DS_Store" \
   || no "generated .gitignore should ignore .DS_Store (Finder recreates them at the root)"
-# The fan-out scratch (.lane-reports/) lives in the CONTROL PLANE, not roots.code —
-# the worktrees live in roots.code (covered by the scaffold's guv-core block), so
-# the plane's own gitignore must carry the lane-reports dir (UAT-F4).
-grep -q '^\.lane-reports/$' "$D/.gitignore" && ok "create: generated .gitignore covers .lane-reports/ (control-plane fan-out scratch)" \
-  || no "generated .gitignore should ignore .lane-reports/ (UAT-F4: plane scratch left untracked)"
+# The fan-out scratch ignore (.lane-reports/) retired with the lane cluster at
+# [32.3] — a fresh plane must not carry it.
+grep -q '^\.lane-reports/$' "$D/.gitignore" && no "create: generated .gitignore still carries .lane-reports/ (lane cluster retired at [32.3])" \
+  || ok "create: generated .gitignore carries no lane-era scratch entry ([32.3])"
 tr '\n' ' ' < "$D/CLAUDE.md" 2>/dev/null | tr -s ' ' | grep -q "auto memory as hints" \
   && ok "create: generated CLAUDE.md carries the memory-authority line" \
   || no "generated CLAUDE.md should declare manifest+handoff authority over auto memory"
@@ -163,23 +162,25 @@ FOUND=$(find "$D/.claude" -name '.DS_Store' 2>/dev/null)
 [ -z "$FOUND" ] && ok "sync: copied core stays .DS_Store-free" \
   || no "sync: .DS_Store survived/leaked: $FOUND"
 
-# T3c — --sync backfills .lane-reports/ into an EXISTING plane whose .gitignore
-# predates the line (create-mode write is skipped when a .gitignore exists), and
-# is idempotent (a second --sync does not duplicate it). UAT-F4 + eval Minor.
+# T3c — --sync PRUNES a lingering .lane-reports/ ignore from an EXISTING plane
+# (planes scaffolded before [32.3] carry it; removal cannot self-heal), and is
+# idempotent (a second --sync on a clean file changes nothing).
 H=$(make_guv)
 D="$WORK/control-gi"
 run_setup "$H" "$D"
-# Simulate a plane scaffolded before the line shipped: strip it back out.
-grep -v '^\.lane-reports/$' "$D/.gitignore" > "$D/.gitignore.tmp" && mv "$D/.gitignore.tmp" "$D/.gitignore"
-grep -qxF '.lane-reports/' "$D/.gitignore" && no "precondition: .lane-reports/ should be stripped before the sync test"
+# Simulate a plane scaffolded before [32.3]: plant the lane-era entry.
+printf '.lane-reports/\n' >> "$D/.gitignore"
+grep -qxF '.lane-reports/' "$D/.gitignore" || no "precondition: .lane-reports/ should be planted before the sync test"
 run_setup "$H" "$D" --sync
 grep -qxF '.lane-reports/' "$D/.gitignore" \
-  && ok "sync: backfills .lane-reports/ into an existing plane's .gitignore" \
-  || no "sync must ensure .lane-reports/ is ignored on an existing plane (UAT-F4)"
+  && no "sync must remove a lingering .lane-reports/ ignore ([32.3] retirement cannot self-heal)" \
+  || ok "sync: prunes the lane-era .lane-reports/ ignore from an existing plane"
+before=$(cksum < "$D/.gitignore")
 run_setup "$H" "$D" --sync
-[ "$(grep -cxF '.lane-reports/' "$D/.gitignore")" -eq 1 ] \
-  && ok "sync: the .lane-reports/ backfill is idempotent (no duplicate on a second sync)" \
-  || no "sync: .lane-reports/ must not be duplicated on repeated --sync"
+after=$(cksum < "$D/.gitignore")
+[ "$before" = "$after" ] \
+  && ok "sync: the prune is idempotent (a second sync leaves the file byte-identical)" \
+  || no "sync: a second --sync must not rewrite an already-clean .gitignore"
 
 # T4 — sync refreshes the core but leaves session state alone, byte-for-byte
 # (the full contract the script's header states: manifest, CLAUDE.md, docs,
@@ -622,6 +623,32 @@ if [ "$RC_ABS" -ne 0 ] && echo "$OUT_ABS" | grep -q "not an existing control pla
 else
   no "--sync against an absent destination must refuse, not mkdir + report success"
 fi
+# A SELF-TARGETED sync refuses — copy_core rm-rf's each guv-owned tree in DEST
+# before copying from source, so DEST == the guv repo destroys the source trees
+# (demonstrated live 2026-08-10; only the git index saved the working core).
+FP_BEFORE=$(ls "$DH2/.claude" | cksum)
+OUT_SELF=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" "$DH2" --sync 2>&1 )
+RC_SELF=$?
+FP_AFTER=$(ls "$DH2/.claude" | cksum)
+if [ "$RC_SELF" -ne 0 ] && echo "$OUT_SELF" | grep -q "destination is the guv repo itself" && [ "$FP_BEFORE" = "$FP_AFTER" ]; then
+  ok "self-targeted --sync refuses loud (a sibling plane, never the source repo)"
+else
+  no "a self-targeted sync must refuse before touching anything — it rm-rf's the source trees (rc=$RC_SELF)"
+fi
+# A DIFFERENTLY-SPELLED path to the same repo must refuse too — the guard is an
+# inode identity (-ef), not a string compare; a symlinked spelling that passed a
+# string compare would reach the rm-rf all the same.
+ln -s "$DH2" "$WORK/self-link" 2>/dev/null
+OUT_LINK=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" "$WORK/self-link" --sync 2>&1 )
+RC_LINK=$?
+FP_LINK=$(ls "$DH2/.claude" | cksum)
+if [ "$RC_LINK" -ne 0 ] && echo "$OUT_LINK" | grep -q "destination is the guv repo itself" && [ "$FP_BEFORE" = "$FP_LINK" ]; then
+  ok "symlinked self-target refuses too (identity is the inode, not the spelling)"
+else
+  no "a symlinked path to the source repo must refuse — a string compare passes it straight to the rm-rf (rc=$RC_LINK)"
+fi
+rm -f "$WORK/self-link"
+
 # An unrecognized second argument refuses — a typo'd --sync must not silently
 # run create mode.
 OUT_UNK=$( cd "$WORK" && bash "$DH2/maintainers/setup-control-plane.sh" "$WORK/nowhere" --synk 2>&1 )

@@ -26,7 +26,7 @@ nothing leaves this machine until you choose to file it.
   doc that described something that isn't true, a hook that misfired, awkward ergonomics.
 - **Not here — project code bugs** → route through `/guv:task` (they're about the product,
   not guv).
-- **Not here — per-agent learning** (evaluator/reviewer observations) → that's
+- **Not here — per-agent learning** (reviewer observations) → that's
   `.claude/agent-memory/`, a different artifact with a different lifecycle.
 
 ## Where it lives

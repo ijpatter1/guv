@@ -272,11 +272,11 @@ Then generate a user acceptance testing plan. The UAT plan verifies that the pha
 
 ### Generating the UAT Plan
 
-Invoke the `guv:reviewer` subagent with a prompt like: "Phase [N] is dev complete. All deliverables have passed technical evaluation and product review. Generate end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them. Reference docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together."
+Draft the scenarios yourself — you just built the phase, so you know what shipped: end-to-end user acceptance scenarios that test the phase's deliverables as a user would experience them, working from docs/REQUIREMENTS.md for the deliverables, docs/ARCHITECTURE.md for the technical design, and any content guides or specs referenced in CLAUDE.md. Focus on realistic workflows, not individual feature checks — each scenario should exercise multiple deliverables working together.
 
-Use the reviewer's scenarios to produce the artifact. Then **vet it via the
-`evaluator`** ([18.2]) — by name (the agent is retained until [32.3] for exactly
-this vet rung), and **independent of the `reviewer`** that
+Produce the artifact from those scenarios. Then **vet it via the
+`reviewer`** ([18.2]) — by name (Rule 14; since [32.3] the reviewer is the one
+calibrated vet for every generated artifact), and **independent of the session** that
 generated it: the agent that wrote the scenarios never grades its own work. The vet is
 **declared-not-gated** (the exit-0 rung — a NEEDS WORK verdict never blocks the handoff),
 and its verdict is both recorded in this handoff and stamped on the artifact; a review

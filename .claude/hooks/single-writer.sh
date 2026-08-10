@@ -8,9 +8,10 @@
 #
 # The signal is agent_type — present (non-empty) in PreToolUse input ONLY when
 # the call fires inside a subagent; the main thread reports it empty. So any
-# non-empty value is denied: both the bare (evaluator) and guv:-prefixed
-# (guv:evaluator, verified live 2026-06-11) forms, AND every other subagent
-# (Explore, lane workers) — the rule needs no per-agent list. The matcher is
+# non-empty value is denied: both the bare (reviewer) and guv:-prefixed
+# (guv:reviewer) forms — the namespaced denial verified live 2026-06-11 with the
+# then-shipped guv:evaluator — AND every other subagent
+# (Explore and friends) — the rule needs no per-agent list. The matcher is
 # Write|Edit|MultiEdit (the same file-write set settings.json already routes to
 # auto-format), so a subagent can't slip the tracker through MultiEdit; the hook
 # keys on the tool_input path, resolving the same field set as auto-format.sh

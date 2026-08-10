@@ -2,9 +2,9 @@
 # .claude/battery-result.sh — the recorded battery verdict and its tree provenance
 # (spike Prong A2: one owner of suite execution per QA pass).
 #
-# THE PROBLEM. The evaluator runs the battery by contract, the reviewer runs
-# suites opportunistically, and the main session has usually just run one. Three
-# actors, one shared live tree, no coordination — 1..5 batteries per QA pass at
+# THE PROBLEM. A QA pass multiplies battery runs: the main session has usually
+# just run one, and a reviewer spawned at the gate is tempted to run its own.
+# Several actors, one shared live tree, no coordination — 1..5 batteries per QA pass at
 # ~800s each, plus the entire concurrent-QA flake class (friction
 # 2026-07-21T17:00:10Z-1640628803, where concurrent agents false-red each other
 # by fighting over live-tree fixtures).
@@ -16,7 +16,7 @@
 # fingerprint of the exact tree it was run against, and this script refuses loud
 # when that fingerprint no longer matches.
 #
-# WHY A FINGERPRINT AND NOT `rev-parse HEAD`. The evaluator is invoked mid-loop
+# WHY A FINGERPRINT AND NOT `rev-parse HEAD`. The review gate runs mid-loop
 # (/guv:task step 6 runs it BEFORE the commit), so the tree it grades is
 # routinely dirty. A HEAD-only check would call every one of those runs fresh
 # and be wrong every time. The fingerprint therefore hashes WORKING-TREE CONTENT
@@ -79,8 +79,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # the one the generated runner already relies on to resolve roots.code.
 #
 # NOT beside this script. Under a plugin install the two ends run from different
-# directories: the runner records through the plane's own .claude/ copy, while the
-# evaluator reads through the plugin cache (the builder rewrites
+# directories: the runner records through the plane's own .claude/ copy, while a
+# QA reader reads through the plugin cache (the builder rewrites
 # `bash .claude/<script>.sh` to `${CLAUDE_PLUGIN_ROOT}/scripts/<script>.sh`). A
 # $HERE-relative path would give them two different files, and the reader would
 # refuse forever against an artifact that was written all along.
@@ -218,7 +218,7 @@ case "$CMD" in
     # `record` is only ever called by the maintainer-only generated runner, so a
     # consumer install has no recorder and this message is that project's PERMANENT
     # state, not a step it has yet to take.
-    [ -f "$ART" ] || die "no recorded battery run — nothing has been recorded for this project yet. If you are the evaluator, run the battery. If you are the reviewer, this is expected and is NOT a finding: most projects have no recorder at all, and you do not run the battery yourself — take test state from the evaluator's report." 3
+    [ -f "$ART" ] || die "no recorded battery run — nothing has been recorded for this project yet. If you are the main session, run the battery. If you are the reviewer, this is expected and is NOT a finding: most projects have no recorder at all, and you do not run the battery yourself — take test state from the session's recorded run." 3
     rc=$(jq -r '.rc // empty' "$ART" 2>/dev/null)
     suites=$(jq -r '.suites // empty' "$ART" 2>/dev/null)
     passed=$(jq -r '.passed // empty' "$ART" 2>/dev/null)

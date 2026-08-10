@@ -1,6 +1,6 @@
 #!/bin/bash
-# Plugin-level PreToolUse guard: read-only enforcement for the two calibrated
-# reviewer agents (evaluator, reviewer).
+# Plugin-level PreToolUse guard: read-only enforcement for the calibrated
+# reviewer agent.
 #
 # Why this exists: plugin-shipped agents cannot carry frontmatter hooks (the
 # plugin docs exclude hooks/mcpServers/permissionMode from plugin agents for
@@ -17,39 +17,26 @@
 # plus the agent_type-gated tracker guard — NOT an ordinary `rm build`/`cp`/`> file`;
 # the isolation tier (native sandbox) is the real boundary. Residuals — by
 # DIRECTION, since they fail opposite ways (both acceptable for a cooperative
-# agent): OVER-block — a benign read we tolerate DENYING: a quoted > read as a
-# redirect (awk '$1 > 5', grep ">"). UNDER-block — a write that SLIPS, leaving
-# the isolation tier as the backstop: interposed-arg wrappers (timeout N cmd,
-# sudo -u U cmd), a doubled direct wrapper (sudo sudo rm — one peel pass leaves
-# the verb off-anchor), exotic wrappers (stdbuf), and backtick (not $()) substitution.
+# agent): OVER-block — a benign command we tolerate DENYING: a blocked verb at
+# pipe position doing read-only work (git checkout -- to inspect, python for
+# analysis). UNDER-block — a write that SLIPS, leaving the isolation tier as the
+# backstop: shell redirects (> file), tee/sed -i, and wrapped verbs (sudo rm,
+# xargs rm) — the pattern matches command position only.
 #
 # Patterns and deny messages stay verbatim-consistent with the agent frontmatter
-# (.claude/agents/{evaluator,reviewer}.md). The Phase 4 spike verified the write
-# denials live; [20.1] stopped the evaluator branch over-blocking benign probes:
-# detection is anchored to command position (a write WORD in an argument — grep
-# "install", the "tee" in "guarantee" — passes), and a SCRUB drops the benign
-# redirects an evaluator uses (N>/dev/null, 2>&1, >&2) and peels command-position
-# wrappers before matching, so a write behind one (sudo rm, find | xargs rm) is
-# still denied. Both bare and
+# (.claude/agents/reviewer.md). The Phase 4 spike verified the write denials
+# live. (The evaluator arm, and the [20.1] SCRUB machinery it carried, retired
+# with the evaluator agent at [32.3].) Both bare and
 # guv:-prefixed agent_type values are matched: plugin-shipped agents resolve
-# namespaced (guv:evaluator — verified live 2026-06-11, the denial fired with
-# the file confirmed absent), while project .claude/agents/ copies report the
-# bare name; one guard covers both install modes.
+# namespaced (verified live 2026-06-11 with the then-shipped guv:evaluator, the
+# denial fired with the file confirmed absent), while project .claude/agents/
+# copies report the bare name; one guard covers both install modes.
 set -u
 INPUT=$(cat)
 AGENT=$(echo "$INPUT" | jq -r '.agent_type // empty')
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 case "$AGENT" in
-  evaluator|guv:evaluator)
-    # SCRUB then match (see SCOPE above): drop benign redirects (N>/dev/null, fd
-    # dups) and peel command-position wrappers/env-assignments so the real verb
-    # sits at an anchor — a write WORD inside an argument never reaches the verb test.
-    SCRUBBED=$(printf '%s' "$CMD" | sed -E 's#[0-9]*>>?[[:space:]]*/dev/null##g;s#[0-9]*>&[0-9-]+##g;s#(^|[|&;(])[[:space:]]*(sudo|time|nohup|env|xargs|nice|ionice)[[:space:]]+#\1 #g;s#(^|[|&;(])[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+#\1 #g')
-    if printf '%s' "$SCRUBBED" | grep -qE '(>>?|sed[[:space:]]+-i|(^|[|&;(])[[:space:]]*(tee|mv|cp|rm|mkdir|touch|chmod|npm[[:space:]]+(i|install|ci)|pip[[:space:]]+install))'; then
-      jq -n --arg r "Evaluator is read-only. Blocked write-pattern command: $CMD" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-    fi
-    ;;
   reviewer|guv:reviewer)
     if echo "$CMD" | grep -qE '(^|\|)\s*(rm|mv|cp|chmod|chown|git\s+(push|commit|merge|rebase|checkout)|npm\s+(publish|install)|npx|node\s+-e|pip|python)'; then
       jq -n --arg r "Product reviewer is read-only. Blocked write-pattern command: $CMD" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'

@@ -116,7 +116,7 @@ done
 # announcement was the first answer to this and is not sufficient alone: both
 # automated callers discard the build's output (guv eval, 2026-07-27), leaving
 # nothing that could actually fail. This assertion is the loud half.
-for b in resolve-ready.test.sh route.test.sh merge-queue.test.sh battery-result.test.sh; do
+for b in resolve-ready.test.sh route.test.sh qa-stamp.test.sh battery-result.test.sh; do
   [ -f "$PTESTS/$b" ] \
     && ok "consumer suite present: $b" \
     || no "expected consumer suite missing: $b (if this suite was consumer-relevant yesterday and is maintainer-only today, check whether a COMMENT in it now matches build-plugin.sh's partition pattern — that is how this exact assertion earned its place)"

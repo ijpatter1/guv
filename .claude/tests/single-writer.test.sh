@@ -5,8 +5,8 @@
 # (docs/PHASE_STATUS.md, docs/REQUIREMENTS.md). A subagent's Write/Edit/MultiEdit
 # to either is denied; the main thread and every other file pass through. The
 # signal is agent_type — present (non-empty) in PreToolUse input ONLY inside a
-# subagent; the main thread reports it empty. Both bare (evaluator) and
-# guv:-prefixed (guv:evaluator) forms are subagents, so any non-empty value
+# subagent; the main thread reports it empty. Both bare (reviewer) and
+# guv:-prefixed (guv:reviewer) forms are subagents, so any non-empty value
 # denies — no per-agent list. Synthetic hook JSON on stdin, exactly as Claude
 # Code delivers it.
 #
@@ -50,7 +50,7 @@ mk() { # mk <agent_type|""> <tool_name> <file_path>
 # ── DENY: a subagent writing either tracker, by any edit tool, any agent form ──
 
 # T1 — subagent (bare) Write to PHASE_STATUS.md (absolute path) -> deny
-out=$(feed "$(mk evaluator Write /home/proj/docs/PHASE_STATUS.md)")
+out=$(feed "$(mk reviewer Write /home/proj/docs/PHASE_STATUS.md)")
 is_deny "$out" \
   && ok "subagent Write docs/PHASE_STATUS.md -> deny (names the single-writer invariant)" \
   || no "a subagent Write to docs/PHASE_STATUS.md must be denied"
@@ -72,9 +72,9 @@ is_deny "$out" \
 
 # T3 — guv:-prefixed agent_type (plugin agents resolve namespaced, verified live
 # 2026-06-11) is still a subagent -> deny
-out=$(feed "$(mk guv:evaluator Write /home/proj/docs/PHASE_STATUS.md)")
+out=$(feed "$(mk guv:reviewer Write /home/proj/docs/PHASE_STATUS.md)")
 is_deny "$out" \
-  && ok "guv:evaluator (namespaced plugin form) Write tracker -> deny" \
+  && ok "guv:reviewer (namespaced plugin form) Write tracker -> deny" \
   || no "a guv:-prefixed subagent must be denied (non-empty agent_type is a subagent)"
 
 # T4 — MultiEdit is the third file-write tool the settings matcher carries
@@ -86,7 +86,7 @@ is_deny "$out" \
   || no "a subagent MultiEdit to a tracker must be denied"
 
 # T5 — relative path form (docs/… with no leading slash) still matches the anchor
-out=$(feed "$(mk evaluator Write docs/PHASE_STATUS.md)")
+out=$(feed "$(mk reviewer Write docs/PHASE_STATUS.md)")
 is_deny "$out" \
   && ok "relative docs/PHASE_STATUS.md path -> deny (anchor matches ^docs/ too)" \
   || no "the path anchor must match the leading-segment relative form"
@@ -94,7 +94,7 @@ is_deny "$out" \
 # T5b — the target path is resolved from tool_input.path too, matching
 # auto-format.sh's field set (the other Write|Edit|MultiEdit guard). A tool that
 # delivered the tracker under .path instead of .file_path must not slip through.
-out=$(feed "$(jq -nc --arg a evaluator --arg f /home/proj/docs/PHASE_STATUS.md '{agent_type:$a,tool_name:"Edit",tool_input:{path:$f}}')")
+out=$(feed "$(jq -nc --arg a reviewer --arg f /home/proj/docs/PHASE_STATUS.md '{agent_type:$a,tool_name:"Edit",tool_input:{path:$f}}')")
 is_deny "$out" \
   && ok "tracker path under tool_input.path -> deny (field parity with auto-format.sh)" \
   || no "the hook must read tool_input.path as a fallback, like auto-format.sh"
@@ -109,14 +109,14 @@ out=$(feed "$(mk "" Write /home/proj/docs/PHASE_STATUS.md)"); rc=$?
   || no "the main session must be allowed to write the tracker"
 
 # T7 — a subagent writing some OTHER file is none of this hook's business
-out=$(feed "$(mk evaluator Write /home/proj/src/app.ts)"); rc=$?
+out=$(feed "$(mk reviewer Write /home/proj/src/app.ts)"); rc=$?
 [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
   && ok "subagent Write a non-tracker file -> allowed" \
   || no "non-tracker writes must pass through for subagents"
 
 # T8 — scope precision: a sibling doc (ARCHITECTURE.md) is NOT a single-writer
-# file — the spec names only PHASE_STATUS.md and REQUIREMENTS.md, and lane work
-# legitimately edits ARCHITECTURE.md -> allowed
+# file — the spec names only PHASE_STATUS.md and REQUIREMENTS.md, and subagent
+# work legitimately edits ARCHITECTURE.md -> allowed
 out=$(feed "$(mk reviewer Edit /home/proj/docs/ARCHITECTURE.md)"); rc=$?
 [ $rc -eq 0 ] && ! echo "$out" | grep -q 'deny' \
   && ok "subagent Edit docs/ARCHITECTURE.md -> allowed (only the two trackers are guarded)" \

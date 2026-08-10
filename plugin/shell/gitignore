@@ -17,7 +17,7 @@ secrets/
 *-credentials.json
 # Claude Code: personal overrides, not committed
 .claude/settings.local.json
-# Auto-generated agent memory — the evaluator / reviewer write this
+# Auto-generated agent memory — the reviewer writes this
 # on the first /eval or /handoff (/guv:-namespaced under the plugin).
 # Ignored by default so it doesn't sit untracked in every consumer project.
 # A team that wants shared agent memory can force-add it
@@ -29,10 +29,6 @@ Thumbs.db
 # Docker sandbox (opt-in tier)
 sandbox/*.log
 sandbox/tmp/
-# guv lane worktrees (guv-lane.sh — fan-out dispatch)
-.worktrees/
-# guv lane failure reports + collected lane outputs (lane-dispatch.sh — scratch)
-.lane-reports/
 # guv context-wall migration-nudge marker ([16.2]; context-management.sh surface —
 # a machine-local did-fire flag so the one-time grandfather nudge fires once, not
 # every session; runtime artifact, not tracked)

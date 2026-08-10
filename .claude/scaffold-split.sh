@@ -7,7 +7,7 @@
 #
 # Lay down a control-plane / code split for a greenfield publishable or standalone
 # product: a SIBLING control plane (<product>-guv) that holds .claude/, docs/, and
-# docs/sessions/, plus the product CODE repo provisioned as a guv lane target. This
+# docs/sessions/, plus the product CODE repo provisioned with its per-repo core. This
 # is the consumer analog of the MAINTAINER maintainers/setup-control-plane.sh — that
 # script lays down a dogfooding plane for guv ITSELF (roots.code points back at guv);
 # this one lays down a plane for an arbitrary consumer product, with roots.code a
@@ -151,10 +151,10 @@ else
   log "wrote split manifest (roots.code → named map { $NAME: { path: \"$CODE_REL\" } }, codePrimary=$NAME, ceremony=phased)."
 fi
 
-# ── 3. Provision the code repo as a guv lane target ([10.10]) ────────────────
-# A publishable product's code repo is not itself a guv install, so the lane
-# machinery's per-repo core (a ceremony=task manifest + the guv-core .gitignore
-# block) is written by provision-code-repo.sh. Idempotent/no-clobber there too:
+# ── 3. Provision the code repo's per-repo guv core ([10.10]) ─────────────────
+# A publishable product's code repo is not itself a guv install, so its per-repo
+# core (a ceremony=task manifest) is written by provision-code-repo.sh.
+# Idempotent/no-clobber there too:
 # an already-provisioned code repo is the already-done degenerate, left untouched.
 prov_args=("$CODE_ABS" --language "$LANG_")
 [ -n "$TEST_CMD" ] && prov_args+=(--test "$TEST_CMD")
@@ -164,7 +164,7 @@ bash "$PROVISION" "${prov_args[@]}" >&2 || { log "ERROR: provision-code-repo.sh 
 log ""
 log "Split scaffold complete:"
 log "  control plane: $PLANE   (roots.code → $CODE_REL)"
-log "  code repo:     $CODE_ABS   (provisioned as a guv lane target)"
+log "  code repo:     $CODE_ABS   (provisioned with its per-repo guv core)"
 log "  Next:  cd \"$PLANE\" && claude   then  /init <spec>  (writes the phase docs over the split manifest)"
 echo "$PLANE"
 exit 0

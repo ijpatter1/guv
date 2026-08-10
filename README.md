@@ -69,7 +69,7 @@ the record. guv-guv is the instance where the governed project is guv itself.
 - `/handoff` — End session with review accounting + handoff artifact for continuity
 - `/status` — Quick 10-line project orientation
 
-**Dynamic workflows** — Saved workflows in `.claude/workflows/` register as slash commands. The planning layer is the phase docs and the commands; the execution layer is the model, subagents, and — for wide mechanical fan-out — workflows (`.claude/rules/guv-workflows.md`: QA gates use the platform review plus the `reviewer` by name; ultracode is fan-out-only, dropped back after). Ships with `/build-fanout`: the gate stage of a build fan-out, run over built lanes — the fix loop stays conversational, in the main session.
+**Dynamic workflows** — Saved workflows in `.claude/workflows/` register as slash commands. The planning layer is the phase docs and the commands; the execution layer is the model, subagents, and — for wide mechanical fan-out — workflows you author per project (`.claude/rules/guv-workflows.md`: QA gates use the platform review plus the `reviewer` by name; ultracode is fan-out-only, dropped back after). None ship with guv — the build-fanout workflow retired at [32.3] in favor of native worktree agents, should evidence ever demand fan-out again.
 
 **Manifest-driven** — `.claude/project.json` is the single source of truth for stack, commands, repo topology (`roots`), and ceremony. Hooks, commands, the sandbox, and the firewall all read from it, so there's nothing to drift. Behavioral rules live in `.claude/rules/` (`guv-*.md`, loaded natively).
 
@@ -81,7 +81,7 @@ the record. guv-guv is the instance where the governed project is guv itself.
 └── <product>-guv/    # control plane (cwd)  → roots.control: "."
 ```
 
-**QA evaluator subagent** — An independent, skeptical reviewer that grades work on five criteria (Functionality, Test Quality, Code Quality, Completeness, Integration). Runs in its own context window with read-only enforcement. Auto-invoked before every session handoff.
+**Review gate** — Technical review belongs to the platform (`/code-review`, session-invoked with an explicit target and level); guv adds the one dimension the platform cannot: the **alignment reviewer subagent**, which grades work against the spec, vision, and user experience — findings, not scores. It runs in its own context window, worktree-isolated, with read-only enforcement and per-project memory.
 
 **Two isolation tiers** — Default: Claude Code's **native sandbox** (OS-enforced filesystem/network limits, zero Docker steps — recommended settings ship in `.claude/settings.sandbox-example.json`). Opt-in: a **Docker sandbox** with iptables firewall for full environment reproducibility, `--dangerously-skip-permissions` autonomy, or platforms without native support. Pick one tier per project — see [Security Model](#security-model).
 
@@ -105,8 +105,8 @@ claude
 ```
 
 Under a plugin install every guv command carries the `guv:` prefix —
-`/guv:init`, `/guv:status`, `/guv:handoff` — and the reviewer agents
-resolve as `guv:evaluator` / `guv:reviewer`. **`/guv:init` is the canonical
+`/guv:init`, `/guv:status`, `/guv:handoff` — and the reviewer agent
+resolves as `guv:reviewer`. **`/guv:init` is the canonical
 form of the greenfield door** (the short name was deliberately not re-picked):
 in a source-clone install the bare `/init` shadows Claude Code's built-in
 `/init` and is the documented non-canonical surface — under the plugin install
@@ -276,13 +276,11 @@ code .
 │   ├── archive-initiative.sh          # Freeze a finished initiative's phase docs (plan)
 │   ├── guv-git.sh                     # Git against roots.code, once (the retired inline incantation)
 │   ├── guv-cmd.sh                     # Manifest command + loud null-skip, once
-│   ├── guv-lane.sh                    # Worktree lane lifecycle (create/harvest/destroy)
 │   ├── settings.json                  # Permissions (convenience layer) + hooks
 │   ├── settings.sandbox-example.json  # Recommended native-sandbox fragment (default tier)
 │   ├── settings.local.json            # Personal overrides (gitignored)
 │   ├── agents/
-│   │   ├── evaluator.md               # Technical QA evaluator subagent
-│   │   └── reviewer.md                 # Product reviewer subagent
+│   │   └── reviewer.md                 # Alignment reviewer subagent
 │   ├── hooks/
 │   │   ├── bash-guard.sh               # Blocks dangerous commands (universal + opt-in guards)
 │   │   ├── auto-format.sh              # Formats on write (formatter from manifest)
@@ -302,8 +300,6 @@ code .
 │   │   ├── manual/                     # /manual — out-of-sandbox task artifacts
 │   │   ├── phase-docs/                 # Shared phase-doc templates (init + plan)
 │   │   └── session-management/         # Context continuity conventions
-│   ├── workflows/
-│   │   └── build-fanout.js        # /build-fanout — gate stage of a build fan-out
 │   ├── tests/                         # Bash test suites for the guv scripts/skills
 │   └── feedback/                      # guv-friction log — local-only, never phones home (submit is opt-in; created on first /feedback)
 ├── maintainers/                       # Maintainer-only — developing guv (consumers can delete)
@@ -331,7 +327,7 @@ code .
 
 > A rendered `CLAUDE.md` (the live file) and `.claude/project.json` are created/filled per project by `/init` or `/onboard`. The template repo ships **no** `CLAUDE.md`.
 
-The **durable core** — the `guv-*` rules in `.claude/rules/`, the manifest, the evaluator/reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
+The **durable core** — the `guv-*` rules in `.claude/rules/`, the manifest, the reviewer, the universal hooks — is never edited per project. The **project shell** — the rendered `CLAUDE.md`, the manifest's values, phase docs (`YOU EDIT THIS`), and stack-specific guards/firewall additions — is filled per project. Same core, different shell.
 
 ## Security Model
 
@@ -389,7 +385,7 @@ make gcp-setup    # Prints step-by-step instructions
 
 This environment encodes three key patterns:
 
-1. **Separated evaluation** (from [Anthropic's harness research](https://www.anthropic.com/engineering/harness-design-long-running-apps)) — The evaluator subagent runs in its own context with read-only access, preventing the self-praise problem where agents rate their own work too generously.
+1. **Separated evaluation** (from [Anthropic's harness research](https://www.anthropic.com/engineering/harness-design-long-running-apps)) — Review runs outside the authoring context: the platform review gate plus the alignment reviewer subagent in its own read-only context, preventing the self-praise problem where agents rate their own work too generously.
 
 2. **Test-first anchoring** (from [Simon Willison's Agentic Engineering Patterns](https://simonwillison.net/guides/agentic-engineering-patterns/)) — Every session starts by running the test suite. Every feature uses red/green TDD. Tests are the regression safety net across phases.
 

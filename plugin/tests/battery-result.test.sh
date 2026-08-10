@@ -2,10 +2,10 @@
 # Tests for .claude/battery-result.sh — the recorded battery verdict + its tree
 # provenance (spike Prong A2, single-owner suite execution).
 #
-# The problem this exists for: the evaluator runs the battery by contract, the
-# reviewer runs suites opportunistically, and the main session has usually just
-# run one. Three actors, one shared live tree, no coordination — 1..5 batteries
-# per QA pass plus the whole concurrent-QA flake class
+# The problem this exists for: a QA pass multiplies battery runs — the main
+# session has usually just run one, and a reviewer spawned at the gate is
+# tempted to run its own. Several actors, one shared live tree, no coordination
+# — 1..5 batteries per QA pass plus the whole concurrent-QA flake class
 # (friction 2026-07-21T17:00:10Z-1640628803).
 #
 # Single-owner is the ratified answer: ONE stage runs the battery, the others
@@ -79,7 +79,7 @@ OUT=$(rd "$P" 2>&1); RC=$?
   || no "a moved tree must invalidate the recorded verdict, or QA grades a run that never covered this code (rc=$RC out=$OUT)"
 
 # T4 — the case a bare HEAD sha would MISS, and the reason this uses a
-# fingerprint rather than rev-parse alone. The evaluator is invoked mid-loop
+# fingerprint rather than rev-parse alone. The review gate runs mid-loop
 # (/guv:task step 6 runs it BEFORE the commit), so the tree it grades is
 # routinely dirty. A provenance check that only compared HEAD would call this
 # fresh and be wrong every single time.
@@ -148,8 +148,8 @@ OUT=$(rd "$P" 2>&1); RC=$?
 
 # T9 — the artifact belongs to the PROJECT, not to whatever directory this script
 # happens to live in. This is the live topology under a plugin install: the RUNNER
-# records through the plane's own copy (.claude/battery-result.sh), while the
-# evaluator reads through the plugin cache, because the plugin builder rewrites
+# records through the plane's own copy (.claude/battery-result.sh), while a
+# QA reader reads through the plugin cache, because the plugin builder rewrites
 # `bash .claude/<script>.sh` to `${CLAUDE_PLUGIN_ROOT}/scripts/<script>.sh`. If the
 # artifact path were resolved beside the script, those two would address different
 # files and the reader would find nothing — A2 would degrade to "run the battery"
@@ -430,11 +430,8 @@ OUT=$(rd "$P" 2>&1); RC=$?
 # unrelated-looking reason. Logged as friction 2026-07-27T05:03:02Z-691324996
 # (major); until that is fixed, describe the builder, do not cite it.
 REV_MD="$CLAUDE_DIR/agents/reviewer.md"
-EV_MD="$CLAUDE_DIR/agents/evaluator.md"
 T15_GONE=""
-for f in "$REV_MD" "$EV_MD"; do
-  [ -f "$f" ] || T15_GONE="$T15_GONE ${f#"$CLAUDE_DIR"/}"
-done
+[ -f "$REV_MD" ] || T15_GONE=" ${REV_MD#"$CLAUDE_DIR"/}"
 T15_MISS=""
 grep -qi 'most projects have no recorder' "$REV_MD" 2>/dev/null \
   || T15_MISS="$T15_MISS reviewer:absent-recorder-is-normal"
@@ -442,10 +439,8 @@ grep -qi 'not a finding' "$REV_MD" 2>/dev/null \
   || T15_MISS="$T15_MISS reviewer:not-a-finding"
 grep -qiE 'never .*run the battery yourself|do not run the battery' "$REV_MD" 2>/dev/null \
   || T15_MISS="$T15_MISS reviewer:never-run-it-yourself"
-grep -qiE 'cwd|project root' "$EV_MD" 2>/dev/null \
-  || T15_MISS="$T15_MISS evaluator:cwd-precondition"
 if [ -n "$T15_GONE" ]; then
-  no "T15 could not read a QA agent doc at all — absent:$T15_GONE (looked under \$CLAUDE_DIR/agents/). This is NOT prose drift and the fix is not in the prose: in plugin layout it means run-plugin-tests.sh did not reconstruct agents/, so fix that reconstruction where the plugin builder emits it; in source layout it means the file moved or was deleted"
+  no "T15 could not read the QA agent doc at all — absent:$T15_GONE (looked under \$CLAUDE_DIR/agents/). This is NOT prose drift and the fix is not in the prose: in plugin layout it means run-plugin-tests.sh did not reconstruct agents/, so fix that reconstruction where the plugin builder emits it; in source layout it means the file moved or was deleted"
 elif [ -z "$T15_MISS" ]; then
   ok "the agent docs still carry the consumer-install contract for this recorder — absent is normal, not a finding, and not a reason for the reviewer to run the battery itself"
 else

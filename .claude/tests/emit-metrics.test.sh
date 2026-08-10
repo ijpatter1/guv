@@ -431,8 +431,7 @@ grep -nE 'sed -i.*metering|>>[[:space:]]*"?[^|]*metering|rm[[:space:]].*metering
 # spine scripts for a raw-log read.
 RAWREADERS=$(grep -rlnE 'metering\.ndjson|metering/metering' \
   "$ROOT/.claude/commands" "$ROOT/.claude/hooks" "$ROOT/.claude/skills" \
-  "$ROOT/.claude/render-status.sh" "$ROOT/.claude/merge-queue.sh" \
-  "$ROOT/.claude/lane-dispatch.sh" "$ROOT/.claude/resolve-ready.sh" \
+  "$ROOT/.claude/render-status.sh" "$ROOT/.claude/resolve-ready.sh" \
   "$ROOT/.claude/status-line.sh" 2>/dev/null || true)
 [ -z "$RAWREADERS" ] \
   && ok "no command/hook/renderer reads the raw metering log (one-parser discipline holds)" \

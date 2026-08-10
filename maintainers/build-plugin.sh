@@ -21,9 +21,9 @@
 #   - agents/*.md         -> agents/*.md with the frontmatter hooks: block
 #     STRIPPED (plugin agents don't support frontmatter hooks; the enforcement
 #     moves to hooks/hooks.json + scripts/reviewer-readonly.sh)
-#   - hook + helper scripts, rules, workflow script: byte-identical copies
+#   - hook + helper scripts, rules: byte-identical copies
 #     (scripts run with cwd = the project, so .claude/project.json reads stay
-#     correct; rules/ and workflows/ are assets the scaffold skill deploys)
+#     correct; rules/ are assets the scaffold skill deploys)
 #
 # Usage: bash maintainers/build-plugin.sh [--out <dir>]   (default: <repo>/plugin)
 set -euo pipefail
@@ -73,15 +73,14 @@ rewrite_paths() {
 #   - agent spawns: the "`<name>` subagent" instruction phrasing and the
 #     @-mention form used in agent descriptions
 #   - two template-clone topology facts with no plugin counterpart path
-# Every name that registers as /<name> for consumers — commands, skills, and
-# saved workflows — DERIVED from the source tree (a hand-maintained copy of
+# Every name that registers as /<name> for consumers — commands and skills —
+# DERIVED from the source tree (a hand-maintained copy of
 # this list is exactly the drift this build exists to prevent; plugin.test.sh
 # derives its detector the same way). Longest first so /phase-docs is
 # consumed before /phase.
 slash_names() {
   {
     for d in "$SRC/skills"/*/; do basename "$d"; done
-    for f in "$SRC/workflows"/*.js; do basename "$f" .js; done
     # plugin-only skills (zen, scaffold, …) register as /guv:<name> too
     for d in "$PSRC/skills"/*/; do basename "$d"; done
   } | awk '{ print length, $0 }' | sort -rn | cut -d' ' -f2-
@@ -106,8 +105,8 @@ _namespace_pass() {
     args+=(-e "s#(^|[^[:alnum:].:-])/$n(\$|[^[:alnum:]:_-])#\\1/guv:$n\\2#g")
   done < <(slash_names)
   # Namespace EVERY project agent (derived from .claude/agents/) in both its backtick
-  # and @ forms — evaluator, reviewer, lane-builder, and any future agent. Hardcoding
-  # only evaluator/reviewer here was the gap that left a new agent's @mention bare under
+  # and @ forms — reviewer, and any future agent. Hardcoding a fixed agent list
+  # here was the gap that left a new agent's @mention bare under
   # a plugin install (where agents resolve only as guv:<name>).
   local agf agname
   for agf in "$SRC/agents"/*.md; do
@@ -128,7 +127,7 @@ namespace_refs() {
 
 rm -rf "$OUT"
 mkdir -p "$OUT/.claude-plugin" "$OUT/skills" "$OUT/agents" "$OUT/hooks" \
-  "$OUT/scripts" "$OUT/rules" "$OUT/workflows"
+  "$OUT/scripts" "$OUT/rules"
 
 # ── plugin hooks.json: DERIVED from settings.json (one source) ──
 # Every hook is wired once, in .claude/settings.json; the build rewrites each
@@ -197,7 +196,7 @@ done
 # hooks: is dropped from the line "hooks:" through the last indented line of
 # its block; every other frontmatter key and the body pass through with the
 # namespace rewrite (descriptions and bodies mention /eval, /handoff,
-# @evaluator — dead pointers in their bare forms under plugin install) and
+# @reviewer — dead pointers in their bare forms under plugin install) and
 # the script-path rewrite ([7.1] routed agent procedures through the
 # .claude/guv-*.sh helpers — dead paths in a plugin-only project without it).
 for a in "$SRC/agents"/*.md; do
@@ -535,16 +534,5 @@ mkdir -p "$OUT/shell/sandbox" "$OUT/shell/docs"
 cp "$ROOT/sandbox/"* "$OUT/shell/sandbox/"
 # the three phase-doc skeletons template-clone consumers get from docs/
 cp "$ROOT/docs/REQUIREMENTS.md" "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/PHASE_STATUS.md" "$OUT/shell/docs/"
-
-# ── workflow assets: reviewers namespaced ──
-# Plugin agents resolve only as guv:<name> (verified live 2026-06-11), so the plugin
-# copy of each saved workflow spawns guv:evaluator / guv:reviewer; the project copy
-# keeps bare names for .claude/agents/ consumers. EVERY workflow in .claude/workflows/
-# passes through the same rewrite (build-fanout.js, …) — a per-file
-# copy here was the gap that would have left a new workflow unshipped.
-for wf in "$SRC/workflows"/*.js; do
-  sed "s/agentType: 'evaluator'/agentType: 'guv:evaluator'/; s/agentType: 'reviewer'/agentType: 'guv:reviewer'/" \
-    "$wf" > "$OUT/workflows/$(basename "$wf")"
-done
 
 echo "Built plugin at $OUT"

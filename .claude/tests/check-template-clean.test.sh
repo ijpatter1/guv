@@ -117,9 +117,9 @@ OUT=$(run "$R"); RC=$?
 # T7c — other shell artifacts: agent-memory content, settings.local.json, UAT
 # docs, archived initiatives.
 R=$(make_template)
-mkdir -p "$R/.claude/agent-memory/evaluator" "$R/docs/uat" "$R/docs/initiatives/001-x"
+mkdir -p "$R/.claude/agent-memory/reviewer" "$R/docs/uat" "$R/docs/initiatives/001-x"
 echo "# frozen tracker" > "$R/docs/initiatives/001-x/PHASE_STATUS.md"
-echo "learned" > "$R/.claude/agent-memory/evaluator/MEMORY.md"
+echo "learned" > "$R/.claude/agent-memory/reviewer/MEMORY.md"
 echo '{}' > "$R/.claude/settings.local.json"
 # force-add: the leak scenario is precisely a force-add past gitignore (and a
 # global ~/.config/git/ignore may otherwise swallow this file from the fixture)

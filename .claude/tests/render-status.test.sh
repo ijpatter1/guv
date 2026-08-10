@@ -169,7 +169,7 @@ echo "$HTML" | grep -q "'next:'" \
 # ── T5b — the renderer JS parses as JavaScript. The page renders client-side
 # by design, so the bash suite cannot execute it — but a syntax error that
 # blanks every render is catchable here. node is NOT a guv runtime dep:
-# skip cleanly (loudly) if absent, same idiom as eval-parallel.test.sh.
+# skip cleanly (loudly) if absent.
 # Deeper DOM-level verification lives in maintainers/render-smoke.js (dev
 # tool, run manually).
 if command -v node >/dev/null 2>&1; then

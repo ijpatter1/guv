@@ -5,7 +5,7 @@
 # a greenfield publishable/standalone product — until now only the maintainer
 # setup-control-plane.sh could create a sibling plane. The script composes the two
 # shipped primitives (scaffold-shell.sh deploys the plane's core shell;
-# provision-code-repo.sh makes the code repo a lane target) and writes the split
+# provision-code-repo.sh writes the code repo's per-repo core) and writes the split
 # manifest with the named-map roots resolve-stack.sh's greenfield proposal recommends.
 #
 # Why these tests, not "runs without error": the WHOLE point is that the split layout
@@ -131,9 +131,10 @@ else
 fi
 
 # (d) the CODE repo is provisioned BY provision-code-repo.sh — a ceremony=task
-# manifest + the guv-core .gitignore block. This is the deliverable's "plus the code
-# repo provisioned via provision-code-repo.sh ([10.10])" — without it the split is
-# half-built (a plane that orchestrates lanes into an unprovisioned repo).
+# manifest. This is the deliverable's "plus the code repo provisioned via
+# provision-code-repo.sh ([10.10])" — without it the split is half-built (a
+# plane whose commands route into an unprovisioned repo). The gitignore half
+# retired with the lane cluster at [32.3].
 [ -f "$PROD/.claude/project.json" ] \
   && ok "code repo has a provisioned manifest" \
   || no "code repo missing the provisioned manifest (provision-code-repo.sh not run)"
@@ -141,8 +142,8 @@ fi
   && ok "code repo manifest ceremony=task (provision-code-repo.sh's shape)" \
   || no "code repo manifest ceremony must be 'task'"
 grep -qF '.worktrees/' "$PROD/.gitignore" 2>/dev/null \
-  && ok "code repo .gitignore carries the guv-core block (lane worktrees ignored)" \
-  || no "code repo .gitignore missing the guv-core block"
+  && no "code repo .gitignore still carries the lane-era guv-core block ([32.3] regressed)" \
+  || ok "code repo .gitignore carries no lane-era block ([32.3])"
 
 # T2b — stderr is informational only ([scaffold-split]/[scaffold]/provision banners),
 # never an unannounced error. The stderr gate fails on ANY stderr, so this script's

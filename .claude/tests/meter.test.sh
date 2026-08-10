@@ -209,8 +209,7 @@ grep -nE '>>[[:space:]]*"?\$\{?'"$LOGVAR" "$SCRIPT" >/dev/null 2>&1 \
 # allowed to write the log is meter.sh.
 OTHERWRITERS=$(grep -rlnE 'metering\.ndjson|metering/metering' \
   "$ROOT/.claude/commands" "$ROOT/.claude/hooks" "$ROOT/.claude/skills" \
-  "$ROOT/.claude/render-status.sh" "$ROOT/.claude/merge-queue.sh" \
-  "$ROOT/.claude/lane-dispatch.sh" 2>/dev/null \
+  "$ROOT/.claude/render-status.sh" 2>/dev/null \
   | xargs grep -lE '[^>]>[[:space:]]*.*metering|sed -i.*metering|rm .*metering' 2>/dev/null || true)
 [ -z "$OTHERWRITERS" ] \
   && ok "no other guv path truncates/edits/removes the metering log" \
@@ -294,7 +293,7 @@ echo "$ENTRY" | jq -e '.perf.op_wallclock_s | type == "number"' >/dev/null 2>&1 
   || no "perf field must survive an unharvestable transcript"
 
 # T14 — SUBAGENT-TOKEN CAPTURE ([13.1], the eval/fix spike). The token burn of the
-# subagent reviewers (evaluator/reviewer) and any lane/workflow agents a session
+# subagent reviewer and any review/workflow agents a session
 # spawns lives in their OWN transcripts under the SIBLING <session>/ tree
 # (subagents/, …), NOT in the main <session>.jsonl. A session-scalar total that
 # harvested only the main transcript would systematically UNDERCOUNT real burn —
