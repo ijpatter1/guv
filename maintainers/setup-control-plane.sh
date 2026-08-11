@@ -109,7 +109,7 @@ copy_core() {
   # The helper-script set is DERIVED by glob ([7.1]: this was the fourth
   # hand-enumerated registry, found during 6.2 — a new .claude/*.sh helper now
   # reaches every plane on create and --sync by existing).
-  for item in skills agents hooks tests project.schema.json settings.json \
+  for item in skills agents hooks tests project.schema.json metering-log.md settings.json \
               $(cd "$GUV_DIR/.claude" && ls *.sh 2>/dev/null); do
     if [ -e "$GUV_DIR/.claude/$item" ]; then
       rm -rf "$DEST/.claude/$item"
@@ -161,7 +161,7 @@ copy_core() {
   # consumer-owned ones. Append a path here when a future change removes a
   # guv-owned core artifact. (Renames WITHIN a wholesale-replaced dir — skills/,
   # agents/ — are already handled by the rm-rf+cp above; only removals need this.)
-  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh workflows/eval-parallel.js workflows/evaluate-parallel.js auto-compact-carrier.sh continuation-checkpoint.json guv-lane.sh lane-dispatch.sh lane-recovery.sh merge-queue.sh fanout-offer.sh workflows/build-fanout.js .lane-checkpoint.json; do
+  for obsolete in commands extract-eval-report.sh feedback-submit.sh check-citations.sh workflows/eval-parallel.js workflows/evaluate-parallel.js auto-compact-carrier.sh continuation-checkpoint.json guv-lane.sh lane-dispatch.sh lane-recovery.sh merge-queue.sh fanout-offer.sh workflows/build-fanout.js .lane-checkpoint.json meter-queue.sh emit-metrics.sh emit-metrics.shape.md hooks/occupancy-meter.sh .context-wall-approach-warned; do
     if [ -e "$DEST/.claude/$obsolete" ]; then
       rm -rf "$DEST/.claude/$obsolete"
       echo "[setup] pruned obsolete core artifact: .claude/$obsolete (removed upstream)"

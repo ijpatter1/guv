@@ -72,7 +72,7 @@ make_guv() {
   "hooks": {
     "Stop": [
       { "matcher": "", "hooks": [
-        { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/occupancy-meter.sh" }
+        { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/stop-check.sh" }
       ] }
     ]
   }

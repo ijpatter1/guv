@@ -21,7 +21,7 @@ CLAUDE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # plugin install has no .claude/settings.json (only the derived hooks.json), so
 # the suite cannot run in the reconstructed plugin layout. The literal path below
 # is what the build's MAINTAINER_ONLY filter keys on to keep it out of the
-# shipped set (same convention as occupancy-meter.test.sh). The hooks themselves
+# shipped set (same convention as setup-control-plane.test.sh). The hooks themselves
 # ship and are exercised in plugin layout by plugin.test.sh's parity + byte
 # checks; the route/resolver behavior is exercised by the shipped route suite.
 SETTINGS="$CLAUDE_DIR/settings.json"   # i.e. .claude/settings.json (project-mode only)

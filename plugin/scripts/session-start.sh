@@ -32,15 +32,14 @@ cat >/dev/null 2>&1   # drain the hook payload on stdin (unused)
 ROUTE="$(bash "$BASE/route.sh" 2>/dev/null)"
 FRONTIER="$(bash "$BASE/resolve-ready.sh" 2>/dev/null)"
 
-# The [9.3] tension gate at the ENTRY boundary: it compares burn to the chosen
-# budget and, ON TENSION ONLY, prints a loud decision gate (exit 3). We capture
-# its stdout and SURFACE it as session-open context — but the gate's non-zero exit
+# The [9.3] gate at the ENTRY boundary: with a ceiling set it prints one
+# burn-vs-ceiling comparison per granularity plus a pointer line (burn visible
+# at boundaries, [32.4]), and on breach a loud pause (exit 3). We capture its
+# stdout and SURFACE it as session-open context — but the gate's non-zero exit
 # is deliberately NOT propagated: a SessionStart hook that exits non-zero BLOCKS
 # the session from starting (hooks reference), and a budget breach is a decision
-# to PAUSE for, not a reason to deny the session its start. So entry-tension is
-# surfaced before more work is done (the gate's purpose) while the hook stays at
-# exit 0 (its load-bearing invariant). Absent budget / within budget → silent →
-# nothing surfaced; a missing manifest or absent jq → empty, same as the siblings.
+# to PAUSE for, not a reason to deny the session its start. Absent budgets →
+# silent → nothing surfaced; a missing manifest or absent jq → empty.
 GATE_ENTRY=""
 [ -f "$BASE/budget-gate.sh" ] && GATE_ENTRY="$(bash "$BASE/budget-gate.sh" entry 2>/dev/null)"
 

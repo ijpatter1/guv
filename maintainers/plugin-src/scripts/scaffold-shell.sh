@@ -63,6 +63,7 @@ mkdir -p .claude/rules docs/sessions
 refresh_file "$SHELL_DIR/CLAUDE.template.md" "CLAUDE.template.md"
 refresh_file "$SHELL_DIR/README.template.md" "README.template.md"
 refresh_file "$SHELL_DIR/project.schema.json" ".claude/project.schema.json"
+refresh_file "$SHELL_DIR/metering-log.md" ".claude/metering-log.md"
 refresh_file "$SHELL_DIR/settings.sandbox-example.json" ".claude/settings.sandbox-example.json"
 if ls .claude/rules/guv-*.md >/dev/null 2>&1; then
   refreshed+=(".claude/rules/guv-*.md ($(ls "$RULES_DIR"/guv-*.md | wc -l | tr -d ' ') files)")

@@ -89,10 +89,6 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/stop-check.sh"
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}\"/.claude/hooks/occupancy-meter.sh"
           }
         ]
       }

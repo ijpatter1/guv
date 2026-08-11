@@ -69,7 +69,7 @@
 # It ships in the plugin like the other .claude/*.sh scripts (build-plugin rewrites the path).
 set -u
 
-STANDARD_WINDOW=200000                 # guv's calm-window anchor (projection.sh [12.1]/[13.3])
+STANDARD_WINDOW=200000                 # guv's calm-window anchor ([12.1]/[13.3])
 DEFAULT_CEILING=$(( STANDARD_WINDOW * 3 / 4 ))   # 150000 — the documented occupancy default
 WORKING_SET_NUM=2; WORKING_SET_DEN=5   # working_set = setpoint × 2/5 = 0.4 ([13.3])
 VALIDATED_REFERENCE=250000             # the dogfood-validated 1M window (basis, not a default)

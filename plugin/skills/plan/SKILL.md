@@ -161,7 +161,8 @@ Follow the phase-docs skill structures, in order, into `${roots.control}/docs/`:
 
 5. **The opening forecast** ([13.4]) — with the tracker and sidecar now written, bank
    the opening projection: the cost-to-complete forecast for the whole new initiative,
-   made at plan time (n=0 structural, no landings yet). Banked at the `plan` boundary,
+   made at plan time (with no post-epoch landings yet the rate and forecast are
+   honest nulls — the takeoff is still banked). Banked at the `plan` boundary,
    it is the lineage's opening entry — the forecast the initiative-close grade later
    settles ("how good was the plan?"):
 

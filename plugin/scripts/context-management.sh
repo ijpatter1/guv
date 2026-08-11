@@ -5,7 +5,7 @@
 #   surface   turns the manifest state into the right person-visible signal
 #
 # This is the manifest block + the discriminator + the surfacing ONLY. The
-# occupancy meter arms itself from the mode (occupancy-meter.sh); the
+# occupancy meter that once armed itself from the mode retired at [32.4]; the
 # auto-compaction window (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored
 # in the settings env block — guv never places or strips it ([32.2]).
 #
@@ -91,7 +91,7 @@ case "$cmd" in
           HCUR=$(jq -r '.env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] // empty' "$(dirname "$MAN")/settings.local.json" 2>/dev/null)
           [ -n "$HCUR" ] || HCUR=$(jq -r '.env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] // empty' "$(dirname "$MAN")/settings.json" 2>/dev/null)
           if [ -n "$HCUR" ]; then
-            printf '%s\n' "guv context-wall: hard-stop mode is chosen, but CLAUDE_CODE_AUTO_COMPACT_WINDOW=$HCUR is authored in the settings env block — auto-compaction can pre-empt the meter's clean stop and handoff. guv never edits your settings: remove the env entry to give the meter the wall, or switch to continue mode."
+            printf '%s\n' "guv context-wall: hard-stop mode is chosen, but CLAUDE_CODE_AUTO_COMPACT_WINDOW=$HCUR is authored in the settings env block — auto-compaction will compact across the wall, which contradicts the chosen posture. guv never edits your settings: remove the env entry to keep the wall in your hands, or switch to continue mode."
           fi
           ;;
         continue)
@@ -113,7 +113,7 @@ case "$cmd" in
         *)
           # mode=unset (or a present block with no/blank/unknown mode) → loud-unset.
           # 'loud' means VISIBLE (watch-item a): this reaches session-open context.
-          printf '%s\n' "guv context-wall mode UNSET — this project was scaffolded without choosing a context-management posture, so neither the occupancy hard-stop nor auto-compaction is armed. Choose a mode by setting contextManagement.mode to hard-stop (a clean stop and handoff at the wall) or continue (auto-compact across it) in .claude/project.json."
+          printf '%s\n' "guv context-wall mode UNSET — this project was scaffolded without choosing a context-management posture, so no auto-compaction window is armed. Choose a mode by setting contextManagement.mode to hard-stop (no auto-compaction; you drive the wall) or continue (auto-compact across it) in .claude/project.json."
           ;;
       esac
     else

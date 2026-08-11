@@ -154,8 +154,7 @@ installed yet) — not by the stale template default.
 ### Step 2b — Elicit the context-wall posture ([16.2])
 
 Record the operator's **context-wall mode** in the manifest's `contextManagement` block —
-guv's occupancy meter and auto-compaction otherwise conflict at the context wall, so the
-mode is **chosen, never silently defaulted** (S1 finding
+the posture at the context wall is **chosen, never silently defaulted** (S1 finding
 `docs/spikes/16-1-context-wall-mode.md`). Every fresh scaffold writes the block (its
 **presence** is the scaffold-provenance signal), so the project never later masquerades as
 a pre-feature one that the migration nudge would grandfather.
@@ -179,7 +178,7 @@ a pre-feature one that the migration nudge would grandfather.
   bash .claude/context-management.sh set-mode .claude/project.json unset
   ```
 
-The occupancy meter arms itself from the mode; the auto-compaction window (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored in the settings env block — guv never places or strips it ([32.2]).
+The auto-compaction window (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored in the settings env block — guv never places or strips it ([32.2]; the occupancy meter that once armed itself from the mode retired at [32.4]).
 
 ### Step 3 — Generate docs/REQUIREMENTS.md
 
@@ -202,8 +201,9 @@ Write `docs/PHASE_STATUS.md` per the phase-docs skill, copying every deliverable
 ### Step 5b — Bank the opening forecast ([13.4])
 
 With the tracker written and the manifest `phased`, bank the **opening forecast** —
-the cost-to-complete projection for the whole new project, made at project open (n=0
-structural, no landings yet). It is the greenfield analog of `/plan`'s opening
+the cost-to-complete projection for the whole new project, made at project open
+(with no landings yet the rate and forecast are honest nulls; the sized takeoff is
+still banked). It is the greenfield analog of `/plan`'s opening
 forecast and is banked at the same `plan` boundary, so the lineage starts at the
 opening forecast and a future initiative-close `grade` settles it ("how good was the
 plan?"):
@@ -215,7 +215,7 @@ bash .claude/projection.sh bank --at plan
 Idempotent — re-running this door does not double-bank. Greenfield init does not yet
 ratify per-deliverable sizing (the [13.2] rubric step `/plan` runs), so this takeoff
 leans on the **default** estimate (1 per deliverable) and **discloses** it in
-`spine.quantity.default_estimate_ids` — an honest opening forecast, sharpened as
+`quantity.defaulted_ids` — an honest opening forecast, sharpened as
 estimates are ratified and landings accrue. (Ratifying sizing here is a [13.2]
 follow-up, out of [13.4]'s scope.)
 

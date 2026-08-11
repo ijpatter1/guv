@@ -146,68 +146,30 @@ gated.
 
 ## Step 6c — Run the Budget Gate at the Exit Boundary
 
-The [9.3] tension gate runs at the session **exit** boundary — the second of the
-two boundaries the gate rides (the SessionStart hook fires it at entry). Run it
-**after** Step 6b so it compares the just-appended burn against the chosen budget:
+The [9.3] gate runs at the session **exit** boundary — the second of the two
+boundaries it rides (the SessionStart hook fires it at entry). Run it **after**
+Step 6b so it compares the just-appended burn against the chosen budget:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}"/scripts/budget-gate.sh exit
 ```
 
-The gate is the **tension gate**: it sums burn from the metering log and, *on
-tension only*, raises a loud decision gate (exit 3) naming the breach, the burn
-profile, and the person's choices — **extend / harvest / kill**. Within budget,
-or with no budget set (absent means unlimited), it is **silent** — no banner, no
-recap — and exits 0. If it raises, **do not paper over it**: surface the breach
-verbatim in the handoff (under **Blocked**, naming the budget crossed) and stop
-for the person's decision. The machinery never raises a setpoint; raising the
-ceiling is a human commit to `budgets.{initiative,session}.tokens` in
-`project.json` (the commit is the provenance — no approval flow, no side channel).
+With a ceiling set the gate prints **one burn-vs-ceiling comparison line per
+configured granularity plus a pointer line** naming the record that qualifies
+the number (`.claude/metering-log.md` § Epoch — burn counts post-epoch,
+main-session entries only, and is never total spend). **Copy the comparison
+line(s) into the handoff artifact** (under **Session Notes** or **Issues &
+Technical Debt**) — burn belongs in the written record, not just the live
+output. A torn-line suffix on the comparison (`burn is a floor`) is part of the
+line; carry it verbatim. With no budget set (absent means unlimited) the gate is
+silent and exits 0.
 
-**If the gate emits a `[budget-gate] FORESEEN OVERRUN` line** (a [13.5] foreseen
-overrun: burn-to-date plus the projection's cost-to-complete is forecast to exceed the
-initiative budget — exit **0**, not a stop), record it in the handoff artifact under
-**Issues & Technical Debt** (or **Blocked**), verbatim. Like the [13.6] balloon in
-Step 6b, a foreseen overrun is a **declaration, not a hard stop** — a deliverable
-budget is fuzzy (the projection is a range), so the gate does **not** pause for it;
-it is a human signal for the **extend / harvest / re-plan** call at this boundary. It
-must reach the *written* record a person reads later, not only the live output. Do
-not stop the handoff for it (it exited 0); do surface it. (The header leads with
-`FORESEEN OVERRUN`, distinct from the actual-burn `[budget-gate] BREACH` stop in this
-step above — a skim tells the signal from the exit-3 pause; [15.6].)
-
-**Every other `[budget-gate]` headline is captured the same way.** The gate's exit
-comment names this reader by name — "a person at the extend/harvest/kill decision,
-**writing the handoff that carries it forward**" — so a declaration that reaches only
-the live session output has not reached the record it was written for. Capture each of
-these verbatim under **Issues & Technical Debt** (or **Blocked**), exactly as above:
-
-- `HARVEST UNIT HAZARD` — the burn and the ceiling are not in the same harvest unit, so
-  the comparison is invalid. Carry the `hazard:` kind (`mixed` — the window spans both
-  units; `mismatch` — the window is uniformly one and the setpoint declares the other;
-  `malformed` — `budgets.initiative.harvest_basis` is not a harvest unit, so the
-  setpoint-unit check is silently OFF), and carry the **direction** it names (phantom
-  breach / phantom headroom / undetermined): the remedy differs by direction, and under
-  phantom breach the designed rung is to WAIT rather than move anything.
-- `SETPOINT DENOMINATION HAZARD` — the ceiling was declared `cost_weighted` while burn is
-  summed as a raw four-class token count. The ceiling is the **smaller** side, so the burn
-  **overstates** against it and the gate stops **early**: a phantom breach, the
-  conservative direction — do not record the gap as work that was spent. Carry that
-  direction, and carry the note that **WAIT is not a rung here** (unlike a vintage phantom
-  breach, this one never decays — burn is raw by construction). A separate axis from the
-  harvest unit above, and both can fire at once; when they do the banner names both
-  headlines and the two directions **oppose** each other, so record both and claim no net
-  direction. The `hazard:` field carries both axes' states. The remedy is a person's commit
-  (re-denominate `budgets.initiative.tokens`, or correct `budgets.initiative.denomination`);
-  the gate discloses the gap and never converts, because the ratio moves with session shape.
-- `TORN METERING LINES` — one or more log lines did not parse and were skipped, so every
-  burn figure in this handoff is a **floor**, not a measurement. Record the count.
-
-None of these stops the handoff (all exit 0). All of them qualify the burn and forecast
-figures recorded elsewhere in the artifact, so a handoff that copies the numbers without
-the banner that qualifies them records a measurement the gate explicitly refused to call
-one. **Do not paraphrase or summarize a banner** — the wording carries the direction and
-the remedy, and both are what the next reader acts on.
+**On `[budget-gate] BREACH` (exit 3): stop the handoff's forward motion and
+surface the breach verbatim** in the artifact (under **Blocked**, naming the
+budget crossed) for the person's decision — **extend / harvest / kill**. The
+machinery never raises a setpoint; raising the ceiling is a human commit to
+`budgets.{initiative,session}.tokens` in `project.json` (the commit is the
+provenance — no approval flow, no side channel).
 
 ## Step 7 — Update Phase Status
 

@@ -123,8 +123,7 @@ Write `.claude/project.json` from the confirmed values, validating against
 ### Step 3b — Elicit the context-wall posture ([16.2])
 
 Record the operator's **context-wall mode** in the manifest's `contextManagement` block —
-guv's occupancy meter and auto-compaction otherwise conflict at the context wall, so the
-mode is **chosen, never silently defaulted** (S1 finding
+the posture at the context wall is **chosen, never silently defaulted** (S1 finding
 `docs/spikes/16-1-context-wall-mode.md`). Writing the block on adoption (its **presence**
 is the scaffold-provenance signal) keeps the adopted project from later reading as a
 pre-feature one that the migration nudge would grandfather.
@@ -148,7 +147,7 @@ pre-feature one that the migration nudge would grandfather.
   bash "${CLAUDE_PLUGIN_ROOT}"/scripts/context-management.sh set-mode .claude/project.json unset
   ```
 
-The occupancy meter arms itself from the mode; the auto-compaction window (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored in the settings env block — guv never places or strips it ([32.2]).
+The auto-compaction window (CLAUDE_CODE_AUTO_COMPACT_WINDOW) is operator-authored in the settings env block — guv never places or strips it ([32.2]; the occupancy meter that once armed itself from the mode retired at [32.4]).
 
 ## Step 4 — Render CLAUDE.md (no bootstrapping)
 

@@ -292,17 +292,15 @@ echo "$ENTRY" | jq -e '.perf.op_wallclock_s | type == "number"' >/dev/null 2>&1 
   && ok "perf field present even with no harvestable transcript (log never blocks on Spike C)" \
   || no "perf field must survive an unharvestable transcript"
 
-# T14 — SUBAGENT-TOKEN CAPTURE ([13.1], the eval/fix spike). The token burn of the
-# subagent reviewer and any review/workflow agents a session
-# spawns lives in their OWN transcripts under the SIBLING <session>/ tree
-# (subagents/, …), NOT in the main <session>.jsonl. A session-scalar total that
-# harvested only the main transcript would systematically UNDERCOUNT real burn —
-# and the missing burn is exactly the eval/fix loop the projection ([13.3]) must
-# predict. The harvest therefore sums the main transcript PLUS every *.jsonl under
-# the sibling <session>/ tree. These tests pin the captured path (the [13.1]
-# finding: the meter CAPTURES subagent burn, not a disclosed exclusion). HOME is
-# overridden to a fixture root and the slug computed the way the script does
-# (pwd -P), so the path matches regardless of macOS /var symlink resolution.
+# T14 — COVERAGE: MAIN TRANSCRIPT ONLY ([32.4] narrowed [13.1]). Subagent burn
+# lives in transcripts under the SIBLING <session>/ tree; since [32.4] the
+# harvest reads the MAIN transcript alone and every entry SELF-DESCRIBES that
+# scope (coverage:"main_session"), so a gate figure is never read as total
+# spend. Fleet burn returns at [32.8] as a DISTINCT component, never blended
+# silently. These tests pin the exclusion: a subagent transcript full of burn
+# must not leak into tokens. HOME is overridden to a fixture root and the slug
+# computed the way the script does (pwd -P), so the path matches regardless of
+# macOS /var symlink resolution.
 mk_transcript() {  # $1=project $2=fake-home $3=session-id — main + one subagent
   local p="$1" fh="$2" sid="$3" slug base
   slug=$(cd "$p" && pwd -P | sed 's#/#-#g')
@@ -321,23 +319,27 @@ FH14="$WORK/home.$RANDOM"; SID14="11111111-2222-3333-4444-555555555555"
 mk_transcript "$P14" "$FH14" "$SID14"
 ( cd "$P14" && HOME="$FH14" CLAUDE_CODE_SESSION_ID="$SID14" bash "$SCRIPT" capture --deliverables "13.1" ) >/dev/null 2>"$WORK/t14.err"
 E14=$( [ -f "$LOG14" ] && tail -1 "$LOG14" || echo '{}' )
-# headline: cache_read = main(100) + subagent(900) = 1000. RED against a main-only
-# harvest (would be 100); GREEN once the sibling subagent transcripts are summed.
-echo "$E14" | jq -e '.tokens.cache_read == 1000' >/dev/null 2>&1 \
-  && ok "harvest INCLUDES subagent cache_read (100 main + 900 subagent = 1000)" \
-  || no "subagent burn not captured: expected cache_read 1000, got $(echo "$E14" | jq -c '.tokens') (err=$(cat "$WORK/t14.err"))"
-# every class is summed across main + subagents, not just cache_read
-echo "$E14" | jq -e '.tokens.input == 12 and .tokens.output == 6 and .tokens.cache_creation == 10' >/dev/null 2>&1 \
-  && ok "all token classes summed across main + subagents (input 12, output 6, cache_creation 10)" \
-  || no "expected input 12 / output 6 / cache_creation 10, got $(echo "$E14" | jq -c '.tokens')"
+# headline: cache_read = main(100) ONLY. The sibling subagent transcript carries
+# 900 more; a leak would be visible as 1000. RED against the pre-[32.4]
+# main+subagent sum.
+echo "$E14" | jq -e '.tokens.cache_read == 100' >/dev/null 2>&1 \
+  && ok "harvest EXCLUDES subagent burn (main 100 only; fleet returns at [32.8])" \
+  || no "subagent burn leaked: expected cache_read 100, got $(echo "$E14" | jq -c '.tokens') (err=$(cat "$WORK/t14.err"))"
+echo "$E14" | jq -e '.tokens.input == 10 and .tokens.output == 5 and .tokens.cache_creation == 3' >/dev/null 2>&1 \
+  && ok "every class is main-only (input 10, output 5, cache_creation 3)" \
+  || no "expected input 10 / output 5 / cache_creation 3, got $(echo "$E14" | jq -c '.tokens')"
 echo "$E14" | jq -e '.spike_c_rung == "B"' >/dev/null 2>&1 \
-  && ok "rung B recorded when the combined harvest succeeds" \
+  && ok "rung B recorded when the harvest succeeds" \
   || no "expected rung B, got $(echo "$E14" | jq -c '.spike_c_rung')"
+# the scope is SELF-DESCRIBING on the entry ([32.4]): coverage names what the
+# reading spans, so a consumer can tell a main-only figure from a main+fleet one.
+echo "$E14" | jq -e '.coverage == "main_session"' >/dev/null 2>&1 \
+  && ok "coverage:\"main_session\" self-describes the harvest scope" \
+  || no "coverage field missing/wrong: $(echo "$E14" | jq -c '.coverage')"
 
 # T14b — the MODEL is the session's, read from the MAIN transcript ONLY, never a
 # subagent's. The subagent message names a different model (claude-sub); were the
-# model harvest to slurp subagents, `last` could pick it up. Pins that tokens span
-# main+subagents but model does not (the session's model, not a reviewer's).
+# harvest to slurp subagents, `last` could pick it up.
 echo "$E14" | jq -e '.model == "claude-main"' >/dev/null 2>&1 \
   && ok "model harvested from the MAIN transcript only (claude-main, not the subagent's claude-sub)" \
   || no "model must come from the main transcript: expected claude-main, got $(echo "$E14" | jq -c '.model')"
@@ -351,9 +353,9 @@ mkdir -p "$FH14c/.claude/projects/$slug14c"
 printf '%s\n' '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":42,"cache_creation_input_tokens":0}}}' \
   > "$FH14c/.claude/projects/$slug14c/$SID14c.jsonl"
 ( cd "$P14c" && HOME="$FH14c" CLAUDE_CODE_SESSION_ID="$SID14c" bash "$SCRIPT" capture ) >/dev/null 2>"$WORK/t14c.err"
-tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B"' >/dev/null 2>&1 \
-  && ok "no subagents dir -> main-only harvest unchanged (back-compat, cache_read 42)" \
-  || no "back-compat broken: expected cache_read 42, got $(tail -1 "$LOG14c" | jq -c '.tokens') (err=$(cat "$WORK/t14c.err"))"
+tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B" and .coverage == "main_session"' >/dev/null 2>&1 \
+  && ok "no subagents dir -> main-only harvest, coverage still declared (cache_read 42)" \
+  || no "back-compat broken: expected cache_read 42 + coverage, got $(tail -1 "$LOG14c" | jq -c '{tokens,coverage}') (err=$(cat "$WORK/t14c.err"))"
 
 # ════════════════════════════════════════════════════════════════════════════
 # [13.6] — PER-DELIVERABLE COST METERING: a bounded slice, not the cumulative
@@ -368,17 +370,20 @@ tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B"' >/
 
 # Seed a PRIOR same-runtime_session capture carrying a cumulative high-water
 # reading, so the next capture has something to difference against.
-seed_prior() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  [$5=harvest vintage]
+seed_prior() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  [$5=harvest vintage] [$6=coverage]
   # $5 defaults to "per_response" — a prior banked by the CURRENT harvester, which
   # is what every delta test means by "a prior capture". Pass "legacy" to seed a
   # PRE-dedupe entry (the field absent entirely), the vintage boundary T20 pins.
-  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" --arg hb "${5:-per_response}" \
+  # $6 defaults to "main_session" (the current scope); pass "none" to omit the
+  # field — a pre-[32.4] prior, the coverage seam T14d pins.
+  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" --arg hb "${5:-per_response}" --arg cov "${6:-main_session}" \
     '{schema:"guv.meter.v1", ts:$ts, session:"session-2026-06-16-001",
       session_derived:true, runtime_session:$rs, deliverable_ids:["13.6"],
       model:"m", tokens:$cum, transcript_tokens:$cum, dollars:null,
       spike_c_rung:"B", slice_basis:"since_process_start", compaction_cycles:0,
       perf:{op_wallclock_s:0.1, suite_runtime_s:null}}
-     + (if $hb == "legacy" then {} else {harvest_basis:$hb} end)')" >> "$1"
+     + (if $hb == "legacy" then {} else {harvest_basis:$hb} end)
+     + (if $cov == "none" then {} else {coverage:$cov} end)')" >> "$1"
 }
 
 # A main transcript carrying a usage line PLUS $4 real compaction summaries
@@ -396,28 +401,59 @@ mk_transcript_compaction() {  # $1=proj $2=home $3=sid $4=n-compactions $5=compa
   done
 }
 
+# ── T14d — the COVERAGE SEAM ([32.4]): a prior same-runtime_session capture
+# written BEFORE the narrowing (per_response, but no coverage field — it spanned
+# main+subagents) is a DIFFERENT scope, so differencing against it would subtract
+# a fleet-inclusive high-water from a main-only one. The delta is refused exactly
+# like the vintage seam: slice_basis degrades to unbounded_cumulative, loudly.
+P14d=$(make_project); LOG14d="$P14d/.claude/metering/metering.ndjson"
+FH14d="$WORK/home.$RANDOM"; SID14d="14d14d14-1111-2222-3333-444444444444"
+mk_transcript "$P14d" "$FH14d" "$SID14d"
+mkdir -p "$P14d/.claude/metering"
+seed_prior "$LOG14d" "$SID14d" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}' per_response none
+( cd "$P14d" && HOME="$FH14d" CLAUDE_CODE_SESSION_ID="$SID14d" bash "$SCRIPT" capture --deliverables "32.4" ) >/dev/null 2>"$WORK/t14d.err"
+tail -1 "$LOG14d" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
+  && ok "[32.4] a pre-narrowing prior (no coverage) is never differenced against — seam disclosed as unbounded_cumulative" \
+  || no "[32.4] coverage seam produced a cross-scope slice: got $(tail -1 "$LOG14d" | jq -c '{slice_basis,tokens}') (err=$(cat "$WORK/t14d.err"))"
+grep -q 'BREAK' "$WORK/t14d.err" \
+  && ok "[32.4] the coverage seam is declared loudly on stderr" \
+  || no "[32.4] coverage seam was silent: $(cat "$WORK/t14d.err")"
+
+# ── T14e — a torn log line never empties the PRIOR lookup. A strict slurp would
+# turn one torn append into "no prior" and write the FULL process cumulative as
+# a counted since_process_start sample — reader-side ~4.6x inflation.
+P14e=$(make_project); LOG14e="$P14e/.claude/metering/metering.ndjson"
+FH14e="$WORK/home.$RANDOM"; SID14e="14e14e14-1111-2222-3333-444444444444"
+mk_transcript "$P14e" "$FH14e" "$SID14e"
+mkdir -p "$P14e/.claude/metering"
+printf '{"schema":"guv.meter.v1","ts":"2026-06-16T0\n' >> "$LOG14e"   # torn append
+seed_prior "$LOG14e" "$SID14e" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":30,"cache_creation":1}'
+( cd "$P14e" && HOME="$FH14e" CLAUDE_CODE_SESSION_ID="$SID14e" bash "$SCRIPT" capture --deliverables "32.4" ) >/dev/null 2>"$WORK/t14e.err"
+tail -1 "$LOG14e" | jq -e '.slice_basis == "per_deliverable" and .tokens == {input:8,output:4,cache_read:70,cache_creation:2}' >/dev/null 2>&1 \
+  && ok "[32.4] the PRIOR lookup tolerates a torn line — the bounded delta survives" \
+  || no "[32.4] torn line emptied PRIOR: got $(tail -1 "$LOG14e" | jq -c '{slice_basis,tokens}') (err=$(cat "$WORK/t14e.err"))"
+
 # ── T15 — BOUNDED SLICE: tokens is the per-session DELTA, not the cumulative sum.
-# A prior same-runtime_session capture banked cumulative {2,1,300,4}; the current
-# transcript harvests cumulative {12,6,1000,10} (mk_transcript: main 100 + sub
-# 900 cache_read). The entry's tokens must be the DIFFERENCE {10,5,700,6} — the
-# bounded slice — never the whole-transcript {12,6,1000,10}. RED against the
-# pre-fix whole-transcript harvest (would record the cumulative).
+# A prior same-runtime_session capture banked cumulative {2,1,30,1}; the current
+# transcript harvests main-only cumulative {10,5,100,3}. The entry's tokens must
+# be the DIFFERENCE {8,4,70,2} — the bounded slice — never the whole-transcript
+# cumulative. RED against a whole-transcript harvest.
 P15=$(make_project); LOG15="$P15/.claude/metering/metering.ndjson"
 FH15="$WORK/home.$RANDOM"; SID15="15151515-1111-2222-3333-444444444444"
 mk_transcript "$P15" "$FH15" "$SID15"
 mkdir -p "$P15/.claude/metering"
-seed_prior "$LOG15" "$SID15" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":300,"cache_creation":4}'
+seed_prior "$LOG15" "$SID15" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":30,"cache_creation":1}'
 ( cd "$P15" && HOME="$FH15" CLAUDE_CODE_SESSION_ID="$SID15" bash "$SCRIPT" capture --deliverables "13.6" ) >/dev/null 2>"$WORK/t15.err"
 E15=$(tail -1 "$LOG15")
-echo "$E15" | jq -e '.tokens == {input:10,output:5,cache_read:700,cache_creation:6}' >/dev/null 2>&1 \
+echo "$E15" | jq -e '.tokens == {input:8,output:4,cache_read:70,cache_creation:2}' >/dev/null 2>&1 \
   && ok "[13.6] tokens is the bounded per-session DELTA (cumulative_now − prior capture), not the whole transcript" \
-  || no "[13.6] expected delta {10,5,700,6}, got $(echo "$E15" | jq -c '.tokens') (err=$(cat "$WORK/t15.err"))"
+  || no "[13.6] expected delta {8,4,70,2}, got $(echo "$E15" | jq -c '.tokens') (err=$(cat "$WORK/t15.err"))"
 echo "$E15" | jq -e '.slice_basis == "per_deliverable"' >/dev/null 2>&1 \
   && ok "[13.6] slice_basis = per_deliverable when a prior same-runtime_session capture exists" \
   || no "[13.6] expected slice_basis per_deliverable, got $(echo "$E15" | jq -c '.slice_basis')"
-echo "$E15" | jq -e '.transcript_tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+echo "$E15" | jq -e '.transcript_tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
   && ok "[13.6] transcript_tokens preserves the cumulative high-water reading (the next slice differences against it)" \
-  || no "[13.6] expected transcript_tokens = full cumulative {12,6,1000,10}, got $(echo "$E15" | jq -c '.transcript_tokens')"
+  || no "[13.6] expected transcript_tokens = main-only cumulative {10,5,100,3}, got $(echo "$E15" | jq -c '.transcript_tokens')"
 
 # ── T15b — the slice basis is ALWAYS present and self-describing (Rule 15): no
 # reading can be mistaken for the wrong unit. The field is one of the three named
@@ -430,7 +466,7 @@ echo "$E15" | jq -e 'has("slice_basis") and (.slice_basis | . == "per_deliverabl
 # the slice IS the burn since process start — correct as the first slice, and
 # disclosed as such (since_process_start), never silently treated as a bounded
 # per-deliverable delta. T14 already exercised a no-prior harvest; pin the basis.
-echo "$E14" | jq -e '.slice_basis == "since_process_start" and .tokens.cache_read == 1000' >/dev/null 2>&1 \
+echo "$E14" | jq -e '.slice_basis == "since_process_start" and .tokens.cache_read == 100' >/dev/null 2>&1 \
   && ok "[13.6] first capture (no prior) → slice_basis since_process_start, slice = full cumulative (disclosed)" \
   || no "[13.6] first capture must disclose since_process_start, got $(echo "$E14" | jq -c '{slice_basis, tokens}')"
 
@@ -440,12 +476,12 @@ echo "$E14" | jq -e '.slice_basis == "since_process_start" and .tokens.cache_rea
 # unbounded_cumulative (excluded downstream), never a fabricated negative slice.
 P17=$(make_project); LOG17="$P17/.claude/metering/metering.ndjson"
 FH17="$WORK/home.$RANDOM"; SID17="17171717-1111-2222-3333-444444444444"
-mk_transcript "$P17" "$FH17" "$SID17"   # cumulative now = cache_read 1000
+mk_transcript "$P17" "$FH17" "$SID17"   # cumulative now = cache_read 100 (main-only)
 mkdir -p "$P17/.claude/metering"
 seed_prior "$LOG17" "$SID17" "2026-06-16T09:00:00Z" '{"input":99,"output":99,"cache_read":9999,"cache_creation":99}'  # prior > now
 ( cd "$P17" && HOME="$FH17" CLAUDE_CODE_SESSION_ID="$SID17" bash "$SCRIPT" capture --deliverables "13.6" ) >/dev/null 2>"$WORK/t17.err"
 E17=$(tail -1 "$LOG17")
-echo "$E17" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens.cache_read == 1000' >/dev/null 2>&1 \
+echo "$E17" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens.cache_read == 100' >/dev/null 2>&1 \
   && ok "[13.6] a negative (non-monotone) delta degrades to unbounded_cumulative, tokens = full cumulative (disclosed, never negative)" \
   || no "[13.6] non-monotone cumulative must degrade to unbounded_cumulative, got $(echo "$E17" | jq -c '{slice_basis, tokens}') (err=$(cat "$WORK/t17.err"))"
 
@@ -638,10 +674,9 @@ tail -1 "$LOG19bb" | jq -e '.tokens == {input:15,output:3,cache_read:30,cache_cr
   && ok "EMPTY-string requestIds are not collapsed either (three responses total {15,3,30,3}, not one max)" \
   || no "empty requestIds were collapsed: expected {15,3,30,3}, got $(tail -1 "$LOG19bb" | jq -c '.tokens') (err=$(cat "$WORK/t19bb.err"))"
 
-# ── T19c — the dedupe spans the SIBLING subagent tree without collapsing across
-# agents: main req_M (2 lines) + subagent req_S (2 lines) each count once and
-# still sum to the T14 totals. Pins that [13.1]'s subagent capture and the
-# dedupe compose — a per-file dedupe, or a global one, would break one or the other.
+# ── T19c — the dedupe and the [32.4] main-only coverage compose: the MAIN
+# transcript's duplicated req_M counts once, and the sibling subagent transcript
+# (its own duplicated req_S) stays out entirely.
 P19c=$(make_project); LOG19c="$P19c/.claude/metering/metering.ndjson"
 FH19c="$WORK/home.$RANDOM"; SID19c="19c19c19-1111-2222-3333-444444444444"
 slug19c=$(cd "$P19c" && pwd -P | sed 's#/#-#g'); base19c="$FH19c/.claude/projects/$slug19c"
@@ -655,9 +690,9 @@ mkdir -p "$base19c/$SID19c/subagents"
   printf '%s\n' '{"type":"assistant","requestId":"req_S","message":{"model":"claude-sub","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":900,"cache_creation_input_tokens":7}}}'
 } > "$base19c/$SID19c/subagents/agent-dedupe.jsonl"
 ( cd "$P19c" && HOME="$FH19c" CLAUDE_CODE_SESSION_ID="$SID19c" bash "$SCRIPT" capture --deliverables "13.1" ) >/dev/null 2>"$WORK/t19c.err"
-tail -1 "$LOG19c" | jq -e '.tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
-  && ok "dedupe composes with subagent capture (main+sub duplicated lines still total {12,6,1000,10})" \
-  || no "dedupe/subagent composition broken: expected {12,6,1000,10}, got $(tail -1 "$LOG19c" | jq -c '.tokens') (err=$(cat "$WORK/t19c.err"))"
+tail -1 "$LOG19c" | jq -e '.tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
+  && ok "dedupe composes with main-only coverage (duplicated main lines count once, subagent file stays out: {10,5,100,3})" \
+  || no "dedupe/coverage composition broken: expected {10,5,100,3}, got $(tail -1 "$LOG19c" | jq -c '.tokens') (err=$(cat "$WORK/t19c.err"))"
 
 # ── T20 — VINTAGE GUARD: never difference a deduped cumulative against a PRE-dedupe
 # one. The [13.6] delta guard is MAGNITUDE-based (all classes >= 0), so it catches the
@@ -672,12 +707,12 @@ tail -1 "$LOG19c" | jq -e '.tokens == {input:12,output:6,cache_read:1000,cache_c
 # magnitude guard is satisfied — the entry must STILL disclose unbounded_cumulative.
 P20=$(make_project); LOG20="$P20/.claude/metering/metering.ndjson"
 FH20="$WORK/home.$RANDOM"; SID20="20202020-1111-2222-3333-444444444444"
-mk_transcript "$P20" "$FH20" "$SID20"   # cumulative now = {12,6,1000,10}
+mk_transcript "$P20" "$FH20" "$SID20"   # cumulative now = {10,5,100,3} (main-only)
 mkdir -p "$P20/.claude/metering"
 seed_prior "$LOG20" "$SID20" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}' legacy
 ( cd "$P20" && HOME="$FH20" CLAUDE_CODE_SESSION_ID="$SID20" bash "$SCRIPT" capture --deliverables "13.6" ) >/dev/null 2>"$WORK/t20.err"
 E20=$(tail -1 "$LOG20")
-echo "$E20" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens == {input:12,output:6,cache_read:1000,cache_creation:10}' >/dev/null 2>&1 \
+echo "$E20" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
   && ok "a PRE-dedupe prior is never differenced against: vintage boundary discloses unbounded_cumulative, tokens = full cumulative" \
   || no "vintage boundary produced a cross-unit slice: expected unbounded_cumulative + full cumulative, got $(echo "$E20" | jq -c '{slice_basis, tokens}') (err=$(cat "$WORK/t20.err"))"
 
@@ -700,9 +735,9 @@ echo "$E20" | jq -e '.harvest_basis == "per_response"' >/dev/null 2>&1 \
 # path already declares on stderr for a FUZZIER condition ([13.5]); a unit break in
 # the record is at least as load-bearing. Rule 10: a silent designed degradation is
 # still silent.
-grep -q 'VINTAGE BREAK' "$WORK/t20.err" \
+grep -q 'VINTAGE/COVERAGE BREAK' "$WORK/t20.err" \
   && ok "the vintage boundary is declared loudly on stderr, not just recorded in the entry" \
-  || no "vintage boundary was silent: no 'VINTAGE BREAK' on stderr, got: $(cat "$WORK/t20.err")"
+  || no "vintage boundary was silent: no 'VINTAGE/COVERAGE BREAK' on stderr, got: $(cat "$WORK/t20.err")"
 
 # ── T20d — a DEGRADED harvest declares no harvest unit. harvest_basis describes how
 # a reading was taken; when no reading was taken there is no unit to describe, and

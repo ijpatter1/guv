@@ -223,6 +223,7 @@ for pair in \
   ".gitignore:shell/gitignore" \
   "Makefile:shell/Makefile" \
   ".claude/project.schema.json:shell/project.schema.json" \
+  ".claude/metering-log.md:shell/metering-log.md" \
   ".claude/settings.sandbox-example.json:shell/settings.sandbox-example.json" \
   "docs/REQUIREMENTS.md:shell/docs/REQUIREMENTS.md" \
   "docs/ARCHITECTURE.md:shell/docs/ARCHITECTURE.md" \

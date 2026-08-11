@@ -57,10 +57,6 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/stop-check.sh"
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/occupancy-meter.sh"
           }
         ]
       }

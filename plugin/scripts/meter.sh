@@ -45,17 +45,16 @@
 # dollars at C (token-only, no guessed price table). Token counts by class are
 # harvested mechanically from the Claude Code runtime transcript
 # (~/.claude/projects/<cwd-slug>/<CLAUDE_CODE_SESSION_ID>.jsonl), which carries a
-# per-assistant-message `usage` object — PLUS every *.jsonl under the sibling
-# <session>/ tree, where the subagents a session spawns (the reviewer, review
-# and workflow agents) write their own transcripts ([13.1]): a session-scalar
-# total includes that subagent burn, not just the main transcript. The transcript
-# is a research-preview
-# surface: if it is unreachable (no session id, no file, jq can't sum it), the
-# writer takes the DESIGNED degradation (Rule 15) — tokens=null, model from the
-# transcript if any, spike_c_rung="degraded" — and the log still gets its
-# mechanical fields (ts, session, deliverable_ids, perf). The log existing never
-# depends on Spike C. dollars is ALWAYS null on this rung: pricing tables drift
-# and the spec forbids a guessed conversion.
+# per-assistant-message `usage` object. COVERAGE IS THE MAIN TRANSCRIPT ONLY
+# ([32.4] epoch declaration): subagent-fleet burn is out of band — it returns at
+# [32.8] as a DISTINCT fleet component, never blended silently — and every entry
+# self-describes the scope (coverage:"main_session"). The transcript is a
+# research-preview surface: if it is unreachable (no session id, no file, jq
+# can't sum it), the writer takes the DESIGNED degradation (Rule 15) —
+# tokens=null, model from the transcript if any, spike_c_rung="degraded" — and
+# the log still gets its mechanical fields (ts, session, deliverable_ids, perf).
+# The log existing never depends on Spike C. dollars is ALWAYS null on this
+# rung: pricing tables drift and the spec forbids a guessed conversion.
 #
 # NOT A SessionEnd HOOK ([8.3] §3.3 — "AUTOMATE (caveated), verify at [8.3]").
 # Verified and resolved to KEEP MODEL-TRIGGERED (the handoff invokes it at Step 6b):
@@ -152,44 +151,25 @@ fi
 # --- Spike C harvest: tokens by class + model, from the runtime transcript ----
 # Rung B (session-scalar token attribution); dollars at C (token-only). The
 # transcript is named by the Claude Code runtime session id under a cwd-derived
-# project slug. The MAIN session transcript is <session>.jsonl; the subagents a
-# session spawns (the reviewer, review and workflow agents) write their
-# OWN transcripts under the SIBLING <session>/ directory tree (subagents/,
-# workflows/), each carrying the identical per-message `usage` object. A session-
-# scalar token total MUST include that subagent burn ([13.1]): the eval/fix
-# review loop is the dominant turn-variance the projection must predict, and it
-# lives entirely in those sub-transcripts — harvesting only the main transcript
-# undercounts real burn (measured ~1.4x on a review-heavy session). So the harvest
-# sums the main transcript PLUS every *.jsonl under the sibling <session>/ tree.
-# The MODEL, by contrast, is read from the MAIN transcript ONLY — it names the
-# session's model, never a subagent's. A research-preview surface: any miss
-# degrades to tokens=null.
+# project slug. COVERAGE: THE MAIN <session>.jsonl ONLY ([32.4]). The subagents
+# a session spawns write their own transcripts under the sibling <session>/
+# tree; that fleet burn is OUT OF BAND until [32.8] adds it back as a distinct
+# component — a blended total misread as main-session burn is worse than a
+# narrower figure that says what it spans, so the entry self-describes the
+# scope (coverage:"main_session"). The MODEL is likewise the main transcript's.
+# A research-preview surface: any miss degrades to tokens=null.
 TOKENS_JSON="null"
 MODEL_JSON="null"
 RUNTIME_SESSION="${CLAUDE_CODE_SESSION_ID:-}"
 RUNG="degraded"   # upgraded to "B" once tokens are summed
 TRANSCRIPT=""
-SUBAGENT_TREE=""
 if [ -n "$RUNTIME_SESSION" ]; then
   SLUG=$(pwd -P | sed 's#/#-#g')
   CAND="$HOME/.claude/projects/$SLUG/$RUNTIME_SESSION.jsonl"
   [ -f "$CAND" ] && TRANSCRIPT="$CAND"
-  # the sibling <session>/ tree holding subagents/, workflows/, … (may be absent)
-  CANDTREE="$HOME/.claude/projects/$SLUG/$RUNTIME_SESSION"
-  [ -d "$CANDTREE" ] && SUBAGENT_TREE="$CANDTREE"
 fi
 if [ -n "$TRANSCRIPT" ]; then
-  # Token sources: the main transcript + every *.jsonl under the sibling
-  # <session>/ tree (the subagent/workflow transcripts). NUL-safe (read -d '') so
-  # a HOME with spaces is fine, and bash-3.2 compatible (no mapfile). The
-  # .meta.json sidecars are excluded by the *.jsonl filter. No sidechain double-
-  # count: this runtime EXTERNALIZES subagents to their own files (the main
-  # transcript carries no isSidechain usage); re-verify if the layout shifts.
   TOKEN_FILES=("$TRANSCRIPT")
-  if [ -n "$SUBAGENT_TREE" ]; then
-    while IFS= read -r -d '' f; do TOKEN_FILES+=("$f"); done \
-      < <(find "$SUBAGENT_TREE" -name '*.jsonl' -type f -print0 2>/dev/null)
-  fi
   # Sum the per-RESPONSE usage objects by class across ALL token sources. Missing
   # fields default to 0; no usage lines anywhere yields null (still a valid
   # harvest). This is extraction over the transcripts, NOT aggregation into a
@@ -274,10 +254,10 @@ if [ -n "$TRANSCRIPT" ]; then
   [ -n "$MODEL_JSON" ] || MODEL_JSON="null"
 fi
 
-# >>> [13.6] bounded-slice harvest (lockstep with meter.sh / meter-queue.sh) >>>
-# The harvest above summed the WHOLE transcript (main + subagents) to NOW — a
-# cumulative reading. A guv session is a SLICE of that transcript, not the whole
-# thing (docs/notes/meter-forensics.md): summing the whole made every capture a
+# >>> [13.6] bounded-slice harvest >>>
+# The harvest above summed the transcript to NOW — a cumulative reading. A guv
+# session is a SLICE of that transcript, not the whole thing
+# (docs/notes/meter-forensics.md): summing the whole made every capture a
 # cumulative snapshot of the entire Claude Code process (~4.6x inflation). Convert
 # the cumulative reading into a BOUNDED per-session SLICE — the delta from the last
 # same-runtime_session capture to now (forensics B2 mechanism 1). TRANSCRIPT_TOKENS
@@ -285,8 +265,6 @@ fi
 # it; SLICE_BASIS self-describes the unit so a reading is never mistaken for the
 # wrong one (Rule 15); COMPACTION_CYCLES counts the real compaction events the slice
 # spanned (isCompactSummary==true, ts >= the prior capture) for balloon detection.
-# This block is BYTE-IDENTICAL in both meters — meter-queue.test.sh asserts it; edit
-# both or neither.
 TRANSCRIPT_TOKENS="$TOKENS_JSON"   # the raw cumulative high-water reading
 # The HARVEST UNIT this entry's numbers are denominated in — the [13.6] slice_basis
 # discipline applied to the other axis. `per_response` means the harvest deduped by
@@ -303,31 +281,46 @@ HARVEST_BASIS="per_response"
 # axis exactly as slice_basis does, rather than asserting how a reading that never
 # happened was taken.
 [ "$TOKENS_JSON" != "null" ] || HARVEST_BASIS="null"
+# The COVERAGE axis ([32.4]): what the reading SPANS — the main transcript only.
+# Absent on every entry written before the narrowing (those summed main +
+# subagents), and that absence is load-bearing exactly like harvest_basis's: a
+# prior reading of a different scope is a different quantity, so differencing
+# against it is refused below. [32.8] widens this to a main+fleet split.
+COVERAGE="main_session"
+[ "$TOKENS_JSON" != "null" ] || COVERAGE="null"
 SLICE_BASIS="null"
 COMPACTION_CYCLES="null"
 PRIOR_TS=""
 if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
-  # the most recent prior guv.meter.* entry for THIS runtime_session that carries a
-  # usable cumulative reading (a [13.6] transcript_tokens, or a legacy cumulative
-  # `tokens`), across BOTH boundaries (session + queue advance one high-water mark
-  # per transcript). Emits "<cumulative-json>\t<ts>\t<harvest_basis>" or nothing.
+  # the most recent prior guv.meter.* entry for THIS runtime_session that carries
+  # a usable cumulative reading (a [13.6] transcript_tokens, or a legacy
+  # cumulative `tokens`). Emits
+  # "<cumulative-json>\t<ts>\t<harvest_basis>\t<coverage>" or nothing.
+  # PER-LINE TOLERANT (fromjson?), never a strict slurp: one torn append must
+  # drop alone. A strict parse here empties PRIOR on any torn line, and a "no
+  # prior" result writes the FULL process cumulative as a counted
+  # since_process_start sample — the ~4.6x inflation [13.6] exists to prevent,
+  # arriving through the reader instead of the writer.
   PRIOR=""
   if [ -f "$LOG" ]; then
-    PRIOR=$(jq -rs --arg rs "$RUNTIME_SESSION" '
-      [ .[] | select((.schema // "") | startswith("guv.meter"))
+    PRIOR=$(jq -rRn --arg rs "$RUNTIME_SESSION" '
+      [ inputs | fromjson? | select(type == "object")
+            | select((.schema // "") | startswith("guv.meter"))
             | select(.runtime_session == $rs)
             | select(((.transcript_tokens // .tokens) // null) != null) ]
       | last
       | if . == null then empty
         else ((.transcript_tokens // .tokens) | @json) + "\t" + (.ts // "")
-             + "\t" + (.harvest_basis // "") end
+             + "\t" + (.harvest_basis // "") + "\t" + (.coverage // "") end
     ' "$LOG" 2>/dev/null)
   fi
   if [ -n "$PRIOR" ]; then
     PRIOR_CUM=${PRIOR%%$'\t'*}
     PRIOR_REST=${PRIOR#*$'\t'}
     PRIOR_TS=${PRIOR_REST%%$'\t'*}
-    PRIOR_HARVEST=${PRIOR_REST#*$'\t'}
+    PRIOR_REST=${PRIOR_REST#*$'\t'}
+    PRIOR_HARVEST=${PRIOR_REST%%$'\t'*}
+    PRIOR_COVERAGE=${PRIOR_REST#*$'\t'}
     # per-class delta = now - prior. The cumulative is monotone within a transcript
     # (the file only grows), so a NEGATIVE class delta means the high-water reading
     # is unreliable (e.g. subagent files pruned) — disclose unbounded_cumulative and
@@ -337,20 +330,20 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
         output:         (($now.output//0)         - ($prior.output//0)),
         cache_read:     (($now.cache_read//0)     - ($prior.cache_read//0)),
         cache_creation: (($now.cache_creation//0) - ($prior.cache_creation//0)) }' 2>/dev/null)
-    # VINTAGE GUARD (checked BEFORE the magnitude guard, because magnitude cannot
-    # see this): the prior reading must have been harvested under the SAME unit, or
-    # the subtraction is across two different accountings and its result is
-    # meaningless. The magnitude guard alone catches the boundary only while the
-    # deduped cumulative is still below the last inflated one — once it outgrows it
-    # (inevitable; the transcript only grows) every delta turns positive and a
-    # cross-unit figure would be written as a valid per_deliverable slice, then
-    # summed into INITIATIVE_BURN and observed_rate(). Disclose it instead.
-    if [ "$PRIOR_HARVEST" != "$HARVEST_BASIS" ]; then
+    # VINTAGE/COVERAGE GUARD (checked BEFORE the magnitude guard, because
+    # magnitude cannot see either): the prior reading must have been harvested
+    # under the SAME unit AND span the SAME scope, or the subtraction crosses two
+    # different accountings and its result is meaningless. The magnitude guard
+    # alone catches a seam only while the new cumulative is still below the old
+    # one — once it outgrows it (inevitable; the transcript only grows) every
+    # delta turns positive and a cross-unit or cross-scope figure would be
+    # written as a valid per_deliverable slice, then summed into burn and
+    # observed_rate(). Disclose it instead.
+    if [ "$PRIOR_HARVEST" != "$HARVEST_BASIS" ] || [ "$PRIOR_COVERAGE" != "$COVERAGE" ]; then
       SLICE_BASIS="unbounded_cumulative"   # TOKENS_JSON stays the full cumulative
       # LOUD (Rule 10): this entry's burn drops out of every downstream sum the
-      # moment it is tagged unbounded_cumulative. Say so where a person sees it —
-      # an undeclared ~2.5x step change reads as "suddenly under budget".
-      echo "[meter] VINTAGE BREAK: prior reading for this runtime_session was harvested as '${PRIOR_HARVEST:-<pre-dedupe>}', this one as '$HARVEST_BASIS' — different units (~2.5x apart), so NO delta was taken. Entry discloses slice_basis=unbounded_cumulative and is EXCLUDED from burn sums and observed_rate(): it is not a burn sample. Expect this once per runtime_session (see .claude/metering-log.md)." >&2
+      # moment it is tagged unbounded_cumulative. Say so where a person sees it.
+      echo "[meter] VINTAGE/COVERAGE BREAK: prior reading for this runtime_session was '${PRIOR_HARVEST:-<pre-dedupe>}'/'${PRIOR_COVERAGE:-<pre-[32.4] main+subagents>}', this one '$HARVEST_BASIS'/'$COVERAGE' — a different unit or scope, so NO delta was taken. Entry discloses slice_basis=unbounded_cumulative and is EXCLUDED from burn sums and observed_rate(): it is not a burn sample. Expect this once per runtime_session (see .claude/metering-log.md)." >&2
     elif [ -n "$DELTA" ] && [ "$(printf '%s' "$DELTA" | jq '[.input,.output,.cache_read,.cache_creation] | all(. >= 0)')" = "true" ]; then
       TOKENS_JSON="$DELTA"
       SLICE_BASIS="per_deliverable"
@@ -425,6 +418,7 @@ ENTRY=$(jq -cn \
   --argjson transcript_tokens "$TRANSCRIPT_TOKENS" \
   --arg slice_basis "$SLICE_BASIS" \
   --arg harvest_basis "$HARVEST_BASIS" \
+  --arg coverage "$COVERAGE" \
   --argjson compaction_cycles "$COMPACTION_CYCLES" \
   --arg rung "$RUNG" \
   --argjson op "$OP_WALLCLOCK" \
@@ -441,6 +435,7 @@ ENTRY=$(jq -cn \
      transcript_tokens: $transcript_tokens,
      slice_basis: (if $slice_basis == "null" then null else $slice_basis end),
      harvest_basis: (if $harvest_basis == "null" then null else $harvest_basis end),
+     coverage: (if $coverage == "null" then null else $coverage end),
      compaction_cycles: $compaction_cycles,
      dollars: null,
      spike_c_rung: $rung,

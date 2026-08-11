@@ -33,11 +33,6 @@ sandbox/tmp/
 # a machine-local did-fire flag so the one-time grandfather nudge fires once, not
 # every session; runtime artifact, not tracked)
 .claude/.context-wall-migration-nudged
-# guv context-wall approach-warning marker ([16.4]; occupancy-meter.sh — a
-# machine-local, SESSION-scoped did-fire flag (it stores the session_id) so the
-# hard-stop warn-band fires its one-shot approach warning once per session; runtime
-# artifact, not tracked)
-.claude/.context-wall-approach-warned
 # guv context-wall continue-guidance marker ([16.4]; context-management.sh surface —
 # a machine-local did-fire flag so the one-shot continue-mode "author a window if you
 # want an explicit compaction point" guidance fires once, not every session; runtime
