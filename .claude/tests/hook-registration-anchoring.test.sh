@@ -44,7 +44,31 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SETTINGS="${SETTINGS:-$ROOT/.claude/settings.json}"
-PLUGIN_HOOKS="${PLUGIN_HOOKS:-$ROOT/plugin/hooks/hooks.json}"
+# The plugin hooks.json is read from a tree BUILT here, not from the committed
+# plugin/ ([32.5]): that tree is the frozen release artifact, so a settings.json
+# edit would show as an anchoring failure until the next release. The battery's
+# runner exports GUV_BUILT_PLUGIN so one build serves every suite that needs one.
+# The BUILDER's absence is what means "consumer fork", so it gates first — the
+# runner's shared tree must not satisfy a probe that removed the builder. A build
+# that FAILS is its own rung: reporting it as a fork names the wrong cause.
+HRA_BUILD="${HRA_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
+HRA_TMP=""
+HRA_BUILD_BROKEN=""
+if [ -n "${PLUGIN_HOOKS:-}" ]; then
+  :
+elif [ ! -f "$HRA_BUILD" ]; then
+  PLUGIN_HOOKS=""   # consumer fork: no builder, no derived hooks.json to check
+elif [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -f "${GUV_BUILT_PLUGIN:-}/hooks/hooks.json" ]; then
+  PLUGIN_HOOKS="$GUV_BUILT_PLUGIN/hooks/hooks.json"
+else
+  HRA_TMP=$(mktemp -d)
+  trap 'rm -rf "$HRA_TMP"' EXIT
+  if bash "$HRA_BUILD" --out "$HRA_TMP/plugin" >/dev/null 2>&1; then
+    PLUGIN_HOOKS="$HRA_TMP/plugin/hooks/hooks.json"
+  else
+    PLUGIN_HOOKS=""; HRA_BUILD_BROKEN=yes
+  fi
+fi
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -90,8 +114,12 @@ fi
 # Cross-surface derive integrity: the plugin install path (hooks.json) re-roots
 # every hook to ${CLAUDE_PLUGIN_ROOT}. The project anchor must NOT leak through the
 # derive (a broken derive would emit "$CLAUDE_PROJECT_DIR"/"${CLAUDE_PLUGIN_ROOT}"/…).
-if [ ! -f "$PLUGIN_HOOKS" ]; then
-  no "plugin hooks.json missing — $PLUGIN_HOOKS (build-plugin.sh derives it)"
+if [ -z "$PLUGIN_HOOKS" ] && [ -z "$HRA_BUILD_BROKEN" ]; then
+  # No builder: a consumer fork has no derived hooks.json to check. A VISIBLE
+  # skip, never a failure — the convention every other fork-aware suite follows.
+  echo "  - maintainers/build-plugin.sh absent (consumer fork) — plugin-derive guard skips"
+elif [ ! -f "$PLUGIN_HOOKS" ]; then
+  no "plugin hooks.json missing${HRA_BUILD_BROKEN:+ — build-plugin.sh FAILED (a broken build, not a consumer fork)}${PLUGIN_HOOKS:+ — $PLUGIN_HOOKS (build-plugin.sh derives it)}"
 else
   PCMDS=$(jq -r '.hooks | .. | objects | select(has("command")) | .command' "$PLUGIN_HOOKS")
   if printf '%s\n' "$PCMDS" | grep -q 'CLAUDE_PROJECT_DIR'; then

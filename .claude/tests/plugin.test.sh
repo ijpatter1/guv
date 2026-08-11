@@ -12,7 +12,14 @@
 #     their .claude/ sources (cmp)
 #   - skills reference plugin scripts via ${CLAUDE_PLUGIN_ROOT}, never .claude/
 #   - no install-time tooling (spec constraint, Phase 5 scoped)
-#   - drift guard: rebuilding into a temp dir reproduces the committed plugin/
+#
+# EVERY check here runs against a tree this suite BUILDS, never against the
+# committed plugin/ ([32.5]). plugin/ is the release artifact — frozen between
+# releases, so source legitimately runs ahead of it and a battery that diffed
+# the two would red on the model working as designed. "Does the committed tree
+# match source" moved to the release gate (build-plugin.sh --check, pinned by
+# release.test.sh); what stays here is what the BUILD must be true of, which is
+# what these invariants were always really about.
 # Live behaviors (skill resolution under /guv:, hook firing under plugin install)
 # need a real session: covered by dogfood runs and the Phase 5 UAT, not here.
 # Pure bash + jq, no test runner required.
@@ -21,28 +28,47 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
-PLUGIN="$ROOT/plugin"
 SRC="$ROOT/.claude"
-MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
-HOOKS_JSON="$PLUGIN/hooks/hooks.json"
-READONLY_SH="$PLUGIN/scripts/reviewer-readonly.sh"
 BUILD="${PLUGIN_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
-# A template-clone fork may delete the generated plugin/ (and .claude-plugin/)
-# per the README's tree note — with no plugin tree there is nothing to guard;
-# skip the whole suite cleanly, never as failures. PLUGIN_TEST_TREE is the
-# seam for T16b's self-check of this path.
-if [ ! -d "${PLUGIN_TEST_TREE:-$PLUGIN}" ]; then
-  echo "  - plugin/ absent (template-clone fork) — suite skips"
+# A consumer fork that dropped maintainers/ has no build to verify — skip the
+# whole suite cleanly, never as failures. (Before [32.5] this gate was on
+# plugin/ instead; the suite read the committed tree, so its absence was what
+# left nothing to check. Now the build script is the dependency and plugin/ is
+# never read here at all.)
+if [ ! -f "$BUILD" ]; then
+  echo "  - maintainers/build-plugin.sh absent (consumer fork) — suite skips"
   echo ""
   echo "Results: 0 passed, 0 failed"
   exit 0
 fi
 
+# The tree under test: built here, from today's source. The battery's runner
+# exports GUV_BUILT_PLUGIN so one build serves every suite that needs one (a
+# build is ~9s); a standalone run builds its own and gets the identical tree.
+PLUGIN_BUILD_TMP=""
+if [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  PLUGIN="$GUV_BUILT_PLUGIN"
+else
+  PLUGIN_BUILD_TMP=$(mktemp -d)
+  PLUGIN="$PLUGIN_BUILD_TMP/plugin"
+  if ! bash "$BUILD" --out "$PLUGIN" >/dev/null 2>&1; then
+    echo "  ✗ build-plugin.sh failed — nothing to verify" >&2
+    rm -rf "$PLUGIN_BUILD_TMP"
+    echo ""
+    echo "Results: 0 passed, 1 failed"
+    exit 1
+  fi
+fi
+MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
+HOOKS_JSON="$PLUGIN/hooks/hooks.json"
+READONLY_SH="$PLUGIN/scripts/reviewer-readonly.sh"
+
 finish() {
+  [ -n "$PLUGIN_BUILD_TMP" ] && rm -rf "$PLUGIN_BUILD_TMP"
   echo ""
   echo "Results: $PASS passed, $FAIL failed"
   [ "$FAIL" -eq 0 ]
@@ -417,7 +443,16 @@ fi
 # agents/ joined the scan after [7.1]'s routing shipped dead .claude/guv-*.sh
 # paths there inside a green battery (the skills-only scan was blind to the
 # exact surface the routing touched).
-STALE=$(grep -rE "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" "$PLUGIN/skills" "$PLUGIN/agents" | grep -cv 'CLAUDE_PLUGIN_ROOT')
+# Shape-doc references are STRIPPED before the test rather than excluded by
+# line: the builder deliberately leaves `.claude/<name>.shape.md` alone (it is a
+# project path the scaffold deploys, like metering-log.md) and
+# `.claude/estimate.sh` is a substring of it. Stripping then re-testing keeps a
+# line carrying BOTH a shape-doc mention and a genuinely stale script path
+# visible, which a line-level exclusion would hide.
+STALE=$(grep -rE "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" "$PLUGIN/skills" "$PLUGIN/agents" \
+  | sed -E 's#\.claude/[a-z][a-z-]*\.shape\.md##g' \
+  | grep -E "\.claude/(hooks/)?($SCRIPTS_ALT)\.sh" \
+  | grep -cv 'CLAUDE_PLUGIN_ROOT')
 [ "$STALE" -eq 0 ] \
   && ok "no stale .claude/ script paths in plugin skills or agents (all rewritten to plugin root)" \
   || no "$STALE stale .claude/ script reference(s) remain in plugin/skills|agents"
@@ -641,136 +676,98 @@ T13_OK=1
 jq -e '.scripts // .install // .postinstall' "$MANIFEST" >/dev/null 2>&1 && { no "manifest carries install-time keys"; T13_OK=0; }
 [ "$T13_OK" -eq 1 ] && ok "no install-time tooling (native manifest only)"
 
-# T14 — drift guard: the committed plugin/ is exactly what build-plugin.sh
-# produces from today's sources. A diff here means someone edited plugin/ by
-# hand or changed .claude/ without rebuilding. A template-clone consumer fork
-# that dropped maintainers/ has no build to drift from — skip cleanly with a
-# message (same pattern as sandbox-example's removed-Docker-tier skip), never
-# silently and never as a failure.
-if [ -f "$BUILD" ]; then
-  TMP=$(mktemp -d)
-  # Built from a scratch copy, not the live tree: this guard READS the whole
-  # source, so a concurrent planter (including the sub-tests below, before this
-  # change) could poison it and red the battery for a reason that has nothing to
-  # do with drift.
-  SCOPY=$(mk_source_copy)
-  if bash "$(copy_build "$SCOPY")" --out "$TMP/plugin" >/dev/null 2>&1 && diff -r "$TMP/plugin" "$PLUGIN" >/dev/null 2>&1; then
-    ok "rebuild reproduces the committed plugin/ byte-for-byte (no drift)"
-  else
-    no "build-plugin.sh --out output differs from committed plugin/ (rebuild needed?)"
-  fi
-  rm -rf "$TMP" "$SCOPY"
-
-  # T15 — the build fails loud on an authored/derived skill-name collision
-  # instead of silently clobbering the authored copy. Fixture: a plugin-src skill
-  # named like an existing command, planted in a scratch copy of the source tree.
-  # The stale-fixture cleanup and the EXIT trap this block used to carry are gone
-  # with the live-tree plant they existed for: a crashed run now leaves a mktemp
-  # directory behind, not a fixture that reds the next battery.
-  SCOPY=$(mk_source_copy)
-  FIXTURE="$SCOPY/maintainers/plugin-src/skills/status"
-  mkdir -p "$FIXTURE"
-  printf -- '---\ndescription: "collision fixture"\n---\nx\n' > "$FIXTURE/SKILL.md"
-  # HERMETICITY (Prong B) — asserted while the fixture EXISTS, so it observes the
-  # live tree rather than linting this file. Red before the scratch-root rewrite,
-  # when this exact path was the plant target and any concurrent reader (another
-  # build, a git status, a second copy of this suite) could see it.
-  [ ! -e "$ROOT/maintainers/plugin-src/skills/status" ] \
-    && ok "the collision fixture is planted outside the live source tree (no concurrent reader can see it)" \
-    || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($ROOT/maintainers/plugin-src/skills/status exists mid-run)"
-  TMP2=$(mktemp -d)
-  if bash "$(copy_build "$SCOPY")" --out "$TMP2/plugin" >/dev/null 2>&1; then
-    no "build must fail when a derived command collides with an authored skill"
-  else
-    ok "build fails loud on authored/derived skill-name collision"
-  fi
-  rm -rf "$TMP2" "$SCOPY"
-
-  # T15b — adjacent-mention rewrite: the boundary guard consumes the char
-  # between two adjacent /commands, so a single sed pass misses the second —
-  # the double-pass exists for exactly this. Fixture command exercises it
-  # end-to-end through a real build.
-  SCOPY=$(mk_source_copy)
-  FIX2DIR="$SCOPY/.claude/skills/zzadjacency-fixture"
-  FIX2="$FIX2DIR/SKILL.md"
-  mkdir -p "$FIX2DIR"
-  printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /eval too.\n' > "$FIX2"
-  [ ! -e "$SRC/skills/zzadjacency-fixture" ] \
-    && ok "the adjacency fixture is planted outside the live source tree (no concurrent reader can see it)" \
-    || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($SRC/skills/zzadjacency-fixture exists mid-run)"
-  TMP3=$(mktemp -d)
-  if bash "$(copy_build "$SCOPY")" --out "$TMP3/plugin" >/dev/null 2>&1 \
-     && grep -q '/guv:task /guv:handoff' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md" \
-     && grep -q '/guv:status /guv:eval' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
-    ok "adjacent /command mentions both rewritten (double-pass verified end-to-end)"
-  else
-    no "adjacent /command mentions must both be namespaced by the double-pass"
-  fi
-  rm -rf "$TMP3" "$SCOPY"
-
-  # T15c — glob-derived helper registry ([7.1]): a helper dropped into
-  # .claude/ ships and gets path-rewritten with ZERO enumeration-list edits.
-  # Fixture: a throwaway helper plus a skill mentioning it; rebuild; the
-  # helper must land in scripts/ byte-identical AND the mention must be
-  # rewritten to ${CLAUDE_PLUGIN_ROOT}. Red until the HELPERS list and
-  # rewrite_paths derive from the source tree.
-  SCOPY=$(mk_source_copy)
-  FIX3="$SCOPY/.claude/zzregistry-fixture.sh"
-  FIX3DIR="$SCOPY/.claude/skills/zzregistry-fixture-cmd"
-  FIX3CMD="$FIX3DIR/SKILL.md"
-  printf '#!/bin/bash\necho zzregistry-fixture\n' > "$FIX3"
-  mkdir -p "$FIX3DIR"
-  printf 'Registry fixture.\n\nRun `bash .claude/zzregistry-fixture.sh` to exercise the registry.\n' > "$FIX3CMD"
-  { [ ! -e "$SRC/zzregistry-fixture.sh" ] && [ ! -e "$SRC/skills/zzregistry-fixture-cmd" ]; } \
-    && ok "the registry fixtures are planted outside the live source tree (no concurrent reader can see them)" \
-    || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($SRC/zzregistry-fixture.sh or $SRC/skills/zzregistry-fixture-cmd exists mid-run)"
-  TMP4=$(mktemp -d)
-  if bash "$(copy_build "$SCOPY")" --out "$TMP4/plugin" >/dev/null 2>&1 \
-     && cmp -s "$FIX3" "$TMP4/plugin/scripts/zzregistry-fixture.sh" \
-     && grep -q 'CLAUDE_PLUGIN_ROOT.*scripts/zzregistry-fixture\.sh' "$TMP4/plugin/skills/zzregistry-fixture-cmd/SKILL.md"; then
-    ok "fixture helper ships and rewrites with zero enumeration-list edits (registry is glob-derived)"
-  else
-    no "a dropped-in helper must ship in scripts/ and be path-rewritten without touching any list"
-  fi
-  rm -rf "$TMP4" "$SCOPY"
-
-  # T16 — consumer-fork resilience: with the build script absent, the whole
-  # suite must still exit 0 (the drift guard skips; nothing else needs
-  # maintainers/). The inner output must SHOW the skip fired — exit 0 alone
-  # would also pass if the skip block were deleted (the suite passes whole in
-  # the canonical repo), making the self-check vacuous. Guarded against
-  # recursion via PLUGIN_TEST_INNER.
-  if [ -z "${PLUGIN_TEST_INNER:-}" ]; then
-    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$SELF" 2>&1)
-    if [ $? -eq 0 ] && echo "$INNER" | grep -q "skipping drift guard"; then
-      ok "suite passes in a consumer fork (build script absent -> drift guard skips)"
-    else
-      no "suite must exit 0 AND visibly skip when maintainers/build-plugin.sh is absent"
-    fi
-    # T16c — the inner self-invocation must SKIP the run-plugin-tests reconstruction
-    # (T18): it is build-independent, the outer run covers it, and re-running it in
-    # every self-invocation tripled the battery's heaviest op. The positive grep
-    # (skip marker present) is load-bearing; the negative grep guards against the
-    # gate silently falling through and ALSO running the reconstruction. It targets
-    # the outer T18 success line's UNIQUE "in plugin layout" phrasing — the elif
-    # rebuild branch's "...runs the shipped suite green ([10.3])" omits it — so the
-    # negative half can't false-pass on a future branch-structure change.
-    if echo "$INNER" | grep -q "skipping run-plugin-tests.sh reconstruction" \
-       && ! echo "$INNER" | grep -q "runs the shipped suite green in plugin layout"; then
-      ok "inner self-invocation skips the redundant run-plugin-tests reconstruction (battery cost)"
-    else
-      no "inner self-invocation must skip the run-plugin-tests reconstruction (build-independent; outer covers it)"
-    fi
-    # T16b — same proof for the plugin-deleted fork (README's deletion note)
-    INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_TEST_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
-    if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
-      ok "suite skips wholesale in a fork that deleted plugin/"
-    else
-      no "suite must exit 0 and visibly skip when plugin/ is absent"
-    fi
-  fi
+# T15 — the build fails loud on an authored/derived skill-name collision
+# instead of silently clobbering the authored copy. Fixture: a plugin-src skill
+# named like an existing command, planted in a scratch copy of the source tree.
+# The stale-fixture cleanup and the EXIT trap this block used to carry are gone
+# with the live-tree plant they existed for: a crashed run now leaves a mktemp
+# directory behind, not a fixture that reds the next battery.
+SCOPY=$(mk_source_copy)
+FIXTURE="$SCOPY/maintainers/plugin-src/skills/status"
+mkdir -p "$FIXTURE"
+printf -- '---\ndescription: "collision fixture"\n---\nx\n' > "$FIXTURE/SKILL.md"
+# HERMETICITY (Prong B) — asserted while the fixture EXISTS, so it observes the
+# live tree rather than linting this file. Red before the scratch-root rewrite,
+# when this exact path was the plant target and any concurrent reader (another
+# build, a git status, a second copy of this suite) could see it.
+[ ! -e "$ROOT/maintainers/plugin-src/skills/status" ] \
+  && ok "the collision fixture is planted outside the live source tree (no concurrent reader can see it)" \
+  || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($ROOT/maintainers/plugin-src/skills/status exists mid-run)"
+TMP2=$(mktemp -d)
+if bash "$(copy_build "$SCOPY")" --out "$TMP2/plugin" >/dev/null 2>&1; then
+  no "build must fail when a derived command collides with an authored skill"
 else
-  echo "  - maintainers/build-plugin.sh absent (consumer fork) — skipping drift guard"
+  ok "build fails loud on authored/derived skill-name collision"
+fi
+rm -rf "$TMP2" "$SCOPY"
+
+# T15b — adjacent-mention rewrite: the boundary guard consumes the char
+# between two adjacent /commands, so a single sed pass misses the second —
+# the double-pass exists for exactly this. Fixture command exercises it
+# end-to-end through a real build.
+SCOPY=$(mk_source_copy)
+FIX2DIR="$SCOPY/.claude/skills/zzadjacency-fixture"
+FIX2="$FIX2DIR/SKILL.md"
+mkdir -p "$FIX2DIR"
+printf 'Adjacency fixture for the namespace rewrite.\n\nRun /task /handoff together, then /status /eval too.\n' > "$FIX2"
+[ ! -e "$SRC/skills/zzadjacency-fixture" ] \
+  && ok "the adjacency fixture is planted outside the live source tree (no concurrent reader can see it)" \
+  || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($SRC/skills/zzadjacency-fixture exists mid-run)"
+TMP3=$(mktemp -d)
+if bash "$(copy_build "$SCOPY")" --out "$TMP3/plugin" >/dev/null 2>&1 \
+   && grep -q '/guv:task /guv:handoff' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md" \
+   && grep -q '/guv:status /guv:eval' "$TMP3/plugin/skills/zzadjacency-fixture/SKILL.md"; then
+  ok "adjacent /command mentions both rewritten (double-pass verified end-to-end)"
+else
+  no "adjacent /command mentions must both be namespaced by the double-pass"
+fi
+rm -rf "$TMP3" "$SCOPY"
+
+# T15c — glob-derived helper registry ([7.1]): a helper dropped into
+# .claude/ ships and gets path-rewritten with ZERO enumeration-list edits.
+# Fixture: a throwaway helper plus a skill mentioning it; rebuild; the
+# helper must land in scripts/ byte-identical AND the mention must be
+# rewritten to ${CLAUDE_PLUGIN_ROOT}. Red until the HELPERS list and
+# rewrite_paths derive from the source tree.
+SCOPY=$(mk_source_copy)
+FIX3="$SCOPY/.claude/zzregistry-fixture.sh"
+FIX3DIR="$SCOPY/.claude/skills/zzregistry-fixture-cmd"
+FIX3CMD="$FIX3DIR/SKILL.md"
+printf '#!/bin/bash\necho zzregistry-fixture\n' > "$FIX3"
+mkdir -p "$FIX3DIR"
+printf 'Registry fixture.\n\nRun `bash .claude/zzregistry-fixture.sh` to exercise the registry.\n' > "$FIX3CMD"
+{ [ ! -e "$SRC/zzregistry-fixture.sh" ] && [ ! -e "$SRC/skills/zzregistry-fixture-cmd" ]; } \
+  && ok "the registry fixtures are planted outside the live source tree (no concurrent reader can see them)" \
+  || no "fixtures must not be planted in the live source tree — a concurrent build or git read sees them ($SRC/zzregistry-fixture.sh or $SRC/skills/zzregistry-fixture-cmd exists mid-run)"
+TMP4=$(mktemp -d)
+if bash "$(copy_build "$SCOPY")" --out "$TMP4/plugin" >/dev/null 2>&1 \
+   && cmp -s "$FIX3" "$TMP4/plugin/scripts/zzregistry-fixture.sh" \
+   && grep -q 'CLAUDE_PLUGIN_ROOT.*scripts/zzregistry-fixture\.sh' "$TMP4/plugin/skills/zzregistry-fixture-cmd/SKILL.md"; then
+  ok "fixture helper ships and rewrites with zero enumeration-list edits (registry is glob-derived)"
+else
+  no "a dropped-in helper must ship in scripts/ and be path-rewritten without touching any list"
+fi
+rm -rf "$TMP4" "$SCOPY"
+
+# T16 — consumer-fork resilience: with the build script absent there is nothing
+# to build and nothing to verify, so the whole suite must exit 0 with the skip
+# VISIBLE — exit 0 alone would also pass if the skip block were deleted (the
+# suite passes whole in the canonical repo), making the self-check vacuous.
+# PLUGIN_TEST_INNER guards the recursion.
+#
+# One self-check, not three, since [32.5]: the plugin-deleted probe (T16b) tested
+# a PLUGIN_TEST_TREE seam that no longer exists — the suite reads its own build,
+# never the committed tree — and the reconstruction-skip probe (T16c) tested a
+# PLUGIN_TEST_INNER gate inside T18 that is now unreachable, because an inner
+# run exits here at the top and never reaches T18 at all. Both guarded shapes
+# are gone rather than merely untested.
+if [ -z "${PLUGIN_TEST_INNER:-}" ]; then
+  INNER=$(PLUGIN_TEST_INNER=1 PLUGIN_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$SELF" 2>&1)
+  if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
+    ok "suite exits 0 and visibly skips in a consumer fork (no build script)"
+  else
+    no "suite must exit 0 AND visibly skip when maintainers/build-plugin.sh is absent"
+  fi
 fi
 
 # T17 — settings↔plugin hook parity. The plugin hooks.json is now DERIVED from
@@ -862,67 +859,45 @@ if [ -f "$BUILD" ] && [ -f "$SRC/settings.json" ]; then
 fi
 
 # T18 — shipped test suites + the layout-reconstructing runner ([10.3]). The
-# build ships the consumer-meaningful suites into plugin/tests/ (the glob set
-# minus the maintainer-only suites) with run-plugin-tests.sh, which rebuilds a
-# temp .claude/-shaped tree from the FLATTENED scripts/ so the location-relative
+# build ships the consumer-meaningful suites into tests/ (the glob set minus the
+# maintainer-only suites) with run-plugin-tests.sh, which rebuilds a temp
+# .claude/-shaped tree from the FLATTENED scripts/ so the location-relative
 # suites run unmodified. This is the drift assertion: a shipped suite that can no
 # longer resolve its scripts in plugin layout turns the runner red here. The full
-# partition + positive-control drift guard live in ship-suite.test.sh; this is the
-# committed-tree backstop, paralleling T14's drift guard for the plugin proper.
-# Skipped in a fork that dropped maintainers/ (no build to exercise — same guard
-# as T14). The committed plugin/ is also checked directly (no rebuild) so the
-# guard catches a hand-deleted plugin/tests/.
+# partition + positive-control drift guard live in ship-suite.test.sh.
+#
+# Runs against the built tree like every other check here, which collapsed three
+# branches into one ([32.5]): a build always ships tests/, so the "committed tree
+# is stale, rebuild instead" branch and the "no tests and no build" skip were both
+# unreachable once the committed tree stopped being read.
 if [ -d "$PLUGIN/tests" ]; then
-  ok "committed plugin/tests/ ships the consumer suites"
-  # named maintainer-only suites must be absent from the committed tree
+  ok "the build ships tests/ with the consumer suites"
+  # maintainer-only suites must not reach a consumer install
   T18_LEAK=0
   for b in plugin.test.sh setup-control-plane.test.sh single-writer.test.sh release.test.sh door-vocabulary.test.sh; do
-    [ -e "$PLUGIN/tests/$b" ] && { no "maintainer-only suite leaked into committed plugin/tests/: $b"; T18_LEAK=1; }
+    [ -e "$PLUGIN/tests/$b" ] && { no "maintainer-only suite leaked into the shipped tests/: $b"; T18_LEAK=1; }
   done
-  [ "$T18_LEAK" -eq 0 ] && ok "no named maintainer-only suite in committed plugin/tests/"
+  [ "$T18_LEAK" -eq 0 ] && ok "no named maintainer-only suite in the shipped tests/"
   RUNNER="$PLUGIN/tests/run-plugin-tests.sh"
   if [ -x "$RUNNER" ]; then
-    if [ -n "${PLUGIN_TEST_INNER:-}" ]; then
-      # Inner self-invocation (the T16/T16b consumer-fork probes): SKIP the
-      # reconstruction. run-plugin-tests.sh is BUILD-INDEPENDENT — it runs the
-      # committed plugin/ regardless of the consumer-fork condition being probed —
-      # so the outer run already covers it. Re-running it inside every self-
-      # invocation only re-paid the battery's single heaviest op (a full shipped-
-      # suite reconstruction) for zero added coverage; the inner runs exist to
-      # prove the suite still exits 0 + skips, not to re-exercise the runner.
-      echo "  - PLUGIN_TEST_INNER: skipping run-plugin-tests.sh reconstruction (build-independent; covered by the outer run)"
+    # stderr captured to a temp file (mktemp, never $ROOT) — writing into the
+    # git-tracked repo root would dirty the working tree on a crash between the
+    # run and the cleanup.
+    T18_ERR=$(mktemp)
+    if bash "$RUNNER" >/dev/null 2>"$T18_ERR"; then
+      ok "run-plugin-tests.sh runs the shipped suite green in plugin layout"
     else
-      # stderr captured to a temp file (mktemp, never $ROOT) — writing into the
-      # git-tracked repo root would dirty the working tree on a crash between the
-      # run and the cleanup. Matches the elif mktemp branch and the runner heredoc.
-      T18_ERR=$(mktemp)
-      if bash "$RUNNER" >/dev/null 2>"$T18_ERR"; then
-        ok "run-plugin-tests.sh runs the shipped suite green in plugin layout (committed tree)"
-      else
-        no "the shipped suite must run green via run-plugin-tests.sh (a suite can't resolve its scripts in plugin layout?)"
-      fi
-      [ -s "$T18_ERR" ] \
-        && no "run-plugin-tests.sh emitted to stderr: $(head -c 200 "$T18_ERR")" \
-        || ok "run-plugin-tests.sh reconstruction is stderr-clean (committed tree)"
-      rm -f "$T18_ERR"
+      no "the shipped suite must run green via run-plugin-tests.sh (a suite can't resolve its scripts in plugin layout?)"
     fi
+    [ -s "$T18_ERR" ] \
+      && no "run-plugin-tests.sh emitted to stderr: $(head -c 200 "$T18_ERR")" \
+      || ok "run-plugin-tests.sh reconstruction is stderr-clean"
+    rm -f "$T18_ERR"
   else
-    no "plugin/tests/run-plugin-tests.sh must ship executable"
+    no "tests/run-plugin-tests.sh must ship executable"
   fi
-elif [ -f "$BUILD" ]; then
-  # plugin/tests absent but a build exists -> stale committed tree; rebuild and
-  # prove the runner green against the fresh build so the guard still fires
-  T18_TMP=$(mktemp -d)
-  if bash "$BUILD" --out "$T18_TMP/plugin" >/dev/null 2>&1 \
-     && [ -x "$T18_TMP/plugin/tests/run-plugin-tests.sh" ] \
-     && bash "$T18_TMP/plugin/tests/run-plugin-tests.sh" >/dev/null 2>&1; then
-    ok "rebuild ships plugin/tests/ and the runner runs the shipped suite green ([10.3])"
-  else
-    no "build must ship plugin/tests/ with a runner that runs the shipped suite green"
-  fi
-  rm -rf "$T18_TMP"
 else
-  echo "  - plugin/tests absent and no build (consumer fork) — skipping shipped-suite drift guard"
+  no "the build must ship tests/ with the consumer suites"
 fi
 
 finish

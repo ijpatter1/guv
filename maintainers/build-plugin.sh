@@ -8,8 +8,8 @@
 # maintainers/plugin-src/ and copied verbatim. The plugin hooks.json is DERIVED
 # from .claude/settings.json (one source — a hook wired in project mode can't
 # silently miss plugin mode; the [9.2] dead-hook class), not authored: see the
-# derivation below. plugin.test.sh's drift guard rebuilds into a temp dir and
-# diffs against the committed tree.
+# derivation below. plugin.test.sh verifies what this script PRODUCES, building
+# its own tree; the committed plugin/ is checked only at release, by --check.
 #
 # Transforms applied to derived files:
 #   - skills/<name>/      -> skills/<name>/ unchanged in structure (the former
@@ -25,13 +25,26 @@
 #     (scripts run with cwd = the project, so .claude/project.json reads stay
 #     correct; rules/ are assets the scaffold skill deploys)
 #
+# The committed plugin/ is the RELEASE ARTIFACT ([32.5]): the marketplace serves
+# it, so it stays in the tree, but it is rebuilt by the release flow at the
+# release commit and left frozen between releases. Source ahead of it mid-cycle
+# is the model working, not drift — which is why --check below is a release step
+# and not a battery one.
+#
 # Usage: bash maintainers/build-plugin.sh [--out <dir>]   (default: <repo>/plugin)
+#        bash maintainers/build-plugin.sh --check
+#          Build into a temp dir and diff against the committed plugin/, without
+#          writing to it. Exit 0 when they match, 1 when they do not (naming what
+#          differs). This is the release gate's proof that the artifact it is
+#          about to tag is what today's source produces.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/.claude"
 PSRC="$ROOT/maintainers/plugin-src"
 OUT="$ROOT/plugin"
+CHECK=0
+CHECK_TMP=""
 # The single source for the plugin hook wiring; PLUGIN_SETTINGS overrides it so
 # plugin.test.sh can prove the settings→plugin derivation end-to-end (T17b).
 SETTINGS="${PLUGIN_SETTINGS:-$SRC/settings.json}"
@@ -39,9 +52,21 @@ SETTINGS="${PLUGIN_SETTINGS:-$SRC/settings.json}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
-    *) echo "usage: bash maintainers/build-plugin.sh [--out <dir>]" >&2; exit 2 ;;
+    --check) CHECK=1; shift ;;
+    *) echo "usage: bash maintainers/build-plugin.sh [--out <dir>|--check]" >&2; exit 2 ;;
   esac
 done
+
+# --check never writes to the artifact it is grading: build somewhere else, then
+# compare. (A check that rebuilt plugin/ in place would "pass" by destroying the
+# evidence — release.test.sh pins that it does not.)
+if [ "$CHECK" -eq 1 ]; then
+  COMMITTED="$OUT"
+  [ -d "$COMMITTED" ] || { echo "build-plugin --check: no committed plugin/ to check at $COMMITTED" >&2; exit 2; }
+  CHECK_TMP=$(mktemp -d)
+  trap 'rm -rf "$CHECK_TMP"' EXIT
+  OUT="$CHECK_TMP/plugin"
+fi
 
 # The helper scripts the path rewrite targets and scripts/ ships — DERIVED by
 # glob from the source tree ([7.1]: a hand-maintained copy of this list is
@@ -59,7 +84,20 @@ SCRIPT_ALT=$(for n in $HELPERS $HOOKS; do echo "$n"; done | paste -sd'|' -)
 rewrite_paths() {
   # '#' delimiter: the derived alternation carries raw '|' (regex), and the
   # pattern itself needs '/'
-  sed -E 's#\.claude/(hooks/)?('"$SCRIPT_ALT"')\.sh#"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh#g'
+  #
+  # Shape docs are SENTINEL-PROTECTED first (the idiom _namespace_pass uses
+  # below). `.claude/estimate.sh` is a prefix of `.claude/estimate.shape.md`, so
+  # the rewrite used to eat the doc reference and emit a plugin-root path —
+  # scripts/estimate.shape.md — that no build step ever created: three shipped
+  # skills pointed at a file that existed in neither install mode (friction
+  # …2526328081 names both gaps: this one and copy_core's, closed together). A portable trailing boundary is not available here (ERE's `$`
+  # is not an anchor inside a group on BSD sed), and these docs are PROJECT-side
+  # files the scaffold deploys beside metering-log.md, so protecting them is
+  # both the fix and the correct end state.
+  local lit; lit=$(printf '\002')
+  sed -E -e "s#\.claude/([a-z][a-z-]*\.shape\.md)#${lit}\1#g" \
+         -e 's#\.claude/(hooks/)?('"$SCRIPT_ALT"')\.sh#"${CLAUDE_PLUGIN_ROOT}"/scripts/\2.sh#g' \
+         -e "s#${lit}#.claude/#g"
 }
 
 # Cross-references in derived content -> the namespaced forms a plugin consumer
@@ -529,11 +567,33 @@ cp "$ROOT/.gitignore" "$OUT/shell/gitignore"
 cp "$ROOT/Makefile" "$OUT/shell/Makefile"
 cp "$SRC/project.schema.json" "$OUT/shell/project.schema.json"
 cp "$SRC/metering-log.md" "$OUT/shell/metering-log.md"
+# The estimate sidecar's shape doc — a project-side reference three shipped
+# skills point at ([32.5] ship-list fix). Deployed into .claude/ by
+# scaffold-shell.sh, exactly like metering-log.md above.
+cp "$SRC/estimate.shape.md" "$OUT/shell/estimate.shape.md"
 cp "$SRC/settings.sandbox-example.json" "$OUT/shell/settings.sandbox-example.json"
 jq 'del(.hooks)' "$SETTINGS" > "$OUT/shell/settings.json"
 mkdir -p "$OUT/shell/sandbox" "$OUT/shell/docs"
 cp "$ROOT/sandbox/"* "$OUT/shell/sandbox/"
 # the three phase-doc skeletons template-clone consumers get from docs/
 cp "$ROOT/docs/REQUIREMENTS.md" "$ROOT/docs/ARCHITECTURE.md" "$ROOT/docs/PHASE_STATUS.md" "$OUT/shell/docs/"
+
+if [ "$CHECK" -eq 1 ]; then
+  # Modes are compared separately because `diff -r` ignores them, and the one
+  # thing this build goes out of its way to set is the executable bit (a
+  # non-executable hook script is the documented top plugin pitfall). A umask, a
+  # zip round-trip, or a fork's checkout can strip it while every byte matches.
+  _modes() { ( cd "$1" && find . -type f ! -name '.DS_Store' -exec ls -ld {} + \
+                 | awk '{ print substr($1,1,10), $NF }' | LC_ALL=C sort ); }
+  if diff -r "$OUT" "$COMMITTED" > "$CHECK_TMP/diff" 2>&1 \
+     && diff <(_modes "$OUT") <(_modes "$COMMITTED") >> "$CHECK_TMP/diff" 2>&1; then
+    echo "[build --check] committed plugin/ matches a fresh build of today's source (contents and modes)"
+    exit 0
+  fi
+  echo "[build --check] committed plugin/ DIFFERS from a fresh build of today's source:" >&2
+  sed 's/^/  /' "$CHECK_TMP/diff" >&2
+  echo "  → rebuild it (bash maintainers/build-plugin.sh) before tagging the release" >&2
+  exit 1
+fi
 
 echo "Built plugin at $OUT"

@@ -24,6 +24,30 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 PASS=0; FAIL=0
+
+# The shipped surface this sweep grades is the BUILD, never the committed plugin/
+# ([32.5] — that tree is the frozen release artifact, so scanning it would report
+# the last release's vocabulary as a defect in today's source). The battery's
+# runner exports GUV_BUILT_PLUGIN so one build serves every suite that needs one;
+# a standalone run builds its own. A fork without maintainers/ has nothing to
+# build, and the build-scoped guards below skip rather than fail.
+SWEEP_BUILD="${SWEEP_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
+SWEEP_BUILT_PLUGIN=""
+SWEEP_TMP=""
+if [ ! -f "$SWEEP_BUILD" ]; then
+  :
+elif [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  SWEEP_BUILT_PLUGIN="$GUV_BUILT_PLUGIN"
+else
+  SWEEP_TMP=$(mktemp -d)
+  if bash "$SWEEP_BUILD" --out "$SWEEP_TMP/plugin" >/dev/null 2>&1; then
+    SWEEP_BUILT_PLUGIN="$SWEEP_TMP/plugin"
+  else
+    echo "  ✗ build-plugin.sh FAILED — the build-scoped sweeps cannot run (a broken build, not a consumer fork)"
+    FAIL=$((FAIL + 1))
+  fi
+fi
+trap '[ -n "$SWEEP_TMP" ] && rm -rf "$SWEEP_TMP"' EXIT
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
@@ -187,7 +211,11 @@ if [ "$T6_CAUGHT" = "construct.sh glob.sh " ]; then
 else
   no "T6 name-construction guard mis-scoped — caught: [$T6_CAUGHT] (want exactly: construct.sh glob.sh)"
 fi
-SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/plugin" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" -not -path "$ROOT/plugin/tests/*" 2>/dev/null; ls "$ROOT/Makefile" "$ROOT/plugin/shell/Makefile" 2>/dev/null)
+# plugin/ is NOT scanned ([32.5]): it is generated output, frozen at the last
+# release, and every byte in it is a copy or a rewrite of a source this sweep
+# already lints. Scanning it would re-report the same finding twice and, worse,
+# report the LAST RELEASE's vocabulary as a defect in today's tree.
+SCRIPT_DIRS=$(find "$ROOT/.claude" "$ROOT/maintainers" "$ROOT/sandbox" \( -name '*.sh' -o -name '*.js' \) -not -path "$ROOT/.claude/tests/*" 2>/dev/null; ls "$ROOT/Makefile" 2>/dev/null)
 GLOB_HITS=$(echo "$SCRIPT_DIRS" | xargs grep -l '\*-guv' 2>/dev/null || true)
 if [ -z "$GLOB_HITS" ]; then
   ok "no shipped script globs for *-guv (no name-based discovery)"
@@ -198,7 +226,7 @@ fi
 # split scaffold (and its plugin/scripts/ build copy). Both construct the name;
 # neither discovers by it. Only true constructions are weighed (guv_name_construction).
 NAME_HITS=$(guv_name_construction $SCRIPT_DIRS \
-  | grep -vE 'maintainers/setup-control-plane\.sh|(\.claude|plugin/scripts)/scaffold-split\.sh' || true)
+  | grep -vE 'maintainers/setup-control-plane\.sh|\.claude/scaffold-split\.sh' || true)
 if [ -z "$NAME_HITS" ]; then
   ok "-guv name construction confined to the sanctioned creation defaults (setup-control-plane.sh, scaffold-split.sh)"
 else
@@ -344,13 +372,15 @@ if [ -z "$README_BAD" ]; then
 else
   no "non-citation 'harness' in README.md: $README_BAD"
 fi
-# plugin/ is generated from swept source, so it must be harness-free apart from
+# The BUILD is generated from swept source, so it must be harness-free apart from
 # the named legacy markers a shipped migration shim greps for (scaffold-shell.sh's
 # guv-harness-gitignore) — same narrow LEGACY_MARKER_RE exception, bare "harness"
-# in plugin/ still fails.
-PLUGIN_BAD=$(cd "$ROOT" && git grep -In -i harness -- 'plugin/' 2>/dev/null | harness_residue)
+# in the build still fails. Scanned in the build, not the committed plugin/
+# ([32.5]): that tree is the frozen release artifact, so scanning it would grade
+# the LAST RELEASE's vocabulary as a defect in today's source.
+PLUGIN_BAD=$(if [ -n "$SWEEP_BUILT_PLUGIN" ]; then grep -rIn -i harness "$SWEEP_BUILT_PLUGIN" 2>/dev/null | harness_residue; fi)
 if [ -z "$PLUGIN_BAD" ]; then
-  ok "plugin/ harness-free (apart from named legacy markers)"
+  ok "the built plugin is harness-free (apart from named legacy markers)"
 else
   no "harness shipped in plugin/: $(echo "$PLUGIN_BAD" | tr '\n' ' ')"
 fi
@@ -368,9 +398,11 @@ fi
 # /guv:init is the canonical form). The guard pins the retirement: that token
 # may appear ONLY on history surfaces — CHANGELOG.md and .claude/agent-memory/
 # (event records; mention, not use — the same carve [24.4] rules for the prose
-# sweep). Everything else — README, templates, skills, scripts, tests, the
-# plugin mirror, maintainer surfaces — is a live surface and must carry the new
-# door name. The pattern is split so this guard's own text never trips itself.
+# sweep). Everything else — README, templates, skills, scripts, tests, the BUILT
+# plugin, maintainer surfaces — is a live surface and must carry the new door
+# name. The committed plugin/ is excluded and its BUILD scanned in its place
+# ([32.5]): the artifact is frozen at the last release, so a retired token still
+# present there is released history, not a live surface that missed the rename. The pattern is split so this guard's own text never trips itself.
 RETIRED_TOKEN='init-''project'
 # Stale positive-control fixture from a crashed prior run → clean BEFORE the
 # main scan so residue can't fail it (T12d's crashed-run lesson, applied earlier).
@@ -379,7 +411,9 @@ G241_FIX="$ROOT/zz-24-1-guard-fixture.md"
 RETIRED=$(grep -rl "$RETIRED_TOKEN" "$ROOT" \
   --exclude-dir=.git \
   --exclude-dir=agent-memory \
-  --exclude=CHANGELOG.md 2>/dev/null)
+  --exclude-dir=plugin \
+  --exclude=CHANGELOG.md 2>/dev/null
+  [ -n "$SWEEP_BUILT_PLUGIN" ] && grep -rl "$RETIRED_TOKEN" "$SWEEP_BUILT_PLUGIN" 2>/dev/null)
 if [ -z "$RETIRED" ]; then
   ok "[24.1] no shipped surface names the retired door (history surfaces only)"
 else

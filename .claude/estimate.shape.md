@@ -6,6 +6,9 @@ meter). It is **published shape** alongside the tracker grammar, the manifest
 schema, and `status.json` — the projection ([9.7]) reads it as the quantity
 half of its takeoff, and the helper `.claude/estimate.sh` is the only writer.
 
+> Every command named in this file (`/plan`, `/replan`, …) is `/guv:`-namespaced
+> under a plugin install.
+
 ## Where it lives, and why beside the tracker
 
 ```

@@ -18,6 +18,30 @@ that ships without a bump reaches no one. A release is therefore:
    (`release.test.sh` enforces the coherence),
 4. an annotated git tag `v<version>` on the commit that ships it.
 
+## `plugin/` is the release artifact ([32.5])
+
+`plugin/` is generated, committed, and **frozen between releases**: the release
+flow rebuilds it at the release commit, and nothing else writes to it. Source
+running ahead of it mid-cycle is the model working, not drift — the live homes
+for every shipped file are `.claude/` and `maintainers/plugin-src/`, and
+`plugin/` is the artifact built from them.
+
+Two consequences worth stating, because both were true the other way round
+before:
+
+- **Byte-identity is a release check, not a battery one.** `build-plugin.sh
+  --check` is where "the artifact matches source" is proven — at step 3 on the
+  tree you are shipping, and again at step 6 on the merged default branch, which
+  is the tree the marketplace actually serves. The tag push is also checked by
+  machine: the `release-artifact` job in `.github/workflows/template-clean.yml`
+  runs `--check` on `v*` tags and nowhere else, so a skipped rebuild cannot ship
+  silently while ordinary PRs keep the source-ahead-of-artifact freedom. The battery no longer rebuilds and
+  diffs against the committed tree on every run; the suites that verify build
+  invariants build their own tree and check that.
+- **A mid-cycle installer gets the last release, byte-for-byte.** Under the old
+  always-rebuilt mirror they got unreleased source carrying the last release's
+  version number — a vintage that was never tagged or tested as a whole.
+
 ## Bump policy (semver)
 
 - **patch** — fixes and doc corrections to already-shipped assets: a hook or
@@ -78,14 +102,21 @@ Both were set as pre-resolved decisions in the native-alignment spec
    vacuous guard once slipped two review gates).
 2. `claude plugin validate --strict plugin` and
    `claude plugin validate --strict .claude-plugin/marketplace.json` pass.
-3. Version bumped in `maintainers/plugin-src/plugin.json`; `plugin/` rebuilt;
-   the drift guard (`plugin.test.sh`) passes.
+3. Version bumped in `maintainers/plugin-src/plugin.json`; `plugin/` rebuilt
+   (`bash maintainers/build-plugin.sh`); `bash maintainers/build-plugin.sh --check`
+   passes. Byte-identity is asserted here and at step 6, nowhere else — see the
+   release artifact note above.
 4. `CHANGELOG.md` entry written — topmost version matches the manifest.
 5. **Merge to the default branch.** The marketplace serves `plugin/` from the
    default branch — a release is unreachable until the shipping commit is on
    it. The tag and every public side effect that names the release
    (graduations, issue closures) come only after this step.
-6. Tag `v<version>` and push it.
+6. **On the merged default branch, re-run `bash maintainers/build-plugin.sh --check`**,
+   then tag `v<version>` and push it. Step 3's check graded the pre-merge tree;
+   the marketplace serves `plugin/` **from the default branch**, so any other
+   `.claude/` commit that lands in the merge leaves the served artifact stale.
+   This is the check that covers the bits consumers actually receive — if it
+   fails, rebuild and amend before the tag exists.
 7. **Drain step:** for every `routing: upstream` feedback entry whose fix ships
    in this release, flip its status to `graduated` in the control plane's
    `.claude/feedback/feedback.ndjson` and close the linked issue naming the

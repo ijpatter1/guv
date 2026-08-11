@@ -76,9 +76,20 @@ done
 
 # ── Locate the plugin's scaffold-shell.sh (deploys the per-plane core shell) ──
 # Resolution order: an explicit override (testability), then ${CLAUDE_PLUGIN_ROOT}
-# (the plugin install — this is how a consumer actually runs), then a sibling
-# committed plugin/ tree (the source-tree / dogfooding case). A loud stop if none
-# is found rather than scaffolding a plane with no core (rule 15).
+# (the plugin install — this is how a consumer actually runs, and on a dogfooding
+# machine --sync keeps that cache built from source), then a sibling committed
+# plugin/ tree, then the authored source under maintainers/.
+#
+# The artifact deliberately outranks the authored source here, which inverts
+# [32.5]'s source-before-artifact rule for a specific reason: plugin-src's
+# scaffold-shell.sh CANNOT RUN from its authored location. It derives SHELL_DIR
+# and RULES_DIR from its own dirname, and plugin-src/ has no shell/ or rules/ —
+# the build assembles those. Preferring it dies at `cp: .../plugin-src/shell/
+# CLAUDE.template.md: No such file or directory` after the plane's directories
+# already exist. So the frozen artifact — stale between releases but coherent —
+# is the better fallback, and the authored path stays last as a marker rather
+# than a working rung. A loud stop if none is found rather than scaffolding a
+# plane with no core (rule 15).
 find_scaffold_shell() {
   local c
   if [ -n "${SCAFFOLD_SHELL_SH:-}" ]; then echo "$SCAFFOLD_SHELL_SH"; return 0; fi

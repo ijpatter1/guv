@@ -19,7 +19,12 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
 MP="$ROOT/.claude-plugin/marketplace.json"
-PJ="$ROOT/plugin/.claude-plugin/plugin.json"
+# The AUTHORED manifest, not the artifact's copy ([32.5]): plugin/ is frozen at
+# the last release, so between the step-3 bump and the rebuild the artifact still
+# carries the old version — source legitimately ahead of artifact, the state this
+# deliverable declared normal. Reading the artifact here would red the battery on
+# it. Artifact-vs-source is --check's job, and only at release.
+PJ="$ROOT/maintainers/plugin-src/plugin.json"
 CL="$ROOT/CHANGELOG.md"
 REL="$ROOT/maintainers/RELEASING.md"
 PASS=0; FAIL=0
@@ -150,6 +155,95 @@ if [ -n "$WID" ]; then
 else
   no "RELEASING.md must carry the worked example with a real entry id"
 fi
+
+# T11 — the release-time build check ([32.5]). plugin/ is the RELEASE ARTIFACT,
+# rebuilt by this flow at the release commit and frozen between releases, so
+# "does the committed tree match source" is a release question, not a battery
+# one. Asserted on FIXTURES, never on the live tree: mid-cycle drift is the
+# model working, and a suite that failed on it would re-create the continuous
+# byte-identity guard this deliverable retired.
+mk_repo_copy() {   # echoes a scratch root holding a buildable copy of $ROOT
+  local d err; d=$(mktemp -d); err="$d.tar-err"
+  ( cd "$ROOT" && tar -cf - --exclude=.git --exclude=plugin . ) 2>"$err" \
+    | ( cd "$d" && tar -xf - ) 2>>"$err"
+  # Loud on a short copy — a truncated tree builds differently and would read as
+  # a drift verdict that has nothing to do with drift (plugin.test.sh's lesson).
+  if [ ! -f "$d/maintainers/build-plugin.sh" ]; then
+    printf '  ! mk_repo_copy: the scratch copy of %s is INCOMPLETE (no maintainers/build-plugin.sh at %s).\n' "$ROOT" "$d" >&2
+    [ -s "$err" ] && sed 's/^/    tar: /' "$err" >&2
+  fi
+  rm -f "$err"
+  printf '%s' "$d"
+}
+RCOPY=$(mk_repo_copy)
+trap 'rm -rf "$RCOPY"' EXIT
+# The copy's plugin/ IS its own build output — the state a release commit is in.
+# Reuses the battery's prebuilt tree when the runner exported one (a build is
+# ~9s); falls back to building, so a standalone run still proves the same thing.
+if [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  cp -R "$GUV_BUILT_PLUGIN" "$RCOPY/plugin"
+elif ! bash "$RCOPY/maintainers/build-plugin.sh" --out "$RCOPY/plugin" >/dev/null 2>&1; then
+  no "build-plugin.sh FAILED — the --check probes cannot run (a broken build, not a --check defect)"
+fi
+if bash "$RCOPY/maintainers/build-plugin.sh" --check >/dev/null 2>&1; then
+  ok "release check passes when the committed plugin/ matches a fresh build"
+else
+  no "build-plugin.sh --check must exit 0 when plugin/ is what the build produces"
+fi
+
+# T11b — positive control: the check can FAIL. Without this, an always-green
+# --check would pass T11 forever and the release gate would prove nothing.
+# The drift is planted in the ARTIFACT, so this also pins that --check compares
+# against plugin/ rather than rebuilding over it.
+printf '\n# planted drift\n' >> "$RCOPY/plugin/scripts/meter.sh"
+CHECK_OUT=$(bash "$RCOPY/maintainers/build-plugin.sh" --check 2>&1)
+if [ $? -ne 0 ]; then
+  ok "positive control: --check fails on a drifted plugin/ (exit nonzero)"
+  echo "$CHECK_OUT" | grep -q 'scripts/meter\.sh' \
+    && ok "positive control: --check names the drifted file" \
+    || no "--check must name what drifted, not just fail"
+else
+  no "positive control failed: --check passed on a plugin/ with planted drift"
+fi
+# T11c — mode-only drift is caught. `diff -r` is blind to permission bits, and the
+# build deliberately chmod +x's shipped scripts (a non-executable hook is the
+# documented top plugin pitfall), so a byte-identical artifact with a stripped
+# executable bit would have sailed through the gate that replaced the continuous
+# drift guard. Verified blind-then-caught: this fixture passes `diff -r` and must
+# still fail --check.
+printf '' >> /dev/null
+git -C "$RCOPY" checkout -- plugin 2>/dev/null || true
+rm -rf "$RCOPY/plugin"
+if [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  cp -R "$GUV_BUILT_PLUGIN" "$RCOPY/plugin"
+else
+  bash "$RCOPY/maintainers/build-plugin.sh" --out "$RCOPY/plugin" >/dev/null 2>&1
+fi
+chmod 644 "$RCOPY/plugin/scripts/meter.sh" 2>/dev/null
+if bash "$RCOPY/maintainers/build-plugin.sh" --check >/dev/null 2>&1; then
+  no "positive control: --check passed on an artifact whose executable bit was stripped (diff -r is mode-blind)"
+else
+  ok "positive control: --check fails on mode-only drift (a stripped executable bit is caught)"
+fi
+chmod 755 "$RCOPY/plugin/scripts/meter.sh" 2>/dev/null
+
+# The artifact survives the check unread-modified — a check that rebuilt over
+# plugin/ would "pass" by erasing the evidence.
+printf '\n# planted drift 2\n' >> "$RCOPY/plugin/scripts/meter.sh"
+bash "$RCOPY/maintainers/build-plugin.sh" --check >/dev/null 2>&1
+grep -q 'planted drift 2' "$RCOPY/plugin/scripts/meter.sh" 2>/dev/null \
+  && ok "--check leaves the committed artifact untouched (compares, never rebuilds over it)" \
+  || no "--check must not overwrite plugin/ — it verifies the artifact, it does not produce it"
+rm -rf "$RCOPY"
+
+# T12 — the release flow documents the verification step, so the check is part
+# of the ceremony and not a script nobody runs.
+echo "$REL_FLAT" | grep -q 'build-plugin.sh --check' \
+  && ok "RELEASING.md checklist runs the build check before tagging" \
+  || no "RELEASING.md must document 'build-plugin.sh --check' in the release checklist"
+echo "$REL_FLAT" | grep -qi 'release artifact' \
+  && ok "RELEASING.md states that plugin/ is the release artifact" \
+  || no "RELEASING.md must state plugin/'s status as the release artifact (frozen between releases)"
 
 # T10 — fork-skip self-check: with an indicator absent the suite exits 0 AND
 # the output shows the skip fired (exit 0 alone would also pass if the skip

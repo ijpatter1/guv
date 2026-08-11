@@ -2,7 +2,8 @@
 # Tests for the plugin scaffold — Phase 5 D2: /guv:scaffold replaces the
 # template-clone step for the project shell. The deterministic half is
 # plugin/scripts/scaffold-shell.sh (judgment stays in the skill); these tests
-# drive the script against scratch project dirs using the COMMITTED plugin/
+# drive the script against scratch project dirs using a plugin tree the suite
+# BUILDS (plugin/ is the frozen release artifact since [32.5])
 # (the build's output — drift vs sources is plugin.test.sh's job).
 # Ownership semantics mirror copy_core:
 #   - core-owned, refreshed every run: schema, guv-* rules, both templates,
@@ -16,25 +17,44 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — $0-relative re-invocation breaks if a cd ever lands in the main shell
-PLUGIN="$ROOT/plugin"
-SCRIPT="$PLUGIN/scripts/scaffold-shell.sh"
-SHELL_DIR="$PLUGIN/shell"
+BUILD="${SCAFFOLD_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
-# The whole suite drives the COMMITTED plugin/ — a template-clone fork that
-# deleted the generated tree (README's note) has nothing to scaffold from;
-# skip cleanly, never as failures. SCAFFOLD_PLUGIN_TREE is the self-check seam.
-if [ ! -d "${SCAFFOLD_PLUGIN_TREE:-$PLUGIN}" ]; then
-  echo "  - plugin/ absent (template-clone fork) — suite skips"
+# The suite drives a plugin tree it BUILDS, not the committed one ([32.5]):
+# plugin/ is the release artifact, frozen between releases, so T10's
+# shell-assets-match-source check would red on source moving ahead — the model
+# working, not a defect. A fork without maintainers/ has nothing to build and
+# nothing to scaffold from; skip cleanly, never as failures.
+if [ ! -f "$BUILD" ]; then
+  echo "  - maintainers/build-plugin.sh absent (consumer fork) — suite skips"
   echo ""
   echo "Results: 0 passed, 0 failed"
   exit 0
 fi
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+PLUGIN_BUILD_TMP=""
+cleanup() { rm -rf "$WORK" ${PLUGIN_BUILD_TMP:+"$PLUGIN_BUILD_TMP"}; }
+trap cleanup EXIT
+
+# The battery's runner exports GUV_BUILT_PLUGIN so one build serves every suite
+# that needs one; a standalone run builds its own and gets the identical tree.
+if [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  PLUGIN="$GUV_BUILT_PLUGIN"
+else
+  PLUGIN_BUILD_TMP=$(mktemp -d)
+  PLUGIN="$PLUGIN_BUILD_TMP/plugin"
+  if ! bash "$BUILD" --out "$PLUGIN" >/dev/null 2>&1; then
+    no "build-plugin.sh failed — nothing to scaffold from"
+    echo ""
+    echo "Results: $PASS passed, $FAIL failed"
+    exit 1
+  fi
+fi
+SCRIPT="$PLUGIN/scripts/scaffold-shell.sh"
+SHELL_DIR="$PLUGIN/shell"
 
 deploy() { (cd "$1" && bash "$SCRIPT" "${@:2}") }
 
@@ -52,8 +72,14 @@ fi
 P1="$WORK/fresh"; mkdir -p "$P1"
 deploy "$P1" >/dev/null 2>&1
 T2_OK=1
+# .claude/estimate.shape.md is here because three shipped skills point at that
+# exact path ([32.5] ship-list fix): before it deployed, the pointer was dead in
+# the plugin install. The friction entry (…2526328081) names a second gap too —
+# setup-control-plane's copy_core, which a control plane gets its .claude/ from;
+# setup-control-plane.test.sh covers that half.
 for f in CLAUDE.template.md README.template.md .claude/project.schema.json \
          .claude/settings.json .claude/settings.sandbox-example.json \
+         .claude/metering-log.md .claude/estimate.shape.md \
          docs/sessions/.gitkeep .gitignore \
          docs/REQUIREMENTS.md docs/ARCHITECTURE.md docs/PHASE_STATUS.md; do
   [ -e "$P1/$f" ] || { no "fresh deploy missing $f"; T2_OK=0; }
@@ -224,6 +250,7 @@ for pair in \
   "Makefile:shell/Makefile" \
   ".claude/project.schema.json:shell/project.schema.json" \
   ".claude/metering-log.md:shell/metering-log.md" \
+  ".claude/estimate.shape.md:shell/estimate.shape.md" \
   ".claude/settings.sandbox-example.json:shell/settings.sandbox-example.json" \
   "docs/REQUIREMENTS.md:shell/docs/REQUIREMENTS.md" \
   "docs/ARCHITECTURE.md:shell/docs/ARCHITECTURE.md" \
@@ -258,11 +285,11 @@ fi
 # Fork self-check: the wholesale skip fires and shows itself (output-grepped —
 # exit 0 alone would pass in the canonical repo even with the skip deleted)
 if [ -z "${SCAFFOLD_TEST_INNER:-}" ]; then
-  INNER=$(SCAFFOLD_TEST_INNER=1 SCAFFOLD_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
+  INNER=$(SCAFFOLD_TEST_INNER=1 SCAFFOLD_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$SELF" 2>&1)
   if [ $? -eq 0 ] && echo "$INNER" | grep -q "suite skips"; then
-    ok "suite visibly skips in a fork that deleted plugin/"
+    ok "suite visibly skips in a consumer fork (no build script)"
   else
-    no "suite must exit 0 and visibly skip when plugin/ is absent"
+    no "suite must exit 0 and visibly skip when the build script is absent"
   fi
 fi
 

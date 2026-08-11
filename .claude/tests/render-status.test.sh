@@ -305,12 +305,15 @@ CLOSES=$(echo "$EHTML" | grep -c '</script>')
 # announcements — each guarded against a same-line `<` or `$(` read; plus comment
 # lines, human doc prose under maintainers/*.md (neither executes), and the
 # manifest `views` declaration literal (declares the surface, reads nothing).
-# Anything else is a consumer.
+# Anything else is a consumer. The committed plugin/ is not scanned ([32.5]): it
+# is the frozen release artifact, and every file in it is a copy or rewrite of a
+# source this scan already covers — scanning it would answer for the released
+# vintage rather than this tree.
 CONSUMERS=$(grep -rn 'status\.html' \
     "$CLAUDE_DIR/commands" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/skills" \
     "$CLAUDE_DIR/agents" "$CLAUDE_DIR/rules" "$CLAUDE_DIR/workflows" \
     "$CLAUDE_DIR/tests" "$CLAUDE_DIR"/*.sh \
-    "$ROOT/maintainers" "$ROOT/Makefile" "$ROOT/plugin" 2>/dev/null \
+    "$ROOT/maintainers" "$ROOT/Makefile" 2>/dev/null \
   | grep -Ev '^[^:]*/(render-status(\.test)?\.sh|render-hook\.test\.sh|session-hooks\.test\.sh):' \
   | grep -Ev '^[^:]*/maintainers/[^:]*\.md:' \
   | grep -Ev '>[[:space:]]*[^[:space:]]*status\.html' \

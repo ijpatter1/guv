@@ -168,7 +168,10 @@ exists, and on any plane it is what catches a bad or partial sync.
 
 Since Phase 5 the durable core also ships as the **guv plugin**: `plugin/` is generated
 by `maintainers/build-plugin.sh` from `.claude/` + `maintainers/plugin-src/` (authored
-plugin-only sources), and the marketplace serves it from the default branch. That gives
+plugin-only sources), and the marketplace serves it from the default branch. Since
+[32.5] it is rebuilt only at a release, so between releases it holds the last release
+and source runs ahead of it — `--sync` refreshes the plugin cache from a fresh build of
+the working tree, never from that artifact. That gives
 guv two delivery channels, and the `setup-control-plane.sh` disposition is
 decided by audience:
 
@@ -331,7 +334,8 @@ need it before the control plane exists:
 - `RELEASING.md` (what a release is, the bump policy, the release half of the
   feedback drain);
 - `build-plugin.sh` + `plugin-src/` (the plugin generator and its authored sources —
-  `plugin/` is generated output, drift-guarded by `plugin.test.sh`);
+  `plugin/` is the generated release artifact, rebuilt by the release flow and
+  verified there with `build-plugin.sh --check`; see `RELEASING.md`);
 - the CI clean-check: `check-template-clean.sh` plus the `maintainer-ci` workflow at
   `.github/workflows/template-clean.yml`, repo-pinned so it never runs in a consumer
   copy.

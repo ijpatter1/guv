@@ -77,29 +77,24 @@ OUT=$(run_hook "$WORK/clean" "$INACTIVE"); RC=$?
   && ok "clean repo + today's handoff -> no reminder" \
   || no "nothing outstanding must mean no output"
 
-# T6 — the plugin ships this hook byte-identical (the gate must reach plugin
-# consumers, where it matters most). A template-clone fork that deleted the
-# generated plugin/ (README's note) has no copy to compare — skip, not fail.
-# STOPCHECK_PLUGIN_TREE is the T7 seam.
-if [ -d "${STOPCHECK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
-  cmp -s "$HOOK" "$ROOT/plugin/scripts/stop-check.sh" \
-    && ok "plugin copy of stop-check.sh byte-identical" \
-    || no "plugin/scripts/stop-check.sh differs from the source hook"
-else
-  echo "  - plugin/ absent (template-clone fork) — byte-identity guard skips"
-fi
+# T6 — RETIRED at [32.5], not merely moved: this was a continuous source-vs-
+# artifact byte comparison, the exact guard the mirror collapse retires. Its
+# property — every hook and helper ships byte-identical — is asserted once, in
+# plugin.test.sh's T9, against a tree that suite BUILDS (glob-derived over
+# .claude/*.sh and .claude/hooks/*.sh, so this hook is covered by existing
+# rather than by being named).
+#
+# Retargeting it here instead would have cost consumer coverage: naming the
+# plugin builder's path (it lives under the maintainer-only directory) puts a
+# suite on the build's MAINTAINER_ONLY list, and this suite then silently stops
+# shipping to plugin installs — the 2026-07-27 trap, where 24 shipped suites
+# quietly became 23. This comment avoids that path for the same reason. The
+# sync's "removed upstream: tests/stop-check.test.sh" line is what caught it.
 
-# T7 — fork self-check: the byte-identity skip fires and shows itself
-# (output-grepped — exit 0 alone would pass in the canonical repo even with
-# the skip branch deleted)
-if [ -z "${STOPCHECK_TEST_INNER:-}" ]; then
-  INNER=$(STOPCHECK_TEST_INNER=1 STOPCHECK_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
-  if [ $? -eq 0 ] && echo "$INNER" | grep -q "byte-identity guard skips"; then
-    ok "byte-identity guard visibly skips in a fork that deleted plugin/"
-  else
-    no "suite must exit 0 and visibly skip the byte-identity guard when plugin/ is absent"
-  fi
-fi
+# T7 — RETIRED with T6: it self-checked that guard's fork skip, and a probe of a
+# branch that no longer exists is a guard that can only pass. plugin.test.sh's own
+# fork self-check covers the suite that now owns the property.
+
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -18,6 +18,10 @@ on:
   pull_request:
   push:
     branches: [main]
+    # Tags too, for the release-artifact job below — the checked-in plugin/ is only
+    # required to match source at a release, so that is the only ref where the
+    # check can run without contradicting the [32.5] model.
+    tags: ['v*']
 
 jobs:
   template-clean:
@@ -62,6 +66,21 @@ jobs:
           # battery is where that property is actually enforced. A future parallel
           # CI form would have to carry the fingerprint guard itself; globbing all
           # suites concurrently without it reopens the flake class.
+          # One plugin build for the whole loop ([32.5]), exported exactly as the
+          # local runner does. Two reasons this is not optional: the six suites
+          # that verify build output would otherwise each pay their own build,
+          # and — more importantly — CI and the local battery would exercise
+          # DIFFERENT code paths in those suites. The feedback-log fork-probe
+          # defect this deliverable fixed reproduced only when the shared tree
+          # was set; a CI that never sets it is blind to that whole class.
+          if [ -f maintainers/build-plugin.sh ]; then
+            if bash maintainers/build-plugin.sh --out "$RUNNER_TEMP/built-plugin" >/dev/null 2>&1; then
+              export GUV_BUILT_PLUGIN="$RUNNER_TEMP/built-plugin"
+            else
+              echo "[ci] shared plugin build FAILED — suites needing one will build their own"
+            fi
+          fi
+
           fail=0
           for t in .claude/tests/*.test.sh; do
             b="$(basename "$t")"
@@ -88,3 +107,18 @@ jobs:
             rm -f "$err" "$out"
           done
           exit "$fail"
+
+  # The machine backstop for the release artifact ([32.5]). The continuous
+  # byte-identity guard retired from the battery when plugin/ became the frozen
+  # release artifact, and its replacement — build-plugin.sh --check — is a step in
+  # a human checklist. On a release-tag push that is not enough: the marketplace
+  # serves plugin/ from the default branch, so an artifact nobody diffed reaches
+  # consumers. This job runs the check exactly where staleness matters and nowhere
+  # else, so ordinary PRs keep the source-ahead-of-artifact freedom the model grants.
+  release-artifact:
+    if: github.repository == 'ijpatter1/guv' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Committed plugin/ matches a build of this tag
+        run: bash maintainers/build-plugin.sh --check

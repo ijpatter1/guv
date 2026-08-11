@@ -16,17 +16,17 @@
 # discriminators below. Back-compat: a single-repo scaffold (the existing scaffold +
 # provision paths) is untouched — asserted via the unchanged sibling-suite results.
 #
-# Drives the COMMITTED plugin/ for scaffold-shell.sh (like scaffold.test.sh) — a
-# template-clone fork that deleted plugin/ has nothing to scaffold from, so skip
-# cleanly. Pure bash + jq + git, no test runner required.
+# Drives a BUILT plugin tree for scaffold-shell.sh (like scaffold.test.sh) — a
+# consumer fork without maintainers/ cannot build one, so skip cleanly.
+# Pure bash + jq + git, no test runner required.
 # Run: bash .claude/tests/scaffold-split.test.sh
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT="$ROOT/.claude/scaffold-split.sh"
 SCHEMA="$ROOT/.claude/project.schema.json"
-PLUGIN="$ROOT/plugin"
-SCAFFOLD_SHELL="$PLUGIN/scripts/scaffold-shell.sh"
+SPLIT_BUILD="${SCAFFOLD_SPLIT_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
+SPLIT_TMP=""
 PASS=0; FAIL=0
 ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
 no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
@@ -39,17 +39,39 @@ else
   echo ""; echo "Results: $PASS passed, $FAIL failed"; exit 1
 fi
 
-# The scaffold half needs the committed plugin's scaffold-shell.sh. A fork that
-# deleted plugin/ (README's note) cannot exercise it — skip cleanly, never fail.
-if [ ! -d "${SCAFFOLD_SPLIT_PLUGIN_TREE:-$PLUGIN}" ] || [ ! -f "$SCAFFOLD_SHELL" ]; then
-  echo "  - plugin/ absent (template-clone fork) — scaffold-shell.sh unavailable, suite skips"
+# The scaffold half needs scaffold-shell.sh from a BUILT plugin tree ([32.5] —
+# the committed plugin/ is the frozen release artifact, so driving it would test
+# the last release's script against today's sources). A fork without
+# maintainers/ cannot build one; skip cleanly, never fail. The battery's runner
+# exports GUV_BUILT_PLUGIN so one build serves every suite that needs one.
+# The BUILDER's absence is what means "consumer fork", so it gates first — the
+# shared tree must not satisfy a probe that removed the builder. A build that
+# FAILS is its own rung, never the fork rung.
+if [ ! -f "$SPLIT_BUILD" ]; then
+  PLUGIN=""
+elif [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  PLUGIN="$GUV_BUILT_PLUGIN"
+else
+  SPLIT_TMP=$(mktemp -d)
+  PLUGIN="$SPLIT_TMP/plugin"
+  if ! bash "$SPLIT_BUILD" --out "$PLUGIN" >/dev/null 2>&1; then
+    no "build-plugin.sh FAILED — cannot exercise scaffold-shell.sh (a broken build, not a consumer fork)"
+    echo ""; echo "Results: $PASS passed, $FAIL failed"
+    rm -rf "$SPLIT_TMP"
+    exit 1
+  fi
+fi
+SCAFFOLD_SHELL="$PLUGIN/scripts/scaffold-shell.sh"
+if [ -z "$PLUGIN" ] || [ ! -f "$SCAFFOLD_SHELL" ]; then
+  echo "  - no build available (consumer fork) — scaffold-shell.sh unavailable, suite skips"
+  [ -n "$SPLIT_TMP" ] && rm -rf "$SPLIT_TMP"
   echo ""
   echo "Results: $PASS passed, 0 failed"
   exit 0
 fi
 
 WORK=$(mktemp -d)
-trap '[ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' EXIT
+trap '[ -n "$SPLIT_TMP" ] && rm -rf "$SPLIT_TMP"; [ "$FAIL" -eq 0 ] && rm -rf "$WORK" || echo "  (fixtures kept at $WORK)"' EXIT
 
 # jsonschema validator (the guv idiom) — present-or-skip.
 HAVE_JSONSCHEMA=0

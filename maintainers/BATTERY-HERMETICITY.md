@@ -131,6 +131,24 @@ Two categories of offender exist:
 | `plugin.test.sh` | planter + live-source builder | Planted throwaway fixtures into the live tree at fixed paths: `$SRC/zz-t12e-fixture.sh` (T12e), `$ROOT/maintainers/plugin-src/skills/status/` (T15), `$SRC/skills/zzadjacency-fixture/` (T15b), `$SRC/zzregistry-fixture.sh` + `$SRC/skills/zzregistry-fixture-cmd/` (T15c) — `SRC="$ROOT/.claude"`. Then built from that same live `$SRC`. | **HERMETIC** (Prong B). A `mk_source_copy()` helper tars the repo into a scratch root; all five source-touching sub-tests plant into and build from that copy. Verified: no write rooted at `$ROOT`/`$SRC` remains, and each planting sub-test asserts the fixture is *absent* from the live tree. |
 | `ship-suite.test.sh` | live-source builder | Ran `build-plugin.sh --out <mktemp>` reading live `$SRC` as the build source. Never planted anything itself — its hazard was entirely that a *concurrent* planter's fixture would leak into the build it observed. | **HERMETIC** by removal of the hazard. It still reads live `$SRC` (a read, which cannot collide with other reads) and still builds into `mktemp`. With no suite planting into the live tree, nothing can leak in. |
 
+### Live-source builders after [32.5]
+
+The mirror collapse turned `plugin/` into the frozen release artifact, so every
+suite that used to *read* the committed tree now *builds* one instead. That moves
+five more suites into category 2 — `plugin.test.sh` (its primary build; its
+planting sub-tests still use `mk_source_copy`), `scaffold.test.sh`,
+`scaffold-split.test.sh`, `feedback-log.test.sh`,
+`hook-registration-anchoring.test.sh` — plus `release.test.sh`, which now invokes
+the builder for the `--check` probes rather than only checking for its absence.
+
+All six are hermetic on `ship-suite.test.sh`'s terms, and for the same reason:
+they **read** live source and **write** only into `mktemp`. The invariant that
+makes this safe is unchanged and load-bearing — *no suite plants into the live
+tree* — so a future suite that reintroduces live-tree planting breaks six
+builders at once, not one. The battery runner builds once and exports
+`GUV_BUILT_PLUGIN`, so in a normal run these six share a single build made before
+any suite starts; a standalone run builds its own.
+
 Both are **maintainer-only** suites — they reference `maintainers/` and `SKILL.md`
 surfaces, so `build-plugin.sh`'s `MAINTAINER_ONLY` filter keeps them out of the
 shipped `plugin/tests/` partition.
@@ -150,8 +168,8 @@ copy**, not the live tree:
 - `render-hook.test.sh` — assembles a fixture guv repo at `H="$WORK/guv"` and
   runs `setup-control-plane.sh` against scratch planes under `$WORK`. Also
   seam-isolated on the second axis below.
-- `release.test.sh` — references `build-plugin.sh` only for absence checks; never
-  invokes it against the live source.
+- `release.test.sh` — invokes the builder since [32.5] (the `--check` probes), but
+  only against a scratch copy of the repo it makes itself; writes stay in `mktemp`.
 
 These remain in the bounded parallel pool.
 

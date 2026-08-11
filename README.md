@@ -310,8 +310,10 @@ code .
 │   ├── build-plugin.sh                # Generates plugin/ from .claude/ + plugin-src/ (Phase 5)
 │   ├── render-smoke.js                # Dev-only DOM-stub execution check for render-status.sh's in-page JS
 │   └── plugin-src/                    # Authored plugin-only sources (manifest, hooks.json, guv-only skills)
-├── plugin/                            # GENERATED — the guv plugin package; never hand-edit, run
-│                                      #   maintainers/build-plugin.sh (drift-guarded by plugin.test.sh)
+├── plugin/                            # GENERATED — the RELEASE ARTIFACT the marketplace serves.
+│                                      #   Never hand-edit; rebuilt by the release flow only
+│                                      #   (maintainers/RELEASING.md), so between releases it holds
+│                                      #   the last release and source legitimately runs ahead of it.
 ├── docs/
 │   ├── REQUIREMENTS.md                # Development plan (phased; YOU EDIT THIS)
 │   ├── ARCHITECTURE.md                # Technical architecture (phased; YOU EDIT THIS)

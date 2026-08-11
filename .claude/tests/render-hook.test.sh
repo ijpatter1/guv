@@ -438,10 +438,13 @@ validate "$WORK/badviews.json" \
   || ok "views: non-object views refused"
 
 # ── T11 — describes, never routes: no execution path reads the views entry.
+# plugin/scripts/ is not scanned ([32.5]): those are byte-identical copies of the
+# .claude/*.sh files already scanned here, frozen at the last release, so the
+# scan would answer for the released vintage instead of this tree.
 ROUTES=$(grep -rn '\.views' \
     "$CLAUDE_DIR"/*.sh "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/commands" \
     "$CLAUDE_DIR/skills" "$CLAUDE_DIR/workflows" \
-    "$ROOT/maintainers" "$ROOT/plugin/scripts" "$ROOT/Makefile" 2>/dev/null || true)
+    "$ROOT/maintainers" "$ROOT/Makefile" 2>/dev/null || true)
 [ -z "$ROUTES" ] \
   && ok "views: no execution path reads .views — it describes, never routes" \
   || no "something routes on the views entry: $ROUTES"

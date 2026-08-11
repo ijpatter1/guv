@@ -14,10 +14,38 @@ no() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SELF="$ROOT/.claude/tests/$(basename "$0")"   # absolute — the suite cd's away from $0's base
 SKILL_SRC="$ROOT/.claude/skills/feedback/SKILL.md"
-SKILL_PLUGIN="$ROOT/plugin/skills/feedback/SKILL.md"
+# Shipped copies are read from a tree BUILT here, never the committed plugin/
+# ([32.5]): that tree is the frozen release artifact, so a source edit would show
+# as prose drift until the next release. The battery's runner exports
+# GUV_BUILT_PLUGIN so one build serves every suite that needs one.
+FEEDBACK_BUILD="${FEEDBACK_BUILD_SCRIPT:-$ROOT/maintainers/build-plugin.sh}"
+FEEDBACK_PLUGIN_TREE="${FEEDBACK_PLUGIN_TREE:-}"
+FEEDBACK_TMP=""
+# Order matters, and the battery is what proved it: the BUILDER's absence is what
+# means "consumer fork", so it is checked before the shared tree. Consulting
+# GUV_BUILT_PLUGIN first let the runner's exported tree satisfy a probe that had
+# just pointed FEEDBACK_BUILD_SCRIPT at nothing — the fork self-check passed
+# standalone and failed only under the battery, where the shared tree exists.
+# A build that FAILS is its own rung, never the fork rung: reporting a broken
+# builder as "consumer fork" names a cause that is not the cause.
+if [ -n "$FEEDBACK_PLUGIN_TREE" ]; then
+  :
+elif [ ! -f "$FEEDBACK_BUILD" ]; then
+  FEEDBACK_PLUGIN_TREE=""
+elif [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  FEEDBACK_PLUGIN_TREE="$GUV_BUILT_PLUGIN"
+else
+  FEEDBACK_TMP=$(mktemp -d)
+  FEEDBACK_PLUGIN_TREE="$FEEDBACK_TMP/plugin"
+  if ! bash "$FEEDBACK_BUILD" --out "$FEEDBACK_PLUGIN_TREE" >/dev/null 2>&1; then
+    no "build-plugin.sh FAILED — the shipped-copy guards cannot run (a broken build, not a consumer fork)"
+    FEEDBACK_PLUGIN_TREE=""
+  fi
+fi
+SKILL_PLUGIN="$FEEDBACK_PLUGIN_TREE/skills/feedback/SKILL.md"
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK" ${FEEDBACK_TMP:+"$FEEDBACK_TMP"}' EXIT
 cd "$WORK"
 mkdir -p docs/sessions
 echo "# s" > docs/sessions/session-2026-06-10-001.md
@@ -116,16 +144,15 @@ rm -f "$F"
 # cross-line prose ("...the second half\nbecause...") read as a deferral.
 has_deferral() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qiE 'half[ -]b\b|DISTRIBUTION_OPTIONS|not built yet'; }
 
-# The plugin copy exists only where plugin/ does — a template-clone fork may
-# delete the generated tree (README's note), and that must skip, not fail.
-# In the canonical repo (or any tree keeping plugin/) a missing copy IS a
-# failure: the skill ships in both install modes. Array, not word-split — the
-# checkout path may contain spaces. FEEDBACK_PLUGIN_TREE is the T10 seam.
+# The built copy exists only where a builder does — a consumer fork that deleted
+# maintainers/ cannot build one, and that must skip, not fail. Where a build IS
+# available a missing copy is a failure: the skill ships in both install modes.
+# Array, not word-split — the checkout path may contain spaces.
 COPIES=("$SKILL_SRC")
-if [ -d "${FEEDBACK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
+if [ -n "$FEEDBACK_PLUGIN_TREE" ] && [ -d "$FEEDBACK_PLUGIN_TREE" ]; then
   COPIES+=("$SKILL_PLUGIN")
 else
-  echo "  - plugin/ absent (template-clone fork) — plugin-copy guards skip"
+  echo "  - no build available (consumer fork) — plugin-copy guards skip"
 fi
 
 # T6 — no Half-B deferral language survives in any shipped copy
@@ -214,8 +241,8 @@ grep -qF '.detail=((.detail // "") + " | " + $note)' "$HELPER" \
 # its plugin-skill copy; anchors are slash-command-free (rewrite-stable).
 HANDOFF_SRC="$ROOT/.claude/skills/handoff/SKILL.md"
 HANDOFF_COPIES=("$HANDOFF_SRC")
-if [ -d "${FEEDBACK_PLUGIN_TREE:-$ROOT/plugin}" ]; then
-  HANDOFF_COPIES+=("$ROOT/plugin/skills/handoff/SKILL.md")
+if [ -n "$FEEDBACK_PLUGIN_TREE" ] && [ -d "$FEEDBACK_PLUGIN_TREE" ]; then
+  HANDOFF_COPIES+=("$FEEDBACK_PLUGIN_TREE/skills/handoff/SKILL.md")
 fi
 for copy in "${HANDOFF_COPIES[@]}"; do
   label="${copy#"$ROOT"/}"
@@ -370,15 +397,16 @@ grep -q 'scripts/feedback.sh' "$SKILL_SRC" \
   && ok "skill source references the feedback.sh helper (${SKILL_SRC#"$ROOT"/})" \
   || no "${SKILL_SRC#"$ROOT"/} must point its triage/new/list ops at scripts/feedback.sh, not inline jq (Rule 12)"
 
-# T10 — fork self-check: with the plugin tree absent the plugin-copy guards
-# visibly skip and the suite still exits 0 (output-grepped — exit 0 alone
-# would pass in the canonical repo even with the skip branch deleted)
+# T10 — fork self-check: with no build available the plugin-copy guards visibly
+# skip and the suite still exits 0 (output-grepped — exit 0 alone would pass in
+# the canonical repo even with the skip branch deleted). The probe drives the
+# BUILDER's absence since [32.5], because that is what the copies now come from.
 if [ -z "${FEEDBACK_TEST_INNER:-}" ]; then
-  INNER=$(FEEDBACK_TEST_INNER=1 FEEDBACK_PLUGIN_TREE="$ROOT/nonexistent-plugin" bash "$SELF" 2>&1)
+  INNER=$(FEEDBACK_TEST_INNER=1 FEEDBACK_BUILD_SCRIPT="$ROOT/nonexistent-build.sh" bash "$SELF" 2>&1)
   if [ $? -eq 0 ] && echo "$INNER" | grep -q "plugin-copy guards skip"; then
-    ok "plugin-copy guards visibly skip in a fork that deleted plugin/"
+    ok "plugin-copy guards visibly skip in a consumer fork (no build available)"
   else
-    no "suite must exit 0 and visibly skip plugin-copy guards when plugin/ is absent"
+    no "suite must exit 0 and visibly skip plugin-copy guards when no build is available"
   fi
 
   # T21 — stderr-clean guard (the empty-stderr gate): the project runner

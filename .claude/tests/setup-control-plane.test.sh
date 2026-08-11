@@ -1557,51 +1557,80 @@ seed_cache() {   # $1 = cache dir; a STALE script, the identity manifest, and Cl
   # file beside it must survive every refresh — see T13g.
   printf 'claude-code owns this\n' > "$1/.last_inuse_sweep"
 }
-seed_built() {   # $1 = guv home; the built plugin tree --sync refreshes FROM
-  mkdir -p "$1/plugin/scripts" "$1/plugin/.claude-plugin" "$1/plugin/rules"
-  printf 'CURRENT GATE — windowed\n' > "$1/plugin/scripts/budget-gate.sh"
-  printf '%s\n' "$PLUGIN_JSON" > "$1/plugin/.claude-plugin/plugin.json"
-  # A FAITHFUL build, not just the one file under test: the refresh now also reports
-  # whether plugin/ is itself behind .claude/ (helpers and hooks -> scripts/, guv-*
-  # rules), and a fixture whose plugin/ never mirrored its own source would fly that
-  # banner in every case — turning a real signal into background noise nobody reads.
-  # T13m perturbs this deliberately to prove the banner still fires.
-  for f in "$1/.claude/"*.sh "$1/.claude/hooks/"*.sh; do
-    [ -e "$f" ] && cp "$f" "$1/plugin/scripts/$(basename "$f")"
+seed_built() {   # $1 = guv home; installs the fixture's builder and builds once
+  # Since [32.5] the refresh BUILDS its source instead of reading a committed
+  # plugin/, so the fixture needs a BUILDER, not a seeded tree. This writes a
+  # mini build-plugin.sh — the same copy rules the real one applies to the
+  # surfaces these tests exercise (helpers and hooks to scripts/, guv-* rules,
+  # plugin-src scripts and skills, skill bundles, the shell/ payload, and the two
+  # jq-derived outputs) — then runs it once so $1/plugin exists for the cases that
+  # inspect it. It is a double for build-plugin.sh, whose own correctness is
+  # plugin.test.sh's subject; what these fixtures exercise is the refresh logic.
+  #
+  # It matters that this is a builder and not a copier: the propagation cases
+  # below edit a SOURCE file and assert the edit reaches the cache, which is only
+  # a real test if the fixture's build reads source the way the real one does.
+  mkdir -p "$1/maintainers"
+  cat > "$1/maintainers/build-plugin.sh" <<'STUB'
+#!/bin/bash
+set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$ROOT/plugin"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --out) OUT="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+rm -rf "$OUT"
+mkdir -p "$OUT/scripts" "$OUT/.claude-plugin" "$OUT/rules" "$OUT/shell/sandbox" \
+         "$OUT/shell/docs" "$OUT/hooks" "$OUT/skills" "$OUT/tests" "$OUT/agents"
+printf 'CURRENT GATE — windowed\n' > "$OUT/scripts/budget-gate.sh"
+cp "$ROOT/.claude-plugin-json" "$OUT/.claude-plugin/plugin.json" 2>/dev/null
+for f in "$ROOT/.claude/"*.sh "$ROOT/.claude/hooks/"*.sh; do
+  [ -e "$f" ] && cp "$f" "$OUT/scripts/$(basename "$f")"
+done
+for f in "$ROOT/.claude/rules/"guv-*.md; do
+  [ -e "$f" ] && cp "$f" "$OUT/rules/$(basename "$f")"
+done
+for f in "$ROOT/maintainers/plugin-src/scripts/"*.sh; do
+  [ -e "$f" ] && cp "$f" "$OUT/scripts/$(basename "$f")"
+done
+for f in "$ROOT/maintainers/plugin-src/skills/"*/SKILL.md; do
+  [ -e "$f" ] || continue
+  mkdir -p "$OUT/skills/$(basename "$(dirname "$f")")"
+  cp "$f" "$OUT/skills/$(basename "$(dirname "$f")")/SKILL.md"
+done
+( cd "$ROOT/.claude" 2>/dev/null && find skills -mindepth 3 -type f ! -name '.DS_Store' 2>/dev/null ) \
+| while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    mkdir -p "$OUT/$(dirname "$rel")"
+    cp "$ROOT/.claude/$rel" "$OUT/$rel"
   done
-  for f in "$1/.claude/rules/"guv-*.md; do
-    [ -e "$f" ] && cp "$f" "$1/plugin/rules/$(basename "$f")"
+for f in CLAUDE.template.md README.template.md Makefile; do
+  [ -e "$ROOT/$f" ] && cp "$ROOT/$f" "$OUT/shell/$f"
+done
+[ -e "$ROOT/sandbox/Dockerfile" ] && cp "$ROOT/sandbox/Dockerfile" "$OUT/shell/sandbox/Dockerfile"
+for f in REQUIREMENTS ARCHITECTURE PHASE_STATUS; do
+  [ -e "$ROOT/docs/$f.md" ] && cp "$ROOT/docs/$f.md" "$OUT/shell/docs/$f.md"
+done
+# The two DERIVED outputs. The real builder rewrites hook command PATHS and injects
+# the plugin-only guard; neither moves the SET OF SCRIPT BASENAMES, so preserving
+# .hooks verbatim is a faithful stand-in for what the cache walks compare.
+jq 'del(.hooks)'  "$ROOT/.claude/settings.json" > "$OUT/shell/settings.json" 2>/dev/null
+jq '{hooks: .hooks}' "$ROOT/.claude/settings.json" > "$OUT/hooks/hooks.json" 2>/dev/null
+# Tree probes for the refresh-scope case: one uniquely-named file per tree named in
+# .zz-tree-probe, EMITTED BY THE BUILD so it travels the path a shipped file takes.
+if [ -f "$ROOT/.zz-tree-probe" ]; then
+  for t in $(cat "$ROOT/.zz-tree-probe"); do
+    mkdir -p "$OUT/$t"
+    printf 'tree-probe %s\n' "$t" > "$OUT/$t/zz-tree-probe.txt"
   done
-  # …and every other surface the builder copies verbatim, for the same reason: a fixture
-  # that mirrors only part of its own source flies the behind-build banner on every case
-  # that touches the rest, which is how a real signal becomes noise.
-  mkdir -p "$1/plugin/shell/sandbox" "$1/plugin/shell/docs" "$1/plugin/hooks"
-  for f in CLAUDE.template.md README.template.md Makefile; do
-    [ -e "$1/$f" ] && cp "$1/$f" "$1/plugin/shell/$f"
-  done
-  [ -e "$1/sandbox/Dockerfile" ] && cp "$1/sandbox/Dockerfile" "$1/plugin/shell/sandbox/Dockerfile"
-  for f in REQUIREMENTS ARCHITECTURE PHASE_STATUS; do
-    [ -e "$1/docs/$f.md" ] && cp "$1/docs/$f.md" "$1/plugin/shell/docs/$f.md"
-  done
-  for f in "$1/maintainers/plugin-src/scripts/"*.sh; do
-    [ -e "$f" ] && cp "$f" "$1/plugin/scripts/$(basename "$f")"
-  done
-  for f in "$1/maintainers/plugin-src/skills/"*/SKILL.md; do
-    [ -e "$f" ] || continue
-    mkdir -p "$1/plugin/skills/$(basename "$(dirname "$f")")"
-    cp "$f" "$1/plugin/skills/$(basename "$(dirname "$f")")/SKILL.md"
-  done
-  ( cd "$1/.claude" 2>/dev/null && find skills -mindepth 3 -type f ! -name '.DS_Store' 2>/dev/null ) \
-  | while IFS= read -r rel; do
-      [ -n "$rel" ] || continue
-      mkdir -p "$1/plugin/$(dirname "$rel")"
-      cp "$1/.claude/$rel" "$1/plugin/$rel"
-    done
-  # The two DERIVED outputs. The real builder rewrites hook command PATHS and injects the
-  # plugin-only guard; neither moves the SET OF SCRIPT BASENAMES, which is the only thing
-  # the detector compares here — so preserving .hooks verbatim is a faithful stand-in.
-  jq 'del(.hooks)'  "$1/.claude/settings.json" > "$1/plugin/shell/settings.json" 2>/dev/null
-  jq '{hooks: .hooks}' "$1/.claude/settings.json" > "$1/plugin/hooks/hooks.json" 2>/dev/null
+fi
+exit 0
+STUB
+  printf '%s\n' "$PLUGIN_JSON" > "$1/.claude-plugin-json"
+  bash "$1/maintainers/build-plugin.sh" --out "$1/plugin"
   return 0
 }
 db_with_path() { # $1 = installPath → a guv-family DB naming it
@@ -1692,7 +1721,10 @@ printf '%s' "$OUT13E" | grep -q 'PLUGIN CACHE DRIFT' \
 # half-delivered: both the old and the new entry point live at once, and which one runs
 # is whichever the caller names. Mirrors copy_core's obsolete-prune for the plane.
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-prune"; C="$WORK/cx-prune-installed"
-mkdir -p "$H/plugin/scripts/nested"; printf 'new name\n' > "$H/plugin/scripts/resolve-stack.sh"
+# The rename lands in SOURCE (.claude/), not in the seeded artifact: since [32.5]
+# the refresh BUILDS its source, so a helper planted only in plugin/ is never built
+# and could never reach a cache — the fixture would assert nothing.
+printf 'new name\n' > "$H/.claude/resolve-stack.sh"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"
 mkdir -p "$C/scripts/nested"; printf 'old name\n' > "$C/scripts/nested/resolve-stacks.sh"
@@ -1724,7 +1756,8 @@ seed_cache "$C"
 # The [24.1] shape, staged in a read-by-name tree: source ships the new door, the cache
 # still carries the old. The names are fabricated because a live surface may not carry a
 # retired door name — docs-sweep enforces that repo-wide, and caught it here.
-mkdir -p "$H/plugin/skills/newdoor"; printf 'source door\n' > "$H/plugin/skills/newdoor/SKILL.md"
+mkdir -p "$H/maintainers/plugin-src/skills/newdoor"
+printf 'source door\n' > "$H/maintainers/plugin-src/skills/newdoor/SKILL.md"
 mkdir -p "$C/skills/olddoor"; printf 'release door\n' > "$C/skills/olddoor/SKILL.md"
 # A removed-upstream file in a DIFFERENT tree, so the prune demonstrably runs even if the
 # skills half regressed: the empty-directory sweep is gated on there being something to
@@ -1753,16 +1786,18 @@ printf '%s' "$OUT13H" | grep -q 'records no installPath' \
   && ok "[19.5] a guv entry with no installPath is disclosed — 'present but unlocatable' is not the same as 'not installed'" \
   || no "[19.5] an unresolvable guv cache must be announced; the dedup just handed it authority"
 
-# T13i — no built plugin here → disclose and leave the installed cache alone. The
-# maintainer who edited .claude/ but never rebuilt gets told, not silently served.
+# T13i — nothing to build from here → disclose and leave the installed cache alone.
+# Since [32.5] the refresh builds its source, so the blocking condition is a missing
+# BUILDER rather than a missing built tree; either way the cache is left untouched
+# and the operator is told, not silently served.
 H=$(make_guv); D="$WORK/cx-nobuilt"; C="$WORK/cx-nobuilt-installed"   # note: NO seed_built
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"; BEFORE=$(cat "$C/scripts/budget-gate.sh")
 db_with_path "$C" > "$WORK/db-nobuilt.json"
 OUT13I=$( GUV_PLUGINS_DB="$WORK/db-nobuilt.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
-printf '%s' "$OUT13I" | grep -q 'no built plugin at' && [ "$(cat "$C/scripts/budget-gate.sh")" = "$BEFORE" ] \
-  && ok "[19.5] with no built plugin, the cache is disclosed as unverified and left untouched" \
-  || no "[19.5] a missing plugin/ build must disclose and write nothing — it is not evidence the cache is current"
+printf '%s' "$OUT13I" | grep -q 'no builder at' && [ "$(cat "$C/scripts/budget-gate.sh")" = "$BEFORE" ] \
+  && ok "[19.5] with no builder, the cache is disclosed as unverified and left untouched" \
+  || no "[19.5] an unbuildable source must disclose and write nothing — it is not evidence the cache is current"
 
 # T13j — the DB says guv, the artifact must agree. 'guv@* and the directory exists' is a
 # claim by the plugin DB; the cache's own plugin.json is a claim by the artifact. Without
@@ -1795,33 +1830,37 @@ diff -q "$C1/scripts/budget-gate.sh" "$H/plugin/scripts/budget-gate.sh" >/dev/nu
   && ok "[19.5] every recorded guv install is refreshed — a second cache left stale is a cache still running the defect" \
   || no "[19.5] the refresh must cover all recorded installPaths; picking the first silently leaves the others stale"
 
-# T13m — plugin/ itself behind .claude/. This is the one staleness cache drift is blind
-# to: the cache is compared AGAINST plugin/, so when plugin/ is what is behind, drift
-# reads zero, the function returns early, and every advisory hanging off the drift banner
-# is suppressed — silence in exactly the case that poisons the cache. The check runs
-# before any cache is compared and names the files. Proceeding is deliberate: plugin/ is
-# still a real build, so the cache lands on ONE coherent vintage, just not the newest.
+# T13m — a source edit REACHES the cache. This replaces the old behind-build
+# detector ([32.5]): the refresh used to copy a committed plugin/ and warn when
+# source had moved past it, so the test could only assert the warning. Now the
+# refresh builds the source it is about to install, and the property worth
+# testing is the outcome — edit .claude/, sync, and the cache carries the edit.
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-behind"; C="$WORK/cx-behind-installed"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"
-printf 'edited in source, never rebuilt\n' > "$H/.claude/resolve-ready.sh"   # source moves, plugin/ does not
+printf 'edited in source\n' > "$H/.claude/resolve-ready.sh"
 db_with_path "$C" > "$WORK/db-behind.json"
 OUT13M=$( GUV_PLUGINS_DB="$WORK/db-behind.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
-printf '%s' "$OUT13M" | grep -q 'BUILT PLUGIN IS BEHIND' \
-  && printf '%s' "$OUT13M" | grep -q 'not rebuilt since edited: scripts/resolve-ready.sh' \
-  && ok "[19.5] a plugin/ behind .claude/ is disclosed and NAMED — the staleness cache drift cannot see" \
-  || no "[19.5] editing .claude/ without rebuilding must be announced; drift against plugin/ reads zero and hides it"
+[ "$(cat "$C/scripts/resolve-ready.sh" 2>/dev/null)" = "edited in source" ] \
+  && ok "[32.5] an edit to .claude/ reaches the plugin cache in one sync (the refresh builds its source)" \
+  || no "[32.5] a source edit must reach the cache — the refresh builds from source, so no rebuild step stands between them"
+printf '%s' "$OUT13M" | grep -q 'FRESH BUILD of this working tree' \
+  && ok "[32.5] the refresh names its source as a fresh build, not the committed plugin/" \
+  || no "[32.5] the drift banner must say where the bytes came from — a stale claim here misdirects the next reader"
 
-# T13m2 — and it stays quiet when the build IS current, so the banner keeps meaning
-# something. Same fixture, no source edit.
+# T13m2 — and the committed plugin/ is NOT what lands. The old mirror model made
+# these indistinguishable; freezing plugin/ at the release makes the difference
+# observable, so pin it: a release-vintage artifact must never overwrite source.
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-current-build"; C="$WORK/cx-current-build-installed"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"
+printf 'RELEASE VINTAGE — must not reach the cache\n' > "$H/plugin/scripts/resolve-ready.sh"
+printf 'source vintage\n' > "$H/.claude/resolve-ready.sh"
 db_with_path "$C" > "$WORK/db-cbuild.json"
 OUT13M2=$( GUV_PLUGINS_DB="$WORK/db-cbuild.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
-printf '%s' "$OUT13M2" | grep -q 'BUILT PLUGIN IS BEHIND' \
-  && no "[19.5] the behind-build banner fired on a current build — a warning that always fires is not a warning" \
-  || ok "[19.5] no behind-build banner when plugin/ is a current build of .claude/"
+[ "$(cat "$C/scripts/resolve-ready.sh" 2>/dev/null)" = "source vintage" ] \
+  && ok "[32.5] the committed plugin/ is never the refresh source — the cache gets source, not the release" \
+  || no "[32.5] refreshing from the frozen release artifact would install the last release over unreleased core"
 
 # T13n — the provenance marker records the VERIFY outcome, and is written after it. A
 # marker asserting a refresh before the check that can contradict it is the same
@@ -1835,44 +1874,22 @@ printf '%s' "$OUT13M2" | grep -q 'verified: hook-invoked core' \
 # T13n2 — every marker flag is spelled out, never left empty for the good state. The file
 # is read by catting it; an empty value cannot be told apart from a check that never ran,
 # and this is the one reading where "fine" and "unmeasured" must not look alike.
-grep -q '^source_plugin_behind_claude=no$' "$C/.guv-source-refresh" 2>/dev/null \
-  && ok "[19.5] the marker states the behind-build result explicitly (=no), not as an empty value" \
-  || no "[19.5] source_plugin_behind_claude must read yes/no — an empty value reads as 'never checked'"
+# (source_plugin_behind_claude retired with the detector at [32.5]; source_tree_dirty
+# carries the rule now, and describes the tree that was actually built.)
+grep -qE '^source_tree_dirty=(yes|no)$' "$C/.guv-source-refresh" 2>/dev/null \
+  && ok "[19.5] the marker states the dirty result explicitly (yes/no), not as an empty value" \
+  || no "[19.5] source_tree_dirty must read yes/no — an empty value reads as 'never checked'"
+grep -q '^source_built_from=working_tree$' "$C/.guv-source-refresh" 2>/dev/null \
+  && ok "[32.5] the marker records WHICH source the cache carries (a build of the working tree)" \
+  || no "[32.5] the marker must name its source — 'refreshed' alone cannot distinguish source from release"
 
-# T13m3..m6 — the surfaces the FIRST cut of the detector missed while its comment said it
-# covered "everything build-plugin.sh copies verbatim". Each case edits one source file,
-# leaves plugin/ unrebuilt, and demands the file be NAMED. They are separate cases on
-# purpose: they are four different copy rules in the builder, and a single case passing
-# would have told us nothing about the other three.
-stale_names() {  # $1 = source file to perturb, $2 = tag → the sync output
-  local h d c
-  h=$(make_guv); seed_built "$h"; d="$WORK/cx-$2"; c="$WORK/cx-$2-installed"
-  ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$h/maintainers/setup-control-plane.sh" "$d" ) >>"$WORK/setup.log" 2>&1
-  seed_cache "$c"
-  printf 'edited in source, never rebuilt\n' >> "$h/$1"
-  db_with_path "$c" > "$WORK/db-$2.json"
-  ( GUV_PLUGINS_DB="$WORK/db-$2.json" bash "$h/maintainers/setup-control-plane.sh" "$d" --sync 2>&1 )
-}
-
-printf '%s' "$(stale_names CLAUDE.template.md shellv)" \
-  | grep -q 'not rebuilt since edited: shell/CLAUDE.template.md' \
-  && ok "[19.5] a stale shell/ payload is named — the tree scaffolded into every new project" \
-  || no "[19.5] editing CLAUDE.template.md without rebuilding must be named; shell/ ships verbatim into real repos"
-
-printf '%s' "$(stale_names maintainers/plugin-src/scripts/reviewer-readonly.sh psrc)" \
-  | grep -q 'not rebuilt since edited: scripts/reviewer-readonly.sh' \
-  && ok "[19.5] a stale plugin-only source (maintainers/plugin-src/scripts/) is named" \
-  || no "[19.5] plugin-src scripts ship verbatim into scripts/ — a stale one must not be silent"
-
-printf '%s' "$(stale_names .claude/skills/status/assets/legend.txt bundle)" \
-  | grep -q 'not rebuilt since edited: skills/status/assets/legend.txt' \
-  && ok "[19.5] a stale skill-bundled asset outside scripts/ and not .sh is named (cp -R ships any bundle)" \
-  || no "[19.5] the bundle walk must be as wide as the builder's cp -R, not scripts/*.sh only"
-
-# m6 — the [9.2] dead-hook class, which is why hooks.json is worth checking at all: a hook
-# wired in settings.json but never rebuilt into the plugin's hooks.json silently does not
-# run, and [19.5] made the plugin's copy the authoritative one. Byte-comparing is useless
-# here (hooks.json is DERIVED), so the check is a subset test on hook script basenames.
+# T13m6 — the [9.2] dead-hook class, the one propagation case worth its own test
+# after [32.5]. A hook wired in settings.json but absent from the plugin's
+# hooks.json silently does not run, and the plugin's copy is the authoritative
+# one. The old m3..m5 siblings graded the retired behind-build detector on three
+# other copy rules; propagation is structural now (the refresh builds its source),
+# so the surface-by-surface warnings retired with the detector and this one stays
+# as an OUTCOME test: the newly wired hook must be in the refreshed cache.
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-hookwire"; C="$WORK/cx-hookwire-installed"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"
@@ -1880,23 +1897,23 @@ jq '.hooks.Stop[0].hooks += [{"type":"command","command":"bash .claude/hooks/bra
    "$H/.claude/settings.json" > "$WORK/st.json" && mv "$WORK/st.json" "$H/.claude/settings.json"
 db_with_path "$C" > "$WORK/db-hookwire.json"
 OUT13M6=$( GUV_PLUGINS_DB="$WORK/db-hookwire.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
-printf '%s' "$OUT13M6" | grep -q 'not rebuilt since edited: hooks/hooks.json' \
-  && ok "[9.2] a hook wired in settings.json but never rebuilt into hooks.json is named, not silently dead" \
-  || no "[9.2] adding a hook without rebuilding leaves it dead in the plugin — the refresh must say so"
+grep -q 'brand-new-guard\.sh' "$C/hooks/hooks.json" 2>/dev/null \
+  && ok "[9.2] a hook wired in settings.json reaches the refreshed cache's hooks.json — never silently dead" \
+  || no "[9.2] a newly wired hook must reach the cache: the plugin's hooks.json is the authoritative registration"
 
-# m6b — and the same fixture with NO settings edit stays quiet, so m6 is measuring the
-# edit rather than a check that always fires (hooks.json legitimately carries one extra
-# entry the builder injects, so an equality test here would red on every clean build).
+# m6b — the negative control for m6: the same fixture with NO settings edit must
+# NOT carry the hook, so m6 is measuring propagation rather than passing on a
+# string that would be there regardless. (Before [32.5] this control greped for
+# the absence of a warning banner; that banner is gone, and a grep for a string
+# nothing can emit is a guard that always passes — so the control moved onto the
+# same artifact m6 asserts, where it can actually fail.)
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-hookclean"; C="$WORK/cx-hookclean-installed"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"; db_with_path "$C" > "$WORK/db-hookclean.json"
-OUT13M6B=$( GUV_PLUGINS_DB="$WORK/db-hookclean.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync 2>&1 )
-# The prefix matters: a freshly seeded cache legitimately lists hooks/hooks.json as
-# DRIFTED (it does not have it yet), which is a different banner saying a different thing.
-# Matching the bare filename would have passed this case off the wrong line.
-printf '%s' "$OUT13M6B" | grep -q 'not rebuilt since edited: hooks/hooks.json' \
-  && no "[9.2] the hooks.json check fired on an unedited settings.json — a warning that always fires is not a warning" \
-  || ok "[9.2] no hooks.json complaint when settings.json is unchanged"
+( GUV_PLUGINS_DB="$WORK/db-hookclean.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
+grep -q 'brand-new-guard\.sh' "$C/hooks/hooks.json" 2>/dev/null \
+  && no "[9.2] the unedited fixture carried the planted hook — m6 is not measuring the edit" \
+  || ok "[9.2] an unedited settings.json puts no new hook in the cache (m6's negative control)"
 
 # T13L — the SCOPE DECLARATION itself, which nothing above constrains. Every T13 case
 # plants only scripts/, so narrowing GUV_CACHE_TREES back to "scripts" left all of them
@@ -1922,21 +1939,39 @@ printf '%s' "$OUT13M6B" | grep -q 'not rebuilt since edited: hooks/hooks.json' \
 # without dotglob, so the earlier glob never saw .claude-plugin and the "one deliberate
 # exception" filtered nothing. Enumerating it and then excluding it by name is what makes
 # the exception real — and makes declaring .claude-plugin in scope red here.
-REAL_PLUGIN="$(cd "$(dirname "$0")/../.." && pwd)/plugin"
+# What "ships" is read from a BUILD, never the committed plugin/ ([32.5]): that
+# tree is frozen at the last release, so grading the scope declaration against it
+# would red the battery the moment the build gains a tree — source ahead of
+# artifact, the state this deliverable declared normal — and would keep the check
+# green on a tree the build has since dropped. The runner's shared build serves
+# here too; a fork with no builder has nothing to compare and skips.
+REAL_BUILD="$(cd "$(dirname "$0")/../.." && pwd)/maintainers/build-plugin.sh"
+REAL_PLUGIN=""
+SCOPE_TMP=""
+if [ ! -f "$REAL_BUILD" ]; then
+  :
+elif [ -n "${GUV_BUILT_PLUGIN:-}" ] && [ -d "${GUV_BUILT_PLUGIN:-}" ]; then
+  REAL_PLUGIN="$GUV_BUILT_PLUGIN"
+else
+  SCOPE_TMP=$(mktemp -d)
+  bash "$REAL_BUILD" --out "$SCOPE_TMP/plugin" >/dev/null 2>&1 && REAL_PLUGIN="$SCOPE_TMP/plugin"
+fi
 SHIPPED=""
-[ -d "$REAL_PLUGIN" ] && SHIPPED=$(cd "$REAL_PLUGIN" \
+[ -n "$REAL_PLUGIN" ] && [ -d "$REAL_PLUGIN" ] && SHIPPED=$(cd "$REAL_PLUGIN" \
               && find . -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
               | sed 's|^\./||' | grep -v '^\.claude-plugin$' \
               | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
-if [ -d "$REAL_PLUGIN" ]; then
+if [ -n "$REAL_PLUGIN" ] && [ -d "$REAL_PLUGIN" ]; then
   DECLARED=$(grep '^GUV_CACHE_TREES=' "$REAL_SCRIPT" | head -1 \
              | sed 's/^GUV_CACHE_TREES=//; s/^"//; s/"$//' \
              | tr ' ' '\n' | grep -v '^$' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
   [ -n "$SHIPPED" ] && [ "$DECLARED" = "$SHIPPED" ] \
     && ok "[19.5] refresh scope declares every guv-owned tree the built plugin ships (.claude-plugin held back)" \
     || no "[19.5] refresh scope must cover every shipped tree — declared '$DECLARED' vs shipped '$SHIPPED'; a partial refresh is a vintage that was never built or tested"
+elif [ ! -f "$REAL_BUILD" ]; then
+  echo "  - maintainers/build-plugin.sh absent (consumer fork) — refresh-scope guards skip"
 else
-  no "[19.5] SETUP: no built plugin at $REAL_PLUGIN — cannot pin the refresh scope against what ships"
+  no "[19.5] SETUP: build-plugin.sh FAILED — cannot pin the refresh scope against what ships"
 fi
 
 # L2 — each shipped tree round-trips. One uniquely-named file per tree on the built side;
@@ -1953,15 +1988,16 @@ fi
 H=$(make_guv); seed_built "$H"; D="$WORK/cx-trees"; C="$WORK/cx-trees-installed"
 ( GUV_PLUGINS_DB="$NEUTRAL_DB" bash "$H/maintainers/setup-control-plane.sh" "$D" ) >>"$WORK/setup.log" 2>&1
 seed_cache "$C"
-for t in $SHIPPED; do
-  mkdir -p "$H/plugin/$t"
-  printf 'tree-probe %s\n' "$t" > "$H/plugin/$t/zz-tree-probe.txt"
-done
+# The probes are BUILT, not planted into the seeded artifact: since [32.5] the
+# refresh builds its source, so a file only in plugin/ never travels. The marker
+# makes the fixture's builder emit one probe per SHIPPED tree, which is the same
+# path any real shipped file takes.
+printf '%s\n' "$SHIPPED" > "$H/.zz-tree-probe"
 db_with_path "$C" > "$WORK/db-trees.json"
 ( GUV_PLUGINS_DB="$WORK/db-trees.json" bash "$H/maintainers/setup-control-plane.sh" "$D" --sync ) >>"$WORK/setup.log" 2>&1
 MISSING=""
 for t in $SHIPPED; do
-  cmp -s "$H/plugin/$t/zz-tree-probe.txt" "$C/$t/zz-tree-probe.txt" 2>/dev/null || MISSING="$MISSING $t"
+  [ "$(cat "$C/$t/zz-tree-probe.txt" 2>/dev/null)" = "tree-probe $t" ] || MISSING="$MISSING $t"
 done
 [ -n "$SHIPPED" ] && [ -z "$MISSING" ] \
   && ok "[19.5] every tree the built plugin ships is actually copied into the cache (probe landed in: $SHIPPED)" \
@@ -1969,6 +2005,7 @@ done
 
 fi  # SCP_TEST_INNER guard (T12 [19.5] block)
 
+[ -n "${SCOPE_TMP:-}" ] && rm -rf "$SCOPE_TMP"
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
