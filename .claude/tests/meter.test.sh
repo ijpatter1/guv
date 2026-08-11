@@ -292,15 +292,16 @@ echo "$ENTRY" | jq -e '.perf.op_wallclock_s | type == "number"' >/dev/null 2>&1 
   && ok "perf field present even with no harvestable transcript (log never blocks on Spike C)" \
   || no "perf field must survive an unharvestable transcript"
 
-# T14 — COVERAGE: MAIN TRANSCRIPT ONLY ([32.4] narrowed [13.1]). Subagent burn
-# lives in transcripts under the SIBLING <session>/ tree; since [32.4] the
-# harvest reads the MAIN transcript alone and every entry SELF-DESCRIBES that
-# scope (coverage:"main_session"), so a gate figure is never read as total
-# spend. Fleet burn returns at [32.8] as a DISTINCT component, never blended
-# silently. These tests pin the exclusion: a subagent transcript full of burn
-# must not leak into tokens. HOME is overridden to a fixture root and the slug
-# computed the way the script does (pwd -P), so the path matches regardless of
-# macOS /var symlink resolution.
+# T14 — COVERAGE: MAIN + FLEET AS DISTINCT COMPONENTS ([32.8] widened [32.4]).
+# Subagent burn lives in transcripts under the SIBLING <session>/ tree; the
+# harvest reads the main transcript into `tokens` and the fleet tree into
+# `fleet`, NEVER blending them — a figure that mixes scopes silently is the
+# failure [32.4] narrowed coverage to prevent, and [32.8] widens it back only
+# as a split. Every entry self-describes the scope (coverage:"main_plus_fleet").
+# These tests pin the split: subagent burn lands in fleet, main burn in tokens,
+# and neither leaks into the other. HOME is overridden to a fixture root and the
+# slug computed the way the script does (pwd -P), so the path matches regardless
+# of macOS /var symlink resolution.
 mk_transcript() {  # $1=project $2=fake-home $3=session-id — main + one subagent
   local p="$1" fh="$2" sid="$3" slug base
   slug=$(cd "$p" && pwd -P | sed 's#/#-#g')
@@ -319,22 +320,29 @@ FH14="$WORK/home.$RANDOM"; SID14="11111111-2222-3333-4444-555555555555"
 mk_transcript "$P14" "$FH14" "$SID14"
 ( cd "$P14" && HOME="$FH14" CLAUDE_CODE_SESSION_ID="$SID14" bash "$SCRIPT" capture --deliverables "13.1" ) >/dev/null 2>"$WORK/t14.err"
 E14=$( [ -f "$LOG14" ] && tail -1 "$LOG14" || echo '{}' )
-# headline: cache_read = main(100) ONLY. The sibling subagent transcript carries
-# 900 more; a leak would be visible as 1000. RED against the pre-[32.4]
-# main+subagent sum.
+# headline: tokens.cache_read = main(100) ONLY — the subagent's 900 must NOT
+# blend in (a blended 1000 is the [32.4] failure) — AND the 900 lands in the
+# DISTINCT fleet component ([32.8] acceptance: a visible main/fleet split with
+# fleet tokens > 0). RED against both the blended sum and the fleet-less shape.
 echo "$E14" | jq -e '.tokens.cache_read == 100' >/dev/null 2>&1 \
-  && ok "harvest EXCLUDES subagent burn (main 100 only; fleet returns at [32.8])" \
-  || no "subagent burn leaked: expected cache_read 100, got $(echo "$E14" | jq -c '.tokens') (err=$(cat "$WORK/t14.err"))"
+  && ok "tokens stays main-only (cache_read 100; subagent burn never blends in)" \
+  || no "subagent burn leaked into tokens: expected cache_read 100, got $(echo "$E14" | jq -c '.tokens') (err=$(cat "$WORK/t14.err"))"
 echo "$E14" | jq -e '.tokens.input == 10 and .tokens.output == 5 and .tokens.cache_creation == 3' >/dev/null 2>&1 \
-  && ok "every class is main-only (input 10, output 5, cache_creation 3)" \
+  && ok "every tokens class is main-only (input 10, output 5, cache_creation 3)" \
   || no "expected input 10 / output 5 / cache_creation 3, got $(echo "$E14" | jq -c '.tokens')"
+echo "$E14" | jq -e '.fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] subagent burn is harvested as the DISTINCT fleet component ({2,1,900,7})" \
+  || no "[32.8] fleet component missing/wrong: expected {2,1,900,7}, got $(echo "$E14" | jq -c '.fleet') (err=$(cat "$WORK/t14.err"))"
+echo "$E14" | jq -e '.transcript_fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] transcript_fleet preserves the fleet cumulative high-water (the next slice differences against it)" \
+  || no "[32.8] expected transcript_fleet {2,1,900,7}, got $(echo "$E14" | jq -c '.transcript_fleet')"
 echo "$E14" | jq -e '.spike_c_rung == "B"' >/dev/null 2>&1 \
   && ok "rung B recorded when the harvest succeeds" \
   || no "expected rung B, got $(echo "$E14" | jq -c '.spike_c_rung')"
-# the scope is SELF-DESCRIBING on the entry ([32.4]): coverage names what the
-# reading spans, so a consumer can tell a main-only figure from a main+fleet one.
-echo "$E14" | jq -e '.coverage == "main_session"' >/dev/null 2>&1 \
-  && ok "coverage:\"main_session\" self-describes the harvest scope" \
+# the scope is SELF-DESCRIBING on the entry: coverage names what the reading
+# spans, so a consumer can tell a main-only figure from a main+fleet one.
+echo "$E14" | jq -e '.coverage == "main_plus_fleet"' >/dev/null 2>&1 \
+  && ok "coverage:\"main_plus_fleet\" self-describes the widened harvest scope" \
   || no "coverage field missing/wrong: $(echo "$E14" | jq -c '.coverage')"
 
 # T14b — the MODEL is the session's, read from the MAIN transcript ONLY, never a
@@ -344,8 +352,11 @@ echo "$E14" | jq -e '.model == "claude-main"' >/dev/null 2>&1 \
   && ok "model harvested from the MAIN transcript only (claude-main, not the subagent's claude-sub)" \
   || no "model must come from the main transcript: expected claude-main, got $(echo "$E14" | jq -c '.model')"
 
-# T14c — BACK-COMPAT: a session that spawned no subagents (no sibling <session>/
-# dir) meters exactly as before — main transcript only, no error, rung B.
+# T14c — NO SUBAGENTS: a session that spawned none (no sibling <session>/ dir)
+# records a MEASURED ZERO fleet — {0,0,0,0}, a genuine reading of "nothing was
+# spawned" — never null (null is reserved for UNREACHABLE, the disclosed
+# degradation T14g pins; conflating the two would make a quiet session
+# indistinguishable from a broken harvest).
 P14c=$(make_project); LOG14c="$P14c/.claude/metering/metering.ndjson"
 FH14c="$WORK/home.$RANDOM"; SID14c="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 slug14c=$(cd "$P14c" && pwd -P | sed 's#/#-#g')
@@ -353,9 +364,12 @@ mkdir -p "$FH14c/.claude/projects/$slug14c"
 printf '%s\n' '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":42,"cache_creation_input_tokens":0}}}' \
   > "$FH14c/.claude/projects/$slug14c/$SID14c.jsonl"
 ( cd "$P14c" && HOME="$FH14c" CLAUDE_CODE_SESSION_ID="$SID14c" bash "$SCRIPT" capture ) >/dev/null 2>"$WORK/t14c.err"
-tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B" and .coverage == "main_session"' >/dev/null 2>&1 \
-  && ok "no subagents dir -> main-only harvest, coverage still declared (cache_read 42)" \
-  || no "back-compat broken: expected cache_read 42 + coverage, got $(tail -1 "$LOG14c" | jq -c '{tokens,coverage}') (err=$(cat "$WORK/t14c.err"))"
+tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B" and .coverage == "main_plus_fleet"' >/dev/null 2>&1 \
+  && ok "no subagents dir -> main harvest intact, coverage still declared (cache_read 42)" \
+  || no "no-subagent session broken: expected cache_read 42 + coverage, got $(tail -1 "$LOG14c" | jq -c '{tokens,coverage}') (err=$(cat "$WORK/t14c.err"))"
+tail -1 "$LOG14c" | jq -e '.fleet == {input:0,output:0,cache_read:0,cache_creation:0}' >/dev/null 2>&1 \
+  && ok "[32.8] no subagents -> fleet is a MEASURED ZERO ({0,0,0,0}), never null" \
+  || no "[32.8] expected fleet zeros for a no-subagent session, got $(tail -1 "$LOG14c" | jq -c '.fleet')"
 
 # ════════════════════════════════════════════════════════════════════════════
 # [13.6] — PER-DELIVERABLE COST METERING: a bounded slice, not the cumulative
@@ -370,20 +384,31 @@ tail -1 "$LOG14c" | jq -e '.tokens.cache_read == 42 and .spike_c_rung == "B" and
 
 # Seed a PRIOR same-runtime_session capture carrying a cumulative high-water
 # reading, so the next capture has something to difference against.
-seed_prior() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  [$5=harvest vintage] [$6=coverage]
+seed_prior() {  # $1=log $2=runtime_session $3=ts $4=cumulative-json  [$5=harvest vintage] [$6=coverage] [$7=fleet-cumulative]
   # $5 defaults to "per_response" — a prior banked by the CURRENT harvester, which
   # is what every delta test means by "a prior capture". Pass "legacy" to seed a
   # PRE-dedupe entry (the field absent entirely), the vintage boundary T20 pins.
-  # $6 defaults to "main_session" (the current scope); pass "none" to omit the
+  # $6 defaults to "main_plus_fleet" (the current scope); pass "main_session" to
+  # seed a [32.4]-era prior (the widening seam T14f pins) or "none" to omit the
   # field — a pre-[32.4] prior, the coverage seam T14d pins.
-  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" --arg hb "${5:-per_response}" --arg cov "${6:-main_session}" \
+  # $7 is the prior's transcript_fleet: defaults to a zero fleet cumulative when
+  # the coverage is current-scope (the shape the writer banks for a no-subagent
+  # session) and to omitted otherwise; pass JSON to set it, "null" for an
+  # unreachable-fleet prior (T14h), or "none" to omit the field.
+  local cov="${6:-main_plus_fleet}" fdef="none"
+  [ "$cov" = "main_plus_fleet" ] && fdef='{"input":0,"output":0,"cache_read":0,"cache_creation":0}'
+  local fl="${7:-$fdef}"
+  printf '%s\n' "$(jq -cn --arg rs "$2" --arg ts "$3" --argjson cum "$4" --arg hb "${5:-per_response}" --arg cov "$cov" --arg fl "$fl" \
     '{schema:"guv.meter.v1", ts:$ts, session:"session-2026-06-16-001",
       session_derived:true, runtime_session:$rs, deliverable_ids:["13.6"],
       model:"m", tokens:$cum, transcript_tokens:$cum, dollars:null,
       spike_c_rung:"B", slice_basis:"since_process_start", compaction_cycles:0,
       perf:{op_wallclock_s:0.1, suite_runtime_s:null}}
      + (if $hb == "legacy" then {} else {harvest_basis:$hb} end)
-     + (if $cov == "none" then {} else {coverage:$cov} end)')" >> "$1"
+     + (if $cov == "none" then {} else {coverage:$cov} end)
+     + (if $fl == "none" then {}
+        elif $fl == "null" then {transcript_fleet:null}
+        else {transcript_fleet:($fl | fromjson)} end)')" >> "$1"
 }
 
 # A main transcript carrying a usage line PLUS $4 real compaction summaries
@@ -418,6 +443,115 @@ tail -1 "$LOG14d" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens ==
 grep -q 'BREAK' "$WORK/t14d.err" \
   && ok "[32.4] the coverage seam is declared loudly on stderr" \
   || no "[32.4] coverage seam was silent: $(cat "$WORK/t14d.err")"
+
+# ── T14f — the [32.8] WIDENING SEAM: a prior capture written under [32.4]'s
+# main_session coverage spans a NARROWER scope than today's main_plus_fleet
+# reading — differencing would subtract a main-only high-water from a
+# fleet-inclusive accounting. Refused exactly like the [32.4] seam:
+# unbounded_cumulative, loud, once per runtime_session. This is the live seam
+# every upgraded project crosses at the widening.
+P14f=$(make_project); LOG14f="$P14f/.claude/metering/metering.ndjson"
+FH14f="$WORK/home.$RANDOM"; SID14f="14f14f14-1111-2222-3333-444444444444"
+mk_transcript "$P14f" "$FH14f" "$SID14f"
+mkdir -p "$P14f/.claude/metering"
+seed_prior "$LOG14f" "$SID14f" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}' per_response main_session
+( cd "$P14f" && HOME="$FH14f" CLAUDE_CODE_SESSION_ID="$SID14f" bash "$SCRIPT" capture --deliverables "32.8" ) >/dev/null 2>"$WORK/t14f.err"
+tail -1 "$LOG14f" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
+  && ok "[32.8] a main_session-era prior is never differenced against — the widening seam discloses unbounded_cumulative" \
+  || no "[32.8] widening seam produced a cross-scope slice: got $(tail -1 "$LOG14f" | jq -c '{slice_basis,tokens}') (err=$(cat "$WORK/t14f.err"))"
+grep -q 'BREAK' "$WORK/t14f.err" \
+  && ok "[32.8] the widening seam is declared loudly on stderr" \
+  || no "[32.8] widening seam was silent: $(cat "$WORK/t14f.err")"
+tail -1 "$LOG14f" | jq -e '.fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] the seam entry keeps the FULL fleet cumulative (no half-differenced component on an unbounded entry)" \
+  || no "[32.8] expected fleet = full cumulative {2,1,900,7} on the seam entry, got $(tail -1 "$LOG14f" | jq -c '.fleet')"
+
+# ── T14g — UNREACHABLE FLEET degrades to a DISCLOSED null (Rule 15; the [32.8]
+# acceptance names this rung): a subagent transcript jq cannot sum yields
+# fleet:null + transcript_fleet:null, loudly, while the MAIN harvest proceeds —
+# the log never blocks on harvestability, and a partial fleet sum is never
+# passed off as the whole fleet.
+P14g=$(make_project); LOG14g="$P14g/.claude/metering/metering.ndjson"
+FH14g="$WORK/home.$RANDOM"; SID14g="14g14g14-1111-2222-3333-444444444444"
+mk_transcript "$P14g" "$FH14g" "$SID14g"
+slug14g=$(cd "$P14g" && pwd -P | sed 's#/#-#g')
+printf '{broken json\n' > "$FH14g/.claude/projects/$slug14g/$SID14g/subagents/agent-corrupt.jsonl"
+( cd "$P14g" && HOME="$FH14g" CLAUDE_CODE_SESSION_ID="$SID14g" bash "$SCRIPT" capture --deliverables "32.8" ) >/dev/null 2>"$WORK/t14g.err"; RC14g=$?
+E14g=$(tail -1 "$LOG14g")
+[ "$RC14g" -eq 0 ] \
+  && ok "[32.8] an unreachable fleet never blocks the capture (exit 0)" \
+  || no "[32.8] capture must not block on fleet harvestability, rc=$RC14g"
+echo "$E14g" | jq -e 'has("fleet") and has("transcript_fleet") and .fleet == null and .transcript_fleet == null' >/dev/null 2>&1 \
+  && ok "[32.8] unreachable fleet -> fleet:null + transcript_fleet:null (the disclosed degradation, never a partial sum — and the fields are PRESENT, not absent)" \
+  || no "[32.8] expected explicit fleet null on unreachable transcripts, got $(echo "$E14g" | jq -c '{fleet,transcript_fleet}') (err=$(cat "$WORK/t14g.err"))"
+echo "$E14g" | jq -e '.tokens == {input:10,output:5,cache_read:100,cache_creation:3} and .spike_c_rung == "B"' >/dev/null 2>&1 \
+  && ok "[32.8] the main harvest survives an unreachable fleet (tokens intact, rung B)" \
+  || no "[32.8] main harvest must survive fleet degradation, got $(echo "$E14g" | jq -c '{tokens,spike_c_rung}')"
+grep -qi 'fleet' "$WORK/t14g.err" \
+  && ok "[32.8] the fleet degradation is declared loudly on stderr" \
+  || no "[32.8] fleet degradation was silent: $(cat "$WORK/t14g.err")"
+
+# ── T14g2 — an UNREADABLE fleet tree (find itself fails — permissions, I/O)
+# takes the SAME disclosed-null rung. RED against reading a failed enumeration
+# as "nothing was spawned": that writes a fabricated measured zero, banks it
+# over the real cumulative, and a later negative delta silently voids a
+# healthy main slice — the cascade the null rung exists to prevent. A partial
+# traversal likewise must not become a partial sum.
+P14g2=$(make_project); LOG14g2="$P14g2/.claude/metering/metering.ndjson"
+FH14g2="$WORK/home.$RANDOM"; SID14g2="14214214-1111-2222-3333-444444444444"
+mk_transcript "$P14g2" "$FH14g2" "$SID14g2"
+slug14g2=$(cd "$P14g2" && pwd -P | sed 's#/#-#g')
+chmod 000 "$FH14g2/.claude/projects/$slug14g2/$SID14g2"
+( cd "$P14g2" && HOME="$FH14g2" CLAUDE_CODE_SESSION_ID="$SID14g2" bash "$SCRIPT" capture --deliverables "32.8" ) >/dev/null 2>"$WORK/t14g2.err"; RC14g2=$?
+chmod 755 "$FH14g2/.claude/projects/$slug14g2/$SID14g2"   # restore so the WORK trap can clean up
+E14g2=$(tail -1 "$LOG14g2")
+[ "$RC14g2" -eq 0 ] \
+  && echo "$E14g2" | jq -e 'has("fleet") and .fleet == null and .transcript_fleet == null' >/dev/null 2>&1 \
+  && echo "$E14g2" | jq -e '.tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
+  && ok "[32.8] an unreadable fleet TREE -> fleet:null disclosed, never a fabricated measured zero (main intact, exit 0)" \
+  || no "[32.8] failed enumeration must take the null rung: rc=$RC14g2, got $(echo "$E14g2" | jq -c '{fleet,transcript_fleet,tokens}') (err=$(cat "$WORK/t14g2.err"))"
+grep -qi 'fleet' "$WORK/t14g2.err" \
+  && ok "[32.8] the failed enumeration is declared loudly on stderr" \
+  || no "[32.8] failed enumeration was silent: $(cat "$WORK/t14g2.err")"
+
+# ── T14h — a NULL prior fleet heals in one capture: a prior whose fleet was
+# unreachable banked transcript_fleet:null, so the fleet slice cannot be
+# differenced THIS time (fleet:null, disclosed) — but the MAIN slice proceeds
+# (per_deliverable) and THIS capture banks the readable fleet cumulative, so the
+# capture after it can difference. An outage therefore costs two fleet slices —
+# the unreachable capture's own and this one's — and the bank made here is what
+# stops it costing any more.
+P14h=$(make_project); LOG14h="$P14h/.claude/metering/metering.ndjson"
+FH14h="$WORK/home.$RANDOM"; SID14h="14h14h14-1111-2222-3333-444444444444"
+mk_transcript "$P14h" "$FH14h" "$SID14h"
+mkdir -p "$P14h/.claude/metering"
+seed_prior "$LOG14h" "$SID14h" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":30,"cache_creation":1}' per_response main_plus_fleet null
+( cd "$P14h" && HOME="$FH14h" CLAUDE_CODE_SESSION_ID="$SID14h" bash "$SCRIPT" capture --deliverables "32.8" ) >/dev/null 2>"$WORK/t14h.err"
+E14h=$(tail -1 "$LOG14h")
+echo "$E14h" | jq -e '.slice_basis == "per_deliverable" and .tokens == {input:8,output:4,cache_read:70,cache_creation:2}' >/dev/null 2>&1 \
+  && ok "[32.8] a null prior fleet does not poison the MAIN slice (per_deliverable delta intact)" \
+  || no "[32.8] main slice must survive a null prior fleet, got $(echo "$E14h" | jq -c '{slice_basis,tokens}') (err=$(cat "$WORK/t14h.err"))"
+echo "$E14h" | jq -e '.fleet == null and .transcript_fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] fleet slice is null (nothing to difference against) while the fleet cumulative is banked — the chain heals next capture" \
+  || no "[32.8] expected fleet null + banked transcript_fleet {2,1,900,7}, got $(echo "$E14h" | jq -c '{fleet,transcript_fleet}')"
+grep -qi 'fleet' "$WORK/t14h.err" \
+  && ok "[32.8] the undifferenced fleet slice is declared loudly on stderr" \
+  || no "[32.8] undifferenced fleet slice was silent: $(cat "$WORK/t14h.err")"
+
+# ── T14i — an UNUSABLE prior fleet cumulative (hand-edited to a non-object)
+# routes to the same noprior rung — disclosed fleet null, main slice intact —
+# never misfiled as a shrunken high-water, which would silently degrade the
+# whole entry (a healthy main sample lost to a record-editing artifact).
+P14i=$(make_project); LOG14i="$P14i/.claude/metering/metering.ndjson"
+FH14i="$WORK/home.$RANDOM"; SID14i="14114114-1111-2222-3333-444444444444"
+mk_transcript "$P14i" "$FH14i" "$SID14i"
+mkdir -p "$P14i/.claude/metering"
+seed_prior "$LOG14i" "$SID14i" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":30,"cache_creation":1}' per_response main_plus_fleet '5'
+( cd "$P14i" && HOME="$FH14i" CLAUDE_CODE_SESSION_ID="$SID14i" bash "$SCRIPT" capture --deliverables "32.8" ) >/dev/null 2>"$WORK/t14i.err"
+E14i=$(tail -1 "$LOG14i")
+echo "$E14i" | jq -e '.slice_basis == "per_deliverable" and .tokens == {input:8,output:4,cache_read:70,cache_creation:2} and .fleet == null' >/dev/null 2>&1 \
+  && ok "[32.8] an unusable prior fleet reading takes the noprior rung (fleet null disclosed, main delta intact)" \
+  || no "[32.8] unusable prior fleet must not degrade the entry: got $(echo "$E14i" | jq -c '{slice_basis,tokens,fleet}') (err=$(cat "$WORK/t14i.err"))"
 
 # ── T14e — a torn log line never empties the PRIOR lookup. A strict slurp would
 # turn one torn append into "no prior" and write the FULL process cumulative as
@@ -454,6 +588,27 @@ echo "$E15" | jq -e '.slice_basis == "per_deliverable"' >/dev/null 2>&1 \
 echo "$E15" | jq -e '.transcript_tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
   && ok "[13.6] transcript_tokens preserves the cumulative high-water reading (the next slice differences against it)" \
   || no "[13.6] expected transcript_tokens = main-only cumulative {10,5,100,3}, got $(echo "$E15" | jq -c '.transcript_tokens')"
+# the fleet component slices under the SAME discipline: prior fleet cumulative
+# was zeros, the fleet tree now holds {2,1,900,7} -> the fleet slice is the full
+# delta and the cumulative is banked.
+echo "$E15" | jq -e '.fleet == {input:2,output:1,cache_read:900,cache_creation:7} and .transcript_fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] the fleet component rides the same bounded-slice discipline (delta from the prior fleet cumulative)" \
+  || no "[32.8] expected fleet delta {2,1,900,7} from the zero prior, got $(echo "$E15" | jq -c '{fleet,transcript_fleet}')"
+
+# ── T15c — a TRUE fleet delta: the prior banked a non-zero fleet cumulative
+# ({1,0,400,2}); the fleet tree now sums to {2,1,900,7}; the entry's fleet must
+# be the DIFFERENCE {1,1,500,5} — never the whole fleet cumulative (the same
+# ~4.6x-inflation class [13.6] fixed for main, on the fleet axis).
+P15c=$(make_project); LOG15c="$P15c/.claude/metering/metering.ndjson"
+FH15c="$WORK/home.$RANDOM"; SID15c="15c15c15-1111-2222-3333-444444444444"
+mk_transcript "$P15c" "$FH15c" "$SID15c"
+mkdir -p "$P15c/.claude/metering"
+seed_prior "$LOG15c" "$SID15c" "2026-06-16T09:00:00Z" '{"input":2,"output":1,"cache_read":30,"cache_creation":1}' per_response main_plus_fleet '{"input":1,"output":0,"cache_read":400,"cache_creation":2}'
+( cd "$P15c" && HOME="$FH15c" CLAUDE_CODE_SESSION_ID="$SID15c" bash "$SCRIPT" capture --deliverables "32.8" ) >/dev/null 2>"$WORK/t15c.err"
+E15c=$(tail -1 "$LOG15c")
+echo "$E15c" | jq -e '.slice_basis == "per_deliverable" and .fleet == {input:1,output:1,cache_read:500,cache_creation:5}' >/dev/null 2>&1 \
+  && ok "[32.8] fleet is the bounded per-session DELTA ({1,1,500,5} = now − prior fleet cumulative), not the whole fleet sum" \
+  || no "[32.8] expected fleet delta {1,1,500,5}, got $(echo "$E15c" | jq -c '{slice_basis,fleet}') (err=$(cat "$WORK/t15c.err"))"
 
 # ── T15b — the slice basis is ALWAYS present and self-describing (Rule 15): no
 # reading can be mistaken for the wrong unit. The field is one of the three named
@@ -484,6 +639,37 @@ E17=$(tail -1 "$LOG17")
 echo "$E17" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens.cache_read == 100' >/dev/null 2>&1 \
   && ok "[13.6] a negative (non-monotone) delta degrades to unbounded_cumulative, tokens = full cumulative (disclosed, never negative)" \
   || no "[13.6] non-monotone cumulative must degrade to unbounded_cumulative, got $(echo "$E17" | jq -c '{slice_basis, tokens}') (err=$(cat "$WORK/t17.err"))"
+# the fleet component keeps its full cumulative on the degraded entry too —
+# an unbounded entry never carries a differenced component of either kind.
+echo "$E17" | jq -e '.fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] fleet stays the full cumulative on an unbounded entry (no half-differenced components)" \
+  || no "[32.8] expected fleet = full cumulative {2,1,900,7} on unbounded, got $(echo "$E17" | jq -c '.fleet')"
+# the degradation is DECLARED, not merely recorded — this entry's burn drops
+# out of every sum, and a silent designed degradation is still silent (Rule 10;
+# the same discipline T20c pins on the vintage seam).
+grep -q 'NON-MONOTONE' "$WORK/t17.err" \
+  && ok "[13.6] the non-monotone degradation is declared loudly on stderr" \
+  || no "[13.6] non-monotone degradation was silent: $(cat "$WORK/t17.err")"
+
+# ── T17b — a negative FLEET delta degrades the WHOLE entry: the fleet cumulative
+# shrank vs the prior (subagent transcript files pruned — the exact anomaly the
+# high-water comment names), so the slice window's accounting is unreliable. One
+# shared slice_basis, one rule: unbounded_cumulative, both components keep their
+# full cumulative, the entry drops out of burn sums. RED against differencing
+# main while the fleet high-water is broken.
+P17b=$(make_project); LOG17b="$P17b/.claude/metering/metering.ndjson"
+FH17b="$WORK/home.$RANDOM"; SID17b="17b17b17-1111-2222-3333-444444444444"
+mk_transcript "$P17b" "$FH17b" "$SID17b"   # fleet cumulative now = {2,1,900,7}
+mkdir -p "$P17b/.claude/metering"
+seed_prior "$LOG17b" "$SID17b" "2026-06-16T09:00:00Z" '{"input":1,"output":1,"cache_read":1,"cache_creation":1}' per_response main_plus_fleet '{"input":99,"output":99,"cache_read":9999,"cache_creation":99}'
+( cd "$P17b" && HOME="$FH17b" CLAUDE_CODE_SESSION_ID="$SID17b" bash "$SCRIPT" capture --deliverables "32.8" ) >/dev/null 2>"$WORK/t17b.err"
+E17b=$(tail -1 "$LOG17b")
+echo "$E17b" | jq -e '.slice_basis == "unbounded_cumulative" and .tokens == {input:10,output:5,cache_read:100,cache_creation:3} and .fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] a shrunken fleet cumulative (pruned files) degrades the whole entry to unbounded_cumulative — never a per_deliverable slice beside a broken fleet high-water" \
+  || no "[32.8] negative fleet delta must degrade the entry, got $(echo "$E17b" | jq -c '{slice_basis,tokens,fleet}') (err=$(cat "$WORK/t17b.err"))"
+grep -q 'NON-MONOTONE' "$WORK/t17b.err" \
+  && ok "[32.8] the fleet-side non-monotone degradation is declared loudly on stderr too" \
+  || no "[32.8] fleet non-monotone degradation was silent: $(cat "$WORK/t17b.err")"
 
 # ── T18 — COMPACTION-CYCLE COUNT: the meter records how many real compaction
 # cycles (isCompactSummary==true, the verified-real event shape) the slice spanned,
@@ -674,9 +860,10 @@ tail -1 "$LOG19bb" | jq -e '.tokens == {input:15,output:3,cache_read:30,cache_cr
   && ok "EMPTY-string requestIds are not collapsed either (three responses total {15,3,30,3}, not one max)" \
   || no "empty requestIds were collapsed: expected {15,3,30,3}, got $(tail -1 "$LOG19bb" | jq -c '.tokens') (err=$(cat "$WORK/t19bb.err"))"
 
-# ── T19c — the dedupe and the [32.4] main-only coverage compose: the MAIN
-# transcript's duplicated req_M counts once, and the sibling subagent transcript
-# (its own duplicated req_S) stays out entirely.
+# ── T19c — the dedupe and the [32.8] component split compose: the MAIN
+# transcript's duplicated req_M counts once into tokens, and the sibling
+# subagent transcript's duplicated req_S counts once into fleet — deduped on
+# BOTH sides of the split, blended on neither.
 P19c=$(make_project); LOG19c="$P19c/.claude/metering/metering.ndjson"
 FH19c="$WORK/home.$RANDOM"; SID19c="19c19c19-1111-2222-3333-444444444444"
 slug19c=$(cd "$P19c" && pwd -P | sed 's#/#-#g'); base19c="$FH19c/.claude/projects/$slug19c"
@@ -691,8 +878,11 @@ mkdir -p "$base19c/$SID19c/subagents"
 } > "$base19c/$SID19c/subagents/agent-dedupe.jsonl"
 ( cd "$P19c" && HOME="$FH19c" CLAUDE_CODE_SESSION_ID="$SID19c" bash "$SCRIPT" capture --deliverables "13.1" ) >/dev/null 2>"$WORK/t19c.err"
 tail -1 "$LOG19c" | jq -e '.tokens == {input:10,output:5,cache_read:100,cache_creation:3}' >/dev/null 2>&1 \
-  && ok "dedupe composes with main-only coverage (duplicated main lines count once, subagent file stays out: {10,5,100,3})" \
+  && ok "dedupe composes with the component split (duplicated main lines count once into tokens: {10,5,100,3})" \
   || no "dedupe/coverage composition broken: expected {10,5,100,3}, got $(tail -1 "$LOG19c" | jq -c '.tokens') (err=$(cat "$WORK/t19c.err"))"
+tail -1 "$LOG19c" | jq -e '.fleet == {input:2,output:1,cache_read:900,cache_creation:7}' >/dev/null 2>&1 \
+  && ok "[32.8] the fleet harvest dedupes by requestId too (duplicated req_S counts once: {2,1,900,7})" \
+  || no "[32.8] fleet dedupe broken: expected {2,1,900,7}, got $(tail -1 "$LOG19c" | jq -c '.fleet') (err=$(cat "$WORK/t19c.err"))"
 
 # ── T20 — VINTAGE GUARD: never difference a deduped cumulative against a PRE-dedupe
 # one. The [13.6] delta guard is MAGNITUDE-based (all classes >= 0), so it catches the

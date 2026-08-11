@@ -53,7 +53,7 @@ MD
 # One per_response bounded-slice log entry. mk_entry <dir> <ts> <session> <burn>
 mk_entry() {
   jq -nc --arg ts "$2" --arg s "$3" --argjson t "$4" \
-    '{schema:"guv.meter.v1",ts:$ts,session:$s,deliverable_ids:["9.1"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}' \
+    '{schema:"guv.meter.v1",ts:$ts,session:$s,deliverable_ids:["9.1"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_session",perf:{}}' \
     >> "$1/.claude/metering/metering.ndjson"
 }
 
@@ -101,6 +101,31 @@ OUT=$(run "$D" project)
 echo "$OUT" | jq -e '.rate.n == 2 and .rate.mean == 200 and .rate.min == 100 and .rate.max == 300' >/dev/null \
   && ok "rate = n2 mean200 min100 max300 — pre-epoch and degraded entries are not samples" \
   || no "rate selection wrong: $(echo "$OUT" | jq -c .rate)"
+
+# ── P2b — [32.8] a sample's burn includes its fleet component ────────────────
+echo "P2b: fleet burn joins the per-session rate; fleet:null adds main only"
+D2b=$(mk_project)
+jq -nc '{schema:"guv.meter.v1",ts:"2026-06-10T00:00:00Z",session:"session-2026-06-10-001",deliverable_ids:["9.1"],tokens:{input:100,output:0,cache_read:0,cache_creation:0},fleet:{input:150,output:0,cache_read:250,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_plus_fleet",perf:{}}' \
+  >> "$D2b/.claude/metering/metering.ndjson"
+jq -nc '{schema:"guv.meter.v1",ts:"2026-06-11T00:00:00Z",session:"session-2026-06-11-001",deliverable_ids:["9.1"],tokens:{input:300,output:0,cache_read:0,cache_creation:0},fleet:null,slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_plus_fleet",perf:{}}' \
+  >> "$D2b/.claude/metering/metering.ndjson"
+OUT=$(run "$D2b" project)
+echo "$OUT" | jq -e '.rate.n == 2 and .rate.mean == 400 and .rate.min == 300 and .rate.max == 500' >/dev/null \
+  && ok "session burn sums main + fleet (100+400=500, 300+null=300 → mean 400)" \
+  || no "fleet not in the rate: $(echo "$OUT" | jq -c .rate)"
+
+# ── P2c — [32.8] the epoch's declared coverage scopes the rate ───────────────
+echo "P2c: samples of another coverage are not rate samples"
+D2c=$(mk_project)
+{
+  jq -nc '{schema:"guv.meter.epoch.v1",ts:"2026-06-05T00:00:00Z",harvest:"per_response",denomination:"raw_tokens",coverage:"main_plus_fleet"}'
+  jq -nc '{schema:"guv.meter.v1",ts:"2026-06-10T00:00:00Z",session:"session-2026-06-10-001",deliverable_ids:["9.1"],tokens:{input:100,output:0,cache_read:0,cache_creation:0},fleet:{input:400,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_plus_fleet",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",ts:"2026-06-11T00:00:00Z",session:"session-2026-06-11-001",deliverable_ids:["9.1"],tokens:{input:900,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_session",perf:{}}'
+} >> "$D2c/.claude/metering/metering.ndjson"
+OUT=$(run "$D2c" project)
+echo "$OUT" | jq -e '.rate.n == 1 and .rate.mean == 500' >/dev/null \
+  && ok "the rate admits only the epoch's declared coverage (n=1 mean=500; the 900 main_session stray stays out)" \
+  || no "coverage filter wrong in the rate: $(echo "$OUT" | jq -c .rate)"
 
 # ── P3 — the lineage window bounds the sample set ────────────────────────────
 echo "P3: samples window to the live initiative"

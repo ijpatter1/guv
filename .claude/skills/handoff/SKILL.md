@@ -156,8 +156,9 @@ bash .claude/budget-gate.sh exit
 
 With a ceiling set the gate prints **one burn-vs-ceiling comparison line per
 configured granularity plus a pointer line** naming the record that qualifies
-the number (`.claude/metering-log.md` § Epoch — burn counts post-epoch,
-main-session entries only, and is never total spend). **Copy the comparison
+the number (`.claude/metering-log.md` § Epoch — burn counts post-epoch entries
+of the epoch's declared coverage, summing main + fleet components, and is
+never total spend). **Copy the comparison
 line(s) into the handoff artifact** (under **Session Notes** or **Issues &
 Technical Debt**) — burn belongs in the written record, not just the live
 output. A torn-line suffix on the comparison (`burn is a floor`) is part of the

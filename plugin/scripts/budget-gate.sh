@@ -93,26 +93,54 @@ if [ -f "$CALIB" ]; then
 fi
 
 # Burn. Per-line tolerant (a torn append drops alone, counted); entries after
-# the LAST epoch line only; a burn sample is a bounded slice with tokens.
-SESSION_BURN=0; INITIATIVE_BURN=0; LOG_TORN=0
+# the LAST epoch line only; a burn sample is a bounded slice with tokens, and
+# its burn is main + fleet ([32.8] — a disclosed fleet:null adds nothing, so
+# such an entry's burn is a floor, noted on the comparison line below). When
+# the epoch line declares a coverage, only samples of THAT coverage count —
+# a sample of another scope inside the window (the seam between a widened
+# writer and its ratified epoch append, or a stray downgrade) is a different
+# quantity, and an average across scopes is not a number. The cls guard keeps
+# one hand-appended wrong-typed field from aborting the whole sum (the log is
+# a hand-appendable surface — epoch lines are human appends).
+SESSION_BURN=0; INITIATIVE_BURN=0; LOG_TORN=0; FLEET_NULLS=0
 if [ -f "$LOG" ]; then
   burn_sum() {  # $1 = a jq boolean selecting entries (post-epoch, post-schema)
     jq -rRn "
-      def burn: (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0);
+      def cls: if type == \"object\" then (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0) else 0 end;
+      def burn: (.tokens | cls) + (.fleet | cls);
       [ inputs | fromjson? | select(type == \"object\") ] as \$lines
       | ([ \$lines | to_entries[] | select(.value.schema == \"guv.meter.epoch.v1\") | .key ] | last // -1) as \$epoch
+      | ((if \$epoch < 0 then {} else \$lines[\$epoch] end) | .coverage // \"\") as \$ecov
       | [ \$lines | to_entries[] | select(.key > \$epoch) | .value
           | select((.schema // \"\") | startswith(\"guv.meter\"))
           | select(.tokens != null)
           | select((.harvest_basis // \"\") == \"per_response\")
+          | select(\$ecov == \"\" or (.coverage // \"\") == \$ecov)
           | select((.slice_basis // \"\") as \$sb | \$sb == \"per_deliverable\" or \$sb == \"since_process_start\")
-          | select($1) | (.tokens | burn) ]
+          | select($1) | burn ]
       | add // 0" "$LOG" 2>/dev/null
   }
   LOG_TORN=$(jq -rRn '[ inputs | select(length > 0)
                         | (fromjson? | "ok") // "torn" ]
                       | map(select(. == "torn")) | length' "$LOG" 2>/dev/null)
   case "$LOG_TORN" in ''|*[!0-9]*) LOG_TORN=0 ;; esac
+  # Counted samples whose fleet is a DISCLOSED null contribute main-only burn,
+  # so every printed figure is a floor in exactly the torn-line sense — count
+  # them for the boundary note (the meter's own disclosure was a stderr line at
+  # a PREVIOUS session's close, invisible here where the decision is made).
+  FLEET_NULLS=$(jq -rRn "
+    [ inputs | fromjson? | select(type == \"object\") ] as \$lines
+    | ([ \$lines | to_entries[] | select(.value.schema == \"guv.meter.epoch.v1\") | .key ] | last // -1) as \$epoch
+    | ((if \$epoch < 0 then {} else \$lines[\$epoch] end) | .coverage // \"\") as \$ecov
+    | [ \$lines | to_entries[] | select(.key > \$epoch) | .value
+        | select((.schema // \"\") | startswith(\"guv.meter\"))
+        | select(.tokens != null)
+        | select((.harvest_basis // \"\") == \"per_response\")
+        | select(\$ecov == \"\" or (.coverage // \"\") == \$ecov)
+        | select((.slice_basis // \"\") as \$sb | \$sb == \"per_deliverable\" or \$sb == \"since_process_start\")
+        | select(has(\"fleet\") and .fleet == null) ]
+    | length" "$LOG" 2>/dev/null)
+  case "$FLEET_NULLS" in ''|*[!0-9]*) FLEET_NULLS=0 ;; esac
   if [ -n "$INITIATIVE_SINCE" ]; then
     INITIATIVE_BURN=$(burn_sum "((.ts // \"\") >= \"$INITIATIVE_SINCE\")")
   else
@@ -135,6 +163,7 @@ fi
 WHERE=$([ "$PHASE" = "entry" ] && echo "at session entry" || echo "at session exit")
 TORN_NOTE=""
 [ "$LOG_TORN" -gt 0 ] && TORN_NOTE=" [$LOG_TORN unparsed line(s) skipped — burn is a floor]"
+[ "$FLEET_NULLS" -gt 0 ] && TORN_NOTE="$TORN_NOTE [$FLEET_NULLS fleet-null entry(s) — burn is a floor]"
 
 # The comparison — one line per configured granularity, then the pointer.
 pct() { awk -v b="$1" -v c="$2" 'BEGIN{ printf "%d", (b * 100) / c }'; }

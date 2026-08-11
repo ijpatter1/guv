@@ -129,22 +129,34 @@ remaining_ids() {
 # the last epoch line (guv.meter.epoch.v1 — pre-epoch entries are historical and
 # never compared across it; no epoch line = the whole log is one epoch, the
 # fresh-project case), harvested per_response, carrying a bounded slice
-# (per_deliverable / since_process_start), inside the lineage window. Degraded
-# and unbounded entries are not samples — an average across units is not a
-# number. n=0 is a designed, legible result, never a failure.
+# (per_deliverable / since_process_start), of the epoch's declared coverage
+# when the epoch line names one, inside the lineage window. A sample's burn is
+# main + fleet ([32.8]; a disclosed fleet:null adds nothing — that sample is a
+# floor; the cls guard keeps a hand-appended wrong-typed field from aborting
+# the sum). Degraded, unbounded, and other-coverage entries are not samples —
+# an average across units or scopes is not a number. n=0 is a designed,
+# legible result, never a failure.
+#
+# BURN_DEF is the one definition of "an entry's burn" in this file — both jq
+# programs below interpolate it, so the gate-comparability promise in the
+# header rests on one string, not on keeping copies in sync.
+BURN_DEF='
+    def cls: if type == "object" then (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0) else 0 end;
+    def burn: (.tokens | cls) + (.fleet | cls);'
 observed_rate() {
   if [ ! -f "$LOG" ]; then printf '0\t0\t0\t0'; return; fi
-  jq -rRn --arg since "$INITIATIVE_SINCE" '
-    def burn: (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0);
+  jq -rRn --arg since "$INITIATIVE_SINCE" "$BURN_DEF"'
     [ inputs | fromjson? | select(type == "object") ] as $lines
     | ([ $lines | to_entries[] | select(.value.schema == "guv.meter.epoch.v1") | .key ] | last // -1) as $epoch
+    | ((if $epoch < 0 then {} else $lines[$epoch] end) | .coverage // "") as $ecov
     | [ $lines | to_entries[] | select(.key > $epoch) | .value
         | select((.schema // "") | startswith("guv.meter"))
         | select((.harvest_basis // "") == "per_response")
         | select(.tokens != null)
+        | select($ecov == "" or (.coverage // "") == $ecov)
         | select((.slice_basis // "") as $sb | $sb == "per_deliverable" or $sb == "since_process_start")
         | select($since == "" or ((.ts // "") >= $since))
-        | (.tokens | burn) ] as $b
+        | burn ] as $b
     | ($b | length) as $n
     | if $n == 0 then "0\t0\t0\t0"
       else "\($n)\t\(($b | add) / $n | floor)\t\($b | min)\t\($b | max)" end
@@ -298,17 +310,18 @@ case "$SUB" in
     # as observed_rate() (unit honesty — degraded entries are not samples).
     ACTUAL_RATE=0
     if [ -f "$LOG" ]; then
-      ACTUAL_RATE=$(jq -rRn --arg since "$BANK_TS" '
-        def burn: (.input // 0) + (.output // 0) + (.cache_read // 0) + (.cache_creation // 0);
+      ACTUAL_RATE=$(jq -rRn --arg since "$BANK_TS" "$BURN_DEF"'
         [ inputs | fromjson? | select(type == "object") ] as $lines
         | ([ $lines | to_entries[] | select(.value.schema == "guv.meter.epoch.v1") | .key ] | last // -1) as $epoch
+        | ((if $epoch < 0 then {} else $lines[$epoch] end) | .coverage // "") as $ecov
         | [ $lines | to_entries[] | select(.key > $epoch) | .value
             | select((.schema // "") | startswith("guv.meter"))
             | select((.harvest_basis // "") == "per_response")
             | select(.tokens != null)
+            | select($ecov == "" or (.coverage // "") == $ecov)
             | select((.slice_basis // "") as $sb | $sb == "per_deliverable" or $sb == "since_process_start")
             | select($since == "" or ((.ts // "") >= $since))
-            | (.tokens | burn) ] as $b
+            | burn ] as $b
         | if ($b | length) == 0 then 0 else ($b | add) / ($b | length) | floor end' "$LOG" 2>/dev/null)
     fi
     case "$ACTUAL_RATE" in ''|*[!0-9]*) ACTUAL_RATE=0 ;; esac

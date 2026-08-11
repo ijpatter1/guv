@@ -57,9 +57,9 @@ mk_project() {
   h=$((sburn / 2)); r=$((sburn - sburn / 2))
   {
     jq -nc --argjson t "$iextra" \
-      '{schema:"guv.meter.v1",ts:"2026-06-14T10:00:00Z",session:"session-2026-06-14-001",deliverable_ids:["9.0"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+      '{schema:"guv.meter.v1",ts:"2026-06-14T10:00:00Z",session:"session-2026-06-14-001",deliverable_ids:["9.0"],tokens:{input:$t,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_session",perf:{}}'
     jq -nc --argjson a "$h" --argjson b "$r" \
-      '{schema:"guv.meter.v1",ts:"2026-06-15T10:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["9.3"],tokens:{input:$a,output:0,cache_read:$b,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",perf:{}}'
+      '{schema:"guv.meter.v1",ts:"2026-06-15T10:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["9.3"],tokens:{input:$a,output:0,cache_read:$b,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_session",perf:{}}'
   } > "$d/.claude/metering/metering.ndjson"
   echo "$d"
 }
@@ -148,6 +148,55 @@ echo "A5: burn == ceiling is a breach"
 D=$(mk_project '{"initiative":{"tokens":1000}}' 500 500)
 gate "$D" exit >/dev/null; RC=$?
 [ "$RC" -eq 3 ] && ok "burn == ceiling breaches" || no "boundary not inclusive (rc=$RC)"
+
+# ── A5b — [32.8] the fleet component counts toward burn ──────────────────────
+# Under the widened epoch an entry carries subagent burn as a DISTINCT `fleet`
+# component beside the main `tokens`. The gate's burn is the session's whole
+# spend, so it sums BOTH components; a disclosed fleet:null contributes nothing
+# (that entry's burn is a floor — the meter already declared the gap).
+echo "A5b: fleet burn is summed; fleet:null adds main only"
+D=$(mk_project '{"initiative":{"tokens":100000}}' 500 500)   # base burn 1000
+{
+  jq -nc '{schema:"guv.meter.v1",ts:"2026-06-15T11:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["32.8"],tokens:{input:200,output:0,cache_read:0,cache_creation:0},fleet:{input:100,output:0,cache_read:200,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_plus_fleet",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",ts:"2026-06-15T12:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["32.8"],tokens:{input:50,output:0,cache_read:0,cache_creation:0},fleet:null,slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_plus_fleet",perf:{}}'
+} >> "$D/.claude/metering/metering.ndjson"
+OUT=$(gate "$D" exit)
+echo "$OUT" | grep -q "initiative burn 1550 of 100000 tokens" \
+  && ok "fleet component joins the burn sum (1000 + 200+300 fleet-split + 50 null-fleet = 1550)" \
+  || no "fleet burn not summed: $OUT"
+
+# ── A5c — [32.8] the epoch's declared coverage scopes the sample set ─────────
+# An epoch line that names a coverage admits only samples of THAT coverage:
+# a sample of another scope inside the window (the seam before a ratified
+# append, or a stray downgrade) is a different quantity, and an average across
+# scopes is not a number — the same doctrine the harvest_basis select encodes
+# on the unit axis.
+echo "A5c: samples of another coverage stay out of the sum"
+D=$(mk_project '{"initiative":{"tokens":100000}}' 500 500)   # base entries become PRE-epoch
+{
+  jq -nc '{schema:"guv.meter.epoch.v1",ts:"2026-06-16T00:00:00Z",harvest:"per_response",denomination:"raw_tokens",coverage:"main_plus_fleet"}'
+  jq -nc '{schema:"guv.meter.v1",ts:"2026-06-16T10:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["32.8"],tokens:{input:200,output:0,cache_read:0,cache_creation:0},fleet:{input:300,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_plus_fleet",perf:{}}'
+  jq -nc '{schema:"guv.meter.v1",ts:"2026-06-16T11:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["32.8"],tokens:{input:700,output:0,cache_read:0,cache_creation:0},slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_session",perf:{}}'
+} >> "$D/.claude/metering/metering.ndjson"
+OUT=$(gate "$D" exit)
+echo "$OUT" | grep -q "initiative burn 500 of 100000 tokens" \
+  && ok "only the epoch's declared coverage sums (500 = 200+300; the 700 main_session stray stays out)" \
+  || no "coverage filter wrong: $OUT"
+
+# ── A5d — [32.8] fleet-null samples are announced as a floor at the boundary ─
+# The meter's fleet:null disclosure was a stderr line at a PREVIOUS session's
+# close — invisible at the boundary where the person reads the number. The
+# gate carries it forward the way it carries torn lines: a floor note on the
+# comparison line.
+echo "A5d: fleet-null samples get the floor note"
+D=$(mk_project '{"initiative":{"tokens":100000}}' 500 500)
+jq -nc '{schema:"guv.meter.v1",ts:"2026-06-15T12:00:00Z",session:"session-2026-06-15-001",deliverable_ids:["32.8"],tokens:{input:50,output:0,cache_read:0,cache_creation:0},fleet:null,slice_basis:"per_deliverable",harvest_basis:"per_response",coverage:"main_session",perf:{}}' \
+  >> "$D/.claude/metering/metering.ndjson"
+OUT=$(gate "$D" exit)
+echo "$OUT" | grep -q "initiative burn 1050 of 100000" \
+  && echo "$OUT" | grep -q "1 fleet-null entry(s) — burn is a floor" \
+  && ok "a counted fleet-null sample adds main only and stamps the floor note on the comparison line" \
+  || no "fleet-null floor note missing/wrong: $OUT"
 
 # ── A6 — session granularity, and session precedence on a double breach ──────
 echo "A6: session granularity"

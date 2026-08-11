@@ -122,6 +122,12 @@ now_s() {
 START=$(now_s)   # the deterministic-op wall-clock starts HERE and is measured
                  # at append time — the genuinely mechanical perf field.
 
+# True (exit 0) iff $1 is a four-class object whose classes are all >= 0 —
+# the monotonicity predicate both components' deltas are judged by.
+all_nonneg() {
+  printf '%s' "$1" | jq -e '[.input,.output,.cache_read,.cache_creation] | all(. >= 0)' >/dev/null 2>&1
+}
+
 # --- session id: newest docs/sessions/session-*.md (derived, not given)
 if [ -z "$SESSION" ]; then
   SESSION=$(ls docs/sessions/session-*.md 2>/dev/null \
@@ -151,13 +157,15 @@ fi
 # --- Spike C harvest: tokens by class + model, from the runtime transcript ----
 # Rung B (session-scalar token attribution); dollars at C (token-only). The
 # transcript is named by the Claude Code runtime session id under a cwd-derived
-# project slug. COVERAGE: THE MAIN <session>.jsonl ONLY ([32.4]). The subagents
-# a session spawns write their own transcripts under the sibling <session>/
-# tree; that fleet burn is OUT OF BAND until [32.8] adds it back as a distinct
-# component — a blended total misread as main-session burn is worse than a
-# narrower figure that says what it spans, so the entry self-describes the
-# scope (coverage:"main_session"). The MODEL is likewise the main transcript's.
-# A research-preview surface: any miss degrades to tokens=null.
+# project slug. COVERAGE: MAIN + FLEET, AS DISTINCT COMPONENTS ([32.8] widened
+# [32.4]'s main-only narrowing). The main <session>.jsonl sums into `tokens`;
+# the subagent transcripts under the sibling <session>/ tree sum into `fleet` —
+# NEVER blended: a blended total misread as main-session burn is the failure
+# [32.4] narrowed coverage to prevent, so the split is the only shape the
+# widening ships, and the entry self-describes the scope
+# (coverage:"main_plus_fleet"). The MODEL is the main transcript's only.
+# A research-preview surface: a main-transcript miss degrades to tokens=null;
+# a fleet miss degrades to fleet=null, disclosed, with the main harvest intact.
 TOKENS_JSON="null"
 MODEL_JSON="null"
 RUNTIME_SESSION="${CLAUDE_CODE_SESSION_ID:-}"
@@ -174,6 +182,9 @@ if [ -n "$TRANSCRIPT" ]; then
   # fields default to 0; no usage lines anywhere yields null (still a valid
   # harvest). This is extraction over the transcripts, NOT aggregation into a
   # derived field — the four class counts are the raw evidence the boundary affords.
+  # One program, both components: the main harvest and the fleet harvest below
+  # read with the SAME reduction, so the two components are the same unit by
+  # construction (the epoch declares one harvest unit for the whole entry).
   #
   # DEDUPE BY requestId — one API response counts ONCE. The runtime serializes a
   # single assistant response as N transcript lines, one per content block
@@ -220,7 +231,7 @@ if [ -n "$TRANSCRIPT" ]; then
   # collapsed to one max). Empty is checked explicitly: in jq only null/false are
   # falsy, so a bare `// ` fallback would let "" through and collapse the lot.
   # >>> per-response token harvest >>>
-  TOKENS_JSON=$(jq -s '
+  DEDUPE_JQ='
       [ .[] | { rid: (.requestId // .uuid), u: (.message.usage // .usage) }
             | select(.u != null) ] as $lines
       | if ($lines | length) == 0 then null
@@ -241,7 +252,8 @@ if [ -n "$TRANSCRIPT" ]; then
               cache_creation: ([ $resp[].cache_creation ] | add)
             }
         end
-    ' "${TOKEN_FILES[@]}" 2>/dev/null) || TOKENS_JSON="null"
+    '
+  TOKENS_JSON=$(jq -s "$DEDUPE_JQ" "${TOKEN_FILES[@]}" 2>/dev/null) || TOKENS_JSON="null"
   # <<< per-response token harvest <<<
   [ -n "$TOKENS_JSON" ] || TOKENS_JSON="null"
   if [ "$TOKENS_JSON" != "null" ]; then RUNG="B"; fi
@@ -252,6 +264,50 @@ if [ -n "$TRANSCRIPT" ]; then
       | last // null
     ' "$TRANSCRIPT" 2>/dev/null) || MODEL_JSON="null"
   [ -n "$MODEL_JSON" ] || MODEL_JSON="null"
+fi
+
+# --- [32.8] fleet harvest: subagent burn as a DISTINCT component --------------
+# The subagents a session spawns write their own transcripts under the sibling
+# <session>/ tree beside the main <session>.jsonl. Sum every *.jsonl there with
+# the SAME per-response reduction into `fleet` — a separate field, never added
+# into tokens. Three outcomes, each self-describing:
+#   • no files under the tree  -> a MEASURED ZERO ({0,0,0,0}: nothing was
+#     spawned — a reading, not a miss);
+#   • files jq cannot sum      -> fleet=null, DISCLOSED (Rule 15) — a partial
+#     sum over the readable files would be a floor wearing a total's field
+#     name, so the whole component degrades together;
+#   • main harvest degraded    -> fleet stays null with the rest (no reading
+#     happened at all).
+FOUR_ZEROS='{"input":0,"output":0,"cache_read":0,"cache_creation":0}'
+FLEET_JSON="null"
+if [ "$TOKENS_JSON" != "null" ]; then
+  FLEET_DIR="${TRANSCRIPT%.jsonl}"
+  if [ ! -d "$FLEET_DIR" ]; then
+    FLEET_JSON="$FOUR_ZEROS"   # no tree at all: nothing was spawned
+  else
+    # Enumerate with find's OWN exit status checked: an unreadable or partially
+    # traversable tree must take the disclosed-null rung — a failed enumeration
+    # read as "nothing was spawned" is a fabricated measured zero, and a partial
+    # traversal is a partial sum wearing the total's field name. -H follows a
+    # symlinked tree root; -type l admits symlinked transcripts (the main
+    # transcript's [ -f ] follows symlinks — keep the sides symmetric).
+    FLEET_LIST=$(find -H "$FLEET_DIR" \( -type f -o -type l \) -name '*.jsonl' 2>/dev/null)
+    if [ $? -ne 0 ]; then
+      FLEET_JSON="null"
+      echo "[meter] fleet transcripts unreachable (cannot enumerate $FLEET_DIR) — fleet: null, disclosed; the log never blocks on harvestability and no partial fleet sum is written" >&2
+    elif [ -z "$FLEET_LIST" ]; then
+      FLEET_JSON="$FOUR_ZEROS"   # a readable, empty tree: a measured zero
+    else
+      FLEET_FILES=()
+      while IFS= read -r f; do [ -n "$f" ] && FLEET_FILES+=("$f"); done <<< "$FLEET_LIST"
+      FLEET_JSON=$(jq -s "$DEDUPE_JQ" "${FLEET_FILES[@]}" 2>/dev/null) || FLEET_JSON=""
+      case "$FLEET_JSON" in
+        "")   FLEET_JSON="null"
+              echo "[meter] fleet transcripts unreachable (jq cannot sum $FLEET_DIR) — fleet: null, disclosed; the log never blocks on harvestability and no partial fleet sum is written" >&2 ;;
+        null) FLEET_JSON="$FOUR_ZEROS" ;;  # readable, zero usage lines: a measured zero
+      esac
+    fi
+  fi
 fi
 
 # >>> [13.6] bounded-slice harvest >>>
@@ -266,6 +322,11 @@ fi
 # wrong one (Rule 15); COMPACTION_CYCLES counts the real compaction events the slice
 # spanned (isCompactSummary==true, ts >= the prior capture) for balloon detection.
 TRANSCRIPT_TOKENS="$TOKENS_JSON"   # the raw cumulative high-water reading
+TRANSCRIPT_FLEET="$FLEET_JSON"     # the fleet cumulative high-water ([32.8]) —
+                                   # banked even when the fleet SLICE below
+                                   # degrades to null, so the next capture can
+                                   # difference (one degraded reading poisons
+                                   # one slice, never the chain)
 # The HARVEST UNIT this entry's numbers are denominated in — the [13.6] slice_basis
 # discipline applied to the other axis. `per_response` means the harvest deduped by
 # requestId (one API call counted once); entries written before that fix carry NO
@@ -281,12 +342,14 @@ HARVEST_BASIS="per_response"
 # axis exactly as slice_basis does, rather than asserting how a reading that never
 # happened was taken.
 [ "$TOKENS_JSON" != "null" ] || HARVEST_BASIS="null"
-# The COVERAGE axis ([32.4]): what the reading SPANS — the main transcript only.
-# Absent on every entry written before the narrowing (those summed main +
-# subagents), and that absence is load-bearing exactly like harvest_basis's: a
-# prior reading of a different scope is a different quantity, so differencing
-# against it is refused below. [32.8] widens this to a main+fleet split.
-COVERAGE="main_session"
+# The COVERAGE axis ([32.4], widened at [32.8]): what the reading SPANS — the
+# main transcript into tokens plus the subagent-fleet tree into fleet, as a
+# split. Absent on every entry written before the [32.4] narrowing (those
+# BLENDED main + subagents into one figure), `main_session` on the [32.4]-era
+# entries (main only), and that difference is load-bearing exactly like
+# harvest_basis's: a prior reading of a different scope is a different
+# quantity, so differencing against either older shape is refused below.
+COVERAGE="main_plus_fleet"
 [ "$TOKENS_JSON" != "null" ] || COVERAGE="null"
 SLICE_BASIS="null"
 COMPACTION_CYCLES="null"
@@ -295,7 +358,8 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
   # the most recent prior guv.meter.* entry for THIS runtime_session that carries
   # a usable cumulative reading (a [13.6] transcript_tokens, or a legacy
   # cumulative `tokens`). Emits
-  # "<cumulative-json>\t<ts>\t<harvest_basis>\t<coverage>" or nothing.
+  # "<cumulative-json>\t<ts>\t<harvest_basis>\t<coverage>\t<fleet-cumulative-json>"
+  # or nothing.
   # PER-LINE TOLERANT (fromjson?), never a strict slurp: one torn append must
   # drop alone. A strict parse here empties PRIOR on any torn line, and a "no
   # prior" result writes the FULL process cumulative as a counted
@@ -311,7 +375,8 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
       | last
       | if . == null then empty
         else ((.transcript_tokens // .tokens) | @json) + "\t" + (.ts // "")
-             + "\t" + (.harvest_basis // "") + "\t" + (.coverage // "") end
+             + "\t" + (.harvest_basis // "") + "\t" + (.coverage // "")
+             + "\t" + ((.transcript_fleet // null) | @json) end
     ' "$LOG" 2>/dev/null)
   fi
   if [ -n "$PRIOR" ]; then
@@ -320,16 +385,44 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
     PRIOR_TS=${PRIOR_REST%%$'\t'*}
     PRIOR_REST=${PRIOR_REST#*$'\t'}
     PRIOR_HARVEST=${PRIOR_REST%%$'\t'*}
-    PRIOR_COVERAGE=${PRIOR_REST#*$'\t'}
-    # per-class delta = now - prior. The cumulative is monotone within a transcript
-    # (the file only grows), so a NEGATIVE class delta means the high-water reading
-    # is unreliable (e.g. subagent files pruned) — disclose unbounded_cumulative and
-    # keep the full cumulative, never a fabricated negative slice (Rule 15).
-    DELTA=$(jq -cn --argjson now "$TOKENS_JSON" --argjson prior "$PRIOR_CUM" '
+    PRIOR_REST=${PRIOR_REST#*$'\t'}
+    PRIOR_COVERAGE=${PRIOR_REST%%$'\t'*}
+    PRIOR_FLEET=${PRIOR_REST#*$'\t'}
+    # per-class delta = now - prior, per COMPONENT, one shared program. The
+    # cumulative is monotone within a transcript tree (files only grow or are
+    # added), so a NEGATIVE class delta in EITHER component means that
+    # high-water reading is unreliable (for fleet: subagent files pruned) —
+    # disclose unbounded_cumulative and keep the full cumulatives, never a
+    # fabricated negative slice (Rule 15).
+    DELTA_JQ='
       { input:          (($now.input//0)          - ($prior.input//0)),
         output:         (($now.output//0)         - ($prior.output//0)),
         cache_read:     (($now.cache_read//0)     - ($prior.cache_read//0)),
-        cache_creation: (($now.cache_creation//0) - ($prior.cache_creation//0)) }' 2>/dev/null)
+        cache_creation: (($now.cache_creation//0) - ($prior.cache_creation//0)) }'
+    DELTA=$(jq -cn --argjson now "$TOKENS_JSON" --argjson prior "$PRIOR_CUM" "$DELTA_JQ" 2>/dev/null)
+    # The fleet component's own delta ([32.8]) — same window, same discipline.
+    # Its states beyond ok/negative are the designed degradations: "absent"
+    # (fleet unreachable NOW — already null and disclosed at harvest) and
+    # "noprior" (no USABLE prior fleet cumulative — banked null, or a value the
+    # delta cannot compute over: nothing to difference against, so THIS fleet
+    # slice is null, disclosed, while the banked cumulative heals the chain for
+    # the next capture). Neither poisons the MAIN slice; only "negative" — a
+    # genuinely shrunken fleet high-water — does.
+    FLEET_STATE="absent"; FDELTA=""
+    if [ "$FLEET_JSON" != "null" ]; then
+      if [ "$PRIOR_FLEET" != "null" ]; then
+        FDELTA=$(jq -cn --argjson now "$FLEET_JSON" --argjson prior "$PRIOR_FLEET" "$DELTA_JQ" 2>/dev/null)
+        if [ -z "$FDELTA" ]; then
+          FLEET_STATE="noprior"   # unusable prior (e.g. hand-edited to a non-object): not evidence of a shrunken high-water
+        elif all_nonneg "$FDELTA"; then
+          FLEET_STATE="ok"
+        else
+          FLEET_STATE="negative"
+        fi
+      else
+        FLEET_STATE="noprior"
+      fi
+    fi
     # VINTAGE/COVERAGE GUARD (checked BEFORE the magnitude guard, because
     # magnitude cannot see either): the prior reading must have been harvested
     # under the SAME unit AND span the SAME scope, or the subtraction crosses two
@@ -338,17 +431,34 @@ if [ "$TOKENS_JSON" != "null" ] && [ -n "$RUNTIME_SESSION" ]; then
     # one — once it outgrows it (inevitable; the transcript only grows) every
     # delta turns positive and a cross-unit or cross-scope figure would be
     # written as a valid per_deliverable slice, then summed into burn and
-    # observed_rate(). Disclose it instead.
+    # observed_rate(). Disclose it instead. One seam is refused by CHOICE, not
+    # necessity: against a main_session-era prior ([32.4]→[32.8]) the MAIN
+    # cumulative is the same accounting and could difference cleanly with the
+    # fleet side taking the noprior rung — the uniform refusal keeps the guard
+    # a single predicate at the cost of one burn sample per live
+    # runtime_session at that upgrade.
     if [ "$PRIOR_HARVEST" != "$HARVEST_BASIS" ] || [ "$PRIOR_COVERAGE" != "$COVERAGE" ]; then
       SLICE_BASIS="unbounded_cumulative"   # TOKENS_JSON stays the full cumulative
       # LOUD (Rule 10): this entry's burn drops out of every downstream sum the
       # moment it is tagged unbounded_cumulative. Say so where a person sees it.
       echo "[meter] VINTAGE/COVERAGE BREAK: prior reading for this runtime_session was '${PRIOR_HARVEST:-<pre-dedupe>}'/'${PRIOR_COVERAGE:-<pre-[32.4] main+subagents>}', this one '$HARVEST_BASIS'/'$COVERAGE' — a different unit or scope, so NO delta was taken. Entry discloses slice_basis=unbounded_cumulative and is EXCLUDED from burn sums and observed_rate(): it is not a burn sample. Expect this once per runtime_session (see .claude/metering-log.md)." >&2
-    elif [ -n "$DELTA" ] && [ "$(printf '%s' "$DELTA" | jq '[.input,.output,.cache_read,.cache_creation] | all(. >= 0)')" = "true" ]; then
+    elif [ "$FLEET_STATE" != "negative" ] \
+      && [ -n "$DELTA" ] && all_nonneg "$DELTA"; then
       TOKENS_JSON="$DELTA"
       SLICE_BASIS="per_deliverable"
+      case "$FLEET_STATE" in
+        ok)      FLEET_JSON="$FDELTA" ;;
+        noprior) FLEET_JSON="null"
+                 echo "[meter] fleet: no usable prior fleet cumulative to difference against — fleet: null, disclosed; the fleet cumulative is banked now, so the next slice can difference" >&2 ;;
+        absent)  : ;;   # fleet null now — already disclosed at harvest
+      esac
     else
+      # A negative (or uncomputable) main delta, or a genuinely negative fleet
+      # delta: the high-water is unreliable, so the whole entry degrades
+      # together — one slice_basis, one rule; both components keep their full
+      # cumulatives. LOUD (Rule 10), like every other degradation rung here.
       SLICE_BASIS="unbounded_cumulative"   # TOKENS_JSON stays the full cumulative
+      echo "[meter] NON-MONOTONE CUMULATIVE: a per-class delta went negative (or could not be computed) against the prior capture — the main or fleet high-water is unreliable (e.g. transcript files pruned), so NO delta was taken. Entry discloses slice_basis=unbounded_cumulative and is EXCLUDED from burn sums and observed_rate()." >&2
     fi
   else
     SLICE_BASIS="since_process_start"       # first capture: the full reading IS the first slice
@@ -416,6 +526,8 @@ ENTRY=$(jq -cn \
   --argjson model "$MODEL_JSON" \
   --argjson tokens "$TOKENS_JSON" \
   --argjson transcript_tokens "$TRANSCRIPT_TOKENS" \
+  --argjson fleet "$FLEET_JSON" \
+  --argjson transcript_fleet "$TRANSCRIPT_FLEET" \
   --arg slice_basis "$SLICE_BASIS" \
   --arg harvest_basis "$HARVEST_BASIS" \
   --arg coverage "$COVERAGE" \
@@ -433,6 +545,8 @@ ENTRY=$(jq -cn \
      model: $model,
      tokens: $tokens,
      transcript_tokens: $transcript_tokens,
+     fleet: $fleet,
+     transcript_fleet: $transcript_fleet,
      slice_basis: (if $slice_basis == "null" then null else $slice_basis end),
      harvest_basis: (if $harvest_basis == "null" then null else $harvest_basis end),
      coverage: (if $coverage == "null" then null else $coverage end),
